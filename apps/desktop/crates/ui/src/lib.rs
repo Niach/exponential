@@ -24,10 +24,10 @@ mod active_filter_pills;
 mod attachments_row;
 mod board;
 pub mod coding_flow;
+mod coding_selects;
 mod comments;
 mod create_issue_dialog;
 mod create_project_dialog;
-mod create_release_dialog;
 mod create_workspace_dialog;
 mod debug_board;
 mod description_editor;
@@ -37,6 +37,7 @@ mod file_tree;
 mod file_viewer;
 mod filter_bar;
 mod filter_popover;
+mod flow_lanes;
 mod git_bar;
 mod github_connect;
 mod icons;
@@ -53,7 +54,7 @@ mod navigation;
 mod oauth;
 mod properties_panel;
 mod queries;
-mod release_coding_dialog;
+mod release_add_issues_dialog;
 mod repo_resolver;
 mod run_bar;
 mod screens;
@@ -62,6 +63,7 @@ mod session;
 mod settings;
 mod sidebar;
 mod source_control;
+mod start_coding_dialog;
 pub mod steer_wiring;
 mod terminal_dock;
 mod timeline;
@@ -98,6 +100,9 @@ pub fn init(cx: &mut App) {
     // EXP-48 issue switcher: J/K bindings scoped to the detail's key context
     // (guarded against focused editables — see issue_detail::init).
     issue_detail::init(cx);
+    // Bulk select (release rework Phase 7): cmd-a/ctrl-a select-all +
+    // escape clear, scoped to the issue list's key context.
+    issue_list::init(cx);
     // Create-flow dialog actions (§4.2): NewIssue (board filter bar),
     // NewProject (sidebar `+`), CreateWorkspace (workspace picker).
     create_issue_dialog::init(cx);

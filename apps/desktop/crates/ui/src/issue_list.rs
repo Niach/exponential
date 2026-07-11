@@ -21,22 +21,23 @@
 //! dropdown cells `stop_propagation` so opening them never triggers the
 //! row's click→detail navigation (§4.6's #1 bug source).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
-    div, px, size, App, ClipboardItem, ElementId, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement, Pixels, Render, SharedString, Size,
-    StatefulInteractiveElement as _, Styled, Window,
+    div, px, size, App, ClickEvent, ClipboardItem, ElementId, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Pixels, Render, SharedString,
+    Size, StatefulInteractiveElement as _, Styled, WeakEntity, Window,
 };
 use gpui_component::{
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, v_virtual_list, ActiveTheme as _, Icon, IconName, Side, Sizable as _,
+    v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, IconName, Side, Sizable as _,
     VirtualListScrollHandle,
 };
 use sync::Store;
@@ -59,6 +60,41 @@ use crate::queries::{self, BoardData};
 const ROW_HEIGHT: f32 = 28.;
 /// Group header height (web py-1.5 + text-sm, compacted).
 const HEADER_HEIGHT: f32 = 28.;
+/// The row's hover group (web `group/row`) — reveals the bulk-select
+/// checkbox. Reused per row: gpui resolves `group_hover` against the
+/// innermost enclosing group with the name.
+const ROW_GROUP: &str = "issue-row";
+/// The list root's key context (the issue-detail pattern) — scopes the
+/// select-all / clear-selection bindings to a focused issue list.
+const KEY_CONTEXT: &str = "IssueList";
+/// FIX F4: the bulk tRPC procedures cap inputs at 200 ids — clients chunk
+/// and call sequentially.
+const BULK_CHUNK: usize = 200;
+
+gpui::actions!(
+    issue_list,
+    [
+        /// Bulk select (cmd-a/ctrl-a): select every VISIBLE issue row —
+        /// filtered, non-collapsed (Linear semantics, web parity).
+        SelectAllIssues,
+        /// Bulk select (escape): drop the selection.
+        ClearIssueSelection,
+    ]
+);
+
+/// Register the bulk-select bindings (call once from `ui::init`). The
+/// predicate guards the keys against focused editables inside the list
+/// subtree — the pinned gpui evaluates `!X` against the full focused
+/// dispatch path (the issue-detail switcher's proven pattern).
+pub(crate) fn init(cx: &mut App) {
+    const BINDING_CONTEXT: &str =
+        "IssueList && !Input && !MarkdownEditor && !MentionInput && !Terminal";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-a", SelectAllIssues, Some(BINDING_CONTEXT))]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("ctrl-a", SelectAllIssues, Some(BINDING_CONTEXT))]);
+    cx.bind_keys([KeyBinding::new("escape", ClearIssueSelection, Some(BINDING_CONTEXT))]);
+}
 
 /// What this list shows (set by the screens panel on navigation).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -98,6 +134,16 @@ pub struct IssueListView {
     filters: IssueFilters,
     /// Collapsed status groups (web `collapsedGroups`).
     collapsed: HashSet<IssueStatus>,
+    /// Bulk-selected issue ids (web `selectedIds`). Pruned in `render`
+    /// against the current data set; collapsing a group hides rows but keeps
+    /// them selected (web parity).
+    selected: HashSet<String>,
+    /// The shift-range anchor (web `anchorId`) — the last toggled row.
+    select_anchor: Option<String>,
+    /// One bulk mutation in flight at a time (the bar's buttons disable).
+    bulk_busy: bool,
+    /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
+    focus_handle: FocusHandle,
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
     /// virtual-list range closure afterwards.
     rows: Rc<Vec<ListRow>>,
@@ -121,20 +167,26 @@ impl IssueListView {
             query: IssueQuery::None,
             filters: IssueFilters::empty(),
             collapsed: HashSet::new(),
+            selected: HashSet::new(),
+            select_anchor: None,
+            bulk_busy: false,
+            focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
 
-    /// Point the list at a new scope. Collapse state resets — it is
-    /// per-board, like the web component's local state.
+    /// Point the list at a new scope. Collapse + selection state resets —
+    /// both are per-board, like the web component's local state.
     pub fn set_query(&mut self, query: IssueQuery, cx: &mut gpui::Context<Self>) {
         if self.query == query {
             return;
         }
         self.query = query;
         self.collapsed.clear();
+        self.selected.clear();
+        self.select_anchor = None;
         cx.notify();
     }
 
@@ -169,6 +221,83 @@ impl IssueListView {
             self.collapsed.insert(status);
         }
         cx.notify();
+    }
+
+    // -- bulk selection --------------------------------------------------------
+
+    /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
+    fn toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if !self.selected.remove(&issue_id) {
+            self.selected.insert(issue_id.clone());
+        }
+        self.select_anchor = Some(issue_id);
+        cx.notify();
+    }
+
+    /// The flattened VISIBLE issue ids of the last render (collapse honored)
+    /// — the range/select-all universe (web `visibleFlatIssues`).
+    fn visible_issue_ids(&self) -> Vec<String> {
+        self.rows
+            .iter()
+            .filter_map(|row| match row {
+                ListRow::Issue { issue, .. } => Some(issue.id.clone()),
+                ListRow::Header { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Shift-click: ADD the contiguous visible slice between the anchor and
+    /// the target — the anchor stays put for further extensions (web
+    /// parity). Without a usable anchor it degrades to a plain toggle.
+    fn extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        let ids = self.visible_issue_ids();
+        let anchor_ix = self
+            .select_anchor
+            .as_deref()
+            .and_then(|anchor| ids.iter().position(|id| id == anchor));
+        let target_ix = ids.iter().position(|id| *id == issue_id);
+        let (Some(anchor_ix), Some(target_ix)) = (anchor_ix, target_ix) else {
+            return self.toggle_selected(issue_id, cx);
+        };
+        let (from, to) = if anchor_ix <= target_ix {
+            (anchor_ix, target_ix)
+        } else {
+            (target_ix, anchor_ix)
+        };
+        for id in &ids[from..=to] {
+            self.selected.insert(id.clone());
+        }
+        cx.notify();
+    }
+
+    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.selected.is_empty() && self.select_anchor.is_none() {
+            return;
+        }
+        self.selected.clear();
+        self.select_anchor = None;
+        cx.notify();
+    }
+
+    /// The workspace behind the current query — scopes the bulk bar's
+    /// assignee/label/release pickers. `None` (join not synced yet) hides
+    /// the bar.
+    fn bulk_workspace_id(&self, cx: &App) -> Option<String> {
+        let collections = Store::global(cx).collections();
+        match &self.query {
+            IssueQuery::None => None,
+            IssueQuery::Project { project_id } => collections
+                .projects
+                .read(cx)
+                .get(project_id)
+                .map(|project| project.workspace_id.clone()),
+            IssueQuery::MyIssues { workspace_id, .. } => Some(workspace_id.clone()),
+            IssueQuery::Release { release_id } => collections
+                .releases
+                .read(cx)
+                .get(release_id)
+                .and_then(|release| release.workspace_id.clone()),
+        }
     }
 
     // -- row rendering -------------------------------------------------------
@@ -256,11 +385,14 @@ impl IssueListView {
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
         let menu_issue = issue.clone();
+        let is_selected = self.selected.contains(&issue.id);
+        let any_selected = !self.selected.is_empty();
 
         div()
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
             // identity, no scroll reset.
             .id(row_id("issue-row", &issue.id))
+            .group(ROW_GROUP)
             .h(px(ROW_HEIGHT))
             .w_full()
             .px_3()
@@ -269,9 +401,24 @@ impl IssueListView {
             .cursor_pointer()
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.3))
+            .when(is_selected, |style| {
+                style.bg(cx.theme().colors.list_active)
+            })
             .hover(|style| style.bg(cx.theme().colors.list_hover))
-            // Whole row navigates to detail (web `onIssueClick`).
-            .on_click(cx.listener(move |_, _, window, cx| {
+            // Row click: Cmd/Ctrl toggles the selection, Shift extends the
+            // range from the anchor, plain navigates to the detail and
+            // leaves selection mode (web `onIssueClick`).
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                let modifiers = event.modifiers();
+                if modifiers.secondary() {
+                    this.toggle_selected(issue_id.clone(), cx);
+                    return;
+                }
+                if modifiers.shift {
+                    this.extend_selection_to(issue_id.clone(), cx);
+                    return;
+                }
+                this.clear_selection(cx);
                 navigate(
                     window,
                     cx,
@@ -280,6 +427,23 @@ impl IssueListView {
                     },
                 );
             }))
+            // Leading bulk-select checkbox: hover-revealed, pinned visible
+            // while ANY selection exists (web `group-hover/row` parity).
+            .child({
+                let toggle_id = issue.id.clone();
+                control_cell(row_id("select-cell", &issue.id))
+                    .w_5()
+                    .when(!any_selected, |cell| {
+                        cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
+                    })
+                    .child(
+                        Checkbox::new(row_id("select", &issue.id))
+                            .checked(is_selected)
+                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                                this.toggle_selected(toggle_id.clone(), cx);
+                            })),
+                    )
+            })
             // 24px priority dropdown cell (stop_propagation wrapper, §4.6).
             .child(
                 control_cell(row_id("prio-cell", &issue.id))
@@ -354,26 +518,498 @@ impl IssueListView {
                 build_row_context_menu(menu, &menu_issue, window, cx)
             })
     }
+
+    // -- bulk action bar -------------------------------------------------------
+
+    /// The Linear-style floating bar (web `bulk-action-bar.tsx`): N selected ·
+    /// Status · Priority · Assignee · Labels · Add to release · Delete
+    /// (nested confirm) · clear. Buttons are icon-only with tooltips — every
+    /// issue list renders inside the ~260px tool panel, where the web's
+    /// labeled buttons cannot fit on one row. Property edits keep the
+    /// selection alive — only delete clears it (FIX F3); every mutation
+    /// chunks at 200 ids (FIX F4) and lands via the Electric echo.
+    fn render_bulk_bar(
+        &self,
+        workspace_id: String,
+        ids: Vec<String>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let count = ids.len();
+        let busy = self.bulk_busy;
+        let list = cx.entity().downgrade();
+        let border = cx.theme().border;
+        let popover_bg = cx.theme().popover;
+        let popover_fg = cx.theme().popover_foreground;
+        let danger = cx.theme().danger;
+
+        let status_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            Button::new("bulk-status")
+                .ghost()
+                .xsmall()
+                .icon(Icon::from(ExpIcon::ListTodo))
+                .tooltip("Status")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                    let mut menu = menu.check_side(Side::Right);
+                    // No Duplicate here: bulk marking has no canonical-issue
+                    // picker, and status='duplicate' without duplicate_of_id
+                    // breaks the pairing invariant (the single-issue path
+                    // intercepts via apply_status_selection's picker).
+                    for option in ISSUE_STATUS_OPTIONS
+                        .iter()
+                        .filter(|option| option.value != IssueStatus::Duplicate)
+                    {
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let value = option.value;
+                        menu = menu.item(option_item(option, false, cx, move |_window, cx| {
+                            spawn_bulk_op(
+                                list.clone(),
+                                cx,
+                                ids.clone(),
+                                false,
+                                "issues.bulkUpdate",
+                                move |trpc, chunk| {
+                                    let mut input =
+                                        api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                                    input.status = Some(value);
+                                    api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                                },
+                            );
+                        }));
+                    }
+                    menu
+                })
+        };
+
+        let priority_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            Button::new("bulk-priority")
+                .ghost()
+                .xsmall()
+                .icon(Icon::from(ExpIcon::SignalHigh))
+                .tooltip("Priority")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                    let mut menu = menu.check_side(Side::Right);
+                    for option in &ISSUE_PRIORITY_OPTIONS {
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let value = option.value;
+                        menu = menu.item(option_item(option, false, cx, move |_window, cx| {
+                            spawn_bulk_op(
+                                list.clone(),
+                                cx,
+                                ids.clone(),
+                                false,
+                                "issues.bulkUpdate",
+                                move |trpc, chunk| {
+                                    let mut input =
+                                        api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                                    input.priority = Some(value);
+                                    api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                                },
+                            );
+                        }));
+                    }
+                    menu
+                })
+        };
+
+        let assignee_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            let workspace_id = workspace_id.clone();
+            Button::new("bulk-assignee")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::CircleUser))
+                .tooltip("Assignee")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                    let mut menu = menu.scrollable(true).max_h(px(320.));
+                    menu = menu.item(
+                        PopupMenuItem::new("Unassign")
+                            .icon(Icon::new(IconName::Close))
+                            .on_click({
+                                let ids = ids.clone();
+                                let list = list.clone();
+                                move |_, _, cx| {
+                                    spawn_bulk_op(
+                                        list.clone(),
+                                        cx,
+                                        ids.clone(),
+                                        false,
+                                        "issues.bulkUpdate",
+                                        |trpc, chunk| {
+                                            let mut input =
+                                                api::issues::IssuesBulkUpdateInput::new(
+                                                    chunk.to_vec(),
+                                                );
+                                            input.assignee_id = api::Patch::Null;
+                                            api::issues::issues_bulk_update(trpc, &input)
+                                                .map(|_| ())
+                                        },
+                                    );
+                                }
+                            }),
+                    );
+                    for user in queries::workspace_users(cx, &workspace_id) {
+                        let name = crate::comments::author_label(Some(&user));
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let user_id = user.id.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(SharedString::from(name))
+                                .icon(Icon::new(IconName::CircleUser))
+                                .on_click(move |_, _, cx| {
+                                    let user_id = user_id.clone();
+                                    spawn_bulk_op(
+                                        list.clone(),
+                                        cx,
+                                        ids.clone(),
+                                        false,
+                                        "issues.bulkUpdate",
+                                        move |trpc, chunk| {
+                                            let mut input =
+                                                api::issues::IssuesBulkUpdateInput::new(
+                                                    chunk.to_vec(),
+                                                );
+                                            input.assignee_id =
+                                                api::Patch::Set(user_id.clone());
+                                            api::issues::issues_bulk_update(trpc, &input)
+                                                .map(|_| ())
+                                        },
+                                    );
+                                }),
+                        );
+                    }
+                    menu
+                })
+        };
+
+        let labels_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            let workspace_id = workspace_id.clone();
+            Button::new("bulk-labels")
+                .ghost()
+                .xsmall()
+                .icon(Icon::from(ExpIcon::Tag))
+                .tooltip("Labels")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                    let mut menu = menu
+                        .scrollable(true)
+                        .max_h(px(320.))
+                        .check_side(Side::Right);
+                    let labels = queries::workspace_labels(cx, &workspace_id);
+                    if labels.is_empty() {
+                        return menu.item(PopupMenuItem::label("No labels in this workspace"));
+                    }
+                    // Tri-state per web: checked when the label is on ALL
+                    // selected issues; toggling removes from all, else adds
+                    // to all.
+                    let selected_set: HashSet<&str> =
+                        ids.iter().map(String::as_str).collect();
+                    let mut counts: HashMap<String, usize> = HashMap::new();
+                    for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
+                        if selected_set.contains(link.issue_id.as_str()) {
+                            *counts.entry(link.label_id.clone()).or_default() += 1;
+                        }
+                    }
+                    for label in labels {
+                        let on_all =
+                            counts.get(&label.id).copied().unwrap_or(0) == ids.len();
+                        let dot = label
+                            .color
+                            .as_deref()
+                            .and_then(parse_hex_color)
+                            .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+                        let name = SharedString::from(label.name.clone());
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let label_id = label.id.clone();
+                        menu = menu.item(
+                            PopupMenuItem::element(move |_, cx| {
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div().size_2().rounded_full().flex_shrink_0().bg(dot),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(cx.theme().popover_foreground)
+                                            .child(name.clone()),
+                                    )
+                            })
+                            .checked(on_all)
+                            .on_click(move |_, _, cx| {
+                                let label_id = label_id.clone();
+                                let op = if on_all {
+                                    "issueLabels.bulkRemove"
+                                } else {
+                                    "issueLabels.bulkAdd"
+                                };
+                                spawn_bulk_op(
+                                    list.clone(),
+                                    cx,
+                                    ids.clone(),
+                                    false,
+                                    op,
+                                    move |trpc, chunk| {
+                                        if on_all {
+                                            api::labels::issue_labels_bulk_remove(
+                                                trpc, &label_id, chunk,
+                                            )
+                                            .map(|_| ())
+                                        } else {
+                                            api::labels::issue_labels_bulk_add(
+                                                trpc, &label_id, chunk,
+                                            )
+                                            .map(|_| ())
+                                        }
+                                    },
+                                );
+                            }),
+                        );
+                    }
+                    menu
+                })
+        };
+
+        let release_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            let workspace_id = workspace_id.clone();
+            Button::new("bulk-release")
+                .ghost()
+                .xsmall()
+                .icon(Icon::from(ExpIcon::Rocket))
+                .tooltip("Add to release")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                    let mut menu = menu.scrollable(true).max_h(px(320.));
+                    let releases = queries::workspace_releases(cx, &workspace_id);
+                    if releases.is_empty() {
+                        return menu.item(PopupMenuItem::label("No releases yet"));
+                    }
+                    for release in releases {
+                        let name = release
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "Untitled release".to_string());
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let release_id = release.id.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(SharedString::from(name))
+                                .icon(Icon::from(ExpIcon::Rocket))
+                                .on_click(move |_, _, cx| {
+                                    let release_id = release_id.clone();
+                                    spawn_bulk_op(
+                                        list.clone(),
+                                        cx,
+                                        ids.clone(),
+                                        false,
+                                        "releases.addIssues",
+                                        move |trpc, chunk| {
+                                            api::releases::add_issues(trpc, &release_id, chunk)
+                                                .map(|_| ())
+                                        },
+                                    );
+                                }),
+                        );
+                    }
+                    menu
+                })
+        };
+
+        let delete_menu = {
+            let ids = ids.clone();
+            let list = list.clone();
+            Button::new("bulk-delete")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::Delete).text_color(danger))
+                .tooltip("Delete selected")
+                .disabled(busy)
+                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+                    // Nested confirm (destructive actions confirm first).
+                    let label = if ids.len() == 1 {
+                        "Confirm delete 1 issue".to_string()
+                    } else {
+                        format!("Confirm delete {} issues", ids.len())
+                    };
+                    let ids = ids.clone();
+                    let list = list.clone();
+                    menu.item(
+                        PopupMenuItem::new(SharedString::from(label))
+                            .icon(Icon::new(IconName::Delete))
+                            .on_click(move |_, _, cx| {
+                                spawn_bulk_op(
+                                    list.clone(),
+                                    cx,
+                                    ids.clone(),
+                                    true,
+                                    "issues.bulkDelete",
+                                    |trpc, chunk| {
+                                        api::issues::issues_bulk_delete(trpc, chunk).map(|_| ())
+                                    },
+                                );
+                            }),
+                    )
+                })
+        };
+
+        div()
+            .absolute()
+            .bottom_4()
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                h_flex()
+                    .id("bulk-action-bar")
+                    .occlude()
+                    .gap_1()
+                    .px_2()
+                    .py_1()
+                    .items_center()
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(border)
+                    .bg(popover_bg)
+                    .text_color(popover_fg)
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .px_1()
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .whitespace_nowrap()
+                            .child(SharedString::from(format!("{count} selected"))),
+                    )
+                    .child(
+                        Button::new("bulk-clear")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Close))
+                            .tooltip("Clear selection")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.clear_selection(cx);
+                            })),
+                    )
+                    .child(status_menu)
+                    .child(priority_menu)
+                    .child(assignee_menu)
+                    .child(labels_menu)
+                    .child(release_menu)
+                    .child(delete_menu),
+            )
+            .into_any_element()
+    }
 }
 
 // Fluent `when` helper (gpui's FluentBuilder) — imported via prelude below.
 use gpui::prelude::FluentBuilder as _;
+
+/// One bulk mutation run: chunk at [`BULK_CHUNK`] ids and call SEQUENTIALLY
+/// on one background task (FIX F4 — Electric replays commits in order, so
+/// the last echo landing implies every earlier chunk landed). `clear_on_ok`
+/// is true ONLY for delete — property edits keep the selection alive
+/// (FIX F3, Linear semantics). Failures log and stop the chunk loop; the
+/// rows simply keep their old state (no echo), matching the list's silent
+/// inline-mutation behavior.
+fn spawn_bulk_op(
+    list: WeakEntity<IssueListView>,
+    cx: &mut App,
+    ids: Vec<String>,
+    clear_on_ok: bool,
+    op: &'static str,
+    call: impl Fn(&api::TrpcClient, &[String]) -> Result<(), api::ApiError> + Send + Sync + 'static,
+) {
+    if ids.is_empty() {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] {op} skipped: no signed-in account");
+        return;
+    };
+    let _ = list.update(cx, |this, cx| {
+        this.bulk_busy = true;
+        cx.notify();
+    });
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                for chunk in ids.chunks(BULK_CHUNK) {
+                    call(&trpc, chunk)?;
+                }
+                Ok::<(), api::ApiError>(())
+            })
+            .await;
+        let _ = list.update(cx, |this, cx| {
+            this.bulk_busy = false;
+            match result {
+                Ok(()) => {
+                    if clear_on_ok {
+                        this.selected.clear();
+                        this.select_anchor = None;
+                    }
+                }
+                Err(err) => log::warn!("[ui] {op} failed: {err}"),
+            }
+            cx.notify();
+        });
+    })
+    .detach();
+}
 
 impl Render for IssueListView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let data = self.board_data(cx);
 
         // Base surface: the REAL list token (web page background),
-        // never a card color.
-        let base = v_flex().size_full().bg(cx.theme().colors.list);
+        // never a card color. Key context + tracked focus scope the
+        // select-all/clear bindings here (terminal-dock pattern).
+        let base = v_flex()
+            .size_full()
+            .bg(cx.theme().colors.list)
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &SelectAllIssues, _, cx| {
+                let ids = this.visible_issue_ids();
+                if ids.is_empty() {
+                    return;
+                }
+                this.selected = ids.into_iter().collect();
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ClearIssueSelection, _, cx| {
+                if this.selected.is_empty() {
+                    // Nothing to clear — let Escape reach outer surfaces.
+                    cx.propagate();
+                    return;
+                }
+                this.clear_selection(cx);
+            }));
 
         let Some(data) = data else {
+            self.rows = Rc::new(Vec::new());
             return base.child(list_skeleton(cx)).into_any_element();
         };
 
         // §4.1 load-bearing: while the first snapshot is in flight an empty
         // result is "still syncing" — skeleton, never an empty state.
         if data.groups.is_empty() {
+            self.rows = Rc::new(Vec::new());
             if !data.is_ready {
                 return base.child(list_skeleton(cx)).into_any_element();
             }
@@ -405,6 +1041,17 @@ impl Render for IssueListView {
                     cx,
                 ))
                 .into_any_element();
+        }
+
+        // Prune selected ids whose rows left the data set (filter change,
+        // delete elsewhere, sync) — web parity. Collapsed rows stay selected.
+        if !self.selected.is_empty() {
+            let present: HashSet<&str> = data
+                .groups
+                .iter()
+                .flat_map(|group| group.issues.iter().map(|issue| issue.id.as_str()))
+                .collect();
+            self.selected.retain(|id| present.contains(id.as_str()));
         }
 
         // Flatten groups → virtual rows, honoring collapse; empty groups are
@@ -449,30 +1096,53 @@ impl Render for IssueListView {
         );
         self.rows = Rc::new(rows);
 
+        // The floating bulk action bar — selected ids snapshotted in visible
+        // list order (workspace resolution can lag the issue rows; the bar
+        // waits for it, the selection itself does not).
+        let bulk_bar = if self.selected.is_empty() {
+            None
+        } else {
+            self.bulk_workspace_id(cx).map(|workspace_id| {
+                let ids: Vec<String> = data
+                    .groups
+                    .iter()
+                    .flat_map(|group| group.issues.iter())
+                    .filter(|issue| self.selected.contains(&issue.id))
+                    .map(|issue| issue.id.clone())
+                    .collect();
+                self.render_bulk_bar(workspace_id, ids, cx)
+            })
+        };
+
         base.child(
-            div().flex_1().min_h_0().child(
-                v_flex()
-                    .id("issue-list-scroll")
-                    .relative()
-                    .size_full()
-                    .child(
-                        v_virtual_list(
-                            cx.entity().clone(),
-                            "issue-list-rows",
-                            sizes,
-                            |this, visible_range, window, cx| {
-                                visible_range
-                                    .map(|ix| this.render_row(ix, window, cx))
-                                    .collect()
-                            },
+            div()
+                .flex_1()
+                .min_h_0()
+                .relative()
+                .child(
+                    v_flex()
+                        .id("issue-list-scroll")
+                        .relative()
+                        .size_full()
+                        .child(
+                            v_virtual_list(
+                                cx.entity().clone(),
+                                "issue-list-rows",
+                                sizes,
+                                |this, visible_range, window, cx| {
+                                    visible_range
+                                        .map(|ix| this.render_row(ix, window, cx))
+                                        .collect()
+                                },
+                            )
+                            .track_scroll(&self.scroll_handle),
                         )
-                        .track_scroll(&self.scroll_handle),
-                    )
-                    .scrollbar(
-                        &self.scroll_handle,
-                        gpui_component::scroll::ScrollbarAxis::Vertical,
-                    ),
-            ),
+                        .scrollbar(
+                            &self.scroll_handle,
+                            gpui_component::scroll::ScrollbarAxis::Vertical,
+                        ),
+                )
+                .when_some(bulk_bar, |this, bar| this.child(bar)),
         )
         .into_any_element()
     }
@@ -885,6 +1555,63 @@ fn build_row_context_menu(
             }
             menu
         });
+    }
+
+    // Add to release submenu (EXP-56, web parity): the workspace's releases
+    // in the shared display order, current membership checked; picking one
+    // moves the issue (setIssueRelease replaces any existing bundle). The
+    // symmetric "Remove from release" item stays above.
+    {
+        let issue_id = issue.id.clone();
+        let project_id = issue.project_id.clone();
+        let current = issue.release_id.clone();
+        menu = menu.submenu_with_icon(
+            Some(Icon::from(ExpIcon::Rocket)),
+            "Add to release",
+            window,
+            cx,
+            move |menu, _, cx| {
+                let mut menu = menu.check_side(Side::Right);
+                // Workspace via the project row — the Labels submenu's lookup.
+                let Some(workspace_id) = Store::global(cx)
+                    .collections()
+                    .projects
+                    .read(cx)
+                    .get(&project_id)
+                    .map(|project| project.workspace_id.clone())
+                else {
+                    return menu;
+                };
+                let releases = queries::workspace_releases(cx, &workspace_id);
+                if releases.is_empty() {
+                    return menu.item(PopupMenuItem::label("No releases in this workspace"));
+                }
+                for release in releases {
+                    let checked = current.as_deref() == Some(release.id.as_str());
+                    let name = SharedString::from(
+                        release
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "Untitled release".to_string()),
+                    );
+                    let issue_id = issue_id.clone();
+                    let release_id = release.id.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(name)
+                            .icon(Icon::from(ExpIcon::Rocket))
+                            .checked(checked)
+                            .on_click(move |_, _, cx| {
+                                crate::properties_panel::set_issue_release(
+                                    cx,
+                                    issue_id.clone(),
+                                    Some(release_id.clone()),
+                                );
+                            }),
+                    );
+                }
+                menu
+            },
+        );
     }
 
     // Set due date submenu (web `due-date-presets.tsx`: Tomorrow / End of this

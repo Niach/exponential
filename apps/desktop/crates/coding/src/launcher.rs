@@ -1,21 +1,22 @@
-//! The Start-coding launcher (masterplan-v3 §7.1, DC-1) — the eight-step
-//! sequence, run **identically** for a local button press and a relay
-//! `start_session` frame (§08 calls this same entry point; there is no
-//! second "remote start" implementation).
+//! The Start-coding launcher (masterplan-v3 §7.1, DC-1) — ONE prepare
+//! sequence for both launch shapes: a single-issue session and a
+//! release-orchestrator session ([`PrepareRequest`]). A local dialog launch
+//! and a relay `start_session` frame run the SAME sequence (§08 calls this
+//! same entry point; there is no second "remote start" implementation).
 //!
 //! Split to match gpui's threading model while keeping one code path:
 //!
-//! 1. [`prepare_launch`] — steps 1–6 (repo resolve → JIT token → git →
-//!    `.mcp.json` → `PROMPT.md` → `codingSessions.start`). **Blocking
+//! 1. [`prepare`] — steps 0–6 (doctor → repo resolve → JIT token → git →
+//!    `.mcp.json` → prompt delivery → `codingSessions.start`). **Blocking
 //!    network and git I/O, gpui-free** — run it on the background executor.
-//!    Returns either a [`PreparedLaunch`] (the spawn spec for
-//!    `claude --dangerously-skip-permissions`) or a [`DisabledReason`] (never
-//!    falsely block, always explain — none of these are errors/panics).
+//!    Returns either a [`PreparedLaunch`] (the composed `claude` spawn spec)
+//!    or a [`DisabledReason`] (never falsely block, always explain — none of
+//!    these are errors/panics).
 //! 2. [`spawn_prepared`] — steps 7–8 on the foreground: opens the Claude tab
 //!    through the §06 `TerminalManager` (keyed by the `coding_sessions` id)
 //!    and installs the one-shot exit hook that ends the session row
-//!    (idempotent server-side) when the child dies. The seed line rides the
-//!    spawn spec as claude's positional prompt (never PTY stdin).
+//!    (idempotent server-side) when the child dies. The prompt rides the
+//!    spawn spec as claude's positional argument (never PTY stdin).
 //!
 //! The launcher never touches PTYs (§06 owns them) and never talks to the
 //! steer relay (§3.1: `coding` does not depend on `steer`) — the app/ui layer
@@ -34,14 +35,17 @@ use terminal::pty::SpawnSpec;
 use terminal::tab::{TabId, TabKind};
 use terminal::TerminalManager;
 
-use crate::agent::Agent;
+use crate::agents_json::{build_agents_json, SubagentDefaults};
+use crate::argv::{issue_args, release_args, IssueLaunchOptions};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base, set_token_remote,
-    GitError, TokenUrl,
+    worktree_path, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
-use crate::prompt::write_rendered_prompt;
+use crate::prompt::{deliver_prompt, deliver_prompt_file, render_prompt};
+use crate::release_launcher::{release_branch_name, release_slug, ReleaseLaunchRequest};
+use crate::release_prompt::{render_release_prompt, ReleasePromptArgs, ReleasePromptIssue};
 use crate::settings::Settings;
 
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —
@@ -75,7 +79,7 @@ pub fn default_device_label() -> String {
     "unknown-host".to_string()
 }
 
-/// §7.1's public entry-point input.
+/// §7.1's single-issue launch input.
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
     pub issue_id: String,
@@ -84,9 +88,19 @@ pub struct LaunchRequest {
     /// Hostname; also `coding_sessions.device_label`.
     pub device_label: String,
     pub origin: LaunchOrigin,
+    /// The Start-coding dialog's model/effort/plan-mode choices (settings
+    /// defaults for relay starts — [`IssueLaunchOptions::from_settings`]).
+    pub options: IssueLaunchOptions,
 }
 
-/// Issue text for `PROMPT.md`, fetched by the caller from the sync store
+/// The two launch shapes ONE [`prepare`] serves.
+#[derive(Clone, Debug)]
+pub enum PrepareRequest {
+    Issue(LaunchRequest),
+    Release(ReleaseLaunchRequest),
+}
+
+/// Issue text for the seed prompt, fetched by the caller from the sync store
 /// (`coding` cannot depend on `sync` — §3.1 dependency direction).
 #[derive(Clone, Debug)]
 pub struct IssueSeed {
@@ -110,7 +124,7 @@ pub trait WorktreeProvider: Send + Sync {
 /// The real git path: `ensure_clone` → `set_token_remote` (re-set EVERY
 /// launch — the previous embedded token is dead) → best-effort fetch of the
 /// base branch → `create_worktree` (idempotent reuse) → repo-local excludes
-/// for the credential-bearing seed files.
+/// for the credential-bearing seed file.
 pub struct GitWorktrees;
 
 impl WorktreeProvider for GitWorktrees {
@@ -130,17 +144,18 @@ impl WorktreeProvider for GitWorktrees {
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
         // .mcp.json carries the raw expu_ key and claude is told to commit +
-        // push — keep both seed files out of `git add -A` via the shared,
-        // never-committed `.git/info/exclude` (best-effort by design).
+        // push — keep it out of `git add -A` via the shared, never-committed
+        // `.git/info/exclude` (best-effort by design; the PROMPT.md exclude
+        // rides [`crate::prompt::deliver_prompt_file`]).
         let _ = crate::git_worktree::ensure_local_excludes(
             &clone,
-            &[crate::mcp_json::MCP_JSON_FILE, crate::prompt::PROMPT_FILE],
+            &[crate::mcp_json::MCP_JSON_FILE],
         );
         Ok(worktree)
     }
 }
 
-/// Issue title/description lookup for `PROMPT.md` (sync-store backed; the
+/// Issue title/description lookup for the seed prompt (sync-store backed; the
 /// caller owns the store — §3.1: `coding` cannot depend on `sync`).
 pub type IssueSeedFn = Arc<dyn Fn(&str) -> Option<IssueSeed> + Send + Sync>;
 
@@ -155,7 +170,7 @@ pub struct CodingDeps {
     pub account_id: String,
     /// Resolved coding settings (claude path, repos root, branch prefix).
     pub settings: Settings,
-    /// Issue title/description lookup for `PROMPT.md` (sync-store backed).
+    /// Issue title/description lookup for the seed prompt (sync-store backed).
     pub issue_seed: IssueSeedFn,
     /// Git ops ([`GitWorktrees`] in production).
     pub worktrees: Arc<dyn WorktreeProvider>,
@@ -233,12 +248,14 @@ impl From<GitError> for CodingError {
     }
 }
 
-/// Steps 1–6 done: everything the foreground needs to open the Claude tab.
+/// Steps 0–6 done: everything the foreground needs to open the Claude tab.
 #[derive(Debug)]
 pub struct PreparedLaunch {
     /// The `coding_sessions` row id — keys the terminal tab (§06) and the
     /// steer session room (§08).
     pub session_id: String,
+    /// The issue identifier (`EXP-42`) — or the release name for a release
+    /// session (it feeds the same log/registry surfaces).
     pub issue_identifier: String,
     pub worktree: PathBuf,
     /// The shared clone the worktree hangs off (`<repos_root>/<owner>/<name>`)
@@ -248,16 +265,16 @@ pub struct PreparedLaunch {
     /// The workspace `repositories` row id — re-mints the installation token
     /// mid-session (EXP-56 P9).
     pub repository_id: String,
-    /// The real git branch (keeps its `/`), e.g. `exp/EXP-42`.
+    /// The real git branch (keeps its `/`), e.g. `exp/EXP-42` — or the
+    /// release integration branch `exp/rel-<slug>`.
     pub branch: String,
-    /// The agent invocation in the worktree (§7.1 step 7) — by default
-    /// `claude --dangerously-skip-permissions`; per [`Agent`] otherwise.
+    /// The claude invocation in the worktree (§7.1 step 7).
     pub spawn: SpawnSpec,
-    /// Tab strip default title (`claude · EXP-42`).
+    /// Tab strip default title (`claude · EXP-42` / `claude · release 0.4`).
     pub tab_title: String,
 }
 
-/// [`prepare_launch`]'s outcome: ready to spawn, or disabled-with-reason.
+/// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
 #[derive(Debug)]
 pub enum Prepared {
     Ready(PreparedLaunch),
@@ -265,7 +282,7 @@ pub enum Prepared {
 }
 
 /// §7.1's `LaunchOutcome`, produced by [`spawn_prepared`] (or directly by
-/// the caller when [`prepare_launch`] returned [`Prepared::Disabled`]).
+/// the caller when [`prepare`] returned [`Prepared::Disabled`]).
 #[derive(Debug)]
 pub enum LaunchOutcome {
     Spawned {
@@ -279,28 +296,48 @@ pub enum LaunchOutcome {
     },
 }
 
-/// Steps 1–6 of §7.1 (blocking; run on the background executor):
-///
-/// 0. doctor — both the coding agent AND `git` must resolve (§7.7: a machine
-///    with git missing is blocked here, not allowed to crash at clone);
-/// 1. `repositories.forIssue` — null ⇒ [`DisabledReason::NoRepositoryLinked`];
-/// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
-/// 3. git: clone/worktree/`exp/<IDENTIFIER>` branch + token remote re-set
-///    (the personal-key read/mint races this on a side thread, §7.2);
-/// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk) —
-///    SKIPPED for agents that declare no MCP ([`Agent::uses_mcp`]);
-/// 5. `PROMPT.md` (plan-first seed, templated from the sync store, flavored
-///    per agent);
-/// 6. `codingSessions.start` — BEFORE spawn; its id keys tab + steer room.
-pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    // The AgentAdapter: every per-agent difference (binary, argv, MCP,
-    // prompt flavor, env) resolves here — claude unless the settings opt
-    // into the experimental codex support.
-    let agent = Agent::from_settings(&deps.settings);
+/// The shared 412/401/403 mapping for `repositories.installationToken`.
+fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingError> {
+    match err {
+        ApiError::Http { status: 412, message } => {
+            Ok(Prepared::Disabled(DisabledReason::GithubAppMissing {
+                full_name: full_name.to_string(),
+                message,
+            }))
+        }
+        ApiError::Http { status: status @ (401 | 403), message } => {
+            Ok(Prepared::Disabled(DisabledReason::TokenDenied {
+                message: format!("{message} (HTTP {status})"),
+            }))
+        }
+        err => Err(err.into()),
+    }
+}
 
-    // Step 0/1a — the doctor gate. Cheap relative to clone/mint and
-    // structural: the relay origin has no button whose disabled state could
-    // have gated this.
+/// Steps 0–6 of §7.1 (blocking; run on the background executor) — ONE
+/// skeleton for both launch shapes, per-shape only at the marked match
+/// points:
+///
+/// 0. doctor — `claude` (incl. the minimum-version gate) AND `git` must
+///    resolve (§7.7: a machine with git missing is blocked here, not allowed
+///    to crash at clone);
+/// 1. repo — Issue: `repositories.forIssue` (null ⇒
+///    [`DisabledReason::NoRepositoryLinked`]); Release: the dialog already
+///    resolved the repo group — trust it;
+/// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
+/// 3. git: clone/worktree + branch (`<prefix><IDENTIFIER>` /
+///    `exp/rel-<slug>`) + token remote re-set (the personal-key read/mint
+///    races this on a side thread, §7.2);
+/// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk);
+/// 5. prompt — Issue: rendered + size-gated delivery (direct argv when
+///    small); Release: the orchestration template + `--agents` defs, ALWAYS
+///    file-delivered (the subagent prompts reference PROMPT.md sections);
+/// 6. `codingSessions.start` / `start_release` — BEFORE spawn; its id keys
+///    tab + steer room.
+pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+    // Step 0 — the doctor gate. Cheap relative to clone/mint and structural:
+    // the relay origin has no button whose disabled state could have gated
+    // this.
     let report = run_doctor(&deps.settings);
     if let Some(failed) = report.first_failure() {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
@@ -309,40 +346,46 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     }
 
     // Step 1 — resolve the repository (the coding-first gate).
-    let Some(repo) = repositories::for_issue(&deps.trpc, &req.issue_id)? else {
-        return Ok(Prepared::Disabled(DisabledReason::NoRepositoryLinked));
+    let (repository_id, full_name) = match req {
+        PrepareRequest::Issue(issue_req) => {
+            let Some(repo) = repositories::for_issue(&deps.trpc, &issue_req.issue_id)? else {
+                return Ok(Prepared::Disabled(DisabledReason::NoRepositoryLinked));
+            };
+            (repo.repository_id, repo.full_name)
+        }
+        PrepareRequest::Release(release_req) => (
+            release_req.repo.repository_id.clone(),
+            release_req.repo.full_name.clone(),
+        ),
     };
 
     // Step 2 — mint the JIT installation token (session-gated, ~55 min TTL,
     // never persisted/logged — TokenUrl + scrubbed git errors enforce that).
-    let token = match repositories::installation_token(&deps.trpc, &repo.repository_id) {
+    let token = match repositories::installation_token(&deps.trpc, &repository_id) {
         Ok(token) => token,
-        Err(ApiError::Http { status: 412, message }) => {
-            return Ok(Prepared::Disabled(DisabledReason::GithubAppMissing {
-                full_name: repo.full_name,
-                message,
-            }))
-        }
-        Err(ApiError::Http { status: status @ (401 | 403), message }) => {
-            return Ok(Prepared::Disabled(DisabledReason::TokenDenied {
-                message: format!("{message} (HTTP {status})"),
-            }))
-        }
-        Err(err) => return Err(err.into()),
+        Err(err) => return map_token_error(err, &full_name),
     };
 
     // §7.2 — the personal-key read/mint races the git prep on a side thread;
-    // only step 4 (.mcp.json) needs the result, so a no-MCP agent skips the
-    // mint entirely (nothing would ever consume the key).
-    let key_handle = agent.uses_mcp().then(|| {
+    // only step 4 (.mcp.json) needs the result.
+    let key_handle = {
         let trpc = Arc::clone(&deps.trpc);
         let store = Arc::clone(&deps.token_store);
         let account_id = deps.account_id.clone();
         std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
-    });
+    };
 
-    // Step 3 — git via argv (never gh): clone → token remote → worktree.
-    let branch = branch_name(&deps.settings.branch_prefix, &req.issue_identifier);
+    // Step 3 — git via argv (never gh): clone → token remote → worktree on
+    // the per-shape branch.
+    let branch = match req {
+        PrepareRequest::Issue(issue_req) => {
+            branch_name(&deps.settings.branch_prefix, &issue_req.issue_identifier)
+        }
+        PrepareRequest::Release(release_req) => release_branch_name(&release_slug(
+            &release_req.release_name,
+            &release_req.release_id,
+        )),
+    };
     let url = TokenUrl::new(token.full_name.clone(), token.token.clone());
     let repos_root = deps.settings.repos_root_path();
     let worktree = deps.worktrees.prepare(
@@ -355,64 +398,130 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     // The clone path the worktree hangs off — the P9 token refresher's target.
     let clone = clone_path(&repos_root, &token.full_name);
 
-    // Step 4 — .mcp.json (authenticates the spawned claude as the real
-    // user). A no-MCP agent (codex) never gets the personal key on disk —
-    // its MCP config is a global file the launcher must not touch.
-    if let Some(key_handle) = key_handle {
-        let personal_key = key_handle
-            .join()
-            .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-        write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
-            .map_err(|e| CodingError::Io(format!("write .mcp.json: {e}")))?;
-    }
+    // Step 4 — .mcp.json (authenticates the spawned claude as the real user;
+    // release subagents inherit the session's MCP servers).
+    let personal_key = key_handle
+        .join()
+        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
+    write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
+        .map_err(|e| CodingError::Io(format!("write .mcp.json: {e}")))?;
 
-    // Step 5 — PROMPT.md (plan-first; title/description from the sync store;
-    // template flavored per agent — the no-MCP variant names no MCP tools).
-    let seed = (deps.issue_seed)(&req.issue_id);
-    let (title, description) = match &seed {
-        Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
-        None => (req.issue_identifier.as_str(), None),
+    // Step 5 — the seed prompt.
+    let (delivery, agents_json) = match req {
+        PrepareRequest::Issue(issue_req) => {
+            // Title/description from the sync store; direct argv delivery
+            // when small, PROMPT.md + seed line otherwise.
+            let seed = (deps.issue_seed)(&issue_req.issue_id);
+            let (title, description) = match &seed {
+                Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
+                None => (issue_req.issue_identifier.as_str(), None),
+            };
+            let rendered = render_prompt(&issue_req.issue_identifier, title, description);
+            let delivery = deliver_prompt(&worktree, &clone, &rendered)
+                .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
+            (delivery, None)
+        }
+        PrepareRequest::Release(release_req) => {
+            // The orchestration PROMPT.md + the per-issue subagent defs.
+            // Issue branches/worktrees use the SAME prefix + layout as
+            // single-issue launches, so a partially-coded issue reuses its
+            // worktree idempotently.
+            let prompt_issues: Vec<ReleasePromptIssue> = release_req
+                .issues
+                .iter()
+                .map(|issue| ReleasePromptIssue {
+                    identifier: issue.issue_identifier.clone(),
+                    title: issue.title.clone(),
+                    description: issue.description.clone(),
+                    branch: branch_name(&deps.settings.branch_prefix, &issue.issue_identifier),
+                    worktree: worktree_path(
+                        &clone,
+                        &branch_name(&deps.settings.branch_prefix, &issue.issue_identifier),
+                    )
+                    .to_string_lossy()
+                    .into_owned(),
+                    agent_name: issue.issue_identifier.to_ascii_lowercase(),
+                })
+                .collect();
+            let agents_json = build_agents_json(
+                &prompt_issues,
+                &SubagentDefaults {
+                    model: &release_req.options.subagent_model,
+                    effort: release_req.options.subagent_effort.as_deref(),
+                },
+            );
+            let rendered = render_release_prompt(&ReleasePromptArgs {
+                release_id: &release_req.release_id,
+                release_name: &release_req.release_name,
+                repository_id: &release_req.repo.repository_id,
+                default_branch: &token.default_branch,
+                integration_branch: &branch,
+                issues: &prompt_issues,
+            });
+            // Release runs ALWAYS deliver via file (fix F5): the --agents
+            // subagent prompts reference PROMPT.md sections.
+            let delivery = deliver_prompt_file(&worktree, &clone, &rendered)
+                .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
+            (delivery, Some(agents_json))
+        }
     };
-    write_rendered_prompt(
-        &worktree,
-        &agent.render_prompt(&req.issue_identifier, title, description),
-    )
-    .map_err(|e| CodingError::Io(format!("write PROMPT.md: {e}")))?;
 
-    // Step 6 — codingSessions.start BEFORE spawn (the id keys everything).
-    let session =
-        match coding_sessions::start(&deps.trpc, &req.issue_id, Some(&req.device_label)) {
-            Ok(session) => session,
-            Err(ApiError::Http { status: 412, message }) => {
-                return Ok(Prepared::Disabled(DisabledReason::SessionLimit { message }))
-            }
-            Err(err) => return Err(err.into()),
-        };
+    // Step 6 — the session row, BEFORE spawn (the id keys everything).
+    let session = match req {
+        PrepareRequest::Issue(issue_req) => coding_sessions::start(
+            &deps.trpc,
+            &issue_req.issue_id,
+            Some(&issue_req.device_label),
+        ),
+        PrepareRequest::Release(release_req) => coding_sessions::start_release(
+            &deps.trpc,
+            &release_req.release_id,
+            Some(&release_req.device_label),
+        ),
+    };
+    let session = match session {
+        Ok(session) => session,
+        Err(ApiError::Http { status: 412, message }) => {
+            return Ok(Prepared::Disabled(DisabledReason::SessionLimit { message }))
+        }
+        Err(err) => return Err(err.into()),
+    };
 
-    // Step 7's spawn spec — program + argv + env from the [`Agent`] adapter
-    // (§7.7), argv-direct. For claude that is byte-for-byte the pre-adapter
-    // invocation: `--model <model>` explicitly-ALWAYS (never the user's CLI
-    // default, which may be a scarcer model like Fable — §7.7, locked
-    // 2026-07-03) plus the skip flag. The seed line rides argv as the
-    // positional prompt for EVERY agent: bytes typed into the PTY before a
-    // TUI enters raw mode get swallowed during startup, so the prompt must
-    // never be delivered via stdin.
-    let mut spawn = SpawnSpec::new(&agent.program(&deps.settings))
-        .args(agent.coding_args(&deps.settings, &report.claude_flags))
+    // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
+    // the native permission posture, and the prompt positional-last (bytes
+    // typed into the PTY before the TUI enters raw mode get swallowed during
+    // startup, so the prompt must never be delivered via stdin).
+    let (args, issue_identifier, tab_title) = match req {
+        PrepareRequest::Issue(issue_req) => (
+            issue_args(&issue_req.options, delivery.positional()),
+            issue_req.issue_identifier.clone(),
+            format!("claude · {}", issue_req.issue_identifier),
+        ),
+        PrepareRequest::Release(release_req) => (
+            release_args(
+                &release_req.options,
+                agents_json
+                    .as_deref()
+                    .expect("the release arm always builds agents json"),
+                delivery.positional(),
+            ),
+            release_req.release_name.clone(),
+            format!("claude · release {}", release_req.release_name),
+        ),
+    };
+    let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
+        .args(args)
         .cwd(&worktree);
-    for (key, value) in agent.env() {
-        spawn = spawn.env(key, value);
-    }
 
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
-        issue_identifier: req.issue_identifier.clone(),
+        issue_identifier,
         worktree,
         clone,
-        repository_id: repo.repository_id.clone(),
+        repository_id,
         branch,
         spawn,
-        tab_title: format!("{} · {}", agent.label(), req.issue_identifier),
+        tab_title,
     }))
 }
 
@@ -427,9 +536,9 @@ pub type ExitNotify = Box<dyn FnOnce(&mut App) + 'static>;
 /// Steps 7–8 of §7.1 (foreground; needs `&mut App`):
 ///
 /// 7. open a Claude tab keyed by the `coding_sessions` id via the §06
-///    `TerminalManager` — the seed line ("Read PROMPT.md in this directory,
-///    then follow it.") already rides the spawn spec as claude's positional
-///    prompt (stdin written before the TUI's raw mode is swallowed);
+///    `TerminalManager` — the prompt already rides the spawn spec as claude's
+///    positional argument (stdin written before the TUI's raw mode is
+///    swallowed);
 /// 8. install the one-shot exit hook: when the child dies,
 ///    `codingSessions.end` fires from a plain thread (idempotent server-side,
 ///    so a relay-side kill that already ended the row is safe). The tab
@@ -507,111 +616,14 @@ pub fn end_session_best_effort(trpc: &TrpcClient, session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prompt::{PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE};
+    use crate::release_launcher::{ReleaseIssueSpec, ReleaseLaunchOptions, RepoGroup};
+    use crate::test_support::{
+        canned_server, make_deps, temp_dir, FakeWorktrees, FOR_ISSUE_OK, MINT_OK, START_OK,
+        START_RELEASE_OK, TOKEN_OK,
+    };
     use api::token_store::SecretKind;
-    use api::StaticToken;
     use std::fs;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::time::Duration;
-
-    // ---- harness ----
-
-    struct TempDir(PathBuf);
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn temp_dir(tag: &str) -> TempDir {
-        let mut path = std::env::temp_dir();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!(
-            "exp-coding-launch-{tag}-{}-{nanos}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).unwrap();
-        TempDir(path)
-    }
-
-    /// Serve a fixed sequence of canned responses, one connection each
-    /// (`Connection: close`), in request order.
-    fn canned_server(responses: Vec<(u16, String)>) -> String {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
-        std::thread::spawn(move || {
-            for (status, body) in responses {
-                let Ok((mut stream, _)) = listener.accept() else { return };
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
-                    .unwrap();
-                // Drain head + any Content-Length body.
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                let (mut head_end, mut content_length) = (None::<usize>, 0usize);
-                while let Ok(n) = stream.read(&mut chunk) {
-                    if n == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&chunk[..n]);
-                    if head_end.is_none() {
-                        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                            head_end = Some(pos + 4);
-                            let head = String::from_utf8_lossy(&buf[..pos]);
-                            content_length = head
-                                .lines()
-                                .find_map(|line| {
-                                    let (name, value) = line.split_once(':')?;
-                                    name.eq_ignore_ascii_case("content-length")
-                                        .then(|| value.trim().parse().ok())?
-                                })
-                                .unwrap_or(0);
-                        }
-                    }
-                    if let Some(pos) = head_end {
-                        if buf.len() >= pos + content_length {
-                            break;
-                        }
-                    }
-                }
-                let response = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = stream.write_all(response.as_bytes());
-            }
-        });
-        base
-    }
-
-    /// A fake §7.1-step-3 provider: hands back a pre-made temp worktree and
-    /// records the branch/base it was asked for.
-    struct FakeWorktrees {
-        worktree: PathBuf,
-        seen: std::sync::Mutex<Vec<(String, String, String)>>,
-    }
-
-    impl WorktreeProvider for FakeWorktrees {
-        fn prepare(
-            &self,
-            _repos_root: &Path,
-            full_name: &str,
-            default_branch: &str,
-            branch: &str,
-            _url: &TokenUrl,
-        ) -> Result<PathBuf, GitError> {
-            self.seen.lock().unwrap().push((
-                full_name.to_string(),
-                default_branch.to_string(),
-                branch.to_string(),
-            ));
-            Ok(self.worktree.clone())
-        }
-    }
 
     fn request(identifier: &str) -> LaunchRequest {
         LaunchRequest {
@@ -619,41 +631,54 @@ mod tests {
             issue_identifier: identifier.to_string(),
             device_label: "testbox".to_string(),
             origin: LaunchOrigin::Local,
-        }
-    }
-
-    /// Deps with: doctor guaranteed green (claude_path = `git` — a real
-    /// binary answering `--version`), key pre-seeded (no mint traffic), a
-    /// fake worktree provider, and a canned tRPC server.
-    fn deps(base: &str, data_dir: &Path, worktree: Arc<FakeWorktrees>) -> CodingDeps {
-        let store = TokenStore::file_only(data_dir.to_path_buf());
-        store
-            .set("acct", SecretKind::PersonalApiKey, "expu_seeded")
-            .unwrap();
-        CodingDeps {
-            trpc: Arc::new(TrpcClient::new(base, Arc::new(StaticToken("tok".into())))),
-            token_store: Arc::new(store),
-            account_id: "acct".to_string(),
-            settings: Settings {
-                claude_path: "git".to_string(),
-                repos_root: data_dir.join("repos").to_string_lossy().into_owned(),
-                branch_prefix: "exp/".to_string(),
-                claude_model: "opus".to_string(),
-                ..Settings::default()
+            // The dialog defaults: fable, no effort, plan mode ON.
+            options: IssueLaunchOptions {
+                model: "fable".to_string(),
+                effort: "".to_string(),
+                plan_mode: true,
             },
-            issue_seed: Arc::new(|_| {
-                Some(IssueSeed {
-                    title: "Fix login flicker".to_string(),
-                    description: Some("Steps in the issue.".to_string()),
-                })
-            }),
-            worktrees: worktree,
         }
     }
 
-    const FOR_ISSUE_OK: &str = r#"{"result":{"data":{"repositoryId":"repo-1","fullName":"acme/web","defaultBranch":"main"}}}"#;
-    const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
-    const START_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"}}}}"#;
+    fn release_options() -> ReleaseLaunchOptions {
+        ReleaseLaunchOptions {
+            main_model: "opus".to_string(),
+            main_effort: Some("high".to_string()),
+            subagent_model: "opus".to_string(),
+            subagent_effort: Some("high".to_string()),
+            ultracode: true,
+            plan_mode: false,
+        }
+    }
+
+    fn release_request() -> ReleaseLaunchRequest {
+        ReleaseLaunchRequest {
+            release_id: "1dc5fb4a-8923-471c-a940-53094cd33b76".to_string(),
+            release_name: "0.4".to_string(),
+            repo: RepoGroup {
+                repository_id: "repo-1".to_string(),
+                full_name: "acme/web".to_string(),
+                default_branch: "main".to_string(),
+            },
+            issues: vec![
+                ReleaseIssueSpec {
+                    issue_id: "issue-1".to_string(),
+                    issue_identifier: "EXP-42".to_string(),
+                    title: "Fix login flicker".to_string(),
+                    description: Some("Steps.".to_string()),
+                },
+                ReleaseIssueSpec {
+                    issue_id: "issue-2".to_string(),
+                    issue_identifier: "EXP-43".to_string(),
+                    title: "Add badge".to_string(),
+                    description: None,
+                },
+            ],
+            device_label: "testbox".to_string(),
+            origin: LaunchOrigin::Local,
+            options: release_options(),
+        }
+    }
 
     // ---- the disabled surfaces (explain, never crash) ----
 
@@ -666,10 +691,10 @@ mod tests {
         });
         // Unroutable base: any network call would error the launch — proving
         // the doctor gate fires first.
-        let mut deps = deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
         deps.settings.claude_path = "definitely-not-a-real-binary-exp".to_string();
 
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
                 assert_eq!(check.tool, crate::doctor::Tool::Claude);
                 assert_eq!(
@@ -689,8 +714,8 @@ mod tests {
             worktree: dir.0.join("wt"),
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees.clone());
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(reason @ DisabledReason::NoRepositoryLinked) => {
                 // §7.1: the exact helper copy for the disabled button.
                 assert_eq!(
@@ -714,8 +739,8 @@ mod tests {
             worktree: dir.0.join("wt"),
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees);
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        let deps = make_deps(&base, &dir.0, worktrees);
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::GithubAppMissing { full_name, message }) => {
                 assert_eq!(full_name, "acme/web");
                 assert!(message.contains("not installed"));
@@ -735,8 +760,8 @@ mod tests {
             worktree: dir.0.join("wt"),
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees);
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        let deps = make_deps(&base, &dir.0, worktrees);
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::TokenDenied { message }) => {
                 assert!(message.contains("not a member"));
             }
@@ -758,8 +783,8 @@ mod tests {
             worktree,
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees);
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        let deps = make_deps(&base, &dir.0, worktrees);
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
                 assert!(message.contains("upgrade"));
             }
@@ -767,13 +792,16 @@ mod tests {
         }
     }
 
-    // ---- the happy path through steps 1–6 ----
+    // ---- the issue happy path through steps 0–6 ----
 
     #[test]
-    fn prepare_launch_full_sequence() {
+    fn prepare_issue_full_sequence() {
         let dir = temp_dir("happy");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
+        // A stale PROMPT.md from an earlier launch must be REMOVED by the
+        // direct delivery (claude would read the outdated copy otherwise).
+        fs::write(worktree.join(PROMPT_FILE), "stale").unwrap();
         let base = canned_server(vec![
             (200, FOR_ISSUE_OK.to_string()),
             (200, TOKEN_OK.to_string()),
@@ -783,9 +811,9 @@ mod tests {
             worktree: worktree.clone(),
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees.clone());
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
 
-        let prepared = match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
         };
@@ -800,17 +828,20 @@ mod tests {
         assert_eq!(prepared.repository_id, "repo-1");
         assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
 
-        // Step 7's spawn spec: configured program, explicit --model, the skip
-        // flag, the seed line as the positional prompt (never typed into the
-        // PTY), worktree cwd. Model is ALWAYS passed (§7.7).
+        // Step 7's spawn spec: configured program, explicit --model, the
+        // native plan-mode permission args (issue default ON), the FULL
+        // rendered prompt as the positional (small prompt ⇒ direct delivery),
+        // worktree cwd.
         assert_eq!(prepared.spawn.program, "git"); // test claude_path
         assert_eq!(
             prepared.spawn.args,
             vec![
-                "--model",
-                "opus",
-                "--dangerously-skip-permissions",
-                "Read PROMPT.md in this directory, then follow it.",
+                "--model".to_string(),
+                "fable".to_string(),
+                "--permission-mode".to_string(),
+                "plan".to_string(),
+                "--allow-dangerously-skip-permissions".to_string(),
+                render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue.")),
             ]
         );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
@@ -831,24 +862,16 @@ mod tests {
         assert!(mcp.contains(&format!("{base}/api/mcp")));
         assert!(mcp.contains("Bearer expu_seeded"));
 
-        // Step 5: PROMPT.md templated from the sync-store seed.
-        let prompt = fs::read_to_string(worktree.join("PROMPT.md")).unwrap();
-        assert!(prompt.contains("**EXP-42: Fix login flicker**"));
-        assert!(prompt.contains("Steps in the issue."));
-        assert!(prompt.contains("`exponential_pr_open`"));
+        // Step 5: direct delivery — NO PROMPT.md on disk (the stale copy is
+        // gone, no fresh one written).
+        assert!(!worktree.join(PROMPT_FILE).exists());
     }
 
-    // ---- The experimental codex agent (opt-in via `codingAgent`) ----
-
-    /// The full prepare sequence under the codex opt-in: NO `.mcp.json`, NO
-    /// personal-key mint (the canned server holds exactly the three non-mint
-    /// responses — a mint request would consume `codingSessions.start`'s
-    /// canned reply and fail the launch), the centralized codex argv with the
-    /// seed line positional-last, the no-MCP prompt flavor, and a
-    /// `codex · <IDENTIFIER>` tab title.
+    /// Plan mode OFF rides the classic skip flag — the dialog's choice, not
+    /// a launcher hardcode.
     #[test]
-    fn codex_opt_in_skips_mcp_and_spawns_the_codex_argv() {
-        let dir = temp_dir("codex");
+    fn plan_mode_off_uses_the_skip_flag() {
+        let dir = temp_dir("skip-flag");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
         let base = canned_server(vec![
@@ -860,80 +883,187 @@ mod tests {
             worktree: worktree.clone(),
             seen: Default::default(),
         });
-        let mut deps = deps(&base, &dir.0, worktrees);
-        deps.settings.coding_agent = "codex".to_string();
-        deps.settings.codex_path = "git".to_string(); // doctor-green stand-in
-        // No stored key: with MCP skipped there must be NO runtime mint.
-        deps.token_store.delete("acct", SecretKind::PersonalApiKey);
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.options.plan_mode = false;
+        req.options.effort = "xhigh".to_string();
 
-        let prepared = match prepare_launch(&request("EXP-42"), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
-
-        assert_eq!(prepared.session_id, "sess-1");
-        assert_eq!(prepared.tab_title, "codex · EXP-42");
-        // The codex invocation: the ONE centralized flag constant, then the
-        // seed line as the positional prompt — never claude's flags.
-        assert_eq!(prepared.spawn.program, "git"); // test codex_path
-        let mut expected: Vec<String> = crate::agent::CODEX_CODING_ARGS
-            .iter()
-            .map(|a| a.to_string())
-            .collect();
-        expected.push(crate::prompt::SEED_LINE.to_string());
-        assert_eq!(prepared.spawn.args, expected);
-        assert!(prepared.spawn.env.is_empty());
-
-        // Step 4 skipped: no .mcp.json, no key minted into the store.
-        assert!(!worktree.join(".mcp.json").exists(), "codex must not get .mcp.json");
-        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
-
-        // Step 5: the no-MCP prompt flavor.
-        let prompt = fs::read_to_string(worktree.join("PROMPT.md")).unwrap();
-        assert!(prompt.contains("**EXP-42: Fix login flicker**"));
-        assert!(!prompt.contains("exponential_"), "prompt: {prompt}");
-    }
-
-    /// A stale/unknown `codingAgent` value falls back to claude byte-for-byte
-    /// — the experimental adapter can never engage by accident.
-    #[test]
-    fn unknown_agent_setting_falls_back_to_the_claude_invocation() {
-        let dir = temp_dir("agent-fallback");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let mut deps = deps(&base, &dir.0, worktrees);
-        deps.settings.coding_agent = "some-future-agent".to_string();
-
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
             Prepared::Ready(prepared) => {
-                assert_eq!(prepared.tab_title, "claude · EXP-42");
                 assert_eq!(
-                    prepared.spawn.args,
-                    vec![
-                        "--model",
-                        "opus",
-                        "--dangerously-skip-permissions",
-                        "Read PROMPT.md in this directory, then follow it.",
+                    prepared.spawn.args[..5],
+                    [
+                        "--model".to_string(),
+                        "fable".to_string(),
+                        "--effort".to_string(),
+                        "xhigh".to_string(),
+                        "--dangerously-skip-permissions".to_string(),
                     ]
                 );
-                assert!(worktree.join(".mcp.json").exists());
+                assert!(!prepared.spawn.args.iter().any(|arg| arg == "--permission-mode"));
             }
             other => panic!("expected Ready, got {other:?}"),
         }
     }
 
-    // ---- The hidden key auto-mints on the FIRST coding session ----
+    /// A >28KB rendered prompt cannot ride argv (Windows' 32,767-char command
+    /// line cap): it falls back to PROMPT.md + the seed-line positional.
+    #[test]
+    fn oversized_description_falls_back_to_prompt_md() {
+        let dir = temp_dir("oversized");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.issue_seed = Arc::new(|_| {
+            Some(IssueSeed {
+                title: "Huge".to_string(),
+                description: Some("x".repeat(PROMPT_ARGV_MAX_BYTES + 1)),
+            })
+        });
 
-    const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.spawn.args.last().map(String::as_str), Some(SEED_LINE));
+        let prompt = fs::read_to_string(worktree.join(PROMPT_FILE)).unwrap();
+        assert!(prompt.contains("**EXP-42: Huge**"));
+    }
+
+    // ---- the release happy path through the SAME prepare ----
+
+    #[test]
+    fn prepare_release_full_sequence() {
+        let dir = temp_dir("release-happy");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, TOKEN_OK.to_string()),
+            (200, START_RELEASE_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+
+        let prepared =
+            match prepare(&PrepareRequest::Release(release_request()), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
+            };
+
+        assert_eq!(prepared.session_id, "sess-rel");
+        assert_eq!(prepared.branch, "exp/rel-0-4-1dc5fb4a");
+        assert_eq!(prepared.tab_title, "claude · release 0.4");
+        // P9 refresher inputs ride along (repo id from the request's group,
+        // clone path under the repos root).
+        assert_eq!(prepared.repository_id, "repo-1");
+        assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
+
+        // Git prepared the INTEGRATION branch from the dialog-resolved repo
+        // (no repositories.forIssue call — the canned server held only token
+        // + start).
+        let seen = worktrees.seen.lock().unwrap();
+        assert_eq!(
+            seen.as_slice(),
+            &[(
+                "acme/web".to_string(),
+                "main".to_string(),
+                "exp/rel-0-4-1dc5fb4a".to_string()
+            )]
+        );
+
+        // .mcp.json (subagents inherit it).
+        let mcp = fs::read_to_string(worktree.join(".mcp.json")).unwrap();
+        assert!(mcp.contains("Bearer expu_seeded"));
+
+        // PROMPT.md is ALWAYS on disk for a release run (fix F5 — the
+        // --agents subagent prompts reference its sections), even though the
+        // prompt is small.
+        let prompt = fs::read_to_string(worktree.join(PROMPT_FILE)).unwrap();
+        assert!(prompt.contains("RELEASE ORCHESTRATOR"));
+        assert!(prompt.contains("### EXP-42: Fix login flicker"));
+        assert!(prompt.contains("### EXP-43: Add badge"));
+        assert!(prompt.contains("exp/rel-0-4-1dc5fb4a"));
+        assert!(prompt.contains("releaseId `1dc5fb4a-8923-471c-a940-53094cd33b76`"));
+        assert!(prompt.contains("repositoryId `repo-1`"));
+        // Issue worktrees ride the single-issue layout under the clone.
+        assert!(prompt.contains("web.worktrees"));
+
+        // The spawn args: ultracode = `--effort ultracode` (model untouched),
+        // --agents unconditional, plan_mode:false ⇒ the skip flag, seed line
+        // positional-last (file delivery).
+        assert_eq!(prepared.spawn.program, "git");
+        assert_eq!(
+            prepared.spawn.args[..4],
+            [
+                "--model".to_string(),
+                "opus".to_string(),
+                "--effort".to_string(),
+                "ultracode".to_string(),
+            ]
+        );
+        assert_eq!(prepared.spawn.args[4], "--agents");
+        let agents: serde_json::Value = serde_json::from_str(&prepared.spawn.args[5]).unwrap();
+        assert!(agents.get("exp-42").is_some(), "agents json: {agents}");
+        assert_eq!(agents["exp-42"]["model"], "opus");
+        assert_eq!(agents["exp-42"]["effort"], "high");
+        assert_eq!(prepared.spawn.args[6], "--dangerously-skip-permissions");
+        assert_eq!(prepared.spawn.args[7], SEED_LINE);
+        assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
+        // Subagents are always pre-defined via --agents.
+        assert!(prompt.contains("pre-defined subagent"));
+    }
+
+    #[test]
+    fn release_session_limit_and_token_denied_map_like_the_issue_path() {
+        let dir = temp_dir("release-limit");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, TOKEN_OK.to_string()),
+            (412, r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees { worktree, seen: Default::default() });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        match prepare(&PrepareRequest::Release(release_request()), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
+                assert!(message.contains("upgrade"));
+            }
+            other => panic!("expected SessionLimit, got {other:?}"),
+        }
+
+        let dir = temp_dir("release-denied");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![(
+            403,
+            r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree,
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        match prepare(&PrepareRequest::Release(release_request()), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::TokenDenied { message }) => {
+                assert!(message.contains("not a member"));
+            }
+            other => panic!("expected TokenDenied, got {other:?}"),
+        }
+    }
+
+    // ---- The hidden key auto-mints on the FIRST coding session ----
 
     /// §7.2 runtime path: an EMPTY token store at launch time silently mints
     /// via `users.mintPersonalApiKey` (request 3 — the key race lands between
@@ -955,12 +1085,12 @@ mod tests {
             worktree: worktree.clone(),
             seen: Default::default(),
         });
-        let deps = deps(&base, &dir.0, worktrees);
+        let deps = make_deps(&base, &dir.0, worktrees);
         // The launcher finds NO stored key — the runtime auto-mint must fire.
         deps.token_store.delete("acct", SecretKind::PersonalApiKey);
         assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
 
-        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
             other => panic!("expected Ready, got {other:?}"),
         }
@@ -1009,10 +1139,10 @@ mod tests {
                 worktree: worktree.clone(),
                 seen: Default::default(),
             });
-            let deps = deps(&base, &dir.0, worktrees);
+            let deps = make_deps(&base, &dir.0, worktrees);
             let mut req = request(identifier);
             req.issue_id = issue_id.to_string();
-            match prepare_launch(&req, &deps).unwrap() {
+            match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
                 Prepared::Ready(prepared) => prepared,
                 other => panic!("expected Ready, got {other:?}"),
             }
@@ -1054,15 +1184,15 @@ mod tests {
             worktree: worktree.clone(),
             seen: Default::default(),
         });
-        let mut deps = deps(&base, &dir.0, worktrees);
+        let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.issue_seed = Arc::new(|_| None);
 
-        match prepare_launch(&request("EXP-7"), &deps).unwrap() {
-            Prepared::Ready(_) => {}
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-7")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
             other => panic!("expected Ready, got {other:?}"),
-        }
-        let prompt = fs::read_to_string(worktree.join("PROMPT.md")).unwrap();
-        assert!(prompt.contains("**EXP-7: EXP-7**"));
-        assert!(prompt.contains("(no description)"));
+        };
+        let positional = prepared.spawn.args.last().unwrap();
+        assert!(positional.contains("**EXP-7: EXP-7**"));
+        assert!(positional.contains("(no description)"));
     }
 }

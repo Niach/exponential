@@ -417,7 +417,7 @@ pub fn init(cx: &mut App) {
         on_active_window(cx, move |window, cx| {
             let shared = crate::sidebar::rail_shared_for_window(window, cx);
             let git_bar = shared.read(cx).git_bar().clone();
-            git_bar.update(cx, |bar, cx| bar.checkout(branch, cx));
+            git_bar.update(cx, |bar, cx| bar.checkout(branch, window, cx));
         });
     });
     // The picker selects a project (scope) and brings up its issue list —

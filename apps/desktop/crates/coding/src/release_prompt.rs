@@ -28,11 +28,6 @@ pub struct ReleasePromptArgs<'a> {
     pub default_branch: &'a str,
     /// `exp/rel-<slug>` — already checked out in the session's worktree.
     pub integration_branch: &'a str,
-    /// false = one decomposition gate before anything runs.
-    pub autonomous: bool,
-    /// Whether per-issue subagents were pre-defined via `--agents` (true) or
-    /// the orchestrator must spawn generic subagents itself (old CLI).
-    pub agents_predefined: bool,
     pub issues: &'a [ReleasePromptIssue],
 }
 
@@ -59,30 +54,8 @@ pub fn render_release_prompt(args: &ReleasePromptArgs<'_>) -> String {
         repository_id,
         default_branch,
         integration_branch,
-        autonomous,
-        agents_predefined,
         issues,
     } = args;
-
-    let plan_gate = if *autonomous {
-        "Work autonomously — do not wait for approval between steps.".to_string()
-    } else {
-        "First, present your wave plan (which issues run in which wave, and why) and \
-WAIT for explicit go-ahead before pushing anything or spawning any subagent."
-            .to_string()
-    };
-
-    let spawn_line = if *agents_predefined {
-        "Spawn its pre-defined subagent (named in the issue list below) in the \
-background, in parallel with the wave's other subagents."
-            .to_string()
-    } else {
-        "Spawn a general-purpose subagent for it in the background (in parallel with \
-the wave's other subagents), instructing it verbatim: \"Follow the 'Per-subagent \
-contract' and your issue's section in PROMPT.md at the root of the main working \
-directory — you are the subagent for <IDENTIFIER>.\""
-            .to_string()
-    };
 
     let mut sections = String::new();
     for issue in *issues {
@@ -105,7 +78,7 @@ directory — you are the subagent for <IDENTIFIER>.\""
         "You are the RELEASE ORCHESTRATOR for **{release_name}** in this repository. \
 Implement each of the {issue_count} issues below by delegating ONE subagent per issue, run \
 independent issues in parallel, and integrate every result into the pushed release \
-integration branch `{integration_branch}`. {plan_gate}
+integration branch `{integration_branch}`.
 
 ## Ground rules
 
@@ -117,18 +90,19 @@ request with base `{integration_branch}`. Do NOT open per-issue PRs against \
 - Never force-push, never rebase a branch that has been pushed.
 - Do not use `gh` — GitHub writes go through the `exponential_*` MCP tools.
 
-## Step 1 — publish the integration branch
-
-You are already on `{integration_branch}` (cut from `origin/{default_branch}`). Push it \
-first so per-issue PRs can target it:
-
-    git push -u origin {integration_branch}
-
-## Step 2 — plan dependency waves
+## Step 1 — plan dependency waves
 
 Group the issues into waves: wave 1 holds issues independent of each other; a later wave \
 holds issues that build on an earlier wave's changes. When unsure, prefer parallel — the \
 incremental merges in step 3 surface conflicts safely.
+
+## Step 2 — publish the integration branch
+
+You are already on `{integration_branch}` (cut from `origin/{default_branch}`). After \
+planning is complete (and approved when running in plan mode), publish the integration \
+branch first so per-issue PRs can target it:
+
+    git push -u origin {integration_branch}
 
 ## Step 3 — run each wave
 
@@ -142,7 +116,8 @@ contains every previously merged issue). The worktree path is listed per issue b
    If the branch already exists from an earlier run, reuse it instead \
 (`git worktree add <worktree> <branch>`, or skip if the worktree exists) and merge \
 `{integration_branch}` into it before the subagent starts.
-2. {spawn_line}
+2. Spawn its pre-defined subagent (named in the issue list below) in the background, \
+in parallel with the wave's other subagents.
 
 As EACH subagent finishes (don't idle while others still run):
 
@@ -218,8 +193,6 @@ mod tests {
             repository_id: "repo-uuid-1",
             default_branch: "main",
             integration_branch: "exp/rel-0-4-1dc5fb4a",
-            autonomous: true,
-            agents_predefined: true,
             issues,
         }
     }
@@ -249,31 +222,32 @@ mod tests {
         assert!(prompt.contains("Body of EXP-43"));
     }
 
+    /// Native plan mode owns the approval gate now: the prompt carries no
+    /// gate text, and planning (Step 1) precedes the integration-branch push
+    /// (Step 2) — in plan mode, pushes are blocked pre-approval, so the push
+    /// must not come first (fix F8).
     #[test]
-    fn autonomous_toggle_swaps_the_gate_line() {
+    fn wave_plan_step_precedes_the_push_and_no_gate_text_remains() {
         let issues = [issue("EXP-1", "T")];
-        let auto = render_release_prompt(&args(&issues));
-        assert!(auto.contains("Work autonomously"));
-        assert!(!auto.contains("WAIT for explicit go-ahead"));
-
-        let mut gated_args = args(&issues);
-        gated_args.autonomous = false;
-        let gated = render_release_prompt(&gated_args);
-        assert!(gated.contains("WAIT for explicit go-ahead"));
-        assert!(gated.contains("wave plan"));
-        assert!(!gated.contains("Work autonomously"));
-    }
-
-    #[test]
-    fn agents_fallback_spawns_generic_subagents_from_the_prompt() {
-        let issues = [issue("EXP-1", "T")];
-        let mut fallback_args = args(&issues);
-        fallback_args.agents_predefined = false;
-        let prompt = render_release_prompt(&fallback_args);
-        assert!(prompt.contains("general-purpose subagent"));
-        assert!(prompt.contains("Per-subagent contract"));
-        // The predefined-agent wording must be gone.
-        assert!(!prompt.contains("pre-defined subagent"));
+        let prompt = render_release_prompt(&args(&issues));
+        let plan_step = prompt
+            .find("## Step 1 — plan dependency waves")
+            .expect("wave-plan step missing");
+        let push_step = prompt
+            .find("## Step 2 — publish the integration branch")
+            .expect("publish step missing");
+        assert!(plan_step < push_step, "planning must precede the push");
+        assert!(
+            prompt.find("git push -u origin").unwrap() > plan_step,
+            "the push command must sit after the wave-plan step"
+        );
+        assert!(prompt.contains(
+            "After planning is complete (and approved when running in plan mode), \
+publish the integration branch first so per-issue PRs can target it"
+        ));
+        // No prompt-text gate in either direction.
+        assert!(!prompt.contains("WAIT for explicit go-ahead"));
+        assert!(!prompt.contains("Work autonomously"));
     }
 
     #[test]

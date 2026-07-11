@@ -323,6 +323,9 @@ pub(crate) fn run_git(
     let mut command = Command::new("git");
     command.args(args);
     command.env("GIT_TERMINAL_PROMPT", "0");
+    // C-locale messages: `scm::checkout_blocked_by_local_changes` classifies
+    // git errors by their English text — localized git would break it.
+    command.env("LC_ALL", "C");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }

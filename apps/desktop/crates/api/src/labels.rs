@@ -9,6 +9,8 @@
 //! - `issueLabels.add({issueId, labelId})` → `{txId}` (idempotent —
 //!   `onConflictDoNothing`)
 //! - `issueLabels.remove({issueId, labelId})` → `{txId}`
+//! - `issueLabels.bulkAdd/bulkRemove({labelId, issueIds[1..200]})` → `{txId}`
+//!   — ONE label across many issues (the multi-select action bar)
 //!
 //! Reads come from the synced `labels`/`issue_labels` collections, never a
 //! tRPC list call (§4.1).
@@ -148,6 +150,45 @@ struct IssueLabelInput<'a> {
     label_id: &'a str,
 }
 
+/// `issueLabels.bulkAdd` — one label onto many issues (idempotent; already-
+/// labelled rows are skipped server-side). Callers chunk at 200 ids and call
+/// sequentially. Blocking; background executor only (§3.5).
+pub fn issue_labels_bulk_add(
+    trpc: &TrpcClient,
+    label_id: &str,
+    issue_ids: &[String],
+) -> Result<TxOutput, ApiError> {
+    trpc.mutation(
+        "issueLabels.bulkAdd",
+        &IssueLabelBulkInput {
+            label_id,
+            issue_ids,
+        },
+    )
+}
+
+/// `issueLabels.bulkRemove` — one label off many issues (same chunk contract).
+pub fn issue_labels_bulk_remove(
+    trpc: &TrpcClient,
+    label_id: &str,
+    issue_ids: &[String],
+) -> Result<TxOutput, ApiError> {
+    trpc.mutation(
+        "issueLabels.bulkRemove",
+        &IssueLabelBulkInput {
+            label_id,
+            issue_ids,
+        },
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueLabelBulkInput<'a> {
+    label_id: &'a str,
+    issue_ids: &'a [String],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +227,26 @@ mod tests {
         let _ = issue_labels_remove(&client(&base), "i-1", "l-1").unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issueLabels.remove HTTP/1.1"));
+    }
+
+    #[test]
+    fn issue_label_bulk_toggles_post_one_label_many_issues() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":10}}}"#);
+        let out = issue_labels_bulk_add(
+            &client(&base),
+            "l-1",
+            &["i-1".to_string(), "i-2".to_string()],
+        )
+        .unwrap();
+        assert_eq!(out.tx_id, Some(10));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issueLabels.bulkAdd HTTP/1.1"));
+        assert!(request.ends_with(r#"{"labelId":"l-1","issueIds":["i-1","i-2"]}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":11}}}"#);
+        let _ = issue_labels_bulk_remove(&client(&base), "l-1", &["i-1".to_string()]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issueLabels.bulkRemove HTTP/1.1"));
+        assert!(request.ends_with(r#"{"labelId":"l-1","issueIds":["i-1"]}"#));
     }
 }

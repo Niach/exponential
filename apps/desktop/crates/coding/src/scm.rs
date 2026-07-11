@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::git_worktree::{self, run_git, GitError, TokenUrl};
+use crate::git_worktree::{run_git, GitError};
 
 // ---------------------------------------------------------------------------
 // Working-tree status
@@ -47,12 +47,14 @@ pub struct FileChange {
 }
 
 /// The full `git status --porcelain=v2 --branch` snapshot: the changes list
-/// plus branch + ahead/behind (the git bar's counts, v4 §4.3). Ahead/behind
-/// come from the `# branch.ab` header — no extra network (fetch happens
-/// separately, v4 §4.1).
+/// plus branch + upstream + ahead/behind (the git bar's counts, v4 §4.3).
+/// Ahead/behind come from the `# branch.ab` header — no extra network (fetch
+/// happens separately, v4 §4.1). `upstream` is the `# branch.upstream` ref
+/// (`None` for an unpublished branch — the git bar's "Publish" signal).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusSummary {
     pub branch: String,
+    pub upstream: Option<String>,
     pub ahead: u32,
     pub behind: u32,
     pub changes: Vec<FileChange>,
@@ -158,14 +160,10 @@ pub fn status(repo: &Path) -> Result<StatusSummary, GitError> {
 }
 
 /// `git log --format=<NUL-separated>` paged (`skip`/`limit`, v4 §4.4 "200 at a
-/// time, Load more"). Records are NUL-separated (`-z`); fields inside a record
-/// are unit-separated (`%x1f`) so a subject can hold any punctuation.
-pub fn log(repo: &Path, skip: usize, limit: usize) -> Result<Vec<CommitInfo>, GitError> {
-    log_branch(repo, None, skip, limit)
-}
-
-/// [`log`] for an arbitrary rev — the Source Control sidebar's "view another
-/// branch's history without checking it out" path. `None` = HEAD.
+/// time, Load more") for an arbitrary rev — `None` = HEAD; a branch name is
+/// the Source Control sidebar's "view another branch's history without
+/// checking it out" path. Records are NUL-separated (`-z`); fields inside a
+/// record are unit-separated (`%x1f`) so a subject can hold any punctuation.
 pub fn log_branch(
     repo: &Path,
     branch: Option<&str>,
@@ -238,48 +236,104 @@ pub fn commit(repo: &Path, message: &str) -> Result<(), GitError> {
     Ok(())
 }
 
-/// `git fetch origin`. Re-sets the token remote first (§4.1: the worktree
-/// outlives the ~55-min token, so origin's embedded token is dead on
-/// relaunch). Ahead/behind never touch the network — [`ahead_behind`] reads
-/// the freshly-fetched `origin/<branch>` locally.
-pub fn fetch(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    git_worktree::set_token_remote(repo, url)?;
-    fetch_from_origin(repo, url)
+/// Whether the working tree has ANY change (staged, unstaged, or untracked):
+/// `git status --porcelain` non-empty.
+pub fn is_dirty(repo: &Path) -> Result<bool, GitError> {
+    let out = run_git(Some(repo), &["status", "--porcelain"], None, "git status --porcelain")?;
+    Ok(!out.trim().is_empty())
 }
 
-/// Pull = re-set token remote + `git pull --rebase --autostash` (an explicit
-/// user `pull.rebase=false` is respected → plain merge pull). Conflicts never
-/// auto-abort: `git pull` leaves the markers in place and the caller enters
-/// conflict mode (v4 §4.1/§4.4) — surfaced here as an [`Err`] whose state
-/// [`detect_conflict`] then reports.
-pub fn pull(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    git_worktree::set_token_remote(repo, url)?;
-    pull_from_origin(repo, url)
+// ---------------------------------------------------------------------------
+// Stashes (the dirty-branch-switch escape hatch — git bar D-dialog + Source
+// Control restore strip)
+// ---------------------------------------------------------------------------
+
+/// One stash entry (`git stash list`). `message` is git's reflog subject —
+/// for an `-m` stash that is `On <branch>: <message>` (see
+/// [`stash_switch_branch`] for the exp-switch tag extraction).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StashEntry {
+    pub index: usize,
+    pub message: String,
 }
 
-/// Push = re-set token remote → fetch → auto-rebase if behind → `git push`
-/// (v4 §4.1). A rebase that hits conflicts leaves the markers in place and
-/// returns [`Err`] (conflict mode), never a silent abort.
-pub fn push(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    git_worktree::set_token_remote(repo, url)?;
-    push_to_origin(repo, url)
+/// The dirty-switch stash tag: `exp-switch: <branch>` (the branch the changes
+/// were stashed FROM). Consumers filter on this so user-made stashes are
+/// never touched.
+pub fn stash_switch_message(branch: &str) -> String {
+    format!("exp-switch: {branch}")
 }
 
-/// Local ahead/behind of `<branch>` vs `origin/<branch>` via
-/// `git rev-list --left-right --count <branch>...origin/<branch>` (§4.1: no
-/// network — call [`fetch`] first for fresh counts). Returns `(ahead, behind)`.
-pub fn ahead_behind(repo: &Path, branch: &str) -> Result<(u32, u32), GitError> {
-    let spec = format!("{branch}...origin/{branch}");
-    let out = run_git(
+/// Extract the branch out of an exp-switch stash subject (`On main:
+/// exp-switch: feature/x` → `feature/x`). `None` for any stash that was not
+/// made by the dirty-switch dialog.
+pub fn stash_switch_branch(message: &str) -> Option<&str> {
+    let start = message.find("exp-switch: ")?;
+    Some(message[start + "exp-switch: ".len()..].trim())
+}
+
+/// `git stash push --include-untracked -m <message>` — used by the dirty
+/// branch switch with a [`stash_switch_message`] tag.
+pub fn stash_push(repo: &Path, message: &str) -> Result<(), GitError> {
+    run_git(
         Some(repo),
-        &["rev-list", "--left-right", "--count", &spec],
+        &["stash", "push", "--include-untracked", "-m", message],
         None,
-        "git rev-list --left-right --count",
+        "git stash push",
     )?;
-    let mut it = out.split_whitespace();
-    let ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    Ok((ahead, behind))
+    Ok(())
+}
+
+/// `git stash list --format=%gd%x1f%gs` → parsed entries, newest first.
+pub fn stash_list(repo: &Path) -> Result<Vec<StashEntry>, GitError> {
+    let raw = run_git(
+        Some(repo),
+        &["stash", "list", "--format=%gd%x1f%gs"],
+        None,
+        "git stash list",
+    )?;
+    Ok(parse_stash_list(&raw))
+}
+
+/// `git stash pop stash@{N}` — restore + drop (conflicts leave the stash in
+/// place, git's own behavior).
+pub fn stash_pop(repo: &Path, index: usize) -> Result<(), GitError> {
+    let spec = format!("stash@{{{index}}}");
+    run_git(Some(repo), &["stash", "pop", &spec], None, "git stash pop")?;
+    Ok(())
+}
+
+/// `git stash drop stash@{N}` — discard without applying.
+pub fn stash_drop(repo: &Path, index: usize) -> Result<(), GitError> {
+    let spec = format!("stash@{{{index}}}");
+    run_git(Some(repo), &["stash", "drop", &spec], None, "git stash drop")?;
+    Ok(())
+}
+
+/// Parse `git stash list --format=%gd%x1f%gs` output (`stash@{N}` + subject).
+pub fn parse_stash_list(raw: &str) -> Vec<StashEntry> {
+    raw.lines()
+        .filter_map(|line| {
+            let (selector, message) = line.split_once('\x1f')?;
+            let index = selector
+                .trim()
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse()
+                .ok()?;
+            Some(StashEntry { index, message: message.trim().to_string() })
+        })
+        .collect()
+}
+
+/// True when a checkout failure is git's "local changes would be overwritten"
+/// refusal (the dirty-switch-dialog trigger). Pure classification of the
+/// C-locale error text — the shared runner forces `LC_ALL=C`, so the English
+/// phrasing is reliable. Anything unmatched keeps the fail-with-git-message
+/// path (never data loss).
+pub fn checkout_blocked_by_local_changes(detail: &str) -> bool {
+    detail.contains("would be overwritten by checkout")
+        || detail.contains("commit your changes or stash them")
 }
 
 /// Detect a paused rebase/merge from disk (`<git-dir>/rebase-merge`,
@@ -347,57 +401,68 @@ pub fn branches(repo: &Path) -> Result<Vec<BranchInfo>, GitError> {
 }
 
 // ---------------------------------------------------------------------------
-// Internal git plumbing (testable against local remotes without the token
-// reset the public network wrappers layer on top).
+// Branch diff + worktree removal (moved from the issue Changes tab — the
+// crate-canonical local-diff / clean-up primitives)
 // ---------------------------------------------------------------------------
 
-fn fetch_from_origin(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    run_git(Some(repo), &["fetch", "origin"], Some(url), "git fetch origin")?;
-    Ok(())
-}
-
-fn pull_from_origin(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    let args: &[&str] = if pull_rebase_disabled(repo) {
-        &["pull", "--autostash"]
-    } else {
-        &["pull", "--rebase", "--autostash"]
+/// The live local diff of a worktree vs the default branch (v4 §4.8 tier 1):
+/// `git diff <merge-base>` from the merge base of `origin/<default>` (or the
+/// local `<default>`) and `HEAD`, capturing committed *and* uncommitted
+/// tracked changes. Falls back to `git diff HEAD` when no base ref is present
+/// (a freshly cut branch with no fetched upstream).
+pub fn branch_diff(worktree: &Path, default_branch: &str) -> Result<Vec<DiffFile>, GitError> {
+    let base = merge_base(worktree, &format!("origin/{default_branch}"))
+        .or_else(|| merge_base(worktree, default_branch));
+    let raw = match base {
+        Some(base) => run_git(Some(worktree), &["diff", &base], None, "git diff")?,
+        None => run_git(Some(worktree), &["diff", "HEAD"], None, "git diff HEAD")?,
     };
-    run_git(Some(repo), args, Some(url), "git pull")?;
-    Ok(())
+    Ok(parse_unified_diff(&raw))
 }
 
-fn push_to_origin(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    fetch_from_origin(repo, url)?;
-    let branch = current_branch(repo)?;
-    // §4.1: rebase onto the freshly-fetched upstream before pushing, so a
-    // non-fast-forward push turns into a linear history instead of a reject.
-    let behind = ahead_behind(repo, &branch).map(|(_, b)| b).unwrap_or(0);
-    if behind > 0 {
-        run_git(
-            Some(repo),
-            &["rebase", "--autostash", &format!("origin/{branch}")],
-            Some(url),
-            "git rebase origin",
-        )?;
+/// `git merge-base <refspec> HEAD` → the base commit, or `None` when the ref
+/// is absent (git exits non-zero).
+fn merge_base(worktree: &Path, refspec: &str) -> Option<String> {
+    run_git(Some(worktree), &["merge-base", refspec, "HEAD"], None, "git merge-base")
+        .ok()
+        .map(|out| out.trim().to_string())
+        .filter(|out| !out.is_empty())
+}
+
+/// Clean up an issue worktree (v4 §4.8): refuse a dirty tree, else
+/// `git worktree remove` + prune + local branch delete (best-effort branch
+/// delete — a checked-out or missing branch is not fatal).
+pub fn remove_worktree(clone: &Path, worktree: &Path, branch: &str) -> Result<(), GitError> {
+    if is_dirty(worktree).unwrap_or(false) {
+        return Err(GitError {
+            op: "clean up worktree".to_string(),
+            detail: "Worktree has uncommitted changes — commit or discard them before cleaning up."
+                .to_string(),
+        });
     }
-    run_git(Some(repo), &["push", "origin", &branch], Some(url), "git push origin")?;
+    let worktree_str = worktree.to_string_lossy().into_owned();
+    run_git(Some(clone), &["worktree", "remove", &worktree_str], None, "git worktree remove")?;
+    let _ = run_git(Some(clone), &["worktree", "prune"], None, "git worktree prune");
+    let _ = run_git(Some(clone), &["branch", "-D", branch], None, "git branch -D");
     Ok(())
 }
 
-/// The trunk's checked-out branch (`git rev-parse --abbrev-ref HEAD`).
-fn current_branch(repo: &Path) -> Result<String, GitError> {
-    Ok(run_git(Some(repo), &["rev-parse", "--abbrev-ref", "HEAD"], None, "git rev-parse HEAD")?
-        .trim()
-        .to_string())
+// ---------------------------------------------------------------------------
+// Config (the one-time identity prompt + any future key)
+// ---------------------------------------------------------------------------
+
+/// `git config --get <key>` in ANY scope, empty string when unset/unreadable.
+pub fn config_get(repo: &Path, key: &str) -> String {
+    run_git(Some(repo), &["config", "--get", key], None, "git config --get")
+        .map(|out| out.trim().to_string())
+        .unwrap_or_default()
 }
 
-/// True only when the user's git config *explicitly* sets `pull.rebase=false`
-/// (§4.1: then a pull is a merge, not a rebase). Unset ⇒ rebase (our default).
-fn pull_rebase_disabled(repo: &Path) -> bool {
-    matches!(
-        run_git(Some(repo), &["config", "--bool", "--get", "pull.rebase"], None, "git config pull.rebase"),
-        Ok(v) if v.trim() == "false"
-    )
+/// Write `<key> = <value>` to the **repo-local** config (`git config` with no
+/// scope flag targets `.git/config`).
+pub fn config_set_local(repo: &Path, key: &str, value: &str) -> Result<(), GitError> {
+    run_git(Some(repo), &["config", key, value], None, "git config")?;
+    Ok(())
 }
 
 /// Unmerged (conflicted) repo-relative paths: `git diff --name-only
@@ -453,6 +518,7 @@ pub fn parse_branches(raw: &str) -> Vec<BranchInfo> {
 /// all the trunk UI feeds it.
 pub fn parse_status(raw: &str) -> StatusSummary {
     let mut branch = String::new();
+    let mut upstream = None;
     let mut ahead = 0u32;
     let mut behind = 0u32;
     let mut changes = Vec::new();
@@ -465,6 +531,8 @@ pub fn parse_status(raw: &str) -> StatusSummary {
         if let Some(rest) = line.strip_prefix("# ") {
             if let Some(head) = rest.strip_prefix("branch.head ") {
                 branch = head.trim().to_string();
+            } else if let Some(up) = rest.strip_prefix("branch.upstream ") {
+                upstream = Some(up.trim().to_string());
             } else if let Some(ab) = rest.strip_prefix("branch.ab ") {
                 for tok in ab.split_whitespace() {
                     if let Some(a) = tok.strip_prefix('+') {
@@ -509,7 +577,7 @@ pub fn parse_status(raw: &str) -> StatusSummary {
         // '!' (ignored) lines never appear without --ignored; skip anything else.
     }
 
-    StatusSummary { branch, ahead, behind, changes }
+    StatusSummary { branch, upstream, ahead, behind, changes }
 }
 
 /// Emit staged/unstaged [`FileChange`]s from a porcelain-v2 `XY` code pair.
@@ -548,7 +616,7 @@ fn status_from_code(code: char) -> FileStatus {
 /// Parse NUL-separated `git log -z --format=%H%x1f%s%x1f%an%x1f%cr` output.
 pub fn parse_log(raw: &str) -> Vec<CommitInfo> {
     raw.split('\0')
-        .map(|record| record.trim_start_matches(|c: char| c == '\n' || c == '\r'))
+        .map(|record| record.trim_start_matches(['\n', '\r']))
         .filter(|record| !record.is_empty())
         .filter_map(|record| {
             let mut fields = record.splitn(4, '\x1f');
@@ -808,10 +876,6 @@ mod tests {
         git(path, &["commit", "--quiet", "-m", msg]);
     }
 
-    fn dummy_url() -> TokenUrl {
-        TokenUrl::new("acme/web", "ghs_dead")
-    }
-
     fn find<'a>(s: &'a StatusSummary, path: &str, staged: bool) -> &'a FileChange {
         s.changes
             .iter()
@@ -837,6 +901,7 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
 ";
         let s = parse_status(raw);
         assert_eq!(s.branch, "feature/x");
+        assert_eq!(s.upstream.as_deref(), Some("origin/feature/x"));
         assert_eq!(s.ahead, 3);
         assert_eq!(s.behind, 2);
 
@@ -867,6 +932,7 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
 
         let s = status(r).unwrap();
         assert_eq!(s.branch, "main");
+        assert_eq!(s.upstream, None); // no remote → unpublished
         assert_eq!((s.ahead, s.behind), (0, 0));
         assert_eq!(find(&s, "tracked.txt", false).status, FileStatus::Modified);
         assert_eq!(find(&s, "staged.txt", true).status, FileStatus::Added);
@@ -945,7 +1011,7 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
             write(r, "f.txt", msg);
             commit_all(r, msg);
         }
-        let all = log(r, 0, 10).unwrap();
+        let all = log_branch(r, None, 0, 10).unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].subject, "third"); // newest first
         assert_eq!(all[2].subject, "first");
@@ -953,7 +1019,7 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
         assert!(!all[0].relative_time.is_empty());
 
         // Paging: skip the newest, take one ⇒ the second-newest.
-        let page = log(r, 1, 1).unwrap();
+        let page = log_branch(r, None, 1, 1).unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].subject, "second");
     }
@@ -1177,7 +1243,7 @@ new file mode 100644
 
         stage(r, "f.txt").unwrap();
         commit(r, "second").unwrap();
-        let l = log(r, 0, 10).unwrap();
+        let l = log_branch(r, None, 0, 10).unwrap();
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].subject, "second");
         assert!(status(r).unwrap().changes.is_empty());
@@ -1248,141 +1314,187 @@ new file mode 100644
         assert!(detect_conflict(r).is_none());
     }
 
-    // ---- helpers backing the network wrappers ----
+    // ---- dirty check ----
 
     #[test]
-    fn current_branch_and_pull_rebase_disabled_read_config() {
-        let d = temp_dir("cfg");
+    fn is_dirty_sees_tracked_and_untracked_changes() {
+        let d = temp_dir("dirty");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "init");
+        assert!(!is_dirty(r).unwrap());
+
+        write(r, "untracked.txt", "u\n");
+        assert!(is_dirty(r).unwrap());
+        fs::remove_file(r.join("untracked.txt")).unwrap();
+
+        write(r, "f.txt", "two\n");
+        assert!(is_dirty(r).unwrap());
+    }
+
+    // ---- stashes ----
+
+    #[test]
+    fn parse_stash_list_reads_selector_and_subject() {
+        let raw = "stash@{0}\x1fOn main: exp-switch: main\nstash@{1}\x1fWIP on feature/x: abc123 subject\n";
+        let entries = parse_stash_list(raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[0].message, "On main: exp-switch: main");
+        assert_eq!(entries[1].index, 1);
+        assert_eq!(entries[1].message, "WIP on feature/x: abc123 subject");
+    }
+
+    #[test]
+    fn stash_switch_branch_extracts_only_the_exp_switch_tag() {
+        assert_eq!(
+            stash_switch_branch("On main: exp-switch: feature/x"),
+            Some("feature/x")
+        );
+        assert_eq!(stash_switch_branch(&stash_switch_message("main")), Some("main"));
+        // User-made stashes never match.
+        assert_eq!(stash_switch_branch("On main: my own stash"), None);
+        assert_eq!(stash_switch_branch("WIP on main: abc123 subject"), None);
+    }
+
+    #[test]
+    fn stash_push_list_pop_round_trip_including_untracked() {
+        let d = temp_dir("stash");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "init");
+
+        write(r, "f.txt", "dirty\n");
+        write(r, "new.txt", "untracked\n");
+        stash_push(r, &stash_switch_message("main")).unwrap();
+        assert!(!is_dirty(r).unwrap());
+        assert!(!r.join("new.txt").exists());
+
+        let stashes = stash_list(r).unwrap();
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].index, 0);
+        assert_eq!(stash_switch_branch(&stashes[0].message), Some("main"));
+
+        stash_pop(r, 0).unwrap();
+        assert_eq!(fs::read_to_string(r.join("f.txt")).unwrap(), "dirty\n");
+        assert_eq!(fs::read_to_string(r.join("new.txt")).unwrap(), "untracked\n");
+        assert!(stash_list(r).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stash_drop_discards_without_applying() {
+        let d = temp_dir("stashdrop");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "init");
+        write(r, "f.txt", "dirty\n");
+        stash_push(r, &stash_switch_message("main")).unwrap();
+
+        stash_drop(r, 0).unwrap();
+        assert!(stash_list(r).unwrap().is_empty());
+        assert_eq!(fs::read_to_string(r.join("f.txt")).unwrap(), "one\n");
+    }
+
+    // ---- checkout-refusal classifier ----
+
+    #[test]
+    fn checkout_blocked_classifier_matches_gits_clobber_refusals() {
+        // C-locale fixtures (the runner forces LC_ALL=C).
+        assert!(checkout_blocked_by_local_changes(
+            "error: Your local changes to the following files would be overwritten by checkout:\n\tf.txt\nPlease commit your changes or stash them before you switch branches.\nAborting"
+        ));
+        assert!(checkout_blocked_by_local_changes(
+            "error: The following untracked working tree files would be overwritten by checkout:\n\tnew.txt\nPlease move or remove them before you switch branches.\nAborting"
+        ));
+        // Anything else keeps the plain fail-with-message path.
+        assert!(!checkout_blocked_by_local_changes(
+            "error: pathspec 'nope' did not match any file(s) known to git"
+        ));
+        assert!(!checkout_blocked_by_local_changes("fatal: not a git repository"));
+    }
+
+    #[test]
+    fn checkout_refusal_from_a_real_clobber_is_classified() {
+        let d = temp_dir("clobber");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "main\n");
+        commit_all(r, "init");
+        git(r, &["checkout", "--quiet", "-b", "feature"]);
+        write(r, "f.txt", "feature\n");
+        commit_all(r, "feature edit");
+        git(r, &["checkout", "--quiet", "main"]);
+        // Local edit that the switch to `feature` would clobber.
+        write(r, "f.txt", "local dirt\n");
+
+        let err = checkout(r, "feature").unwrap_err();
+        assert!(
+            checkout_blocked_by_local_changes(&err.detail),
+            "unclassified: {}",
+            err.detail
+        );
+    }
+
+    // ---- branch_diff (moved from the issue Changes tab) ----
+
+    #[test]
+    fn branch_diff_spans_committed_and_uncommitted_changes() {
+        let d = temp_dir("branchdiff");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "base.txt", "base\n");
+        commit_all(r, "init");
+
+        git(r, &["checkout", "--quiet", "-b", "exp/EXP-1"]);
+        write(r, "committed.txt", "one\n");
+        commit_all(r, "committed change");
+        write(r, "base.txt", "uncommitted edit\n");
+
+        // No origin/main here → falls back to the local `main` merge base.
+        let files = branch_diff(r, "main").unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"committed.txt"), "{paths:?}");
+        assert!(paths.contains(&"base.txt"), "{paths:?}");
+    }
+
+    // ---- remove_worktree (moved from the issue Changes tab) ----
+
+    #[test]
+    fn remove_worktree_refuses_dirty_then_removes_clean() {
+        let d = temp_dir("rmworktree");
         let r = &d.0;
         init_repo(r);
         write(r, "f.txt", "x\n");
         commit_all(r, "init");
 
-        assert_eq!(current_branch(r).unwrap(), "main");
-        // Unset ⇒ rebase is our default (not disabled).
-        assert!(!pull_rebase_disabled(r));
-        git(r, &["config", "pull.rebase", "false"]);
-        assert!(pull_rebase_disabled(r));
-        git(r, &["config", "pull.rebase", "true"]);
-        assert!(!pull_rebase_disabled(r));
+        let worktree = d.0.join("wt-exp-EXP-9");
+        git(r, &["worktree", "add", "-b", "exp/EXP-9", worktree.to_str().unwrap()]);
+
+        write(&worktree, "dirt.txt", "dirty\n");
+        let err = remove_worktree(r, &worktree, "exp/EXP-9").unwrap_err();
+        assert!(err.detail.contains("uncommitted changes"), "{err}");
+        assert!(worktree.exists());
+
+        fs::remove_file(worktree.join("dirt.txt")).unwrap();
+        remove_worktree(r, &worktree, "exp/EXP-9").unwrap();
+        assert!(!worktree.exists());
+        // The local branch went with it.
+        let branches = branches(r).unwrap();
+        assert!(branches.iter().all(|b| b.name != "exp/EXP-9"), "{branches:?}");
     }
 
-    // ---- fetch / pull / push against a local file:// origin (internal path,
-    // bypassing the token-remote reset the public wrappers add). ----
-
-    /// A bare origin with one `main` commit, a `work` clone wired to it, and a
-    /// `consumer` clone used to advance the origin out-of-band. Returns
-    /// (`work`, `consumer`, `bare`).
-    fn seed_remote(d: &Path) -> (PathBuf, PathBuf, PathBuf) {
-        let bare = d.join("origin.git");
-        git(d, &["init", "--quiet", "--bare", "-b", "main", bare.to_str().unwrap()]);
-
-        let work = d.join("work");
-        init_repo(&work);
-        write(&work, "base.txt", "base\n");
-        commit_all(&work, "base");
-        git(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
-        git(&work, &["push", "--quiet", "-u", "origin", "main"]);
-
-        let consumer = d.join("consumer");
-        git(d, &["clone", "--quiet", bare.to_str().unwrap(), consumer.to_str().unwrap()]);
-        git(&consumer, &["config", "user.email", "c@example.com"]);
-        git(&consumer, &["config", "user.name", "c"]);
-
-        (work, consumer, bare)
-    }
+    // ---- config helpers ----
 
     #[test]
-    fn ahead_behind_reads_local_tracking_after_fetch() {
-        let d = temp_dir("ab");
-        let (work, consumer, _bare) = seed_remote(&d.0);
-
-        assert_eq!(ahead_behind(&work, "main").unwrap(), (0, 0));
-
-        // Advance origin via the consumer.
-        write(&consumer, "c.txt", "c\n");
-        commit_all(&consumer, "consumer commit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-
-        // No fetch yet ⇒ still even; after fetch ⇒ behind 1.
-        assert_eq!(ahead_behind(&work, "main").unwrap(), (0, 0));
-        fetch_from_origin(&work, &dummy_url()).unwrap();
-        assert_eq!(ahead_behind(&work, "main").unwrap(), (0, 1));
-    }
-
-    #[test]
-    fn pull_from_origin_rebases_clean() {
-        let d = temp_dir("pull");
-        let (work, consumer, _bare) = seed_remote(&d.0);
-        write(&consumer, "c.txt", "c\n");
-        commit_all(&consumer, "consumer commit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-
-        pull_from_origin(&work, &dummy_url()).unwrap();
-        assert!(work.join("c.txt").exists());
-        assert_eq!(ahead_behind(&work, "main").unwrap(), (0, 0));
-    }
-
-    #[test]
-    fn pull_from_origin_conflict_leaves_markers_for_detect() {
-        let d = temp_dir("pullconflict");
-        let (work, consumer, _bare) = seed_remote(&d.0);
-
-        // Both edit the same file ⇒ rebase conflict on pull.
-        write(&consumer, "base.txt", "consumer\n");
-        commit_all(&consumer, "consumer edit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-        write(&work, "base.txt", "work\n");
-        commit_all(&work, "work edit");
-
-        let err = pull_from_origin(&work, &dummy_url()).unwrap_err();
-        assert!(!format!("{err}").contains("ghs_dead"), "token leaked: {err}");
-
-        let conflict = detect_conflict(&work).expect("pull rebase should be paused");
-        assert_eq!(conflict.kind, ConflictKind::Rebase);
-        assert!(conflict.files.contains(&"base.txt".to_string()));
-
-        abort_conflict(&work, ConflictKind::Rebase).unwrap();
-        assert!(detect_conflict(&work).is_none());
-    }
-
-    #[test]
-    fn push_to_origin_pushes_a_fast_forward() {
-        let d = temp_dir("push");
-        let (work, _consumer, bare) = seed_remote(&d.0);
-        write(&work, "w.txt", "w\n");
-        commit_all(&work, "work commit");
-
-        push_to_origin(&work, &dummy_url()).unwrap();
-
-        // A fresh clone of the bare must see the pushed commit.
-        let verify = d.0.join("verify");
-        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
-        assert!(verify.join("w.txt").exists());
-    }
-
-    #[test]
-    fn push_to_origin_auto_rebases_when_behind() {
-        let d = temp_dir("pushrebase");
-        let (work, consumer, bare) = seed_remote(&d.0);
-
-        // Consumer advances origin (non-conflicting file).
-        write(&consumer, "c.txt", "c\n");
-        commit_all(&consumer, "consumer commit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-
-        // Work commits on the stale base ⇒ diverged; push must fetch, rebase,
-        // then push.
-        write(&work, "w.txt", "w\n");
-        commit_all(&work, "work commit");
-
-        push_to_origin(&work, &dummy_url()).unwrap();
-
-        let verify = d.0.join("verify");
-        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
-        assert!(verify.join("w.txt").exists());
-        assert!(verify.join("c.txt").exists());
-        // Linear (rebased) history, not a merge: both commits + base.
-        assert_eq!(log(&verify, 0, 10).unwrap().len(), 3);
+    fn config_get_and_set_local_round_trip() {
+        let d = temp_dir("config");
+        let r = &d.0;
+        init_repo(r);
+        assert_eq!(config_get(r, "exp.someKey"), "");
+        config_set_local(r, "exp.someKey", "value 1").unwrap();
+        assert_eq!(config_get(r, "exp.someKey"), "value 1");
     }
 }

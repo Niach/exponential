@@ -1,57 +1,79 @@
-//! The git cluster (masterplan v4 §4.3) — trunk git chrome on the board
-//! screen's top-right toolbar: branch chip (click → Source Control), sync
-//! spinner / clone progress %, behind/ahead counts, ghost Pull/Push buttons,
-//! and (in conflict mode) an amber `⚠ N conflicts` chip. Always trunk-only
-//! (v4 §4.2 rule 1): everything here derives from the active project's trunk
-//! clone on disk ([`coding::TrunkState`], read after each
-//! clone/fetch/pull/push), so the chrome survives restarts and out-of-band
-//! fixes (v4 §4.2 rule 3).
+//! The git cluster — trunk git chrome on the board screen's top-right
+//! toolbar: branch chip (dropdown switches branches; dirty dot), Commit entry,
+//! sync status (spinner / amber conflict chip / op error + Retry / sticky
+//! `⚠ sync failed` badge), `↓behind ↑ahead` counts, ONE context-sensitive
+//! action (Publish / Get latest / Push / Sync / Up to date), and a muted
+//! "synced Xm ago" stamp. Always trunk-only: everything derives from the
+//! active project's trunk clone on disk ([`coding::TrunkState`], re-read
+//! after every op), so the chrome survives restarts and out-of-band fixes.
 //!
 //! Scope follows the window's navigation, exactly like the run widget: a
 //! project board or an issue detail resolves to that project's primary repo;
-//! other screens render nothing. On first resolve the bar kicks the §4.1
-//! lifecycle — auto-clone when `<clone>/.git` is missing (progress streams into
-//! the chip), else a freshness fetch — then reads the trunk state. Pull/Push
-//! re-mint a JIT installation token and drive [`coding::clone_manager`]; a
-//! rebase/merge conflict is left in place (never auto-aborted) and re-derived
-//! from disk into the amber chip.
+//! other screens render nothing. On first resolve the bar kicks the
+//! lifecycle — auto-clone when `<clone>/.git` is missing (progress streams
+//! into the chip), else a freshness fetch — then reads the trunk state.
+//!
+//! **Auto-sync engine** lives here: a [`clone_manager::AUTO_SYNC_INTERVAL`]
+//! timer plus a window-focus observer call [`GitBar::maybe_auto_sync`],
+//! debounced through [`clone_manager::should_fetch`] and skipped while a
+//! sync is in flight or a ClaudeTask/Run terminal tab is alive for this repo
+//! (never fast-forward the tree under a running task). The background pass is
+//! [`clone_manager::auto_sync`]: fetch → fast-forward ONLY when clean +
+//! behind-only; anything else is a loud-but-quiet Skipped outcome. Background
+//! failures collapse into one sticky amber badge (cleared on the next
+//! success) — separate from `op_error`, which belongs to user-clicked ops.
+//!
+//! **Every transport op targets the CHECKED-OUT branch**: the worker re-reads
+//! `trunk_state` on the background executor and pushes/publishes/ffs that
+//! branch — never a cached default-branch value. Tokens come from
+//! [`coding::token_cache`]. A rebase/merge conflict is left in place (never
+//! auto-aborted) and re-derived from disk into the amber chip. A checkout
+//! that git refuses because local changes would be clobbered opens the
+//! stash-and-switch dialog ([`GitBar::prompt_stash_switch`]); the stash is
+//! restorable from Source Control's stash strip.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use gpui::{
-    div, px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window,
+    div, px, App, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    dialog::DialogButtonProps,
     h_flex,
     menu::DropdownMenu as _,
-    spinner::Spinner, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    spinner::Spinner, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
+use terminal::TabKind;
 
 use crate::icons::ExpIcon;
 
 use coding::scm::{self, BranchInfo};
-use coding::{clone_manager, clone_path, trunk_state, CloneEvent, Settings, TokenUrl, TrunkState};
+use coding::{
+    clone_manager, clone_path, git_worktree, trunk_state, AutoSyncOutcome, CloneEvent, Settings,
+    TrunkState,
+};
 
 use crate::navigation::{self, Navigation};
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
 
-/// The trunk repo a resolved project points at (v4 §4.2). All owned/`Send` so
-/// the whole struct can ride onto the background executor for a git op.
+/// The trunk repo a resolved project points at. All owned/`Send` so the whole
+/// struct can ride onto the background executor for a git op.
 #[derive(Clone)]
 struct RepoInfo {
-    /// `repositories.id` — the input to `repositories.installationToken`.
+    /// `repositories.id` — the input to the token cache's mint.
     repository_id: String,
     /// `owner/name` — the clone-root key + the remote's redaction anchor.
     full_name: String,
     /// The trunk's server-reported default branch — used ONLY as the branch-chip
-    /// display fallback until the on-disk status is read. The actual pull/push
-    /// target is the freshly-minted token's `default_branch` (L30), never
-    /// this cached scope value. `None` when the server omitted it (never `main`).
+    /// display fallback until the on-disk status is read. Transport never
+    /// reads it: every op targets the branch `trunk_state::read` reports.
+    /// `None` when the server omitted it (never `main`).
     default_branch: Option<String>,
     /// `<repos_root>` — the clone-root prefix (`clone_manager::ensure` joins
     /// `full_name` onto it).
@@ -59,32 +81,41 @@ struct RepoInfo {
     /// `<repos_root>/<owner>/<name>` — the trunk clone root.
     clone: PathBuf,
     /// Whether `<clone>/.git` exists (gates the auto-clone vs. fetch path and
-    /// the Pull/Push enablement).
+    /// the transport enablement).
     clone_exists: bool,
 }
 
 /// Which git op a [`GitBar::start_sync`] runs on the background executor. All
-/// re-mint the token + re-read the trunk on completion (v4 §4.1).
+/// token ops route through `coding::token_cache` and re-read the trunk on
+/// completion.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SyncMode {
     /// Auto-clone the missing trunk (streams `git clone --progress` %).
     Clone,
-    /// Freshness `git fetch origin` (v4 §4.1 project-open path).
+    /// Freshness `git fetch origin` (project-open + "Up to date" click).
     Fetch,
-    /// `git pull --rebase --autostash` (respecting `pull.rebase=false`).
-    Pull,
-    /// fetch → auto-rebase if behind → push.
+    /// Background pass: fetch → ff-only when clean & behind-only, else skip.
+    AutoSync,
+    /// User-clicked fetch + `merge --ff-only` (git refuses loudly when the
+    /// tree would be clobbered or has diverged).
+    GetLatest,
+    /// fetch → auto-rebase if behind → push — the checked-out branch.
     Push,
+    /// `git push -u origin <branch>` for an unpublished branch.
+    Publish,
 }
 
-/// Foreground-marshaled progress of a background git op (v4 §4.1). The worker
-/// streams these through a [`flume`] channel; the drain applies them with `cx`
+/// Foreground-marshaled progress of a background git op. The worker streams
+/// these through a [`flume`] channel; the drain applies them with `cx`
 /// (`recv_async` off the gpui foreground, then `this.update`).
 enum SyncMsg {
     /// A `git clone` lifecycle event (spinner + percentage).
     Clone(CloneEvent),
-    /// A fetch/pull/push failure detail (token already scrubbed).
+    /// A user-op failure detail (token already scrubbed) → `op_error`.
     Failed(String),
+    /// The background auto-sync pass finished → `auto_sync_error` bookkeeping
+    /// (NEVER `op_error` — one sticky badge, no error-strip flooding).
+    AutoSyncDone(Result<AutoSyncOutcome, String>),
     /// The terminal on-disk trunk read (always sent last; `Err` keeps the
     /// prior state). A conflict engaged by a failed rebase surfaces HERE.
     Trunk(Result<TrunkState, String>),
@@ -101,11 +132,11 @@ enum Load {
     Ready,
 }
 
-/// The trunk git bar (v4 §4.3).
+/// The trunk git bar.
 pub struct GitBar {
     nav: Entity<Navigation>,
-    /// The shared per-window repo resolver (§4.2) — one `repositories.list`
-    /// fetch for the whole window instead of a per-bar call.
+    /// The shared per-window repo resolver — one `repositories.list` fetch
+    /// for the whole window instead of a per-bar call.
     repo_resolver: Entity<RepoResolver>,
     /// The project scope the loaded state below belongs to (`None` off a
     /// project screen → the bar renders nothing).
@@ -116,18 +147,28 @@ pub struct GitBar {
     /// Repo-resolution problem (no repo linked / `repositories.list` failed) —
     /// a muted note in place of the chips.
     repo_error: Option<SharedString>,
-    /// The on-disk trunk state (branch + ahead/behind + conflict).
+    /// The on-disk trunk state (branch + dirty + upstream + ahead/behind +
+    /// conflict).
     trunk: TrunkState,
     /// Local branches (current first) — refreshed with every trunk read.
     branches: Vec<BranchInfo>,
-    /// A clone/fetch/pull/push is in flight (spinner; disables Pull/Push).
+    /// A clone/fetch/push/… is in flight (spinner; blocks a second op).
     syncing: bool,
     /// `git clone --progress` percentage while cloning (`None` otherwise).
     clone_progress: Option<u8>,
-    /// The last op failure — the chip's error state (with a Retry affordance).
+    /// The last USER-op failure — the chip's error state (with Retry).
     op_error: Option<SharedString>,
+    /// The last BACKGROUND auto-sync failure — the sticky amber `⚠ sync
+    /// failed` badge, cleared on the next successful sync.
+    auto_sync_error: Option<SharedString>,
+    /// When the last successful sync finished (feeds "synced Xm ago" and the
+    /// [`clone_manager::should_fetch`] debounce).
+    last_synced: Option<Instant>,
+    /// Whether the in-flight job already reported a failure (so the trailing
+    /// `Trunk(Ok)` read does not stamp `last_synced` / clear the badge).
+    job_failed: bool,
     /// Scope generation — bumped on every scope change so a stale background
-    /// job's marshaled messages are ignored.
+    /// job's marshaled messages (and the old timer loop) are ignored.
     generation: u64,
     _subscriptions: Vec<Subscription>,
 }
@@ -145,6 +186,12 @@ impl GitBar {
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
+            // Window focus is an auto-sync trigger (debounced).
+            cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.maybe_auto_sync(window, cx);
+                }
+            }),
         ];
         Self {
             nav,
@@ -158,12 +205,15 @@ impl GitBar {
             syncing: false,
             clone_progress: None,
             op_error: None,
+            auto_sync_error: None,
+            last_synced: None,
+            job_failed: false,
             generation: 0,
             _subscriptions: subscriptions,
         }
     }
 
-    /// The §4.2 scope: the window's active project (screen scope with the
+    /// The scope: the window's active project (screen scope with the
     /// last-board fallback) — populated on EVERY screen so the sidebar's
     /// Source Control tool window and the rail's conflict badge stay live.
     fn scope_project_id(&self, cx: &App) -> Option<String> {
@@ -198,10 +248,63 @@ impl GitBar {
         self.start_sync(SyncMode::Fetch, cx);
     }
 
+    /// Debounced background sync trigger (timer tick + window focus): no-op
+    /// while an op is in flight, before the clone exists, inside the
+    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while a ClaudeTask/Run
+    /// terminal tab is alive for this repo (never move the tree under a
+    /// running task).
+    fn maybe_auto_sync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.syncing {
+            return;
+        }
+        let Some(repo) = &self.repo else {
+            return;
+        };
+        if !repo.clone_exists {
+            return;
+        }
+        if self
+            .last_synced
+            .is_some_and(|last| !clone_manager::should_fetch(last))
+        {
+            return;
+        }
+        if self.repo_tasks_alive(window, cx) {
+            return;
+        }
+        self.start_sync(SyncMode::AutoSync, cx);
+    }
+
+    /// Whether a live ClaudeTask/Run terminal tab is working inside this
+    /// repo's clone (or one of its worktrees) — the auto-sync hold-off.
+    fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
+        let Some(repo) = &self.repo else {
+            return false;
+        };
+        let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) else {
+            return false;
+        };
+        let worktrees = git_worktree::worktrees_dir(&repo.clone);
+        manager.read(cx).tabs().iter().any(|tab| {
+            matches!(tab.kind, TabKind::ClaudeTask | TabKind::Run(_))
+                && tab.is_running()
+                && tab
+                    .cwd
+                    .as_deref()
+                    .is_some_and(|cwd| cwd.starts_with(&repo.clone) || cwd.starts_with(&worktrees))
+        })
+    }
+
     /// Check out `branch` on the trunk clone, then re-read trunk state +
-    /// branches from disk. Purely local (no token, no network); a dirty tree
-    /// surfaces git's own error in the status segment.
-    pub(crate) fn checkout(&mut self, branch: String, cx: &mut gpui::Context<Self>) {
+    /// branches from disk. Purely local (no token, no network). When git
+    /// refuses because local changes would be clobbered, the stash-and-switch
+    /// dialog opens; other errors surface in the status segment.
+    pub(crate) fn checkout(
+        &mut self,
+        branch: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if self.syncing {
             return;
         }
@@ -215,13 +318,108 @@ impl GitBar {
         self.op_error = None;
         cx.notify();
         let generation = self.generation;
+        cx.spawn_in(window, async move |this, cx| {
+            let clone = repo.clone.clone();
+            let target = branch.clone();
+            let (result, trunk, branches) = cx
+                .background_executor()
+                .spawn(async move {
+                    let result = scm::checkout(&clone, &target).map_err(|err| err.detail);
+                    // Always re-derive from disk, even after a failed checkout.
+                    let trunk = trunk_state::read(&clone).ok();
+                    let branches = scm::branches(&clone).unwrap_or_default();
+                    (result, trunk, branches)
+                })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.generation != generation {
+                    return; // superseded by a scope change
+                }
+                this.syncing = false;
+                if let Err(detail) = result {
+                    if scm::checkout_blocked_by_local_changes(&detail) {
+                        this.prompt_stash_switch(branch, window, cx);
+                    } else {
+                        this.op_error = Some(detail.into());
+                    }
+                }
+                if let Some(trunk) = trunk {
+                    this.trunk = trunk;
+                }
+                this.branches = branches;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The dirty-switch dialog: git refused the checkout because local
+    /// changes would be clobbered. "Stash changes & switch" stashes with the
+    /// `exp-switch: <branch>` tag (restorable from Source Control's stash
+    /// strip) and re-runs the checkout. Deliberately NO "bring my changes"
+    /// option — git's native non-conflicting carry-over already happened for
+    /// the safe cases, and a forced carry has documented data-loss failure
+    /// modes.
+    fn prompt_stash_switch(
+        &mut self,
+        target: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let bar = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let bar = bar.clone();
+            let target_for_ok = target.clone();
+            dialog
+                .w(px(416.))
+                .title(SharedString::from(format!("Switch to {target}?")))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            "Your local changes would be overwritten by switching. \
+                             Stash them and switch? The stash can be restored from \
+                             Source Control.",
+                        ),
+                )
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_text("Stash changes & switch")
+                        .show_cancel(true)
+                        .on_ok(move |_, _, cx| {
+                            if let Some(bar) = bar.upgrade() {
+                                let target = target_for_ok.clone();
+                                bar.update(cx, |bar, cx| bar.stash_and_switch(target, cx));
+                            }
+                            true
+                        }),
+                )
+        });
+    }
+
+    /// The dialog's confirm path: `git stash push` tagged `exp-switch:
+    /// <current>`, then the checkout, then a fresh disk read.
+    fn stash_and_switch(&mut self, target: String, cx: &mut gpui::Context<Self>) {
+        if self.syncing {
+            return;
+        }
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        let stash_tag = scm::stash_switch_message(&self.trunk.branch);
+        self.syncing = true;
+        self.op_error = None;
+        cx.notify();
+        let generation = self.generation;
         cx.spawn(async move |this, cx| {
             let clone = repo.clone.clone();
             let (result, trunk, branches) = cx
                 .background_executor()
                 .spawn(async move {
-                    let result = scm::checkout(&clone, &branch).map_err(|err| err.to_string());
-                    // Always re-derive from disk, even after a failed checkout.
+                    let result = scm::stash_push(&clone, &stash_tag)
+                        .and_then(|()| scm::checkout(&clone, &target))
+                        .map_err(|err| err.to_string());
                     let trunk = trunk_state::read(&clone).ok();
                     let branches = scm::branches(&clone).unwrap_or_default();
                     (result, trunk, branches)
@@ -229,7 +427,7 @@ impl GitBar {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
-                    return; // superseded by a scope change
+                    return;
                 }
                 this.syncing = false;
                 if let Err(err) = result {
@@ -246,11 +444,12 @@ impl GitBar {
     }
 
     /// Render-time load gate: a scope change resets, `Idle` kicks one
-    /// background resolve of the project's trunk repo + its on-disk state, then
-    /// the §4.1 lifecycle (auto-clone / freshness fetch). `pub(crate)` so the
-    /// sidebar rail can keep the auto-clone lifecycle + conflict badge live
-    /// even while the Source Control tool window is closed.
-    pub(crate) fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+    /// background resolve of the project's trunk repo + its on-disk state,
+    /// then the lifecycle (auto-clone / freshness fetch) and the per-scope
+    /// auto-sync timer loop. `pub(crate)` so the sidebar rail can keep the
+    /// auto-clone lifecycle + conflict badge live even while the Source
+    /// Control tool window is closed.
+    pub(crate) fn ensure_loaded(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
         // workspace, shared by all five trunk/IDE surfaces).
         self.repo_resolver
@@ -267,6 +466,11 @@ impl GitBar {
             self.syncing = false;
             self.clone_progress = None;
             self.op_error = None;
+            self.auto_sync_error = None;
+            self.last_synced = None;
+            self.job_failed = false;
+            // Kill the previous scope's timer loop + in-flight job tail.
+            self.generation += 1;
         }
         if !matches!(self.load, Load::Idle) {
             return;
@@ -298,6 +502,30 @@ impl GitBar {
         self.load = Load::Loading;
         self.generation += 1;
         let generation = self.generation;
+
+        // The per-scope auto-sync loop: tick every AUTO_SYNC_INTERVAL, try a
+        // debounced sync, and keep the "synced Xm ago" stamp fresh. Dies with
+        // the generation (scope change) or the window.
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor()
+                .timer(clone_manager::AUTO_SYNC_INTERVAL)
+                .await;
+            let alive = this
+                .update_in(cx, |this, window, cx| {
+                    if this.generation != generation {
+                        return false;
+                    }
+                    this.maybe_auto_sync(window, cx);
+                    cx.notify(); // refresh the synced-ago label
+                    true
+                })
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
+        })
+        .detach();
+
         cx.spawn(async move |this, cx| {
             let project = project_id.clone();
             let resolved = cx
@@ -344,7 +572,7 @@ impl GitBar {
                 let clone_exists = repo.clone_exists;
                 this.repo = Some(repo);
                 this.repo_error = None;
-                // §4.1: auto-clone a missing trunk, else a freshness fetch on
+                // Auto-clone a missing trunk, else a freshness fetch on
                 // project open.
                 this.start_sync(
                     if clone_exists {
@@ -360,10 +588,10 @@ impl GitBar {
         .detach();
     }
 
-    /// Spawn a background git op (v4 §4.1): re-mint the JIT token, run it, and
-    /// re-read the trunk. Progress marshals to the foreground through a
-    /// [`flume`] channel drained here. No-op while another op is in flight
-    /// (one trunk op at a time) or off a resolved repo.
+    /// Spawn a background git op: token via the cache, run it, and re-read
+    /// the trunk. Progress marshals to the foreground through a [`flume`]
+    /// channel drained here. No-op while another op is in flight (one trunk
+    /// op at a time) or off a resolved repo.
     fn start_sync(&mut self, mode: SyncMode, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             return;
@@ -376,7 +604,12 @@ impl GitBar {
         };
 
         self.syncing = true;
-        self.op_error = None;
+        self.job_failed = false;
+        if mode != SyncMode::AutoSync {
+            // A background pass must not clear a user-op error the user has
+            // not acted on yet.
+            self.op_error = None;
+        }
         if mode == SyncMode::Clone {
             self.clone_progress = Some(0);
         }
@@ -399,7 +632,7 @@ impl GitBar {
         })
         .detach();
 
-        // Background worker — mint + git op + trunk read (argv-only git, §L5).
+        // Background worker — token + git op + trunk read (argv-only git).
         cx.background_executor()
             .spawn(async move {
                 run_sync_worker(mode, &trpc, &repo, &tx);
@@ -407,8 +640,8 @@ impl GitBar {
             .detach();
     }
 
-    /// Apply one marshaled [`SyncMsg`] on the foreground (v4 §4.1). Stale
-    /// messages (a superseded scope) are dropped by the generation guard.
+    /// Apply one marshaled [`SyncMsg`] on the foreground. Stale messages (a
+    /// superseded scope) are dropped by the generation guard.
     fn apply_sync_msg(&mut self, generation: u64, msg: SyncMsg, cx: &mut gpui::Context<Self>) {
         if generation != self.generation {
             return; // superseded scope — ignore the old job's tail
@@ -430,10 +663,20 @@ impl GitBar {
             SyncMsg::Clone(CloneEvent::Failed(detail)) => {
                 self.syncing = false;
                 self.clone_progress = None;
+                self.job_failed = true;
                 self.op_error = Some(detail.into());
             }
             SyncMsg::Failed(detail) => {
+                self.job_failed = true;
                 self.op_error = Some(detail.into());
+            }
+            SyncMsg::AutoSyncDone(Ok(_outcome)) => {
+                self.auto_sync_error = None;
+            }
+            SyncMsg::AutoSyncDone(Err(detail)) => {
+                // ONE sticky amber badge — never op_error, never a strip.
+                self.job_failed = true;
+                self.auto_sync_error = Some(detail.into());
             }
             SyncMsg::Trunk(Ok(trunk)) => {
                 self.trunk = trunk;
@@ -441,6 +684,10 @@ impl GitBar {
                 self.clone_progress = None;
                 if let Some(repo) = &mut self.repo {
                     repo.clone_exists = true;
+                }
+                if !self.job_failed {
+                    self.last_synced = Some(Instant::now());
+                    self.auto_sync_error = None;
                 }
             }
             SyncMsg::Trunk(Err(_)) => {
@@ -465,10 +712,10 @@ impl GitBar {
 
     // ------------------------------ render --------------------------------
 
-    /// The branch chip (v4 §4.3): `⎇ <branch>` — a dropdown that SWITCHES
-    /// branches (checkout on the trunk clone) plus the entry to the changes
-    /// view. Falls back to the default branch label until the on-disk status
-    /// is read.
+    /// The branch chip: `⎇ <branch>` (+ `●` while the tree is dirty) — a
+    /// dropdown that SWITCHES branches (checkout on the trunk clone) plus the
+    /// entry to the changes view. Falls back to the default branch label
+    /// until the on-disk status is read.
     fn render_branch_chip(&self, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let branch = if !self.trunk.branch.is_empty() {
             self.trunk.branch.clone()
@@ -477,6 +724,11 @@ impl GitBar {
                 .as_ref()
                 .and_then(|repo| repo.default_branch.clone())
                 .unwrap_or_default()
+        };
+        let label = if self.trunk.dirty {
+            format!("\u{2387} {branch} \u{25CF}")
+        } else {
+            format!("\u{2387} {branch}")
         };
         // Snapshot for the lazy menu builder (menus must not read `self`).
         // Branches living in session worktrees are excluded — git refuses a
@@ -490,8 +742,12 @@ impl GitBar {
         Button::new("git-branch-chip")
             .ghost()
             .xsmall()
-            .label(SharedString::from(format!("\u{2387} {branch}")))
-            .tooltip("Switch branch")
+            .label(SharedString::from(label))
+            .tooltip(if self.trunk.dirty {
+                "Switch branch (uncommitted changes)"
+            } else {
+                "Switch branch"
+            })
             .dropdown_menu(move |menu, _window, _cx| {
                 // Branch lists grow with the repo — cap + scroll (EXP-46a).
                 // Flat items only (no submenus).
@@ -513,8 +769,29 @@ impl GitBar {
             })
     }
 
-    /// The middle segment: sync spinner + clone %, OR the amber `⚠ N conflicts`
-    /// chip, OR the `↓behind ↑ahead` counts (v4 §4.3).
+    /// The Commit entry (JetBrains-style): opens the Source Control screen
+    /// (commit box + changes) with branches in the sidebar.
+    fn render_commit_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let clone_exists = self.repo.as_ref().is_some_and(|repo| repo.clone_exists);
+        Button::new("git-commit")
+            .ghost()
+            .xsmall()
+            .icon(Icon::from(ExpIcon::Check))
+            .disabled(!clone_exists)
+            .tooltip(if clone_exists {
+                "Commit…"
+            } else {
+                "Trunk not cloned yet"
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.open_source_control(window, cx);
+            }))
+    }
+
+    /// The middle segment: sync spinner + clone %, OR the op error + Retry,
+    /// OR the amber `⚠ N conflicts` chip, OR [sticky `⚠ sync failed` badge +]
+    /// the `↓behind ↑ahead` counts.
     fn render_status(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let mut row = h_flex().gap_2().items_center();
 
@@ -551,7 +828,7 @@ impl GitBar {
                 );
         }
 
-        // A clone/fetch/pull/push/checkout error (chip → error + Retry).
+        // A user-op error (clone/fetch/push/checkout — error + Retry).
         // Truncated hard — git errors can be full sentences and must not
         // flood the top bar.
         if let Some(error) = &self.op_error {
@@ -605,8 +882,25 @@ impl GitBar {
             );
         }
 
-        // Behind / ahead counts — only the non-zero side(s) (v4 §4.3 mock
-        // `↓2 ↑1`); a clean, in-sync trunk shows neither.
+        // Sticky background-sync failure: ONE amber badge, cleared on the
+        // next success; click retries immediately.
+        if let Some(detail) = &self.auto_sync_error {
+            row = row.child(
+                Button::new("git-sync-failed")
+                    .ghost()
+                    .xsmall()
+                    .label("\u{26A0} sync failed")
+                    .text_color(cx.theme().warning)
+                    .tooltip(detail.clone())
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.start_sync(SyncMode::AutoSync, cx);
+                    })),
+            );
+        }
+
+        // Behind / ahead counts — only the non-zero side(s); a clean,
+        // in-sync trunk shows neither.
         if self.trunk.behind > 0 {
             row = row.child(
                 div()
@@ -626,73 +920,107 @@ impl GitBar {
         row
     }
 
-    /// The ghost Pull/Push buttons (v4 §4.3) — JetBrains-style ↙/↗ arrow
-    /// icons: disabled with a tooltip while a clone/sync is in flight
-    /// or the trunk clone does not exist yet.
-    fn render_transport(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    /// ONE context-sensitive action for the checked-out branch: Publish (no
+    /// upstream) / Get latest (behind-only) / Push (ahead-only) / Sync
+    /// (diverged: rebase + push) / ghost "Up to date" (re-fetch).
+    fn render_context_action(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let clone_exists = self.repo.as_ref().is_some_and(|repo| repo.clone_exists);
-        let disabled = self.syncing || !clone_exists;
-        let blocked: Option<SharedString> = if self.syncing {
-            Some("Syncing…".into())
-        } else if !clone_exists {
-            Some("Trunk not cloned yet".into())
+        if !clone_exists
+            || self.syncing
+            || self.trunk.conflict.is_some()
+            || self.trunk.branch.is_empty()
+            || self.trunk.branch.starts_with('(')
+        {
+            return None;
+        }
+        let (id, label, tooltip, mode, primary): (
+            &'static str,
+            SharedString,
+            SharedString,
+            SyncMode,
+            bool,
+        ) = if !self.trunk.has_upstream {
+            (
+                "git-publish",
+                "Publish".into(),
+                format!("Publish {} to origin", self.trunk.branch).into(),
+                SyncMode::Publish,
+                true,
+            )
+        } else if self.trunk.behind > 0 && self.trunk.ahead == 0 {
+            // Rare: auto-ff usually beat it; shows when the tree is dirty.
+            (
+                "git-get-latest",
+                "Get latest".into(),
+                format!("Fast-forward to origin/{}", self.trunk.branch).into(),
+                SyncMode::GetLatest,
+                false,
+            )
+        } else if self.trunk.ahead > 0 && self.trunk.behind == 0 {
+            (
+                "git-push",
+                "Push".into(),
+                format!("Push {} to origin", self.trunk.branch).into(),
+                SyncMode::Push,
+                false,
+            )
+        } else if self.trunk.ahead > 0 && self.trunk.behind > 0 {
+            (
+                "git-sync",
+                "Sync".into(),
+                format!("Rebase onto origin/{}, then push", self.trunk.branch).into(),
+                SyncMode::Push,
+                false,
+            )
         } else {
-            None
+            (
+                "git-up-to-date",
+                "Up to date".into(),
+                "Check origin for changes".into(),
+                SyncMode::Fetch,
+                false,
+            )
         };
-        let pull_tooltip: SharedString = blocked.clone().unwrap_or_else(|| "Pull".into());
-        let push_tooltip: SharedString = blocked.unwrap_or_else(|| "Push".into());
+        let mut button = Button::new(id).xsmall().label(label).tooltip(tooltip);
+        if primary {
+            button = button.primary();
+        } else {
+            button = button.ghost();
+        }
+        Some(
+            button
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.start_sync(mode, cx);
+                }))
+                .into_any_element(),
+        )
+    }
 
-        h_flex()
-            .gap_1()
-            .items_center()
-            // JetBrains-style Commit entry: opens the Source Control screen
-            // (commit box + changes) with branches in the sidebar.
-            .child(
-                Button::new("git-commit")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::Check))
-                    .disabled(!clone_exists)
-                    .tooltip(if clone_exists {
-                        "Commit…"
-                    } else {
-                        "Trunk not cloned yet"
-                    })
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.open_source_control(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("git-pull")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::ArrowDownLeft))
-                    .disabled(disabled)
-                    .tooltip(pull_tooltip)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.start_sync(SyncMode::Pull, cx);
-                    })),
-            )
-            .child(
-                Button::new("git-push")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::ArrowUpRight))
-                    .disabled(disabled)
-                    .tooltip(push_tooltip)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.start_sync(SyncMode::Push, cx);
-                    })),
-            )
+    /// The muted "synced Xm ago" stamp (refreshed by the timer's notify
+    /// cadence).
+    fn render_synced_ago(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
+        let last = self.last_synced?;
+        if self.syncing {
+            return None;
+        }
+        let (short, tooltip) = synced_ago_labels(last.elapsed());
+        Some(
+            div()
+                .id("git-synced-ago")
+                .text_xs()
+                .text_color(cx.theme().muted_foreground.opacity(0.7))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+                })
+                .child(short),
+        )
     }
 }
 
 impl Render for GitBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        self.ensure_loaded(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.ensure_loaded(window, cx);
 
         // Trunk chrome only on a project scope (mirrors the Run section's
         // self-hide) — the sidebar's project panel collapses to nothing on
@@ -702,14 +1030,21 @@ impl Render for GitBar {
         }
 
         // Compact horizontal cluster for the board's top-right toolbar:
-        // branch chip (click → Source Control), status, Pull/Push.
-        h_flex()
+        // branch chip · Commit · status (+badges +counts) · context action ·
+        // synced-ago.
+        let mut row = h_flex()
             .gap_2()
             .items_center()
             .child(self.render_branch_chip(cx))
-            .child(self.render_status(cx))
-            .child(self.render_transport(cx))
-            .into_any_element()
+            .child(self.render_commit_button(cx))
+            .child(self.render_status(cx));
+        if let Some(action) = self.render_context_action(cx) {
+            row = row.child(action);
+        }
+        if let Some(synced) = self.render_synced_ago(cx) {
+            row = row.child(synced);
+        }
+        row.into_any_element()
     }
 }
 
@@ -722,62 +1057,104 @@ fn short_name(full_name: &str) -> &str {
     full_name.rsplit('/').next().unwrap_or(full_name)
 }
 
-/// The background side of [`GitBar::start_sync`] (v4 §4.1): mint a JIT
-/// installation token, run the git op (argv-only), and re-read the trunk from
-/// disk — streaming [`SyncMsg`]s to the foreground drain. A conflict left by a
-/// failed rebase is picked up by the trailing trunk read, never auto-aborted.
+/// The "synced Xm ago" pair: the bar's short form + the tooltip sentence.
+fn synced_ago_labels(elapsed: Duration) -> (SharedString, SharedString) {
+    let secs = elapsed.as_secs();
+    if secs < 60 {
+        return ("now".into(), "Last synced just now".into());
+    }
+    let minutes = secs / 60;
+    if minutes < 60 {
+        let noun = if minutes == 1 { "minute" } else { "minutes" };
+        return (
+            format!("{minutes}m").into(),
+            format!("Last synced {minutes} {noun} ago").into(),
+        );
+    }
+    let hours = minutes / 60;
+    let noun = if hours == 1 { "hour" } else { "hours" };
+    (
+        format!("{hours}h").into(),
+        format!("Last synced {hours} {noun} ago").into(),
+    )
+}
+
+/// The background side of [`GitBar::start_sync`]: token via the process-wide
+/// cache, the git op (argv-only), then a trunk re-read — streaming
+/// [`SyncMsg`]s to the foreground drain. **Every transport op targets the
+/// branch a fresh `trunk_state::read` reports** (never a cached default), so
+/// the bar can never push a branch other than the one checked out. A conflict
+/// left by a failed rebase is picked up by the trailing trunk read, never
+/// auto-aborted.
 fn run_sync_worker(
     mode: SyncMode,
     trpc: &api::TrpcClient,
     repo: &RepoInfo,
     tx: &flume::Sender<SyncMsg>,
 ) {
-    // Mint the ~55-min token (never persisted/logged; only ever rides in the
-    // token remote URL, redacted in every error).
-    let token = match api::repositories::installation_token(trpc, &repo.repository_id) {
-        Ok(token) => token,
+    // Token via the cache (re-mints only near expiry; never persisted/logged;
+    // only ever rides in the token remote URL, redacted in every error).
+    let minted = match coding::token_cache().get_or_mint(trpc, &repo.repository_id) {
+        Ok(minted) => minted,
         Err(err) => {
             let detail = err.to_string();
             // Surface through whichever channel the segment reads.
-            let _ = tx.send(if mode == SyncMode::Clone {
-                SyncMsg::Clone(CloneEvent::Failed(detail.clone()))
-            } else {
-                SyncMsg::Failed(detail.clone())
+            let _ = tx.send(match mode {
+                SyncMode::Clone => SyncMsg::Clone(CloneEvent::Failed(detail.clone())),
+                SyncMode::AutoSync => SyncMsg::AutoSyncDone(Err(detail.clone())),
+                _ => SyncMsg::Failed(detail.clone()),
             });
             let _ = tx.send(SyncMsg::Trunk(Err(detail)));
             return;
         }
     };
-    let url = TokenUrl::new(token.full_name.clone(), token.token.clone());
+    let url = minted.url;
     let clone: &Path = &repo.clone;
 
-    let result = match mode {
+    match mode {
         SyncMode::Clone => {
             let progress_tx = tx.clone();
             let mut on_event = move |event: CloneEvent| {
                 let _ = progress_tx.send(SyncMsg::Clone(event));
             };
-            clone_manager::ensure(&repo.repos_root, &repo.full_name, &url, &mut on_event)
-                .map(|_| ())
+            // A clone failure already streamed `CloneEvent::Failed` through
+            // the callback — nothing more to send here.
+            let _ = clone_manager::ensure(&repo.repos_root, &repo.full_name, &url, &mut on_event);
         }
-        SyncMode::Fetch => clone_manager::fetch(clone, &url),
-        // L30: pull/push target the branch the token minting resolved
-        // *live* from GitHub, not the cached scope value (which could be a stale
-        // or omitted default). The token's `default_branch` is authoritative.
-        SyncMode::Pull => clone_manager::pull(clone, &token.default_branch, &url),
-        SyncMode::Push => clone_manager::push(clone, &token.default_branch, &url),
-    };
-
-    // A clone failure already streamed `CloneEvent::Failed` through the
-    // callback; fetch/pull/push surface their detail here.
-    if let Err(err) = &result {
-        if mode != SyncMode::Clone {
-            let _ = tx.send(SyncMsg::Failed(err.to_string()));
+        SyncMode::Fetch => {
+            if let Err(err) = clone_manager::fetch(clone, &url) {
+                let _ = tx.send(SyncMsg::Failed(err.to_string()));
+            }
+        }
+        SyncMode::AutoSync => {
+            let outcome = clone_manager::auto_sync(clone, &url).map_err(|err| err.to_string());
+            let _ = tx.send(SyncMsg::AutoSyncDone(outcome));
+        }
+        SyncMode::GetLatest | SyncMode::Push | SyncMode::Publish => {
+            // The C fix: read the CHECKED-OUT branch fresh from disk — the
+            // one thing every transport op is allowed to target.
+            let branch = trunk_state::read(clone)
+                .map(|state| state.branch)
+                .unwrap_or_default();
+            if branch.is_empty() || branch.starts_with('(') {
+                let _ = tx.send(SyncMsg::Failed("No branch checked out".to_string()));
+            } else {
+                let result = match mode {
+                    SyncMode::GetLatest => clone_manager::fetch(clone, &url)
+                        .and_then(|()| clone_manager::ff_update(clone, &branch)),
+                    SyncMode::Push => clone_manager::push(clone, &branch, &url),
+                    SyncMode::Publish => clone_manager::publish(clone, &branch, &url),
+                    _ => unreachable!("outer match covers the transport modes"),
+                };
+                if let Err(err) = result {
+                    let _ = tx.send(SyncMsg::Failed(err.to_string()));
+                }
+            }
         }
     }
 
-    // Always re-derive the trunk from disk (v4 §4.2 rule 3): a paused rebase
-    // engages conflict mode even though the op returned an error.
+    // Always re-derive the trunk from disk: a paused rebase engages conflict
+    // mode even though the op returned an error.
     let trunk = trunk_state::read(clone).map_err(|err| err.to_string());
     let _ = tx.send(SyncMsg::Trunk(trunk));
     let _ = tx.send(SyncMsg::Branches(scm::branches(clone).unwrap_or_default()));

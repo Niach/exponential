@@ -1,9 +1,11 @@
-//! Trunk clone lifecycle (masterplan v4 §4.1, L12): auto-clone on project
-//! open, freshness fetches, and pull/push — all against the **trunk** clone
+//! Trunk clone lifecycle: auto-clone on project open, background auto-sync,
+//! and push/publish — all against the **trunk** clone
 //! (`<repos_root>/<owner>/<name>`), reusing [`crate::git_worktree`]'s
-//! `clone_path` / `set_token_remote` / [`TokenUrl`] redaction.
+//! `clone_path` / `set_token_remote` / [`TokenUrl`] redaction. This module is
+//! the ONE transport layer — every network git op on the trunk routes through
+//! here.
 //!
-//! Contract (v4 §4.1):
+//! Contract:
 //! * **Auto-clone on project open** when `<clone>/.git` is missing: mint a JIT
 //!   token, clone, then a fetch. Progress surfaces via [`CloneEvent`] (parsed
 //!   from `git clone --progress` stderr → the git-bar chip). `git clone`
@@ -11,23 +13,27 @@
 //!   spawns git itself (rather than reusing `git_worktree::ensure_clone`, which
 //!   blocks on `.output()` and cannot surface a percentage) and parses each
 //!   segment via [`parse_clone_progress`].
-//! * **Freshness**: fetch on project open, after every pull/push, and on
-//!   window focus with a ≥5-minute debounce ([`should_fetch`]). The debounce
-//!   and the actual re-mint live in the caller (gpui foreground owns the timer
-//!   + the trpc client); this module is the git side.
+//! * **Auto-sync**: the GitBar runs [`auto_sync`] on a [`AUTO_SYNC_INTERVAL`]
+//!   timer and on window focus, coalesced through [`should_fetch`]
+//!   ([`FETCH_DEBOUNCE`]). [`auto_sync`] = fetch → read the trunk state → and
+//!   ONLY when `TrunkState::ff_eligible()` (clean + behind-only + upstream +
+//!   real branch) run [`ff_update`] (`git merge --ff-only`). Everything else
+//!   returns a [`AutoSyncOutcome`] Skipped variant — auto-sync structurally
+//!   cannot checkout, rebase, or touch `<clone>.worktrees/`.
 //! * **Token re-mint**: the ~55-min installation token is disposable. The
-//!   caller checks [`token_needs_remint`] before each network op and, when it
-//!   is within [`TOKEN_REMINT_MARGIN`] of expiry, re-mints
-//!   (`repositories.installationToken`) and passes the fresh [`TokenUrl`]; the
-//!   network wrappers here always [`set_token_remote`] first so the freshly
-//!   minted token is installed before git touches the remote.
+//!   caller checks [`token_needs_remint`] (via `crate::token_cache`) before
+//!   each network op and passes a fresh [`TokenUrl`]; the network wrappers
+//!   here always [`set_token_remote`] first so the freshly minted token is
+//!   installed before git touches the remote.
 //! * **Ahead/behind** = `git rev-list --left-right --count <branch>...origin/<branch>`
 //!   after a fetch — no network for the counts themselves ([`ahead_behind`]).
-//! * **Pull** = fetch + `git pull --rebase --autostash`, respecting an explicit
-//!   `pull.rebase=false` (→ merge). **Push** = fetch → auto-rebase if behind →
-//!   push. Conflicts never auto-abort (no `--abort` is ever issued here): git's
-//!   markers are left in place and the trunk enters conflict mode (§4.4),
-//!   re-derived from disk by `crate::scm::detect_conflict`.
+//! * **Push** = fetch → auto-rebase if behind → push, always targeting the
+//!   CHECKED-OUT branch the caller read from disk. **Publish** = `push -u`
+//!   for a branch with no upstream yet. There is no pull op: "Get latest" is
+//!   [`ff_update`], integrating divergence is [`push`]'s rebase. Conflicts
+//!   never auto-abort (no `--abort` is ever issued here): git's markers are
+//!   left in place and the trunk enters conflict mode, re-derived from disk
+//!   by `crate::scm::detect_conflict`.
 //!
 //! Redaction (§7.1 step 2 / L5): every git op is `std::process::Command("git")`
 //! with explicit argv — never `gh`, never a git library, never a shell. The
@@ -41,11 +47,16 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::git_worktree::{clone_path, run_git, set_token_remote, GitError, TokenUrl};
+use crate::trunk_state;
 
-/// Freshness debounce (v4 §4.1): focus-triggered fetches coalesce to at most
-/// one per five minutes. Project-open and post-transport fetches are not
-/// debounced — only the focus path calls [`should_fetch`].
-pub const FETCH_DEBOUNCE: Duration = Duration::from_secs(5 * 60);
+/// Background auto-sync cadence: the GitBar's timer runs [`auto_sync`] this
+/// often while a project with a cloned trunk is open.
+pub const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(120);
+
+/// Freshness debounce: focus- and timer-triggered auto-syncs coalesce to at
+/// most one per minute ([`should_fetch`]). Project-open and post-transport
+/// fetches are not debounced.
+pub const FETCH_DEBOUNCE: Duration = Duration::from_secs(60);
 
 /// Token re-mint margin (v4 §4.1): a cached installation token within five
 /// minutes of expiry is treated as spent — re-mint before the next network op
@@ -75,9 +86,10 @@ pub type CloneProgress<'a> = &'a mut dyn FnMut(CloneEvent);
 // Pure freshness / token-expiry decisions (unit-tested, no git, no clock I/O)
 // ---------------------------------------------------------------------------
 
-/// Whether a focus-triggered fetch is due: at least [`FETCH_DEBOUNCE`] has
-/// elapsed since the last fetch (v4 §4.1). The caller holds `last` (the
-/// `Instant` of its previous fetch) and calls this on window focus.
+/// Whether a timer-/focus-triggered auto-sync is due: at least
+/// [`FETCH_DEBOUNCE`] has elapsed since the last successful sync. The caller
+/// holds `last` (the `Instant` of its previous sync) and calls this from the
+/// [`AUTO_SYNC_INTERVAL`] timer tick and the window-focus observer.
 pub fn should_fetch(last: Instant) -> bool {
     last.elapsed() >= FETCH_DEBOUNCE
 }
@@ -232,48 +244,104 @@ pub fn fetch(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
     Ok(())
 }
 
-/// Pull the trunk's default branch: `git pull --rebase --autostash`, unless the
-/// user set `pull.rebase=false` (→ `--no-rebase`, a merge). A conflict leaves
-/// git's markers in place and returns the error — the caller re-derives
-/// conflict mode from disk (v4 §4.1/§4.4); nothing here aborts.
-///
-/// Re-sets the token remote first (the ~55-min token is disposable) but does
-/// NOT pre-fetch: `git pull` fetches as its first step, so an explicit
-/// [`fetch`] here would be a redundant second network round-trip.
-pub fn pull(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<(), GitError> {
-    set_token_remote(clone, url)?;
-    let rebase_arg = if pull_rebase_disabled(clone) {
-        "--no-rebase" // respect an explicit `pull.rebase=false` → merge
-    } else {
-        "--rebase"
-    };
-    run_git(
-        Some(clone),
-        &["pull", rebase_arg, "--autostash", "origin", default_branch],
-        Some(url),
-        "git pull",
-    )?;
-    Ok(())
-}
-
-/// Push the trunk's default branch: fetch → auto-rebase onto
-/// `origin/<default_branch>` if behind → push (v4 §4.1). A rebase conflict
-/// leaves markers in place and returns the error (no auto-abort).
-pub fn push(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<(), GitError> {
+/// Push the trunk's CHECKED-OUT branch: fetch → auto-rebase onto
+/// `origin/<branch>` if behind → push. The caller reads `branch` fresh from
+/// disk (`trunk_state::read`) so the transport always targets what is
+/// actually checked out. A rebase conflict leaves markers in place and
+/// returns the error (no auto-abort).
+pub fn push(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
     fetch(clone, url)?;
     // Local counts only (the fetch above already refreshed origin/<branch>);
     // a missing upstream ref just means "not behind" → push creates it.
-    let (_ahead, behind) = ahead_behind(clone, default_branch).unwrap_or((0, 0));
+    let (_ahead, behind) = ahead_behind(clone, branch).unwrap_or((0, 0));
     if behind > 0 {
         run_git(
             Some(clone),
-            &["rebase", "--autostash", &format!("origin/{default_branch}")],
+            &["rebase", "--autostash", &format!("origin/{branch}")],
             Some(url),
             "git rebase origin",
         )?;
     }
-    run_git(Some(clone), &["push", "origin", default_branch], Some(url), "git push")?;
+    run_git(Some(clone), &["push", "origin", branch], Some(url), "git push")?;
     Ok(())
+}
+
+/// Publish an unpublished branch: re-set the token remote + `git push -u
+/// origin <branch>` (creates the upstream the git bar's counts and
+/// [`auto_sync`] need).
+pub fn publish(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
+    set_token_remote(clone, url)?;
+    run_git(Some(clone), &["push", "-u", "origin", branch], Some(url), "git push -u")?;
+    Ok(())
+}
+
+/// Fast-forward the checked-out `branch` to `origin/<branch>`:
+/// `git merge --ff-only origin/<branch>`. Local + tokenless (run after a
+/// [`fetch`]), and the ONLY auto-mutation primitive — `--ff-only` is the
+/// TOCTOU guard: if the tree diverged between the eligibility check and the
+/// merge, git refuses instead of creating a merge commit.
+pub fn ff_update(clone: &Path, branch: &str) -> Result<(), GitError> {
+    run_git(
+        Some(clone),
+        &["merge", "--ff-only", &format!("origin/{branch}")],
+        None,
+        "git merge --ff-only",
+    )?;
+    Ok(())
+}
+
+/// What one [`auto_sync`] pass did (or why it deliberately did nothing).
+/// Every variant after a successful fetch counts as a successful sync — the
+/// Skipped* variants are the safety gates, not failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoSyncOutcome {
+    /// Clean + behind-only → fast-forwarded to `origin/<branch>`.
+    FastForwarded,
+    /// Nothing behind (local-only commits included) — nothing to do.
+    UpToDate,
+    /// Behind, but the working tree has local changes.
+    SkippedDirty,
+    /// Behind AND ahead — integrating is the explicit "Sync" push path.
+    SkippedDiverged,
+    /// A rebase/merge sits paused with conflicts.
+    SkippedConflict,
+    /// The checked-out branch tracks no upstream (unpublished).
+    SkippedNoUpstream,
+    /// Detached HEAD (e.g. mid-rebase inspection) — no branch to move.
+    SkippedDetached,
+}
+
+/// One background auto-sync pass: [`fetch`] → read the trunk state from disk
+/// → fast-forward ONLY when `TrunkState::ff_eligible()`. Structurally cannot
+/// switch branches or touch `<clone>.worktrees/`: no checkout/switch/worktree
+/// argv exists here, the branch is derived from HEAD, and the only mutation
+/// is [`ff_update`]'s `merge --ff-only` at the clone root. A run config
+/// launched mid-sync therefore always runs the same working copy on the same
+/// branch (at worst one ff newer — identical to the user having pulled).
+pub fn auto_sync(clone: &Path, url: &TokenUrl) -> Result<AutoSyncOutcome, GitError> {
+    fetch(clone, url)?;
+    let state = trunk_state::read(clone)?;
+    if state.conflict.is_some() {
+        return Ok(AutoSyncOutcome::SkippedConflict);
+    }
+    if state.branch.is_empty() || state.branch.starts_with('(') {
+        return Ok(AutoSyncOutcome::SkippedDetached);
+    }
+    if !state.has_upstream {
+        return Ok(AutoSyncOutcome::SkippedNoUpstream);
+    }
+    if state.behind == 0 {
+        return Ok(AutoSyncOutcome::UpToDate);
+    }
+    if state.dirty {
+        return Ok(AutoSyncOutcome::SkippedDirty);
+    }
+    if state.ahead > 0 {
+        return Ok(AutoSyncOutcome::SkippedDiverged);
+    }
+    debug_assert!(state.ff_eligible());
+    ff_update(clone, &state.branch)?;
+    Ok(AutoSyncOutcome::FastForwarded)
 }
 
 /// Ahead/behind of `<branch>` vs `origin/<branch>` via
@@ -302,21 +370,6 @@ pub fn ahead_behind(clone: &Path, branch: &str) -> Result<(u32, u32), GitError> 
 // argv plumbing (non-streaming ops route through the shared
 // `git_worktree::run_git`; only the progress-streaming clone stays local)
 // ---------------------------------------------------------------------------
-
-/// Whether `pull.rebase` is explicitly `false` (→ merge). Unset or `true` →
-/// rebase. `--bool` normalizes the value; a non-zero exit means unset.
-fn pull_rebase_disabled(clone: &Path) -> bool {
-    let output = Command::new("git")
-        .args(["config", "--bool", "--get", "pull.rebase"])
-        .current_dir(clone)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output();
-    matches!(
-        output,
-        Ok(out) if out.status.success()
-            && String::from_utf8_lossy(&out.stdout).trim() == "false"
-    )
-}
 
 /// `git clone --progress <token-url> <path>`, streaming stderr into
 /// [`CloneEvent::Progress`] events while accumulating the full (scrubbed on
@@ -589,5 +642,301 @@ mod tests {
         git(&origin, &["commit", "--quiet", "-m", "upstream"]);
         git(&work, &["fetch", "--quiet", "origin"]);
         assert_eq!(ahead_behind(&work, "main").unwrap(), (1, 1));
+    }
+
+    // ---- transport against a local bare origin (hermetic, no network) ----
+    //
+    // The public wrappers re-set origin to the token URL first, so the
+    // fixture installs a `url.<bare>.insteadOf <token-url>` rewrite: git
+    // resolves the unroutable token remote back to the local bare repo, and
+    // the EXACT production code path (set_token_remote → fetch/push) runs.
+
+    fn dummy_url() -> TokenUrl {
+        TokenUrl::new("acme/web", "ghs_dead")
+    }
+
+    fn init_repo(path: &Path) {
+        fs::create_dir_all(path).unwrap();
+        git(path, &["init", "--quiet", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "t"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+    }
+
+    fn write(path: &Path, rel: &str, content: &str) {
+        fs::write(path.join(rel), content).unwrap();
+    }
+
+    fn commit_all(path: &Path, msg: &str) {
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "--quiet", "-m", msg]);
+    }
+
+    /// A bare origin with one `main` commit, a `work` clone whose token
+    /// remote rewrites to it, and a `consumer` clone used to advance the
+    /// origin out-of-band. Returns (`work`, `consumer`, `bare`).
+    fn seed_remote(d: &Path) -> (PathBuf, PathBuf, PathBuf) {
+        let bare = d.join("origin.git");
+        git(d, &["init", "--quiet", "--bare", "-b", "main", bare.to_str().unwrap()]);
+
+        let work = d.join("work");
+        init_repo(&work);
+        write(&work, "base.txt", "base\n");
+        commit_all(&work, "base");
+        git(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(&work, &["push", "--quiet", "-u", "origin", "main"]);
+        // The insteadOf rewrite that makes the token URL resolve locally.
+        git(
+            &work,
+            &[
+                "config",
+                &format!("url.{}.insteadOf", bare.to_str().unwrap()),
+                &dummy_url().raw(),
+            ],
+        );
+
+        let consumer = d.join("consumer");
+        git(d, &["clone", "--quiet", bare.to_str().unwrap(), consumer.to_str().unwrap()]);
+        git(&consumer, &["config", "user.email", "c@example.com"]);
+        git(&consumer, &["config", "user.name", "c"]);
+
+        (work, consumer, bare)
+    }
+
+    fn head_ref(repo: &Path) -> String {
+        let out = Command::new("git")
+            .args(["symbolic-ref", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn head_commit(repo: &Path) -> String {
+        let out = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn push_pushes_a_fast_forward_of_the_given_branch() {
+        let d = temp_dir("push");
+        let (work, _consumer, bare) = seed_remote(&d.0);
+        write(&work, "w.txt", "w\n");
+        commit_all(&work, "work commit");
+
+        push(&work, "main", &dummy_url()).unwrap();
+
+        // A fresh clone of the bare must see the pushed commit.
+        let verify = d.0.join("verify");
+        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
+        assert!(verify.join("w.txt").exists());
+    }
+
+    #[test]
+    fn push_auto_rebases_when_behind() {
+        let d = temp_dir("pushrebase");
+        let (work, consumer, bare) = seed_remote(&d.0);
+
+        // Consumer advances origin (non-conflicting file).
+        write(&consumer, "c.txt", "c\n");
+        commit_all(&consumer, "consumer commit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+
+        // Work commits on the stale base ⇒ diverged; push must fetch, rebase,
+        // then push.
+        write(&work, "w.txt", "w\n");
+        commit_all(&work, "work commit");
+
+        push(&work, "main", &dummy_url()).unwrap();
+
+        let verify = d.0.join("verify");
+        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
+        assert!(verify.join("w.txt").exists());
+        assert!(verify.join("c.txt").exists());
+        // Linear (rebased) history, not a merge: both commits + base.
+        assert_eq!(crate::scm::log_branch(&verify, None, 0, 10).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn push_conflict_leaves_markers_for_detect() {
+        let d = temp_dir("pushconflict");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+
+        // Both edit the same file ⇒ the pre-push rebase conflicts.
+        write(&consumer, "base.txt", "consumer\n");
+        commit_all(&consumer, "consumer edit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+        write(&work, "base.txt", "work\n");
+        commit_all(&work, "work edit");
+
+        let err = push(&work, "main", &dummy_url()).unwrap_err();
+        assert!(!format!("{err}").contains("ghs_dead"), "token leaked: {err}");
+
+        let conflict = crate::scm::detect_conflict(&work).expect("rebase should be paused");
+        assert_eq!(conflict.kind, crate::scm::ConflictKind::Rebase);
+        assert!(conflict.files.contains(&"base.txt".to_string()));
+
+        crate::scm::abort_conflict(&work, crate::scm::ConflictKind::Rebase).unwrap();
+        assert!(crate::scm::detect_conflict(&work).is_none());
+    }
+
+    #[test]
+    fn publish_creates_the_upstream() {
+        let d = temp_dir("publish");
+        let (work, _consumer, _bare) = seed_remote(&d.0);
+        git(&work, &["checkout", "--quiet", "-b", "feature/x"]);
+        write(&work, "f.txt", "f\n");
+        commit_all(&work, "feature commit");
+
+        let before = crate::scm::status(&work).unwrap();
+        assert_eq!(before.upstream, None);
+
+        publish(&work, "feature/x", &dummy_url()).unwrap();
+
+        let after = crate::scm::status(&work).unwrap();
+        assert_eq!(after.upstream.as_deref(), Some("origin/feature/x"));
+        assert_eq!(ahead_behind(&work, "feature/x").unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn ff_update_fast_forwards_and_refuses_diverged() {
+        let d = temp_dir("ffupdate");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+
+        // Behind-only → ff succeeds.
+        write(&consumer, "c.txt", "c\n");
+        commit_all(&consumer, "consumer commit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+        fetch(&work, &dummy_url()).unwrap();
+        ff_update(&work, "main").unwrap();
+        assert!(work.join("c.txt").exists());
+
+        // Diverged → --ff-only refuses (the TOCTOU guard).
+        write(&consumer, "c2.txt", "c2\n");
+        commit_all(&consumer, "consumer 2");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+        write(&work, "w.txt", "w\n");
+        commit_all(&work, "local");
+        fetch(&work, &dummy_url()).unwrap();
+        assert!(ff_update(&work, "main").is_err());
+    }
+
+    // ---- auto_sync outcome matrix (scope F: the run-config safety
+    // invariant — a skipped sync must leave HEAD untouched) ----
+
+    #[test]
+    fn auto_sync_fast_forwards_when_clean_and_behind_only() {
+        let d = temp_dir("autosync-ff");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+        write(&consumer, "c.txt", "c\n");
+        commit_all(&consumer, "consumer commit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+
+        let head_before = head_ref(&work);
+        let outcome = auto_sync(&work, &dummy_url()).unwrap();
+        assert_eq!(outcome, AutoSyncOutcome::FastForwarded);
+        assert!(work.join("c.txt").exists());
+        // Fast-forward moves the commit, never the checked-out branch.
+        assert_eq!(head_ref(&work), head_before);
+    }
+
+    #[test]
+    fn auto_sync_up_to_date_when_nothing_behind() {
+        let d = temp_dir("autosync-utd");
+        let (work, _consumer, _bare) = seed_remote(&d.0);
+        assert_eq!(auto_sync(&work, &dummy_url()).unwrap(), AutoSyncOutcome::UpToDate);
+
+        // Ahead-only is also "nothing to pull".
+        write(&work, "w.txt", "w\n");
+        commit_all(&work, "local");
+        assert_eq!(auto_sync(&work, &dummy_url()).unwrap(), AutoSyncOutcome::UpToDate);
+    }
+
+    #[test]
+    fn auto_sync_skips_dirty_and_leaves_head_and_tree_untouched() {
+        let d = temp_dir("autosync-dirty");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+        write(&consumer, "c.txt", "c\n");
+        commit_all(&consumer, "consumer commit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+
+        write(&work, "base.txt", "local dirt\n");
+        let (head_before, commit_before) = (head_ref(&work), head_commit(&work));
+
+        assert_eq!(auto_sync(&work, &dummy_url()).unwrap(), AutoSyncOutcome::SkippedDirty);
+        assert_eq!(head_ref(&work), head_before);
+        assert_eq!(head_commit(&work), commit_before);
+        assert_eq!(fs::read_to_string(work.join("base.txt")).unwrap(), "local dirt\n");
+        assert!(!work.join("c.txt").exists());
+    }
+
+    #[test]
+    fn auto_sync_skips_diverged_and_leaves_head_untouched() {
+        let d = temp_dir("autosync-diverged");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+        write(&consumer, "c.txt", "c\n");
+        commit_all(&consumer, "consumer commit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+        write(&work, "w.txt", "w\n");
+        commit_all(&work, "local commit");
+
+        let (head_before, commit_before) = (head_ref(&work), head_commit(&work));
+        assert_eq!(
+            auto_sync(&work, &dummy_url()).unwrap(),
+            AutoSyncOutcome::SkippedDiverged
+        );
+        assert_eq!(head_ref(&work), head_before);
+        assert_eq!(head_commit(&work), commit_before);
+        assert!(!work.join("c.txt").exists());
+    }
+
+    #[test]
+    fn auto_sync_skips_a_paused_conflict_and_leaves_it_paused() {
+        let d = temp_dir("autosync-conflict");
+        let (work, consumer, _bare) = seed_remote(&d.0);
+
+        // Engage a real rebase conflict (both edit base.txt), via push's
+        // integrate path.
+        write(&consumer, "base.txt", "consumer\n");
+        commit_all(&consumer, "consumer edit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+        write(&work, "base.txt", "work\n");
+        commit_all(&work, "work edit");
+        assert!(push(&work, "main", &dummy_url()).is_err());
+        assert!(crate::scm::detect_conflict(&work).is_some());
+
+        assert_eq!(
+            auto_sync(&work, &dummy_url()).unwrap(),
+            AutoSyncOutcome::SkippedConflict
+        );
+        // Still paused — auto-sync never aborts or resolves.
+        assert!(crate::scm::detect_conflict(&work).is_some());
+        crate::scm::abort_conflict(&work, crate::scm::ConflictKind::Rebase).unwrap();
+    }
+
+    #[test]
+    fn auto_sync_skips_unpublished_and_detached_heads() {
+        let d = temp_dir("autosync-heads");
+        let (work, _consumer, _bare) = seed_remote(&d.0);
+
+        // A local branch with no upstream.
+        git(&work, &["checkout", "--quiet", "-b", "lonely"]);
+        assert_eq!(
+            auto_sync(&work, &dummy_url()).unwrap(),
+            AutoSyncOutcome::SkippedNoUpstream
+        );
+
+        // Detached HEAD.
+        git(&work, &["checkout", "--quiet", "--detach"]);
+        let commit_before = head_commit(&work);
+        assert_eq!(
+            auto_sync(&work, &dummy_url()).unwrap(),
+            AutoSyncOutcome::SkippedDetached
+        );
+        assert_eq!(head_commit(&work), commit_before);
     }
 }

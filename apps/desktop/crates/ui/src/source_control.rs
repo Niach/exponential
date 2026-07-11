@@ -1,8 +1,10 @@
-//! Source Control screen (masterplan v4 §4.4) — trunk-only: staged/unstaged
-//! changes list with stage checkboxes, commit message + Commit / Commit &
-//! Push, history pane, and (in conflict mode) the rebase/merge banner with
-//! "Fix conflicts with Claude" / "Open terminal" / "Abort". The working/commit
-//! diff renders through the shared `diff.rs` renderer (v4 §4.4).
+//! Source Control screen (masterplan v4 §4.4) — trunk-only: the semantic
+//! flow strip (default branch → `exp/rel-*` → issue branches, PR-state
+//! tones — [`crate::flow_lanes`]), staged/unstaged changes list with stage
+//! checkboxes, an exp-switch stash-restore strip, commit message + Commit /
+//! Commit & Push, history pane, and (in conflict mode) the rebase/merge
+//! banner with "Fix conflicts with Claude" / "Open terminal" / "Abort". The
+//! working/commit diff renders through the shared `diff.rs` renderer.
 //!
 //! Trunk resolution (§4.2 rule 1: trunk-only, no project/issue scope): the
 //! active workspace's clone. The workspace's first project (sidebar order)
@@ -12,18 +14,19 @@
 //! so it survives restarts and out-of-band fixes; every read/mutation runs on
 //! the background executor (scm calls block on `git`).
 //!
+//! Commit & Push is the ONE transport path shared with the git bar: token
+//! via [`coding::token_cache`], then [`coding::clone_manager::push`] against
+//! the CHECKED-OUT branch read at spawn time.
+//!
 //! Conflict mode (§4.4): entry/exit is purely `scm::detect_conflict` off disk
 //! (`.git/rebase-merge` / `MERGE_HEAD`), so the banner clears no matter who
 //! finishes the rebase — Claude, a terminal, or another tool. **Fix conflicts
 //! with Claude** opens a [`coding::claude_task`] in a `ClaudeTask` terminal tab
 //! (§4.9); it is a *separate* primitive from `coding::launch` (no session row,
-//! no worktree). All git invocations are argv-only (`coding::scm` + the inline
-//! `git config` writes for the one-time identity prompt) — never `gh`, never a
-//! library (DNR L5).
+//! no worktree). All git invocations are argv-only through [`coding::scm`] —
+//! never `gh`, never a library (DNR L5).
 
-use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -36,17 +39,18 @@ use gpui_component::{
     checkbox::Checkbox,
     input::{Input, InputState},
     scroll::ScrollableElement as _,
-    ActiveTheme as _, Disableable as _, Sizable as _,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
+use coding::clone_manager;
 use coding::scm::{self, CommitInfo, ConflictKind, ConflictState, FileStatus, StatusSummary};
-use coding::TokenUrl;
 use terminal::TabKind;
 
 use crate::coding_flow::{self, CodingHub};
 use crate::diff::{build_scm_diff, DiffView};
-use crate::navigation::{self, Navigation};
+use crate::flow_lanes::{build_lanes, FlowModel, IssueLite, LaneKind, PrTone, ReleaseLite};
+use crate::navigation::{self, Navigation, Screen};
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
@@ -86,7 +90,6 @@ enum Load {
 #[derive(Clone)]
 struct TrunkScope {
     repository_id: String,
-    full_name: String,
     /// The server-reported default branch (L30: server-healed, never fabricated
     /// as `main`). `None` when the API omitted it; used only as the labelling
     /// fallback for the conflict-fix task when no branch is checked out.
@@ -120,6 +123,13 @@ pub struct SourceControlView {
 
     status: Option<StatusSummary>,
     conflict: Option<ConflictState>,
+    /// exp-switch stashes of the CURRENT branch (the D-dialog's escape hatch,
+    /// surfaced as the Restore · Discard strip).
+    stashes: Vec<scm::StashEntry>,
+    /// The semantic flow strip (built off local branches + synced rows).
+    flow: FlowModel,
+    /// "+N more" toggle for the flow strip.
+    flow_expanded: bool,
     history: Vec<CommitInfo>,
     history_skip: usize,
     history_has_more: bool,
@@ -181,6 +191,9 @@ impl SourceControlView {
             scope: None,
             status: None,
             conflict: None,
+            stashes: Vec::new(),
+            flow: FlowModel::default(),
+            flow_expanded: false,
             history: Vec::new(),
             history_skip: 0,
             history_has_more: false,
@@ -215,6 +228,9 @@ impl SourceControlView {
             self.scope = None;
             self.status = None;
             self.conflict = None;
+            self.stashes.clear();
+            self.flow = FlowModel::default();
+            self.flow_expanded = false;
             self.history.clear();
             self.selection = Selection::None;
             self.error = None;
@@ -254,7 +270,6 @@ impl SourceControlView {
                 let clone_dir = coding::clone_path(&repos_root, &repo.full_name);
                 self.scope = Some(TrunkScope {
                     repository_id: repo.repository_id,
-                    full_name: repo.full_name,
                     default_branch: repo.default_branch,
                     clone_dir,
                 });
@@ -282,8 +297,12 @@ impl SourceControlView {
 
     // -- git reads ----------------------------------------------------------
 
-    /// Re-read the whole trunk git state off disk (status + conflict + first
-    /// history page + identity), superseding any in-flight read.
+    /// Re-read the whole trunk git state off disk (status + conflict +
+    /// exp-switch stashes + flow lanes + first history page + identity),
+    /// superseding any in-flight read. The synced issue/release rows the flow
+    /// join needs are snapshotted on the foreground; all git work runs on the
+    /// background executor (ahead/behind only for the visible lanes —
+    /// bounded cost).
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(scope) = self.scope.clone() else {
             return;
@@ -296,17 +315,65 @@ impl SourceControlView {
         let clone = scope.clone_dir.clone();
         // `Some(branch)` = the sidebar's view-without-checkout selection.
         let branch = self.viewing.clone();
+
+        // Flow-lane join inputs (synced rows + settings), snapshotted here.
+        let branch_prefix = CodingHub::global(cx).read(cx).settings.branch_prefix.clone();
+        let default_branch_hint = scope.default_branch.clone();
+        let flow_expanded = self.flow_expanded;
+        let (issues_lite, releases_lite) = self.flow_join_rows(cx);
+
         cx.spawn(async move |this, cx| {
-            let (status, conflict, history, identity_ok) = cx
+            let (status, conflict, stashes, flow, history, identity_ok) = cx
                 .background_executor()
                 .spawn(async move {
                     let status = scm::status(&clone);
                     let conflict = scm::detect_conflict(&clone);
+                    // exp-switch stashes of the CURRENT branch only — user
+                    // stashes and other branches' stashes stay invisible.
+                    let current_branch = status
+                        .as_ref()
+                        .map(|summary| summary.branch.clone())
+                        .unwrap_or_default();
+                    let stashes: Vec<scm::StashEntry> = scm::stash_list(&clone)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|entry| {
+                            scm::stash_switch_branch(&entry.message)
+                                == Some(current_branch.as_str())
+                        })
+                        .collect();
+                    // Flow lanes off the local branch list; ahead/behind for
+                    // the visible lanes only.
+                    let default_branch = default_branch_hint
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| current_branch.clone());
+                    let flow = if default_branch.is_empty() {
+                        FlowModel::default()
+                    } else {
+                        let branches = scm::branches(&clone).unwrap_or_default();
+                        let mut flow = build_lanes(
+                            &branches,
+                            &default_branch,
+                            &branch_prefix,
+                            &issues_lite,
+                            &releases_lite,
+                            flow_expanded,
+                        );
+                        for lane in &mut flow.lanes {
+                            if let Ok((ahead, behind)) =
+                                clone_manager::ahead_behind(&clone, &lane.branch)
+                            {
+                                lane.ahead = Some(ahead);
+                                lane.behind = Some(behind);
+                            }
+                        }
+                        flow
+                    };
                     let history =
                         scm::log_branch(&clone, branch.as_deref(), 0, HISTORY_PAGE)
                             .unwrap_or_default();
                     let identity_ok = identity_configured(&clone);
-                    (status, conflict, history, identity_ok)
+                    (status, conflict, stashes, flow, history, identity_ok)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -324,6 +391,8 @@ impl SourceControlView {
                     }
                 }
                 this.conflict = conflict;
+                this.stashes = stashes;
+                this.flow = flow;
                 this.history_skip = history.len();
                 this.history_has_more = history.len() == HISTORY_PAGE;
                 this.history = history;
@@ -332,6 +401,39 @@ impl SourceControlView {
             });
         })
         .detach();
+    }
+
+    /// Snapshot the synced rows the flow-lane join reads (issue branch/PR
+    /// fields + release name/PR fields of the active workspace).
+    fn flow_join_rows(&self, cx: &App) -> (Vec<IssueLite>, Vec<ReleaseLite>) {
+        let Some(workspace_id) = self.scope_workspace.clone() else {
+            return (Vec::new(), Vec::new());
+        };
+        let collections = Store::global(cx).collections();
+        let issues = collections
+            .issues_in_workspace(&workspace_id, cx)
+            .into_iter()
+            .map(|issue| IssueLite {
+                id: issue.id,
+                identifier: issue.identifier,
+                title: issue.title,
+                branch: issue.branch,
+                pr_state: issue.pr_state,
+                release_id: issue.release_id,
+            })
+            .collect();
+        let releases = collections
+            .releases
+            .read(cx)
+            .iter()
+            .filter(|release| release.workspace_id.as_deref() == Some(workspace_id.as_str()))
+            .map(|release| ReleaseLite {
+                id: release.id.clone(),
+                name: release.name.clone().unwrap_or_default(),
+                pr_state: release.pr_state.clone(),
+            })
+            .collect();
+        (issues, releases)
     }
 
     /// History "Load more" (§4.4): append the next page.
@@ -464,6 +566,52 @@ impl SourceControlView {
         .detach();
     }
 
+    // -- exp-switch stashes ---------------------------------------------------
+
+    /// Restore (`git stash pop`) an exp-switch stash. A pop that conflicts
+    /// leaves the stash in place — git's own behavior; the error surfaces.
+    fn restore_stash(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        self.run_stash_op(index, true, cx);
+    }
+
+    /// Discard (`git stash drop`) an exp-switch stash.
+    fn drop_stash(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        self.run_stash_op(index, false, cx);
+    }
+
+    fn run_stash_op(&mut self, index: usize, restore: bool, cx: &mut gpui::Context<Self>) {
+        let Some(scope) = self.scope.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let clone = scope.clone_dir.clone();
+        self.busy = Some(if restore { "Restoring stash…".into() } else { "Discarding stash…".into() });
+        self.error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    if restore {
+                        scm::stash_pop(&clone, index)
+                    } else {
+                        scm::stash_drop(&clone, index)
+                    }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = None;
+                if let Err(err) = result {
+                    this.error = Some(format!("{err}").into());
+                }
+                this.refresh(cx);
+            });
+        })
+        .detach();
+    }
+
     // -- commit / push ------------------------------------------------------
 
     fn has_staged(&self) -> bool {
@@ -500,10 +648,13 @@ impl SourceControlView {
         self.do_commit(push, message, window, cx);
     }
 
-    /// Run the commit (and push) off the foreground. Push mints a JIT
-    /// installation token → token-embedded remote → `scm::push` (auto-rebase
-    /// if behind; a conflict leaves markers and surfaces as conflict mode on
-    /// the follow-up refresh, §4.1/§4.4).
+    /// Run the commit (and push) off the foreground. Push is the shared
+    /// transport path: token via [`coding::token_cache`], then
+    /// [`clone_manager::push`] against the CHECKED-OUT branch read fresh
+    /// from disk at op time — `self.status` can be stale after a branch
+    /// switch outside this view, and pushing a snapshot branch would
+    /// silently ship nothing (auto-rebase if behind; a conflict leaves
+    /// markers and surfaces as conflict mode on the follow-up refresh).
     fn do_commit(
         &mut self,
         push: bool,
@@ -517,7 +668,6 @@ impl SourceControlView {
         let trpc = if push { queries::trpc_client(cx) } else { None };
         let clone = scope.clone_dir.clone();
         let repository_id = scope.repository_id.clone();
-        let full_name = scope.full_name.clone();
         self.busy = Some(if push {
             "Committing and pushing…".into()
         } else {
@@ -531,11 +681,20 @@ impl SourceControlView {
                 .spawn(async move {
                     scm::commit(&clone, &message).map_err(|err| err.to_string())?;
                     if push {
+                        // Fresh read — every transport op targets the branch
+                        // the disk reports (git_bar's run_sync_worker rule).
+                        let branch = coding::trunk_state::read(&clone)
+                            .map(|state| state.branch)
+                            .unwrap_or_default();
+                        if branch.is_empty() || branch.starts_with('(') {
+                            return Err("No branch checked out.".to_string());
+                        }
                         let trpc = trpc.ok_or_else(|| "Not signed in.".to_string())?;
-                        let token = api::repositories::installation_token(&trpc, &repository_id)
+                        let minted = coding::token_cache()
+                            .get_or_mint(&trpc, &repository_id)
                             .map_err(|err| err.to_string())?;
-                        let url = TokenUrl::new(full_name, token.token);
-                        scm::push(&clone, &url).map_err(|err| err.to_string())?;
+                        clone_manager::push(&clone, &branch, &minted.url)
+                            .map_err(|err| err.to_string())?;
                     }
                     Ok::<(), String>(())
                 })
@@ -581,8 +740,10 @@ impl SourceControlView {
             let write = cx
                 .background_executor()
                 .spawn(async move {
-                    git_config_set_local(&clone, "user.name", &name)?;
-                    git_config_set_local(&clone, "user.email", &email)?;
+                    scm::config_set_local(&clone, "user.name", &name)
+                        .map_err(|err| err.to_string())?;
+                    scm::config_set_local(&clone, "user.email", &email)
+                        .map_err(|err| err.to_string())?;
                     Ok::<(), String>(())
                 })
                 .await;
@@ -688,6 +849,176 @@ impl SourceControlView {
     }
 
     // -- render -------------------------------------------------------------
+
+    /// The exp-switch stash strip (above the changes list): makes the
+    /// dirty-switch dialog's stash visible and undoable — Restore pops it,
+    /// Discard drops it. Only stashes tagged for the CURRENT branch show.
+    fn render_stash_strip(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
+        if self.stashes.is_empty() {
+            return None;
+        }
+        let theme = cx.theme();
+        let mut strip = gpui_component::v_flex().flex_shrink_0().gap_1().p_2().border_b_1()
+            .border_color(theme.border)
+            .bg(theme.accent.opacity(0.2));
+        for entry in &self.stashes {
+            let index = entry.index;
+            strip = strip.child(
+                gpui_component::h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(theme.foreground)
+                            .child("Stashed changes from a branch switch"),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("stash-restore-{index}")))
+                            .ghost()
+                            .xsmall()
+                            .label("Restore")
+                            .disabled(self.busy.is_some())
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                this.restore_stash(index, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("stash-discard-{index}")))
+                            .ghost()
+                            .xsmall()
+                            .label("Discard")
+                            .disabled(self.busy.is_some())
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                this.drop_stash(index, cx);
+                            })),
+                    ),
+            );
+        }
+        Some(strip)
+    }
+
+    /// The semantic flow strip (top of the screen): indented lanes default →
+    /// releases → issues → other, PR-tone dot, `⎇ label`, ↑/↓ badge,
+    /// worktree tag, "+N more" toggle. Issue lanes navigate to the issue;
+    /// every other lane views that branch's history.
+    fn render_flow_strip(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
+        if self.flow.lanes.is_empty() || !self.clone_ready() {
+            return None;
+        }
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let mut strip = gpui_component::v_flex()
+            .flex_shrink_0()
+            .gap_0p5()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border);
+        for lane in &self.flow.lanes {
+            let tone = match lane.pr {
+                PrTone::Open => theme.green,
+                PrTone::Merged => theme.blue,
+                PrTone::Closed => theme.red,
+                PrTone::None => muted.opacity(0.5),
+            };
+            let label_color = match lane.kind {
+                LaneKind::Other => muted,
+                _ => theme.foreground,
+            };
+            let branch = lane.branch.clone();
+            let issue_id = lane.issue_id.clone();
+            let current = lane.current;
+            let mut row = gpui_component::h_flex()
+                .id(SharedString::from(format!("flow-lane-{}", lane.branch)))
+                .w_full()
+                .items_center()
+                .gap_2()
+                .pl(px(4. + f32::from(lane.indent) * 12.))
+                .pr_1()
+                .py_0p5()
+                .rounded(theme.radius)
+                .hover(|style| style.bg(theme.accent.opacity(0.25)))
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    if let Some(issue_id) = issue_id.clone() {
+                        navigation::navigate(window, cx, Screen::IssueDetail { issue_id });
+                    } else {
+                        crate::sidebar::set_view_branch(
+                            window,
+                            cx,
+                            if current { None } else { Some(branch.clone()) },
+                        );
+                    }
+                }))
+                // The 2px tone segment + PR dot — one symbol vocabulary with
+                // the git bar's glyphs.
+                .child(div().w(px(2.)).h_4().flex_shrink_0().bg(tone))
+                .child(div().size_1p5().flex_shrink_0().rounded_full().bg(tone))
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_xs()
+                        .truncate()
+                        .when(matches!(lane.kind, LaneKind::Default), |this| {
+                            this.font_weight(FontWeight::MEDIUM)
+                        })
+                        .text_color(label_color)
+                        .child(SharedString::from(format!("\u{2387} {}", lane.label))),
+                );
+            let mut counts = String::new();
+            if let Some(ahead) = lane.ahead.filter(|ahead| *ahead > 0) {
+                counts.push_str(&format!("\u{2191}{ahead}"));
+            }
+            if let Some(behind) = lane.behind.filter(|behind| *behind > 0) {
+                if !counts.is_empty() {
+                    counts.push(' ');
+                }
+                counts.push_str(&format!("\u{2193}{behind}"));
+            }
+            if !counts.is_empty() {
+                row = row.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(counts)),
+                );
+            }
+            if lane.worktree {
+                row = row.child(
+                    div().flex_shrink_0().text_xs().text_color(muted).child("worktree"),
+                );
+            }
+            if lane.current {
+                row = row.child(
+                    Icon::from(crate::icons::ExpIcon::Check).xsmall().text_color(muted),
+                );
+            }
+            strip = strip.child(row);
+        }
+        if self.flow.hidden > 0 || self.flow_expanded {
+            let label = if self.flow_expanded {
+                "Show fewer".to_string()
+            } else {
+                format!("+{} more", self.flow.hidden)
+            };
+            strip = strip.child(
+                Button::new("flow-toggle")
+                    .ghost()
+                    .xsmall()
+                    .label(SharedString::from(label))
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.flow_expanded = !this.flow_expanded;
+                        this.refresh(cx);
+                    })),
+            );
+        }
+        Some(strip)
+    }
 
     fn render_changes(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
@@ -1142,6 +1473,7 @@ impl SourceControlView {
                 .h_full()
                 .border_r_1()
                 .border_color(theme.border)
+                .when_some(self.render_stash_strip(cx), |this, strip| this.child(strip))
                 .child(self.render_changes(cx))
                 .child(self.render_commit_box(cx))
                 .child(self.render_history(cx))
@@ -1233,52 +1565,22 @@ impl Render for SourceControlView {
                         .child(error),
                 )
             })
+            .when_some(self.render_flow_strip(cx), |this, strip| this.child(strip))
             .child(self.render_body(cx))
     }
 }
 
 // ---------------------------------------------------------------------------
-// Git identity (argv-only, clone-local — DNR L5). scm.rs owns the status/log/
-// diff/stage/commit wrappers; the one-time identity prompt writes config here.
+// Git identity (§4.4 one-time prompt) — reads/writes through the scm config
+// wrappers; the decision of WHEN to prompt stays a UI concern.
 // ---------------------------------------------------------------------------
 
 /// True when both `user.name` and `user.email` resolve in ANY git config
 /// scope for the clone (§4.4: identity comes from the user's global config;
 /// the prompt only appears when unset).
-fn identity_configured(clone: &Path) -> bool {
-    !git_config_get(clone, "user.name").is_empty()
-        && !git_config_get(clone, "user.email").is_empty()
-}
-
-fn git_config_get(clone: &Path, key: &str) -> String {
-    Command::new("git")
-        .args(["config", "--get", key])
-        .current_dir(clone)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .unwrap_or_default()
-}
-
-/// Write `<key> = <value>` to the **clone-local** config (`git config` with no
-/// scope flag targets `.git/config`, §4.4).
-fn git_config_set_local(clone: &Path, key: &str, value: &str) -> Result<(), String> {
-    let output = Command::new("git")
-        .args(["config", key, value])
-        .current_dir(clone)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|err| format!("git config {key}: {err}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "git config {key}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
+fn identity_configured(clone: &std::path::Path) -> bool {
+    !scm::config_get(clone, "user.name").is_empty()
+        && !scm::config_get(clone, "user.email").is_empty()
 }
 
 /// Status glyph + color for a change row (M/A/D/R/? — §4.4 changes list).

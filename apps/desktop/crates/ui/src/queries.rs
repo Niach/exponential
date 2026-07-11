@@ -473,6 +473,15 @@ pub fn workspace_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
     out
 }
 
+/// Every non-archived issue in a workspace (issues ⨝ projects, shared sort
+/// order) — the add-issues picker's candidate pool (the dialog filters
+/// status/membership on top).
+pub fn workspace_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
+    Store::global(cx)
+        .collections()
+        .issues_in_workspace(workspace_id, cx)
+}
+
 /// Every non-archived issue bundled into a release (feeds the progress line;
 /// unfiltered — the detail board applies filters on top).
 pub fn release_issues(cx: &App, release_id: &str) -> Vec<domain::rows::Issue> {

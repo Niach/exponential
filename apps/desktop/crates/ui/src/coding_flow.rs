@@ -21,12 +21,13 @@
 //!   `repositories.forIssue` resolves non-null AND the doctor is green
 //!   (BOTH `claude` and `git`, §7.1 step 1); disabled states carry the EXACT
 //!   §7 reasons (never a false "not connected", never an unexplained
-//!   block). Click → [`launch`]: `prepare_launch` on the background executor
-//!   → `spawn_prepared_with` into THIS window's bottom terminal dock.
+//!   block). Click → the shared Start-coding dialog
+//!   (`crate::start_coding_dialog`), which owns the model/effort/plan-mode
+//!   choices and the prepare→spawn task.
 //!
 //! The relay-origin `start_session` path (§08) is the SAME sequence — its
 //! control channel builds the same [`build_launch`] input and calls the same
-//! `coding::prepare_launch`/`spawn_prepared_with`; only the `LaunchOrigin`
+//! `coding::prepare`/`spawn_prepared_with`; only the `LaunchOrigin`
 //! differs (§7.1: "there is no second, divergent remote-start
 //! implementation").
 
@@ -42,17 +43,15 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex,
-    notification::Notification,
-    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    h_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
 use coding::{
-    run_doctor, CodingDeps, DisabledReason, DoctorReport, IssueSeed, LaunchOrigin, LaunchOutcome,
-    LaunchRequest, Prepared, Settings,
+    run_doctor, CodingDeps, DoctorReport, IssueLaunchOptions, IssueSeed, LaunchOrigin,
+    LaunchOutcome, LaunchRequest, Settings,
 };
 
 use crate::queries;
@@ -487,13 +486,15 @@ fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
 // Launch orchestration (§7.1 — the ONE sequence, UI side)
 // ---------------------------------------------------------------------------
 
-/// Everything `coding::prepare_launch` needs, assembled from the signed-in
-/// app state. `None` when signed out or the issue isn't synced (both make
-/// Start coding meaningless). Shared by the local button and — via the same
-/// construction — the §08 relay `start_session` path.
+/// Everything `coding::prepare` needs for an ISSUE launch, assembled from the
+/// signed-in app state. `None` when signed out or the issue isn't synced
+/// (both make Start coding meaningless). Shared by the Start-coding dialog
+/// and — via the same construction — the §08 relay `start_session` path
+/// (which passes settings-default `options` with plan mode forced OFF).
 pub fn build_launch(
     issue_id: &str,
     origin: LaunchOrigin,
+    options: IssueLaunchOptions,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -522,6 +523,7 @@ pub fn build_launch(
         issue_identifier: issue.identifier.clone(),
         device_label: coding::default_device_label(),
         origin,
+        options,
     };
     let deps = CodingDeps {
         trpc,
@@ -660,13 +662,6 @@ pub struct StartCodingControl {
     issue_id: Option<String>,
     probe: RepoProbe,
     probe_generation: u64,
-    launching: bool,
-    /// A launch-time `DisabledReason` (GithubAppMissing / SessionLimit /
-    /// TokenDenied / doctor) — rendered with the exact §7 copy + a retry.
-    runtime_disabled: Option<DisabledReason>,
-    /// §P7 per-session opt-out: on a live feedback board, checking this keeps
-    /// THIS session out of the public activity stream. Default off (publish).
-    keep_private: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -684,24 +679,17 @@ impl StartCodingControl {
             issue_id: None,
             probe: RepoProbe::Idle,
             probe_generation: 0,
-            launching: false,
-            runtime_disabled: None,
-            keep_private: false,
             _subscriptions: subscriptions,
         }
     }
 
-    /// Point the control at an issue (navigation edge). Resets the probe and
-    /// any launch-time disabled reason.
+    /// Point the control at an issue (navigation edge). Resets the probe.
     pub fn set_issue(&mut self, issue_id: Option<String>, cx: &mut gpui::Context<Self>) {
         if self.issue_id == issue_id {
             return;
         }
         self.issue_id = issue_id;
         self.probe = RepoProbe::Idle;
-        self.runtime_disabled = None;
-        self.launching = false;
-        self.keep_private = false;
         cx.notify();
     }
 
@@ -741,76 +729,21 @@ impl StartCodingControl {
         .detach();
     }
 
-    /// Re-probe + clear a launch-time disabled reason (the tiny retry next to
-    /// a disabled state — a SessionLimit or App install can resolve without
-    /// navigating away).
+    /// Re-probe (the tiny retry next to the repo-less disabled state — a repo
+    /// link or App install can resolve without navigating away).
     fn retry(&mut self, cx: &mut gpui::Context<Self>) {
-        self.runtime_disabled = None;
         self.probe = RepoProbe::Idle;
         CodingHub::refresh_doctor(&CodingHub::global(cx), cx);
         cx.notify();
     }
 
-    /// The click: §7.1 steps 1–6 on the background executor, then steps 7–8
-    /// into this window's dock on the foreground.
+    /// The click: open the shared Start-coding dialog (it owns the
+    /// model/effort/plan-mode choices AND the prepare→spawn task).
     fn launch(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.launching {
-            return;
-        }
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        let Some((request, deps)) = build_launch(&issue_id, LaunchOrigin::Local, cx) else {
-            window.push_notification(
-                Notification::warning("Sign in and wait for sync before starting a session."),
-                cx,
-            );
-            return;
-        };
-        self.launching = true;
-        self.runtime_disabled = None;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, cx| {
-            let prepared = cx
-                .background_executor()
-                .spawn(async move { coding::prepare_launch(&request, &deps) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.launching = false;
-                match prepared {
-                    Ok(Prepared::Ready(prepared)) => {
-                        if let Err(message) = spawn_into_window(
-                            prepared,
-                            SessionSubject::Issue(issue_id),
-                            this.keep_private,
-                            window,
-                            cx,
-                        ) {
-                            window.push_notification(Notification::error(message), cx);
-                        }
-                    }
-                    Ok(Prepared::Disabled(reason)) => {
-                        // Explain, never crash — exact §7 copy.
-                        window.push_notification(
-                            Notification::warning(reason.message()),
-                            cx,
-                        );
-                        this.runtime_disabled = Some(reason);
-                    }
-                    Err(err) => {
-                        window.push_notification(
-                            Notification::error(format!(
-                                "Could not start the coding session: {err}"
-                            )),
-                            cx,
-                        );
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        crate::start_coding_dialog::open_for_issue(window, cx, issue_id);
     }
 
     /// The stop affordance (§7.5): kill this issue's local child; the exit
@@ -838,9 +771,6 @@ impl StartCodingControl {
     /// The disabled reason right now, `None` when the button may launch
     /// (§7.1 step 1: repo non-null AND doctor green — BOTH tools).
     fn disabled_reason(&self, cx: &App) -> Option<SharedString> {
-        if let Some(reason) = &self.runtime_disabled {
-            return Some(reason.message().into());
-        }
         let hub = CodingHub::global_ref(cx)?;
         let hub = hub.read(cx);
         match hub.doctor.report.as_ref() {
@@ -897,12 +827,6 @@ impl Render for StartCodingControl {
                 return div().into_any_element();
             }
         }
-        // §P7: a live feedback board streams sessions publicly — offer the
-        // per-session "Keep private" opt-out and, while coding, the LIVE badge.
-        let live_public_project = project
-            .as_ref()
-            .map(|project| project.is_live_public_coding())
-            .unwrap_or(false);
         // Lazy kicks: the hub (doctor) exists once anything coding renders;
         // the probe follows the current issue.
         let _ = CodingHub::global(cx);
@@ -962,16 +886,6 @@ impl Render for StartCodingControl {
                 .into_any_element();
         }
 
-        if self.launching {
-            return Button::new("start-coding")
-                .ghost()
-                .xsmall()
-                .label("Starting…")
-                .loading(true)
-                .disabled(true)
-                .into_any_element();
-        }
-
         let disabled = self.disabled_reason(cx);
         let mut row = h_flex().flex_shrink_0().gap_0p5().items_center();
         let button = Button::new("start-coding")
@@ -988,9 +902,7 @@ impl Render for StartCodingControl {
                 // The disabled state ALWAYS explains itself — the
                 // exact §7 copy rides the tooltip; retry re-probes.
                 row = row.child(button.disabled(true).tooltip(reason));
-                if self.runtime_disabled.is_some()
-                    || matches!(self.probe, RepoProbe::Ready(None))
-                {
+                if matches!(self.probe, RepoProbe::Ready(None)) {
                     row = row.child(
                         Button::new("start-coding-retry")
                             .ghost()
@@ -1021,27 +933,6 @@ impl Render for StartCodingControl {
                         .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
                 );
             }
-        }
-        // §P7 opt-out: on a live feedback board, let the user keep THIS session
-        // out of the public activity stream before starting it.
-        if live_public_project {
-            let checked = self.keep_private;
-            let mut checkbox = Button::new("keep-session-private")
-                .ghost()
-                .xsmall()
-                .label("Keep private")
-                .tooltip(
-                    "This project streams coding sessions publicly. \
-                     Check to keep this session out of the public view.",
-                );
-            if checked {
-                checkbox = checkbox
-                    .icon(Icon::new(IconName::Check).text_color(theme::tokens::GREEN.to_hsla()));
-            }
-            row = row.child(checkbox.on_click(cx.listener(|this, _, _, cx| {
-                this.keep_private = !this.keep_private;
-                cx.notify();
-            })));
         }
         row.into_any_element()
     }

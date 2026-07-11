@@ -1,9 +1,9 @@
 //! The `--agents <json>` payload for release runs (EXP-56): one session-scoped
-//! subagent definition per issue, carrying the per-issue model/effort the
-//! launch dialog chose. Definitions are SHORT on purpose — the full issue
-//! context and contract live in `PROMPT.md` (single source of truth), and the
-//! def's prompt just points the subagent at its section and worktree. That
-//! keeps the argv small no matter how many issues a release holds.
+//! subagent definition per issue, carrying the dialog's subagent model/effort
+//! defaults. Definitions are SHORT on purpose — the full issue context and
+//! contract live in `PROMPT.md` (single source of truth), and the def's
+//! prompt just points the subagent at its section and worktree. That keeps
+//! the argv small no matter how many issues a release holds.
 //!
 //! Serialization is byte-stable (BTreeMap → keys sorted by agent name) like
 //! [`crate::mcp_json`] — tests can assert exact payloads and reruns diff
@@ -32,43 +32,24 @@ struct AgentDef {
     background: bool,
 }
 
-/// Per-issue model/effort resolution inputs.
+/// Subagent model/effort resolution inputs.
 pub struct SubagentDefaults<'a> {
-    /// The dialog's subagent model (applies unless the issue overrides).
+    /// The dialog's subagent model; blank = inherit the session's.
     pub model: &'a str,
     /// The dialog's subagent effort; `None`/blank = inherit the session's.
     pub effort: Option<&'a str>,
-    /// Whether the installed CLI supports `--effort`-style effort selection —
-    /// when false, effort keys are omitted entirely.
-    pub effort_supported: bool,
 }
 
-/// Build the `--agents` JSON for the release's issues. `overrides` maps an
-/// issue identifier to an optional (model, effort) pair from the dialog's
-/// per-issue rows; absent entries inherit `defaults`.
+/// Build the `--agents` JSON for the release's issues — every subagent
+/// carries the same `defaults` (blank = inherit the session's).
 pub fn build_agents_json(
     issues: &[ReleasePromptIssue],
     defaults: &SubagentDefaults<'_>,
-    overrides: &BTreeMap<String, (Option<String>, Option<String>)>,
 ) -> String {
     let mut defs: BTreeMap<String, AgentDef> = BTreeMap::new();
     for issue in issues {
-        let (model_override, effort_override) = overrides
-            .get(&issue.identifier)
-            .cloned()
-            .unwrap_or((None, None));
-        let model = model_override
-            .or_else(|| non_blank(defaults.model).map(str::to_string));
-        let effort = if defaults.effort_supported {
-            effort_override.or_else(|| {
-                defaults
-                    .effort
-                    .and_then(non_blank)
-                    .map(str::to_string)
-            })
-        } else {
-            None
-        };
+        let model = non_blank(defaults.model).map(str::to_string);
+        let effort = defaults.effort.and_then(non_blank).map(str::to_string);
         defs.insert(
             issue.agent_name.clone(),
             AgentDef {
@@ -117,8 +98,7 @@ mod tests {
         let issues = [issue("EXP-2"), issue("EXP-1")];
         let json = build_agents_json(
             &issues,
-            &SubagentDefaults { model: "opus", effort: Some("high"), effort_supported: true },
-            &BTreeMap::new(),
+            &SubagentDefaults { model: "opus", effort: Some("high") },
         );
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
@@ -141,43 +121,21 @@ mod tests {
         // Byte-stable: same input ⇒ same output.
         let again = build_agents_json(
             &issues,
-            &SubagentDefaults { model: "opus", effort: Some("high"), effort_supported: true },
-            &BTreeMap::new(),
+            &SubagentDefaults { model: "opus", effort: Some("high") },
         );
         assert_eq!(json, again);
     }
 
     #[test]
-    fn per_issue_overrides_beat_defaults_and_effort_gates_on_support() {
-        let issues = [issue("EXP-1"), issue("EXP-2")];
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            "EXP-1".to_string(),
-            (Some("sonnet".to_string()), Some("low".to_string())),
-        );
+    fn blank_defaults_are_omitted_rather_than_serialized_empty() {
+        let issues = [issue("EXP-1")];
         let json = build_agents_json(
             &issues,
-            &SubagentDefaults { model: "opus", effort: Some("high"), effort_supported: true },
-            &overrides,
+            &SubagentDefaults { model: "  ", effort: Some("") },
         );
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["exp-1"]["model"], "sonnet");
-        assert_eq!(value["exp-1"]["effort"], "low");
-        assert_eq!(value["exp-2"]["model"], "opus");
-        assert_eq!(value["exp-2"]["effort"], "high");
-
-        // Unsupported effort (old CLI) ⇒ NO effort keys anywhere, even for
-        // overrides; blank defaults are omitted rather than serialized empty.
-        let json = build_agents_json(
-            &issues,
-            &SubagentDefaults { model: "", effort: Some("high"), effort_supported: false },
-            &overrides,
-        );
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // Blank = inherit the session's model/effort — no keys at all.
+        assert!(value["exp-1"].get("model").is_none());
         assert!(value["exp-1"].get("effort").is_none());
-        assert!(value["exp-2"].get("effort").is_none());
-        assert!(value["exp-2"].get("model").is_none());
-        // Model overrides still apply without effort support.
-        assert_eq!(value["exp-1"]["model"], "sonnet");
     }
 }

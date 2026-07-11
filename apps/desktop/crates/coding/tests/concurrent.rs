@@ -36,8 +36,9 @@ use api::token_store::{SecretKind, TokenStore};
 use api::trpc::TrpcClient;
 use api::StaticToken;
 use coding::{
-    clone_path, prepare_launch, spawn_prepared, worktree_path, CodingDeps, GitWorktrees,
-    IssueSeed, LaunchOrigin, LaunchRequest, LaunchOutcome, Prepared, Settings,
+    clone_path, prepare, spawn_prepared, worktree_path, CodingDeps, GitWorktrees, IssueSeed,
+    IssueLaunchOptions, LaunchOrigin, LaunchRequest, LaunchOutcome, Prepared, PrepareRequest,
+    Settings,
 };
 use gpui::AppContext as _;
 use terminal::TerminalManager;
@@ -209,7 +210,6 @@ fn main() {
             claude_path: stub.to_string_lossy().into_owned(),
             repos_root: repos_root.to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
-            claude_model: "opus".to_string(),
             ..Settings::default()
         },
         issue_seed: Arc::new(|_| {
@@ -221,19 +221,28 @@ fn main() {
         worktrees: Arc::new(GitWorktrees),
     };
 
-    let request_for = |issue_id: &str, identifier: &str| LaunchRequest {
-        issue_id: issue_id.to_string(),
-        issue_identifier: identifier.to_string(),
-        device_label: "concurrentbox".to_string(),
-        origin: LaunchOrigin::Local,
+    // plan_mode OFF so the stub's `$3 = --dangerously-skip-permissions`
+    // check holds (the prompt rides argv as $4 — direct delivery).
+    let request_for = |issue_id: &str, identifier: &str| {
+        PrepareRequest::Issue(LaunchRequest {
+            issue_id: issue_id.to_string(),
+            issue_identifier: identifier.to_string(),
+            device_label: "concurrentbox".to_string(),
+            origin: LaunchOrigin::Local,
+            options: IssueLaunchOptions {
+                model: "opus".to_string(),
+                effort: "".to_string(),
+                plan_mode: false,
+            },
+        })
     };
 
     // ---- steps 1–6 for BOTH issues (sequential prep; the CHILDREN overlap) ----
-    let prepared_a = match prepare_launch(&request_for("issue-cc-1", "CC-1"), &deps).unwrap() {
+    let prepared_a = match prepare(&request_for("issue-cc-1", "CC-1"), &deps).unwrap() {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => panic!("A unexpectedly disabled: {reason:?}"),
     };
-    let prepared_b = match prepare_launch(&request_for("issue-cc-2", "CC-2"), &deps).unwrap() {
+    let prepared_b = match prepare(&request_for("issue-cc-2", "CC-2"), &deps).unwrap() {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => panic!("B unexpectedly disabled: {reason:?}"),
     };

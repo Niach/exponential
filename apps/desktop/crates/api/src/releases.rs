@@ -1,7 +1,8 @@
 //! Typed `releases.*` tRPC helpers (EXP-56 — the Releases surfaces). Shapes
 //! verified against `apps/web/src/lib/trpc/releases.ts`:
 //!
-//! - `releases.create({workspaceId, name, description?})` → `{txId, release}`
+//! - `releases.create({workspaceId, name?})` → `{txId, release}` — name
+//!   absent ⇒ the server auto-names sequentially ("Release N")
 //! - `releases.markShipped({id, shipped})` → `{txId}` — manual ship/unship
 //!   (the GitHub webhook also auto-ships when the linked release PR merges)
 //! - `releases.delete({id})` → `{txId}` — hard delete; `issues.release_id`
@@ -52,29 +53,22 @@ pub struct ReleasesAddIssuesOutput {
     pub tx_id: Option<i64>,
 }
 
-/// `releases.create` — mutation. Blocking; background executor only (§3.5).
+/// `releases.create` — mutation. `None` name is the one-click instant-create
+/// path: the key is omitted and the server auto-names the release
+/// ("Release N"). Blocking; background executor only (§3.5).
 pub fn create(
     trpc: &TrpcClient,
     workspace_id: &str,
-    name: &str,
-    description: Option<&str>,
+    name: Option<&str>,
 ) -> Result<ReleasesCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         workspace_id: &'a str,
-        name: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
-        description: Option<&'a str>,
+        name: Option<&'a str>,
     }
-    trpc.mutation(
-        "releases.create",
-        &Input {
-            workspace_id,
-            name,
-            description,
-        },
-    )
+    trpc.mutation("releases.create", &Input { workspace_id, name })
 }
 
 /// `releases.markShipped` — mutation (ship with `true`, unship with `false`).
@@ -155,31 +149,32 @@ mod tests {
     }
 
     #[test]
-    fn create_decodes_release_and_posts_optional_description() {
+    fn create_decodes_release_and_posts_explicit_name() {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"txId":41,"release":{"id":"rel-1","workspaceId":"ws-1","name":"v1.0","description":null,"targetDate":null,"shippedAt":null}}}}"#,
         );
-        let output = create(&client(&base), "ws-1", "v1.0", Some("First cut")).unwrap();
+        let output = create(&client(&base), "ws-1", Some("v1.0")).unwrap();
         assert_eq!(output.release.id, "rel-1");
         assert_eq!(output.release.name.as_deref(), Some("v1.0"));
         assert_eq!(output.tx_id, Some(41));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/releases.create HTTP/1.1"));
-        assert!(request.ends_with(
-            r#"{"workspaceId":"ws-1","name":"v1.0","description":"First cut"}"#
-        ));
+        assert!(request.ends_with(r#"{"workspaceId":"ws-1","name":"v1.0"}"#));
     }
 
     #[test]
-    fn create_omits_absent_description() {
+    fn create_omits_absent_name_for_server_auto_naming() {
+        // The instant-create path: no name key at all — the server picks
+        // "Release N" (an explicit null would fail the zod min(1)).
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"txId":1,"release":{"id":"rel-1"}}}}"#,
+            r#"{"result":{"data":{"txId":1,"release":{"id":"rel-1","workspaceId":"ws-1","name":"Release 4"}}}}"#,
         );
-        let _ = create(&client(&base), "ws-1", "v1.0", None).unwrap();
+        let output = create(&client(&base), "ws-1", None).unwrap();
+        assert_eq!(output.release.name.as_deref(), Some("Release 4"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"workspaceId":"ws-1","name":"v1.0"}"#));
+        assert!(request.ends_with(r#"{"workspaceId":"ws-1"}"#));
     }
 
     #[test]

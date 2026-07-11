@@ -50,7 +50,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
 use terminal::{RawSink, TabId, TerminalManager};
 
-use coding::{prepare_launch, LaunchOrigin, Prepared};
+use coding::{prepare, IssueLaunchOptions, LaunchOrigin, Prepared, PrepareRequest};
 use steer::publisher::{pty_writer_input_hook, term_geometry_hook};
 use steer::{
     spawn_activity_emitter, spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity,
@@ -195,9 +195,9 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 }
 
 /// Relay `start_session` → the §7 launcher on a workspace window. The SAME
-/// sequence the Start-coding button runs (`coding_flow::build_launch` →
-/// `prepare_launch` → `spawn_into_window`), only the [`LaunchOrigin`] differs
-/// (§7.1: there is no second, divergent remote-start implementation).
+/// sequence the Start-coding dialog runs (`coding_flow::build_launch` →
+/// `coding::prepare` → `spawn_into_window`), only the [`LaunchOrigin`]
+/// differs (§7.1: there is no second, divergent remote-start implementation).
 /// ISSUE-only by design: remote RELEASE start is deferred (needs a release-
 /// aware `steer.startSession` + per-repo-group resolution — EXP-56 v2).
 fn handle_remote_start(issue_id: String, cx: &mut App) {
@@ -227,7 +227,15 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
         device_id,
         claimant,
     };
-    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, cx) else {
+    // Settings-default model/effort, but plan mode FORCED OFF (fix F7): a
+    // remote start must never park at a native plan-approval TUI menu on an
+    // unattended desktop — nobody is at the keyboard to approve it.
+    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+    let options = IssueLaunchOptions {
+        plan_mode: false,
+        ..IssueLaunchOptions::from_settings(&settings)
+    };
+    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, cx) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;
     };
@@ -249,7 +257,7 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
     cx.spawn(async move |cx| {
         let prepared = cx
             .background_executor()
-            .spawn(async move { prepare_launch(&request, &deps) })
+            .spawn(async move { prepare(&PrepareRequest::Issue(request), &deps) })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {

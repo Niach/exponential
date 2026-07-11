@@ -3,14 +3,10 @@
 //! Phase 5 lands: git worktree creation via argv `git` (never `gh`, never a
 //! git library), the `exp/<IDENTIFIER>` branch, the token-embedded remote
 //! (never logged — [`git_worktree::TokenUrl`] redacts, git output is
-//! scrubbed), `.mcp.json` + `PROMPT.md`, the tooling doctor, the
+//! scrubbed), `.mcp.json`, the seed prompt, the tooling doctor, the
 //! coding settings (repos root / branch prefix / claude path — never
-//! a manual API-key field), and the
-//! `claude --dangerously-skip-permissions` spawn into the embedded terminal.
-//! v5 adds the [`agent`] **AgentAdapter**: every per-agent difference
-//! (binary, argv, MCP mechanism, prompt flavor, env) lives in
-//! [`agent::Agent`] — claude is the default and behavior-preserving; the
-//! EXPERIMENTAL codex adapter is opt-in via the `codingAgent` setting.
+//! a manual API-key field), and the `claude` spawn into the embedded
+//! terminal. Claude-only: the experimental codex adapter is deleted.
 //!
 //! ## The one entry point (§7.1)
 //!
@@ -18,7 +14,7 @@
 //!
 //! ```text
 //! // background executor (blocking network + git I/O, gpui-free):
-//! let prepared = coding::prepare_launch(&req, &deps)?;
+//! let prepared = coding::prepare(&req, &deps)?;
 //! // foreground (gpui):
 //! match prepared {
 //!     Prepared::Ready(p) => coding::spawn_prepared(p, &terminal_manager, cx, trpc)?,
@@ -34,8 +30,8 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
-pub mod agent;
 pub mod agents_json;
+pub mod argv;
 pub mod claude_task;
 pub mod clone_manager;
 pub mod doctor;
@@ -48,39 +44,42 @@ pub mod release_prompt;
 pub mod run_launch;
 pub mod scm;
 pub mod settings;
+#[cfg(test)]
+pub(crate) mod test_support;
+pub mod token_cache;
 pub mod token_refresh;
 pub mod trunk_state;
 
-pub use agent::{Agent, CODEX_CODING_ARGS};
+pub use argv::{issue_args, permission_args, release_args, IssueLaunchOptions};
 pub use claude_task::{
     claude_task, create_run_configs_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
 };
-pub use clone_manager::CloneEvent;
+pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use doctor::{
-    probe_claude_flags, run_doctor, run_doctor_for, ClaudeFlagSupport, DoctorReport, Tool,
-    ToolCheck,
+    parse_claude_version, run_doctor, DoctorReport, Tool, ToolCheck, MIN_CLAUDE_VERSION,
 };
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
-    FileStatus, StatusSummary, UnifiedHunk,
+    FileStatus, StashEntry, StatusSummary, UnifiedHunk,
 };
+pub use token_cache::{token_cache, MintedToken, TokenCache};
 pub use trunk_state::TrunkState;
 pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
 pub use launcher::{
-    default_device_label, end_session_best_effort, prepare_launch, spawn_prepared,
-    spawn_prepared_with, CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees,
-    IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PreparedLaunch,
+    default_device_label, end_session_best_effort, prepare, spawn_prepared, spawn_prepared_with,
+    CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees, IssueSeed, IssueSeedFn,
+    LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest, PreparedLaunch,
     WorktreeProvider,
 };
 pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
 pub use release_launcher::{
-    prepare_release_launch, release_args, release_branch_name, release_slug,
-    ReleaseIssueSpec, ReleaseLaunchOptions, ReleaseLaunchRequest, RepoGroup,
+    release_branch_name, release_slug, ReleaseIssueSpec, ReleaseLaunchOptions,
+    ReleaseLaunchRequest, RepoGroup,
 };
 pub use release_prompt::{render_release_prompt, ReleasePromptArgs, ReleasePromptIssue};
 pub use prompt::{
-    render_prompt, render_prompt_no_mcp, write_prompt, write_rendered_prompt, PROMPT_FILE,
-    SEED_LINE,
+    deliver_prompt, deliver_prompt_file, render_prompt, write_rendered_prompt, PromptDelivery,
+    PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
 };
 pub use run_launch::{
     format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,

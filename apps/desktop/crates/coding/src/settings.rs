@@ -5,9 +5,7 @@
 //! | Claude CLI path    | `claude`             | §7.1 step 7 spawn + doctor   |
 //! | Repos root         | `~/Exponential/repos`| §7.1 step 3 worktree layout  |
 //! | Branch prefix      | `exp/`               | `<prefix><IDENTIFIER>` branch|
-//! | Claude model       | `opus`               | §7.1 step 7 `--model` argv   |
-//! | Coding agent       | `claude`             | [`crate::agent::Agent`] pick |
-//! | Codex CLI path     | `codex`              | codex spawn + doctor (exp.)  |
+//! | Claude model       | `fable`              | §7.1 step 7 `--model` argv   |
 //!
 //! Persisted to a small `settings.json` in the app data dir — **local,
 //! per-install, never synced**. Saving merges into the existing JSON object
@@ -26,13 +24,18 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_CLAUDE_PATH: &str = "claude";
 pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
-/// §7.7 default coding model — passed as `--model opus` on every spawn. Explicit
-/// -always so the user's `claude` CLI default (possibly a scarcer model like
-/// Fable) is never silently consumed by coding sessions or E2E tests.
-pub const DEFAULT_CLAUDE_MODEL: &str = "opus";
+/// §7.7 default coding model — passed as `--model fable` on every spawn.
+/// Explicit-always so the user's `claude` CLI default is never silently
+/// consumed by coding sessions or E2E tests.
+pub const DEFAULT_CLAUDE_MODEL: &str = "fable";
+/// The `--model` aliases the CLI accepts (and the ui selects offer) —
+/// [`Settings::load`] normalizes anything else back to the default.
+pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
+/// The `--effort` levels the CLI accepts (blank = omit the flag) —
+/// [`Settings::load`] normalizes anything else back to blank.
+pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// Default reasoning effort — EMPTY, meaning "omit --effort" (the CLI's own
-/// default applies). Unlike the other fields, blank is a VALID value here, so
-/// `load` must NOT degrade it (EXP-56).
+/// default applies). Blank is a VALID value here (EXP-56).
 pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Default subagent model for RELEASE runs (EXP-56) — EMPTY, meaning
 /// "inherit `claude_model` at use". Blank is a VALID value; `load` must NOT
@@ -41,13 +44,6 @@ pub const DEFAULT_SUBAGENT_MODEL: &str = "";
 /// Default subagent effort for RELEASE runs — EMPTY = inherit/omit. Blank is
 /// VALID; never degraded on load.
 pub const DEFAULT_SUBAGENT_EFFORT: &str = "";
-/// The default coding agent — Claude. `codex` is the EXPERIMENTAL opt-in
-/// (v5 "codex-support"); anything else parses back to Claude
-/// ([`crate::agent::Agent::from_setting`]).
-pub const DEFAULT_CODING_AGENT: &str = "claude";
-/// Default Codex CLI program (PATH-resolved; only used when the coding agent
-/// is `codex`).
-pub const DEFAULT_CODEX_PATH: &str = "codex";
 
 /// The resolved coding settings. `repos_root` is stored in its raw
 /// (possibly `~`-prefixed) form and tilde-expanded at use
@@ -62,36 +58,34 @@ pub struct Settings {
     pub repos_root: String,
     /// Prepended to the issue identifier for the coding branch (`exp/EXP-42`).
     pub branch_prefix: String,
-    /// The Claude model, passed verbatim as `--model <value>` on every spawn
-    /// (§7.7 — explicit-always; free text, common values opus/sonnet/haiku/fable).
+    /// The Claude model, passed as `--model <value>` on every spawn (§7.7 —
+    /// explicit-always). One of [`MODEL_ALIASES`]; `load` normalizes anything
+    /// else to [`DEFAULT_CLAUDE_MODEL`].
     pub claude_model: String,
-    /// Reasoning effort, passed as `--effort <value>` when non-blank AND the
-    /// installed CLI supports the flag (doctor probe — EXP-56). Free text;
-    /// common values low/medium/high/xhigh/max. Blank = omit the flag.
+    /// Reasoning effort, passed as `--effort <value>` when non-blank. One of
+    /// [`EFFORT_LEVELS`] or blank (= omit the flag); `load` normalizes
+    /// anything else to blank.
     pub claude_effort: String,
     /// RELEASE-run subagent model default (the launch dialog's prefill,
-    /// EXP-56). Blank is VALID = inherit `claude_model` at use — never
-    /// blank-degraded on load.
+    /// EXP-56). Blank is VALID = inherit `claude_model` at use; otherwise one
+    /// of [`MODEL_ALIASES`] (`load` normalizes anything else to blank).
     pub subagent_model: String,
-    /// RELEASE-run subagent effort default. Blank is VALID = inherit/omit —
-    /// never blank-degraded on load.
+    /// RELEASE-run subagent effort default. Blank is VALID = inherit/omit;
+    /// otherwise one of [`EFFORT_LEVELS`] (`load` normalizes anything else
+    /// to blank).
     pub subagent_effort: String,
     /// RELEASE-run "dynamic workflows" (ultracode) default — ON by default.
     /// A MISSING key fills from this struct's manual [`Default`] impl (the
     /// container-level `#[serde(default)]` uses `Settings::default()`, not
     /// `bool::default()`), so absent stays `true` — locked by a test below.
     pub release_ultracode: bool,
-    /// RELEASE-run autonomous default (no plan approval gate) — ON by
-    /// default; same missing-key semantics as `release_ultracode`.
-    pub release_autonomous: bool,
-    /// Which agent "Start coding" launches: `claude` (default) or `codex`
-    /// (EXPERIMENTAL — OpenAI Codex CLI). Any other value falls back to
-    /// claude ([`crate::agent::Agent::from_setting`]), so this can never
-    /// brick the launcher.
-    pub coding_agent: String,
-    /// Program name or absolute path of the Codex CLI — used verbatim, and
-    /// only when `coding_agent` is `codex`.
-    pub codex_path: String,
+    /// RELEASE-run native plan mode default — OFF by default (an orchestrator
+    /// usually runs unattended). Replaces the old `releaseAutonomous` key,
+    /// which is simply ignored on load.
+    pub release_plan_mode: bool,
+    /// SINGLE-ISSUE-run native plan mode default — ON by default (Claude
+    /// presents a plan for approval in the terminal before editing).
+    pub issue_plan_mode: bool,
 }
 
 impl Default for Settings {
@@ -105,9 +99,8 @@ impl Default for Settings {
             subagent_model: DEFAULT_SUBAGENT_MODEL.to_string(),
             subagent_effort: DEFAULT_SUBAGENT_EFFORT.to_string(),
             release_ultracode: true,
-            release_autonomous: true,
-            coding_agent: DEFAULT_CODING_AGENT.to_string(),
-            codex_path: DEFAULT_CODEX_PATH.to_string(),
+            release_plan_mode: false,
+            issue_plan_mode: true,
         }
     }
 }
@@ -121,8 +114,9 @@ impl Settings {
 
     /// Load settings, tolerating a missing/corrupt file (→ defaults) and
     /// unknown keys (→ ignored, but see [`Settings::save`] which preserves
-    /// them). Empty strings degrade to the field default so a hand-blanked
-    /// file can never produce an unusable launcher.
+    /// them). Empty strings degrade to the field default and model/effort
+    /// values normalize to the known alias sets, so a hand-edited file can
+    /// never produce an unusable launcher or an argv the CLI rejects.
     pub fn load(path: &Path) -> Settings {
         let mut settings = fs::read_to_string(path)
             .ok()
@@ -138,15 +132,11 @@ impl Settings {
         if settings.branch_prefix.trim().is_empty() {
             settings.branch_prefix = defaults.branch_prefix;
         }
-        if settings.claude_model.trim().is_empty() {
-            settings.claude_model = defaults.claude_model;
-        }
-        if settings.coding_agent.trim().is_empty() {
-            settings.coding_agent = defaults.coding_agent;
-        }
-        if settings.codex_path.trim().is_empty() {
-            settings.codex_path = defaults.codex_path;
-        }
+        settings.claude_model =
+            normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
+        settings.subagent_model = normalize_choice(&settings.subagent_model, &MODEL_ALIASES, "");
+        settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
+        settings.subagent_effort = normalize_choice(&settings.subagent_effort, &EFFORT_LEVELS, "");
         settings
     }
 
@@ -191,6 +181,18 @@ impl Settings {
             &self.repos_root,
             dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
         )
+    }
+}
+
+/// Lowercase-trim `raw`; anything outside `allowed` (except blank, which
+/// always maps to `fallback`) also maps to `fallback`. Keeps every persisted
+/// model/effort value inside the closed alias sets the CLI accepts.
+fn normalize_choice(raw: &str, allowed: &[&str], fallback: &str) -> String {
+    let cleaned = raw.trim().to_ascii_lowercase();
+    if allowed.contains(&cleaned.as_str()) {
+        cleaned
+    } else {
+        fallback.to_string()
     }
 }
 
@@ -288,17 +290,15 @@ mod tests {
         assert_eq!(settings.claude_path, "claude");
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
-        assert_eq!(settings.claude_model, "opus");
-        // Claude is the DEFAULT agent — codex is strictly opt-in (v5
-        // "codex-support", experimental).
-        assert_eq!(settings.coding_agent, "claude");
-        assert_eq!(settings.codex_path, "codex");
+        assert_eq!(settings.claude_model, "fable");
+        assert_eq!(settings.claude_effort, "");
         // EXP-56 release-run defaults: blank subagent fields (= inherit),
-        // ultracode + autonomous ON.
+        // ultracode ON. Plan mode: ON for issue runs, OFF for release runs.
         assert_eq!(settings.subagent_model, "");
         assert_eq!(settings.subagent_effort, "");
         assert!(settings.release_ultracode);
-        assert!(settings.release_autonomous);
+        assert!(!settings.release_plan_mode);
+        assert!(settings.issue_plan_mode);
     }
 
     #[test]
@@ -322,20 +322,20 @@ mod tests {
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"claudePath":"","reposRoot":"  ","branchPrefix":"","claudeModel":"  ","codingAgent":"","codexPath":" "}"#,
+            r#"{"claudePath":"","reposRoot":"  ","branchPrefix":"","claudeModel":"  "}"#,
         )
         .unwrap();
         assert_eq!(Settings::load(&path), Settings::default());
     }
 
     /// Blank effort is a VALID value ("omit --effort") — it must survive load
-    /// untouched, unlike the other blank-degraded fields (EXP-56).
+    /// as blank, and a known level round-trips (EXP-56).
     #[test]
     fn blank_effort_is_preserved_and_a_set_effort_round_trips() {
         let dir = TempDir::new("effort");
         let path = dir.0.join("settings.json");
         fs::write(&path, r#"{"claudeEffort":"  "}"#).unwrap();
-        assert_eq!(Settings::load(&path).claude_effort, "  ");
+        assert_eq!(Settings::load(&path).claude_effort, "");
         fs::write(&path, r#"{"claudeEffort":"high"}"#).unwrap();
         assert_eq!(Settings::load(&path).claude_effort, "high");
         // Absent key → the empty default.
@@ -343,32 +343,65 @@ mod tests {
         assert_eq!(Settings::load(&path).claude_effort, "");
     }
 
-    /// EXP-56 release-run fields: MISSING bool keys must fill from the manual
-    /// `Default` impl (container-level `#[serde(default)]`), i.e. stay TRUE —
-    /// not degrade to `bool::default()` false. Blank subagent model/effort are
-    /// VALID ("inherit") and survive load untouched; explicit `false` bools
-    /// round-trip.
+    /// Model/effort values normalize on load: lowercase-trim into the closed
+    /// alias sets; anything unknown falls back (model → fable, subagent
+    /// model and efforts → blank) so the argv can never carry a value the
+    /// CLI rejects.
     #[test]
-    fn release_run_fields_default_true_and_blanks_survive() {
+    fn model_and_effort_values_normalize_on_load() {
+        let dir = TempDir::new("normalize");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"claudeModel":" Opus ","subagentModel":"SONNET","claudeEffort":" XHigh ","subagentEffort":"max"}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "opus");
+        assert_eq!(settings.subagent_model, "sonnet");
+        assert_eq!(settings.claude_effort, "xhigh");
+        assert_eq!(settings.subagent_effort, "max");
+
+        fs::write(
+            &path,
+            r#"{"claudeModel":"haiku","subagentModel":"gpt","claudeEffort":"extreme","subagentEffort":"ultracode"}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "fable", "unknown model → fable");
+        assert_eq!(settings.subagent_model, "", "unknown subagent model → inherit");
+        assert_eq!(settings.claude_effort, "", "unknown effort → omit");
+        assert_eq!(settings.subagent_effort, "");
+    }
+
+    /// EXP-56 release-run fields: MISSING keys must fill from the manual
+    /// `Default` impl (container-level `#[serde(default)]`) — ultracode TRUE,
+    /// issue plan mode TRUE, release plan mode FALSE. Blank subagent
+    /// model/effort are VALID ("inherit"); explicit bools round-trip; the
+    /// dead `releaseAutonomous` key is ignored.
+    #[test]
+    fn release_run_fields_fill_from_defaults_and_blanks_survive() {
         let dir = TempDir::new("release-fields");
         let path = dir.0.join("settings.json");
         fs::write(&path, r#"{"claudeModel":"sonnet"}"#).unwrap();
         let settings = Settings::load(&path);
         assert!(settings.release_ultracode, "missing key must default TRUE");
-        assert!(settings.release_autonomous, "missing key must default TRUE");
+        assert!(!settings.release_plan_mode, "missing key must default FALSE");
+        assert!(settings.issue_plan_mode, "missing key must default TRUE");
         assert_eq!(settings.subagent_model, "");
         assert_eq!(settings.subagent_effort, "");
 
         fs::write(
             &path,
-            r#"{"subagentModel":"  ","subagentEffort":"","releaseUltracode":false,"releaseAutonomous":false}"#,
+            r#"{"subagentModel":"  ","subagentEffort":"","releaseUltracode":false,"releasePlanMode":true,"issuePlanMode":false,"releaseAutonomous":false}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
-        assert_eq!(settings.subagent_model, "  ", "blank = inherit, no degrade");
+        assert_eq!(settings.subagent_model, "", "blank = inherit");
         assert_eq!(settings.subagent_effort, "");
         assert!(!settings.release_ultracode);
-        assert!(!settings.release_autonomous);
+        assert!(settings.release_plan_mode);
+        assert!(!settings.issue_plan_mode);
     }
 
     #[test]
@@ -381,12 +414,11 @@ mod tests {
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
-            subagent_model: "haiku".to_string(),
+            subagent_model: "opus".to_string(),
             subagent_effort: "low".to_string(),
             release_ultracode: false,
-            release_autonomous: false,
-            coding_agent: "codex".to_string(),
-            codex_path: "/usr/local/bin/codex".to_string(),
+            release_plan_mode: true,
+            issue_plan_mode: false,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
@@ -396,9 +428,8 @@ mod tests {
         assert!(raw.contains("\"subagentModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"subagentEffort\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"releaseUltracode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"releaseAutonomous\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"codingAgent\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"codexPath\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"releasePlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"issuePlanMode\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 

@@ -34,13 +34,12 @@
 //! merged/closed: `git worktree remove` + local branch delete, blocked while a
 //! session runs or the tree is dirty, with the reason).
 //!
-//! All git here is argv `git` via [`std::process::Command`] (never `gh`, never
-//! a git library — masterplan L5); the unified-diff parse reuses
-//! [`coding::scm::parse_unified_diff`] so tier 1 renders through the exact same
-//! `diff.rs` renderer as the PR path.
+//! All git here routes through [`coding::scm`] (`branch_diff` for the tier-1
+//! local diff, `remove_worktree` for clean-up) — argv `git`, never `gh`,
+//! never a git library (masterplan L5) — so tier 1 renders through the exact
+//! same `diff.rs` renderer as the PR path.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use gpui::{
@@ -719,43 +718,21 @@ fn load_source(
     Loaded::Absent
 }
 
-/// [`local_diff`] plus the background-side stat + Tree-sitter row build (§4.8
-/// tier 1). Shared by the full [`IssueChanges::refresh`] and the poll-tick
-/// [`IssueChanges::refresh_local_diff`], so both do all the heavy work off the
-/// foreground and hand `apply` a ready-to-swap [`PreparedDiff`].
+/// [`coding::scm::branch_diff`] plus the background-side stat + Tree-sitter
+/// row build (§4.8 tier 1). Shared by the full [`IssueChanges::refresh`] and
+/// the poll-tick [`IssueChanges::refresh_local_diff`], so both do all the
+/// heavy work off the foreground and hand `apply` a ready-to-swap
+/// [`PreparedDiff`].
 fn local_diff_prepared(
     worktree: &Path,
     default_branch: &str,
     theme: &HighlightTheme,
 ) -> Result<(Stats, PreparedDiff), String> {
-    let files = local_diff(worktree, default_branch)?;
+    let files =
+        coding::scm::branch_diff(worktree, default_branch).map_err(|err| err.to_string())?;
     let stats = stats_from_scm(&files);
     let prepared = build_scm_diff(&files, theme);
     Ok((stats, prepared))
-}
-
-/// The live local diff (v4 §4.8 tier 1): `git diff <merge-base>` from the merge
-/// base of `origin/<default>` (or the local `<default>`) and `HEAD`, which
-/// captures committed *and* uncommitted tracked changes ("includes
-/// uncommitted"). Falls back to `git diff HEAD` when no base ref is present
-/// (a freshly cut branch with no fetched upstream).
-fn local_diff(worktree: &Path, default_branch: &str) -> Result<Vec<DiffFile>, String> {
-    let base = merge_base(worktree, &format!("origin/{default_branch}"))
-        .or_else(|| merge_base(worktree, default_branch));
-    let raw = match base {
-        Some(base) => run_git(worktree, &["diff", &base])?,
-        None => run_git(worktree, &["diff", "HEAD"])?,
-    };
-    Ok(coding::scm::parse_unified_diff(&raw))
-}
-
-/// `git merge-base <refspec> HEAD` → the base commit, or `None` when the ref is
-/// absent (git exits non-zero).
-fn merge_base(worktree: &Path, refspec: &str) -> Option<String> {
-    run_git(worktree, &["merge-base", refspec, "HEAD"])
-        .ok()
-        .map(|out| out.trim().to_string())
-        .filter(|out| !out.is_empty())
 }
 
 /// Update from main (v4 §4.9): a Claude task in the worktree — "rebase onto
@@ -779,9 +756,10 @@ fn update_from_main(
     });
 }
 
-/// Clean up worktree (v4 §4.8): dirty-check, then `git worktree remove` + local
-/// branch delete. Blocked (with a reason surfaced on the view) when the tree is
-/// dirty; the running-session block is enforced at menu-build time.
+/// Clean up worktree (v4 §4.8): [`coding::scm::remove_worktree`] — dirty
+/// refusal, then `git worktree remove` + prune + local branch delete. Blocked
+/// (with the reason surfaced on the view) when the tree is dirty; the
+/// running-session block is enforced at menu-build time.
 fn cleanup_worktree(
     weak: gpui::WeakEntity<IssueChanges>,
     repo: RepoContext,
@@ -790,7 +768,10 @@ fn cleanup_worktree(
     cx.spawn(async move |cx| {
         let outcome = cx
             .background_executor()
-            .spawn(async move { remove_worktree(&repo) })
+            .spawn(async move {
+                coding::scm::remove_worktree(&repo.clone, &repo.worktree, &repo.branch)
+                    .map_err(|err| err.detail)
+            })
             .await;
         let _ = weak.update(cx, |this, cx| match outcome {
             Ok(()) => {
@@ -804,55 +785,6 @@ fn cleanup_worktree(
         });
     })
     .detach();
-}
-
-/// The blocking half of clean-up: refuse a dirty tree, else remove the worktree
-/// and its local branch (best-effort branch delete — a checked-out or missing
-/// branch is not fatal).
-fn remove_worktree(repo: &RepoContext) -> Result<(), String> {
-    let dirty = run_git(&repo.worktree, &["status", "--porcelain"])
-        .map(|out| !out.trim().is_empty())
-        .unwrap_or(false);
-    if dirty {
-        return Err(
-            "Worktree has uncommitted changes — commit or discard them before cleaning up."
-                .to_string(),
-        );
-    }
-    let worktree = repo.worktree.to_string_lossy().into_owned();
-    run_git(&repo.clone, &["worktree", "remove", &worktree])?;
-    let _ = run_git(&repo.clone, &["worktree", "prune"]);
-    let _ = run_git(&repo.clone, &["branch", "-D", &repo.branch]);
-    Ok(())
-}
-
-/// One local (tokenless) git command, argv-direct (masterplan L5). Mirrors
-/// `coding::scm`'s private runner — never a shell, never `gh`, and a rejected
-/// credential FAILS rather than parking behind an invisible prompt.
-fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "git not found on PATH".to_string()
-            } else {
-                e.to_string()
-            }
-        })?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.trim();
-        Err(if detail.is_empty() {
-            format!("git {} failed", args.first().copied().unwrap_or_default())
-        } else {
-            detail.to_string()
-        })
-    }
 }
 
 // ---------------------------------------------------------------------------

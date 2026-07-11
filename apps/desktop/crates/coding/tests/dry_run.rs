@@ -1,23 +1,23 @@
 //! §11.4 Phase-5-core gate: the launcher dry-run — the FULL local Start-coding
 //! sequence against a LOCAL bare git repo standing in for GitHub, a canned
-//! tRPC server, and a stub `claude` (a shell script that reads `PROMPT.md`
-//! and exits 0). Proves, end-to-end and hermetically (no network, no real
-//! GitHub App):
+//! tRPC server, and a stub `claude` (a shell script that reads its positional
+//! prompt and exits 0). Proves, end-to-end and hermetically (no network, no
+//! real GitHub App):
 //!
-//! 1. `prepare_launch` with the REAL [`coding::GitWorktrees`] provider:
+//! 1. `prepare` with the REAL [`coding::GitWorktrees`] provider:
 //!    `ensure_clone` (reuse — the one GitHub-bound step, pre-seeded from the
 //!    local bare origin per the crate's hermetic test design) →
 //!    `set_token_remote` → `create_worktree` cutting `exp/GATE-99` from
-//!    `origin/main` → `.git/info/exclude` covering the seed files;
-//! 2. `.mcp.json` + `PROMPT.md` written into the worktree with the exact
-//!    §7.1 contents (instance `/api/mcp` URL + `Bearer expu_…`, plan-first
-//!    prompt with the issue context);
+//!    `origin/main` → `.git/info/exclude` covering `.mcp.json`;
+//! 2. `.mcp.json` written into the worktree with the exact §7.1 contents
+//!    (instance `/api/mcp` URL + `Bearer expu_…`) and the rendered issue
+//!    prompt riding argv DIRECTLY (small prompt ⇒ no `PROMPT.md` on disk);
 //! 3. the composed spawn spec (`<claude> --dangerously-skip-permissions`,
 //!    cwd = worktree);
 //! 4. `spawn_prepared` through a REAL headless-gpui `TerminalManager` tab:
-//!    the stub runs in the worktree, reads `PROMPT.md`, exits 0 — and the
-//!    launcher's one-shot exit hook fires `codingSessions.end` with the
-//!    session id minted by `codingSessions.start`.
+//!    the stub runs in the worktree, echoes its positional prompt, exits 0 —
+//!    and the launcher's one-shot exit hook fires `codingSessions.end` with
+//!    the session id minted by `codingSessions.start`.
 //!
 //! Like `terminal/tests/exit_hook.rs`, this needs the process main thread for
 //! the platform run loop (`harness = false`) and self-skips unless
@@ -39,8 +39,9 @@ use api::token_store::{SecretKind, TokenStore};
 use api::trpc::TrpcClient;
 use api::StaticToken;
 use coding::{
-    clone_path, prepare_launch, spawn_prepared, worktree_path, CodingDeps, GitWorktrees,
-    IssueSeed, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, Settings,
+    clone_path, prepare, spawn_prepared, worktree_path, CodingDeps, GitWorktrees, IssueSeed,
+    IssueLaunchOptions, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest,
+    Settings,
 };
 use gpui::AppContext as _;
 use terminal::TerminalManager;
@@ -159,7 +160,8 @@ fn main() {
     fs::create_dir_all(clone.parent().unwrap()).unwrap();
     git(&root, &["clone", "--quiet", bare.to_str().unwrap(), clone.to_str().unwrap()]);
 
-    // ---- the stub `claude`: answers --version, reads PROMPT.md, exits 0 ----
+    // ---- the stub `claude`: answers --version, echoes the first line of
+    //      its positional prompt ($4 — direct delivery), exits 0 ----
     let stub = root.join("bin").join("claude-stub");
     fs::create_dir_all(stub.parent().unwrap()).unwrap();
     fs::write(
@@ -168,7 +170,7 @@ fn main() {
          if [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\n\
          [ \"$1\" = \"--model\" ] || exit 7\n\
          [ \"$3\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
-         head -n 1 PROMPT.md > claude-ran.txt || exit 9\n\
+         printf '%s\\n' \"$4\" | head -n 1 > claude-ran.txt || exit 9\n\
          exit 0\n",
     )
     .unwrap();
@@ -206,7 +208,6 @@ fn main() {
             claude_path: stub.to_string_lossy().into_owned(),
             repos_root: repos_root.to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
-            claude_model: "opus".to_string(),
             ..Settings::default()
         },
         issue_seed: Arc::new(|_| {
@@ -217,15 +218,22 @@ fn main() {
         }),
         worktrees: Arc::new(GitWorktrees),
     };
-    let req = LaunchRequest {
+    // plan_mode OFF so the stub's `$3 = --dangerously-skip-permissions`
+    // check holds; the prompt rides argv as $4 (direct delivery).
+    let req = PrepareRequest::Issue(LaunchRequest {
         issue_id: "issue-1".to_string(),
         issue_identifier: "GATE-99".to_string(),
         device_label: "dryrunbox".to_string(),
         origin: LaunchOrigin::Local,
-    };
+        options: IssueLaunchOptions {
+            model: "opus".to_string(),
+            effort: "".to_string(),
+            plan_mode: false,
+        },
+    });
 
-    // ---- steps 1–6 (blocking, gpui-free) ----
-    let prepared = match prepare_launch(&req, &deps).expect("prepare_launch") {
+    // ---- steps 0–6 (blocking, gpui-free) ----
+    let prepared = match prepare(&req, &deps).expect("prepare") {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
     };
@@ -259,27 +267,33 @@ fn main() {
         assert_eq!(mode, 0o600, ".mcp.json must be private");
     }
 
-    // PROMPT.md: plan-first template with the issue context.
-    let prompt = fs::read_to_string(expected_worktree.join("PROMPT.md")).unwrap();
+    // Direct delivery: the FULL rendered prompt is the positional argv and
+    // there is NO PROMPT.md indirection on disk.
+    assert!(!expected_worktree.join("PROMPT.md").exists(), "PROMPT.md must not exist");
+    let prompt = prepared.spawn.args.last().unwrap().clone();
     assert!(prompt.contains("**GATE-99: Dry-run the launcher**"), "prompt: {prompt}");
     assert!(prompt.contains("Prove the full local sequence minus GitHub."));
     assert!(prompt.contains("`exponential_pr_open`"));
 
-    // Both seed files are git-invisible (token-leak guard).
+    // The credential seed file is git-invisible (token-leak guard).
     let status = git_stdout(&expected_worktree, &["status", "--porcelain"]);
     assert!(!status.contains(".mcp.json"), "seed file not excluded: {status}");
-    assert!(!status.contains("PROMPT.md"), "seed file not excluded: {status}");
 
     // The composed spawn spec: stub program, explicit --model, the skip flag,
-    // worktree cwd. Model is ALWAYS passed (§7.7).
+    // the prompt positional-last, worktree cwd. Model is ALWAYS passed (§7.7).
     assert_eq!(prepared.spawn.program, stub.to_string_lossy());
     assert_eq!(
         prepared.spawn.args,
-        vec!["--model", "opus", "--dangerously-skip-permissions"]
+        vec![
+            "--model".to_string(),
+            "opus".to_string(),
+            "--dangerously-skip-permissions".to_string(),
+            prompt.clone(),
+        ]
     );
     assert_eq!(prepared.spawn.cwd.as_deref(), Some(expected_worktree.as_path()));
     assert_eq!(prepared.tab_title, "claude · GATE-99");
-    eprintln!("dry_run e2e: steps 1–6 verified (worktree, remote, .mcp.json, PROMPT.md, spawn spec)");
+    eprintln!("dry_run e2e: steps 0–6 verified (worktree, remote, .mcp.json, direct prompt, spawn spec)");
 
     // ---- steps 7–8: spawn the stub through a real headless TerminalManager;
     //      the watchdog (outside gpui) asserts the observable effects ----
@@ -298,8 +312,9 @@ fn main() {
             });
             if marker_ok && end_seen {
                 eprintln!(
-                    "dry_run e2e: PASS — stub claude read PROMPT.md in the worktree, exited 0, \
-                     and the exit hook fired codingSessions.end(sess-dryrun-1)"
+                    "dry_run e2e: PASS — stub claude received the direct positional prompt in \
+                     the worktree, exited 0, and the exit hook fired \
+                     codingSessions.end(sess-dryrun-1)"
                 );
                 std::process::exit(0);
             }

@@ -18,8 +18,10 @@
 //!   pane INSIDE the dock-area center, so the bottom terminal dock runs
 //!   beneath it): the active tool window's content. Issue tools are mini
 //!   master lists whose rows open the full detail in the center pane; Source
-//!   Control lists the trunk's local branches (display-only); Files is the
-//!   trunk file tree.
+//!   Control lists the trunk's local branches — rows VIEW that branch's
+//!   history (never a checkout; checkout lives exclusively on the git bar's
+//!   branch chip, the one dirty-switch dialog surface); Files is the trunk
+//!   file tree.
 //!
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
@@ -425,12 +427,12 @@ impl RailView {
 }
 
 impl Render for RailView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on project open + the conflict badge both ride the
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
-        git_bar.update(cx, |bar, cx| bar.ensure_loaded(cx));
+        git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
         let conflict = git_bar.read(cx).has_conflict();
 
         // A branch checkout changes the working tree — refresh the file tree
@@ -602,6 +604,9 @@ pub struct SidebarPanel {
     /// id, `None` = the list. Self-heals to the list when the row leaves the
     /// collection (delete echo) or the workspace switches.
     release_selected: Option<String>,
+    /// Double-click guard for the one-click "+" create (the button also
+    /// renders loading while true).
+    release_creating: bool,
     /// The release detail's status-grouped issue list (the shared board core,
     /// pinned to `IssueQuery::Release`).
     release_list: Entity<IssueListView>,
@@ -669,6 +674,7 @@ impl SidebarPanel {
             review_merging: HashSet::new(),
             review_error: None,
             release_selected: None,
+            release_creating: false,
             release_list,
             _subscriptions: subscriptions,
         }
@@ -1314,10 +1320,10 @@ impl SidebarPanel {
                     .xsmall()
                     .icon(Icon::new(IconName::Plus))
                     .tooltip("New release")
+                    .loading(self.release_creating)
+                    .disabled(self.release_creating)
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        if let Some(workspace_id) = active_workspace_id(&this.nav, cx) {
-                            crate::create_release_dialog::open(window, cx, workspace_id);
-                        }
+                        this.create_release(window, cx);
                     })),
             );
 
@@ -1423,13 +1429,67 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// The in-panel release detail: back + name header with the ship/unship
-    /// action and a delete behind a nested confirm (destructive actions
-    /// confirm first on native); an info line (shipped/target date, progress,
-    /// the release PR pill when set); then the release's issues grouped by
-    /// status via the shared [`IssueListView`] — rows open the issue detail
-    /// in the center pane, and the row context menu carries "Remove from
-    /// release".
+    /// One-click instant create (the release rework's decision 1): fire
+    /// `releases.create` with NO name — the server auto-names sequentially
+    /// ("Release N") — gate on the Electric echo, then land on the new
+    /// release's detail (the natural place to add issues). Rename stays an
+    /// inline edit on web; the desktop shows the synced name.
+    fn create_release(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.release_creating {
+            return; // double-click guard
+        }
+        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("[ui] releases.create skipped: no signed-in account");
+            return;
+        };
+        self.release_creating = true;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::releases::create(&trpc, &workspace_id, None) })
+                .await;
+
+            match result {
+                Ok(output) => {
+                    // Gate on the echo so the detail renders from the synced
+                    // row the moment it opens (§4.1).
+                    let release_id = output.release.id.clone();
+                    let releases = window
+                        .update(|_, cx| Store::global(cx).collections().releases.clone())
+                        .ok();
+                    if let Some(releases) = releases {
+                        queries::await_row_visible(&releases, &release_id, window).await;
+                    }
+                    let _ = this.update_in(window, |this, _window, cx| {
+                        this.release_creating = false;
+                        this.release_selected = Some(release_id);
+                        cx.notify();
+                    });
+                }
+                Err(err) => {
+                    log::warn!("[ui] releases.create failed: {err}");
+                    let _ = this.update_in(window, |this, _window, cx| {
+                        this.release_creating = false;
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The in-panel release detail: back + name header with the add-issues
+    /// picker, the ship/unship action and a delete behind a nested confirm
+    /// (destructive actions confirm first on native); an info line
+    /// (shipped/target date, progress, the release PR pill when set); then
+    /// the release's issues grouped by status via the shared
+    /// [`IssueListView`] — rows open the issue detail in the center pane, and
+    /// the row context menu carries "Remove from release".
     fn render_release_detail(
         &mut self,
         release: &domain::rows::Release,
@@ -1444,6 +1504,7 @@ impl SidebarPanel {
 
         let ship_id = release.id.clone();
         let delete_id = release.id.clone();
+        let add_issues_id = release.id.clone();
         // EXP-56 coding launcher: Stop while THIS process runs the release's
         // orchestrator (kill the tab child — the exit hook ends the row and
         // clears the registry), else the dialog-opening Start button.
@@ -1476,7 +1537,7 @@ impl SidebarPanel {
                     .label("Start coding")
                     .tooltip("Launch a Claude orchestrator on this release's issues")
                     .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                        crate::release_coding_dialog::open(window, cx, launch_id.clone());
+                        crate::start_coding_dialog::open_for_release(window, cx, launch_id.clone());
                     }))
                     .into_any_element()
             }
@@ -1509,6 +1570,17 @@ impl SidebarPanel {
                     .font_weight(FontWeight::MEDIUM)
                     .truncate()
                     .child(name),
+            )
+            .child(
+                Button::new("release-add-issues")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(IconName::Plus))
+                    .label("Add issues")
+                    .tooltip("Add workspace issues to this release")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        crate::release_add_issues_dialog::open(window, cx, add_issues_id.clone());
+                    })),
             )
             .child(coding_control)
             .child(
@@ -1668,8 +1740,9 @@ impl SidebarPanel {
 
     /// *Source Control* tool window: the trunk's local branches (from the
     /// shared git bar — refreshed with every trunk read), current one
-    /// checked. Clicking a row CHECKS OUT that branch; the center pane shows
-    /// the changes/commits + diff screen.
+    /// checked. Clicking a row VIEWS that branch's history in the changes
+    /// screen — never a checkout (that stays on the git bar's branch chip,
+    /// the one dirty-switch dialog surface).
     fn render_source_control_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let git_bar = self.shared.read(cx).git_bar.clone();
         // Copied (Hsla/Pixels are Copy) so no theme borrow outlives the

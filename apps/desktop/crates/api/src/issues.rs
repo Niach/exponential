@@ -233,6 +233,81 @@ pub fn issues_delete(trpc: &TrpcClient, id: &str) -> Result<IssuesDeleteOutput, 
 }
 
 // ---------------------------------------------------------------------------
+// Bulk mutations (the multi-select action bar)
+// ---------------------------------------------------------------------------
+
+/// `issues.bulkUpdate` input: 1..=200 ids (one workspace per batch,
+/// server-enforced) plus the PROPERTY fields only — status, priority and the
+/// tri-state assignee. Label bulk writes deliberately live on
+/// `issueLabels.bulkAdd/bulkRemove` (`crate::labels`), never here.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuesBulkUpdateInput {
+    pub ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<IssueStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<IssuePriority>,
+    /// zod `.nullable().optional()` — `Null` unassigns every issue.
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub assignee_id: Patch<String>,
+}
+
+impl IssuesBulkUpdateInput {
+    /// All fields "leave unchanged"; set exactly the one you bulk-edit.
+    pub fn new(ids: Vec<String>) -> Self {
+        Self {
+            ids,
+            status: None,
+            priority: None,
+            assignee_id: Patch::Omit,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuesBulkUpdateOutput {
+    /// Survivor count (stale ids / trashed projects are silently skipped).
+    #[serde(default)]
+    pub updated: Option<i64>,
+    #[serde(default)]
+    pub tx_id: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuesBulkDeleteOutput {
+    #[serde(default)]
+    pub deleted: Option<i64>,
+    #[serde(default)]
+    pub tx_id: Option<i64>,
+}
+
+/// `issues.bulkUpdate` — mutation. One transaction / one txId server-side;
+/// callers chunk at 200 ids and call sequentially. Blocking; background
+/// executor only (§3.5).
+pub fn issues_bulk_update(
+    trpc: &TrpcClient,
+    input: &IssuesBulkUpdateInput,
+) -> Result<IssuesBulkUpdateOutput, ApiError> {
+    trpc.mutation("issues.bulkUpdate", input)
+}
+
+/// `issues.bulkDelete` — mutation (same 200-id chunk contract). Blocking;
+/// background executor only (§3.5).
+pub fn issues_bulk_delete(
+    trpc: &TrpcClient,
+    ids: &[String],
+) -> Result<IssuesBulkDeleteOutput, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        ids: &'a [String],
+    }
+    trpc.mutation("issues.bulkDelete", &Input { ids })
+}
+
+// ---------------------------------------------------------------------------
 // issues.mergePr
 // ---------------------------------------------------------------------------
 
@@ -496,6 +571,55 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.create HTTP/1.1"));
         assert!(request.ends_with(r#"{"projectId":"p-1","title":"New","priority":"high"}"#));
+    }
+
+    #[test]
+    fn bulk_update_serializes_only_touched_fields() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"txId":21,"updated":2}}}"#);
+        let mut input = IssuesBulkUpdateInput::new(vec!["i-1".to_string(), "i-2".to_string()]);
+        input.status = Some(IssueStatus::Done);
+        let out = issues_bulk_update(&client(&base), &input).unwrap();
+        assert_eq!(out.updated, Some(2));
+        assert_eq!(out.tx_id, Some(21));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.bulkUpdate HTTP/1.1"));
+        // Status only — an accidental `"assigneeId":null` would bulk-unassign.
+        assert!(request.ends_with(r#"{"ids":["i-1","i-2"],"status":"done"}"#));
+    }
+
+    #[test]
+    fn bulk_update_distinguishes_unassign_null_from_omit() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":22,"updated":1}}}"#);
+        let mut input = IssuesBulkUpdateInput::new(vec!["i-1".to_string()]);
+        input.assignee_id = Patch::Null;
+        let _ = issues_bulk_update(&client(&base), &input).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"ids":["i-1"],"assigneeId":null}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":23,"updated":1}}}"#);
+        let mut input = IssuesBulkUpdateInput::new(vec!["i-1".to_string()]);
+        input.priority = Some(IssuePriority::High);
+        input.assignee_id = Patch::Set("u-1".to_string());
+        let _ = issues_bulk_update(&client(&base), &input).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"ids":["i-1"],"priority":"high","assigneeId":"u-1"}"#));
+    }
+
+    #[test]
+    fn bulk_delete_posts_the_id_array_and_decodes_counts() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"txId":24,"deleted":3}}}"#);
+        let out = issues_bulk_delete(
+            &client(&base),
+            &["i-1".to_string(), "i-2".to_string(), "i-3".to_string()],
+        )
+        .unwrap();
+        assert_eq!(out.deleted, Some(3));
+        assert_eq!(out.tx_id, Some(24));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.bulkDelete HTTP/1.1"));
+        assert!(request.ends_with(r#"{"ids":["i-1","i-2","i-3"]}"#));
     }
 
     #[test]

@@ -1,7 +1,5 @@
-//! The tooling doctor (masterplan-v3 §7.7): runs `<agent> --version`
-//! and `git --version` (the agent binary comes from the active
-//! [`crate::agent::Agent`] — the configured Claude path by default, the
-//! codex path under the experimental codex opt-in) and captures success +
+//! The tooling doctor (masterplan-v3 §7.7): runs `claude --version` (the
+//! configured/probed Claude path) and `git --version` and captures success +
 //! version string or the spawn error.
 //!
 //! The doctor **blocks Start coding when EITHER tool is missing** — the
@@ -10,21 +8,27 @@
 //! Errors are actionable per the spec copy: "claude not found on PATH — set
 //! an absolute path" / "git not found on PATH".
 //!
+//! A resolvable Claude that is OLDER than [`MIN_CLAUDE_VERSION`] also fails
+//! the doctor (with "run: claude update" copy) — one version gate replaces
+//! the old per-flag `--help` probe and its whole degradation matrix.
+//!
 //! Blocking `std::process` calls — callers run this off the foreground
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
-use crate::agent::Agent;
 use crate::settings::Settings;
 use std::fmt;
 use std::process::Command;
 
+/// The minimum supported Claude Code version: `--effort ultracode` landed in
+/// 2.1.203, `--permission-mode plan`/`manual` in 2.1.200 — everything the
+/// launcher's argv relies on.
+pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 203);
+
 /// The local binaries the launcher ever shells out to (§7.1 step 3:
-/// argv `git` + the coding agent, never `gh`).
+/// argv `git` + `claude`, never `gh`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Claude,
-    /// EXPERIMENTAL — the OpenAI Codex CLI (v5 "codex-support" opt-in).
-    Codex,
     Git,
 }
 
@@ -32,7 +36,6 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
-            Tool::Codex => "codex",
             Tool::Git => "git",
         }
     }
@@ -41,7 +44,6 @@ impl Tool {
     fn not_found_message(self) -> &'static str {
         match self {
             Tool::Claude => "claude not found on PATH — set an absolute path",
-            Tool::Codex => "codex not found on PATH — set an absolute path",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -62,28 +64,12 @@ pub struct ToolCheck {
     pub error: Option<String>,
 }
 
-/// Which EXP-56 launch flags the installed Claude CLI advertises
-/// (`claude --help` grep). Old CLIs simply lose the corresponding argv piece
-/// — the launch itself never hard-fails on a missing flag. All-false for
-/// codex and whenever the probe can't run.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ClaudeFlagSupport {
-    /// `--effort <level>` (reasoning effort).
-    pub effort: bool,
-    /// `--agents <json>` (session-scoped subagent definitions).
-    pub agents: bool,
-    /// `--settings <json>` (carries the ultracode/dynamic-workflows toggle).
-    pub settings: bool,
-}
-
-/// `{ agent, git, claude_flags }` — the §7.7 report. `agent` is whichever
-/// coding agent is active per the settings (claude by default);
-/// `claude_flags` is probed only when that agent is Claude.
+/// `{ agent, git }` — the §7.7 report. `agent` is the Claude check (the
+/// field name predates the codex deletion; ui renders it as the claude row).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorReport {
     pub agent: ToolCheck,
     pub git: ToolCheck,
-    pub claude_flags: ClaudeFlagSupport,
 }
 
 impl DoctorReport {
@@ -101,50 +87,52 @@ impl DoctorReport {
     }
 }
 
-/// Run both checks. The agent binary comes from the active
-/// [`Agent`] (claude's configured/probed path by default, the codex path
-/// under the experimental opt-in — checking the binary that will actually be
-/// spawned, never falsely blocking on the other one); `git` is always plain
-/// `git` from PATH.
+/// Run both checks: the resolved Claude program
+/// ([`Settings::resolved_claude_path`]) — version-gated against
+/// [`MIN_CLAUDE_VERSION`] — and plain `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
-    run_doctor_for(Agent::from_settings(settings), settings)
-}
-
-/// [`run_doctor`] for an EXPLICIT agent — the release orchestrator (EXP-56)
-/// is Claude-only regardless of the `codingAgent` setting, so it doctors
-/// Claude directly instead of whatever the single-issue setting says.
-pub fn run_doctor_for(agent: Agent, settings: &Settings) -> DoctorReport {
-    let program = agent.program(settings);
-    let check = check_tool(agent.tool(), &program);
-    // Probe launch-flag support only for a WORKING Claude binary — a dead
-    // binary would just add a second slow spawn failure for no signal.
-    let claude_flags = if agent == Agent::Claude && check.ok {
-        probe_claude_flags(&program)
-    } else {
-        ClaudeFlagSupport::default()
-    };
+    let mut claude = check_tool(Tool::Claude, &settings.resolved_claude_path());
+    apply_version_gate(&mut claude);
     DoctorReport {
-        agent: check,
+        agent: claude,
         git: check_tool(Tool::Git, "git"),
-        claude_flags,
     }
 }
 
-/// `<program> --help` grepped for the EXP-56 launch flags. Any spawn/decode
-/// failure degrades to all-false (the flags are omitted, never a hard fail).
-pub fn probe_claude_flags(program: &str) -> ClaudeFlagSupport {
-    let Ok(output) = Command::new(program).arg("--help").output() else {
-        return ClaudeFlagSupport::default();
+/// Flip a GREEN claude check red when its version parses BELOW
+/// [`MIN_CLAUDE_VERSION`]. An unparseable version stays green — never
+/// falsely block a nonstandard build.
+fn apply_version_gate(check: &mut ToolCheck) {
+    if !check.ok {
+        return;
+    }
+    let Some(version) = check.version.as_deref().and_then(parse_claude_version) else {
+        return;
     };
-    if !output.status.success() {
-        return ClaudeFlagSupport::default();
+    if version < MIN_CLAUDE_VERSION {
+        let (major, minor, patch) = version;
+        let (min_major, min_minor, min_patch) = MIN_CLAUDE_VERSION;
+        check.ok = false;
+        check.error = Some(format!(
+            "Claude Code {major}.{minor}.{patch} is too old — update to \
+{min_major}.{min_minor}.{min_patch}+ (run: claude update)"
+        ));
     }
-    let help = String::from_utf8_lossy(&output.stdout);
-    ClaudeFlagSupport {
-        effort: help.contains("--effort"),
-        agents: help.contains("--agents"),
-        settings: help.contains("--settings"),
+}
+
+/// Parse `major.minor.patch` off a claude version line
+/// (`"2.1.207 (Claude Code)"` → `(2, 1, 207)`). Anything that is not a plain
+/// three-part leading version yields `None`.
+pub fn parse_claude_version(line: &str) -> Option<(u32, u32, u32)> {
+    let token = line.trim().split_whitespace().next()?;
+    let mut parts = token.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
     }
+    Some((major, minor, patch))
 }
 
 /// `<program> --version`, capturing stdout/stderr — never a shell.
@@ -191,12 +179,12 @@ pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
 
 /// First non-empty line of `--version` output, with the tool's own noise
 /// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; claude's
-/// `1.0.35 (Claude Code)` and codex's version line pass through).
+/// `1.0.35 (Claude Code)` passes through).
 pub fn parse_version_output(tool: Tool, stdout: &str) -> Option<String> {
     let line = first_line(stdout)?;
     let stripped = match tool {
         Tool::Git => line.strip_prefix("git version ").unwrap_or(line),
-        Tool::Claude | Tool::Codex => line,
+        Tool::Claude => line,
     };
     let trimmed = stripped.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -242,6 +230,117 @@ mod tests {
     }
 
     #[test]
+    fn claude_version_triples_parse_and_junk_does_not() {
+        assert_eq!(parse_claude_version("2.1.207 (Claude Code)"), Some((2, 1, 207)));
+        assert_eq!(parse_claude_version("  9.9.9 (Claude Code stub)"), Some((9, 9, 9)));
+        assert_eq!(parse_claude_version("2.1.203"), Some((2, 1, 203)));
+        // Not a plain three-part leading version → None (gate stays open).
+        assert_eq!(parse_claude_version("git version 2.39.5"), None);
+        assert_eq!(parse_claude_version("2.1"), None);
+        assert_eq!(parse_claude_version("2.1.203.7"), None);
+        assert_eq!(parse_claude_version("v2.1.203"), None);
+        assert_eq!(parse_claude_version(""), None);
+    }
+
+    fn green_claude(version: &str) -> ToolCheck {
+        ToolCheck {
+            tool: Tool::Claude,
+            ok: true,
+            version: Some(version.to_string()),
+            error: None,
+        }
+    }
+
+    /// The version gate: below-minimum flips red with the actionable
+    /// "claude update" copy; at/above minimum and unparseable stay green.
+    #[test]
+    fn version_gate_blocks_old_clis_with_update_copy() {
+        let mut old = green_claude("2.1.199 (Claude Code)");
+        apply_version_gate(&mut old);
+        assert!(!old.ok);
+        assert_eq!(
+            old.error.as_deref(),
+            Some("Claude Code 2.1.199 is too old — update to 2.1.203+ (run: claude update)")
+        );
+
+        // Exactly the minimum and newer stay green.
+        for version in ["2.1.203 (Claude Code)", "2.1.207 (Claude Code)", "3.0.0"] {
+            let mut check = green_claude(version);
+            apply_version_gate(&mut check);
+            assert!(check.ok, "{version} must pass the gate");
+            assert_eq!(check.error, None);
+        }
+
+        // Unparseable version → green (never falsely block a nonstandard
+        // build).
+        let mut odd = green_claude("nightly (Claude Code)");
+        apply_version_gate(&mut odd);
+        assert!(odd.ok);
+
+        // A check that already failed is left alone (keeps its own error).
+        let mut dead = ToolCheck {
+            tool: Tool::Claude,
+            ok: false,
+            version: None,
+            error: Some("claude not found on PATH — set an absolute path".into()),
+        };
+        apply_version_gate(&mut dead);
+        assert_eq!(
+            dead.error.as_deref(),
+            Some("claude not found on PATH — set an absolute path")
+        );
+    }
+
+    /// `run_doctor` end-to-end against stub claude binaries: an old version
+    /// fails the report with the update copy; a new one passes.
+    #[cfg(unix)]
+    #[test]
+    fn run_doctor_gates_on_the_stub_version() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-coding-doctor-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        let write_stub = |name: &str, version: &str| {
+            let path = dir.join(name);
+            fs::write(&path, format!("#!/bin/sh\necho '{version} (Claude Code)'\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+
+        let old = write_stub("claude-old", "2.1.100");
+        let settings = Settings {
+            claude_path: old.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let report = run_doctor(&settings);
+        assert!(!report.ok());
+        assert_eq!(
+            report.first_failure().and_then(|c| c.error.as_deref()),
+            Some("Claude Code 2.1.100 is too old — update to 2.1.203+ (run: claude update)")
+        );
+
+        let new = write_stub("claude-new", "2.1.207");
+        let settings = Settings {
+            claude_path: new.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let report = run_doctor(&settings);
+        assert!(report.ok(), "2.1.207 must pass: {:?}", report.first_failure());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn missing_binary_yields_the_actionable_spec_message() {
         let check = check_tool(Tool::Claude, "definitely-not-a-real-binary-exp");
         assert!(!check.ok);
@@ -249,41 +348,8 @@ mod tests {
             check.error.as_deref(),
             Some("claude not found on PATH — set an absolute path")
         );
-        let check = check_tool(Tool::Codex, "definitely-not-a-real-binary-exp");
-        assert_eq!(
-            check.error.as_deref(),
-            Some("codex not found on PATH — set an absolute path")
-        );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
-    }
-
-    /// The doctor checks the binary that will actually be spawned: under the
-    /// experimental codex opt-in the agent row is `codex` at the configured
-    /// codex path — a missing `claude` must never block a codex launch (and
-    /// vice versa: a missing codex binary blocks it with the codex copy).
-    #[test]
-    fn codex_opt_in_doctors_the_codex_binary() {
-        let mut settings = crate::settings::Settings {
-            claude_path: "definitely-not-a-real-binary-exp".to_string(),
-            coding_agent: "codex".to_string(),
-            // A real binary answering `--version` (same trick as the
-            // launcher tests): the codex slot goes green while claude is dead.
-            codex_path: "git".to_string(),
-            ..crate::settings::Settings::default()
-        };
-        let report = run_doctor(&settings);
-        assert_eq!(report.agent.tool, Tool::Codex);
-        assert!(report.agent.ok, "codex check: {:?}", report.agent.error);
-        assert!(report.ok(), "claude's absence must not gate a codex launch");
-
-        settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
-        let report = run_doctor(&settings);
-        assert!(!report.ok());
-        assert_eq!(
-            report.first_failure().and_then(|c| c.error.as_deref()),
-            Some("codex not found on PATH — set an absolute path")
-        );
     }
 
     #[test]
@@ -306,44 +372,18 @@ mod tests {
             version: None,
             error: Some("claude not found on PATH — set an absolute path".into()),
         };
-        let flags = ClaudeFlagSupport::default();
-        let report = DoctorReport { agent: bad.clone(), git: good.clone(), claude_flags: flags };
+        let report = DoctorReport { agent: bad.clone(), git: good.clone() };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad));
 
-        let report =
-            DoctorReport { agent: good.clone(), git: good.clone(), claude_flags: flags };
+        let report = DoctorReport { agent: good.clone(), git: good.clone() };
         assert!(report.ok());
         assert_eq!(report.first_failure(), None);
 
         // git missing must ALSO block (§7.1 step 1 ANDs both).
         let bad_git = ToolCheck { tool: Tool::Git, ok: false, version: None, error: None };
-        let report = DoctorReport { agent: good, git: bad_git.clone(), claude_flags: flags };
+        let report = DoctorReport { agent: good, git: bad_git.clone() };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad_git));
-    }
-
-    /// The EXP-56 flag probe: greps `--help` output; degrades to all-false on
-    /// a missing binary; never probed for codex.
-    #[test]
-    fn flag_probe_greps_help_and_degrades_gracefully() {
-        // A missing binary → all-false, no panic.
-        assert_eq!(
-            probe_claude_flags("definitely-not-a-real-binary-exp"),
-            ClaudeFlagSupport::default()
-        );
-        // `git --help` mentions none of the claude flags → all-false, proving
-        // the grep is specific (and giving the probe a real-binary run).
-        assert_eq!(probe_claude_flags("git"), ClaudeFlagSupport::default());
-        // The codex agent never probes: run_doctor_for leaves flags default
-        // even with a green binary.
-        let settings = crate::settings::Settings {
-            coding_agent: "codex".to_string(),
-            codex_path: "git".to_string(),
-            ..crate::settings::Settings::default()
-        };
-        let report = run_doctor(&settings);
-        assert!(report.agent.ok);
-        assert_eq!(report.claude_flags, ClaudeFlagSupport::default());
     }
 }
