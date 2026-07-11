@@ -1082,8 +1082,9 @@ export function registerExponentialTools(
           .limit(1)
         if (!release) throw new Error(`Release not found`)
         // Workspace-level GitHub write: a project-scoped OAuth grant must not
-        // reach it (same posture as exponential_repositories_add — REV-27
-        // class). Personal keys/sessions have full access and pass.
+        // reach it (same posture as exponential_repositories_add and
+        // exponential_projects_set_repository). Personal keys/sessions have
+        // full access and pass.
         assertWorkspaceFullyGranted(access, release.workspaceId)
         await resolveWorkspaceAccess(user.id, release.workspaceId)
 
@@ -1627,7 +1628,12 @@ export function registerExponentialTools(
       try {
         if (!access.full) {
           const project = await getProjectWorkspaceId(input.projectId)
-          assertProjectGranted(access, project.id, project.workspaceId)
+          // Retargeting widens the token's GitHub reach to ANY repo in the
+          // workspace registry (pr_open / pr_files / branch_diff then reach
+          // the new repo through the granted project's issues) — so this is
+          // a workspace-registry mutation, gated like repositories_add, not
+          // a project-scoped one.
+          assertWorkspaceFullyGranted(access, project.workspaceId)
         }
         const result = await caller(user, request).projects.setRepository(input)
         return ok(result.project)
