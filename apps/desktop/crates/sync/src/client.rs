@@ -12,7 +12,7 @@
 //!   is what poisoned macOS `URLCache` with cross-auth empty snapshots.)
 //! * **401 → hard Unauthorized, NEVER anonymous-degrade** (§5.6b). A rejected
 //!   bearer is terminal for the whole account pipeline: the first thread to
-//!   see it flips the shared stop flag (all 14 siblings exit at their next
+//!   see it flips the shared stop flag (all 15 siblings exit at their next
 //!   loop boundary), invokes the `on_unauthorized` callback (the app shell
 //!   wires `AuthStore::handle_unauthorized` — it deletes the stored token),
 //!   and emits [`ShapeDelta::Unauthorized`] exactly ONCE per account. No
@@ -251,7 +251,7 @@ struct PollOutcome {
 // ---------------------------------------------------------------------------
 
 /// Everything one shape thread needs. Built by the `SyncManager` (one per
-/// shape per account); `unauthorized_reported` is shared by all 14 threads of
+/// shape per account); `unauthorized_reported` is shared by all 15 threads of
 /// an account so the 401 signal fires exactly once.
 pub struct ShapeClientConfig {
     pub account_id: String,
@@ -262,7 +262,7 @@ pub struct ShapeClientConfig {
     pub token: TokenFn,
     pub transport: Arc<dyn ShapeTransport>,
     pub deltas: flume::Sender<ShapeDelta>,
-    /// Per-ACCOUNT dedupe flag for the 401 signal (§5.6b: 14 threads may all
+    /// Per-ACCOUNT dedupe flag for the 401 signal (§5.6b: 15 threads may all
     /// 401 at the same instant; exactly one reports).
     pub unauthorized_reported: Arc<AtomicBool>,
     /// The app-shell hook that deletes the stored token + routes to login
@@ -505,7 +505,7 @@ impl ShapeClient {
         });
     }
 
-    /// §5.6b, once per ACCOUNT: flip the shared stop flag (all 14 sibling
+    /// §5.6b, once per ACCOUNT: flip the shared stop flag (all 15 sibling
     /// threads exit at their next loop boundary — none keeps polling with the
     /// dead token), run the app-shell hook (deletes the stored token, routes
     /// to login), emit [`ShapeDelta::Unauthorized`].

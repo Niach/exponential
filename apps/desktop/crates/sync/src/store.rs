@@ -114,7 +114,7 @@ pub struct ShapeStore {
 impl ShapeStore {
     /// Open (creating if needed) the store at `path` — e.g.
     /// `{data_dir}/accounts/{account_id}/sync.sqlite` (§5.4). Applies the
-    /// §5.4 pragmas and ensures the `electric_offsets` + 14 shape tables.
+    /// §5.4 pragmas and ensures the `electric_offsets` + 15 shape tables.
     ///
     /// Do NOT declare cross-table FOREIGN KEYs (§5.4): Electric delivers rows
     /// per-shape in independent streams, so a child can arrive before its

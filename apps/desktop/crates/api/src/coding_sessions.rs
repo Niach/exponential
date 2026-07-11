@@ -13,7 +13,7 @@
 //!   from the child-exit hook is safe even after a relay-side kill already
 //!   ended the row.
 //!
-//! The row is the 14th Electric shape: the "coding now" badge everywhere is
+//! The row is a synced Electric shape: the "coding now" badge everywhere is
 //! the synced row itself — no client fabricates it locally.
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,10 @@ pub struct CodingSession {
     pub id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
+    /// Set for release-scoped orchestrator sessions (EXP-56); `issue_id` is
+    /// NULL on those rows.
+    #[serde(default)]
+    pub release_id: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
@@ -59,6 +63,14 @@ struct StartInput<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartReleaseInput<'a> {
+    release_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_label: Option<&'a str>,
+}
+
+#[derive(Serialize)]
 struct EndInput<'a> {
     id: &'a str,
 }
@@ -75,6 +87,25 @@ pub fn start(
         "codingSessions.start",
         &StartInput {
             issue_id,
+            device_label,
+        },
+    )?;
+    Ok(envelope.session)
+}
+
+/// `codingSessions.start` for a RELEASE-scoped orchestrator session (EXP-56):
+/// the server accepts exactly one of `issueId`/`releaseId` and inserts a row
+/// with `issue_id`/`project_id` NULL and `workspace_id` from the release.
+/// Same 412 semantics as [`start`].
+pub fn start_release(
+    trpc: &TrpcClient,
+    release_id: &str,
+    device_label: Option<&str>,
+) -> Result<CodingSession, ApiError> {
+    let envelope: SessionEnvelope = trpc.mutation(
+        "codingSessions.start",
+        &StartReleaseInput {
+            release_id,
             device_label,
         },
     )?;
@@ -124,6 +155,23 @@ mod tests {
         let _ = start(&client(&base), "issue-1", None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
+    }
+
+    #[test]
+    fn start_release_posts_release_id_and_decodes_the_release_row() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-r","issueId":null,"releaseId":"rel-1","workspaceId":"ws-1",
+                "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
+        );
+        let session = start_release(&client(&base), "rel-1", Some("testbox")).unwrap();
+        assert_eq!(session.id, "sess-r");
+        assert_eq!(session.release_id.as_deref(), Some("rel-1"));
+        assert_eq!(session.issue_id, None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
+        assert!(request.ends_with(r#"{"releaseId":"rel-1","deviceLabel":"testbox"}"#));
     }
 
     #[test]

@@ -73,6 +73,9 @@ pub enum IssueQuery {
         workspace_id: String,
         user_id: String,
     },
+    /// One release's bundled issues (EXP-56 — the release detail's
+    /// status-grouped list).
+    Release { release_id: String },
 }
 
 /// One flattened virtual-list row. The issue payload is boxed so the enum
@@ -155,6 +158,9 @@ impl IssueListView {
                 workspace_id,
                 user_id,
             } => Some(queries::my_issues(cx, workspace_id, user_id, &self.filters)),
+            IssueQuery::Release { release_id } => {
+                Some(queries::release_board(cx, release_id, &self.filters))
+            }
         }
     }
 
@@ -377,6 +383,16 @@ impl Render for IssueListView {
                         Icon::from(ExpIcon::SearchX),
                         "No issues match your filters",
                         "Try removing some filters to see more issues.",
+                        cx,
+                    ))
+                    .into_any_element();
+            }
+            if matches!(self.query, IssueQuery::Release { .. }) {
+                return base
+                    .child(empty_state(
+                        Icon::from(ExpIcon::Rocket),
+                        "No issues in this release",
+                        "Add issues from the Release picker on an issue.",
                         cx,
                     ))
                     .into_any_element();
@@ -722,6 +738,19 @@ fn build_row_context_menu(
                 .icon(Icon::from(ExpIcon::Copy))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(identifier.clone()));
+                }),
+        );
+    }
+
+    // Remove from release (EXP-56) — shown whenever the issue is bundled;
+    // adding goes through the detail's Release picker.
+    if issue.release_id.is_some() {
+        let issue_id = issue.id.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Remove from release")
+                .icon(Icon::from(ExpIcon::Rocket))
+                .on_click(move |_, _, cx| {
+                    crate::properties_panel::set_issue_release(cx, issue_id.clone(), None);
                 }),
         );
     }

@@ -17,7 +17,8 @@ use domain::board::{
     build_filtered_issues, build_issue_label_ids_map, build_visible_issue_groups, IssueGroup,
 };
 use domain::filters::IssueFilters;
-use domain::rows::Label;
+use domain::rows::{Label, Release};
+use domain::IssueStatus;
 
 use crate::session::AuthContext;
 
@@ -389,6 +390,112 @@ pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
 }
 
 // ---------------------------------------------------------------------------
+// Releases (EXP-56 — the Releases tool window + issue release picker)
+// ---------------------------------------------------------------------------
+
+/// A release's progress over its member issues (the cross-client contract):
+/// `cancelled`/`duplicate` issues are DROPPED work, not shipped work — they
+/// leave the denominator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReleaseProgress {
+    /// Issues with `release_id == release.id` (before dropping).
+    pub total: usize,
+    /// `done` count.
+    pub done: usize,
+    /// `total − cancelled − duplicate`.
+    pub denominator: usize,
+}
+
+impl ReleaseProgress {
+    /// The "N of M done" row line; `None` when the release has no countable
+    /// issues (render a neutral placeholder instead of "0 of 0 done").
+    pub fn label(&self) -> Option<String> {
+        (self.denominator > 0).then(|| format!("{} of {} done", self.done, self.denominator))
+    }
+}
+
+/// Progress over one release's issues (pass [`release_issues`]).
+pub fn release_progress(issues: &[domain::rows::Issue]) -> ReleaseProgress {
+    let total = issues.len();
+    let done = issues
+        .iter()
+        .filter(|issue| issue.status == IssueStatus::Done)
+        .count();
+    let dropped = issues
+        .iter()
+        .filter(|issue| {
+            matches!(
+                issue.status,
+                IssueStatus::Cancelled | IssueStatus::Duplicate
+            )
+        })
+        .count();
+    ReleaseProgress {
+        total,
+        done,
+        denominator: total.saturating_sub(dropped),
+    }
+}
+
+/// The shared release display order (cross-client contract): unshipped before
+/// shipped; unshipped by `target_date` asc (nulls last) then `created_at`
+/// desc; shipped by `shipped_at` desc (most recently shipped first). ISO
+/// strings from one source compare lexicographically.
+pub fn compare_releases(a: &Release, b: &Release) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a.shipped_at.as_deref(), b.shipped_at.as_deref()) {
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(a_shipped), Some(b_shipped)) => b_shipped.cmp(a_shipped),
+        (None, None) => match (a.target_date.as_deref(), b.target_date.as_deref()) {
+            (Some(a_date), Some(b_date)) => a_date
+                .cmp(b_date)
+                .then_with(|| b.created_at.cmp(&a.created_at)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => b.created_at.cmp(&a.created_at),
+        },
+    }
+}
+
+/// The Releases tool-window read: a workspace's releases in the shared
+/// display order.
+pub fn workspace_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
+    let mut out: Vec<Release> = Store::global(cx)
+        .collections()
+        .releases
+        .read(cx)
+        .iter()
+        .filter(|release| release.workspace_id.as_deref() == Some(workspace_id))
+        .cloned()
+        .collect();
+    out.sort_by(compare_releases);
+    out
+}
+
+/// Every non-archived issue bundled into a release (feeds the progress line;
+/// unfiltered — the detail board applies filters on top).
+pub fn release_issues(cx: &App, release_id: &str) -> Vec<domain::rows::Issue> {
+    Store::global(cx)
+        .collections()
+        .issues
+        .read(cx)
+        .iter()
+        .filter(|issue| {
+            issue.release_id.as_deref() == Some(release_id) && issue.archived_at.is_none()
+        })
+        .cloned()
+        .collect()
+}
+
+/// The release detail's board: [`release_issues`], filtered + grouped by
+/// status like any other board.
+pub fn release_board(cx: &App, release_id: &str, filters: &IssueFilters) -> BoardData {
+    let issues = release_issues(cx, release_id);
+    board_data_from(cx, issues, filters)
+}
+
+// ---------------------------------------------------------------------------
 // Create-flow sync gate (§4.1 "awaitTxId" analog)
 // ---------------------------------------------------------------------------
 
@@ -418,5 +525,84 @@ pub(crate) async fn await_row_visible<T: 'static>(
             return false;
         }
         window.background_executor().timer(POLL).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn release(id: &str, target: Option<&str>, shipped: Option<&str>, created: &str) -> Release {
+        serde_json::from_value(json!({
+            "id": id,
+            "workspace_id": "w-1",
+            "name": id,
+            "target_date": target,
+            "shipped_at": shipped,
+            "created_at": created,
+        }))
+        .unwrap()
+    }
+
+    fn issue(id: &str, status: &str) -> domain::rows::Issue {
+        serde_json::from_value(json!({
+            "id": id,
+            "project_id": "p-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": "t",
+            "status": status,
+            "priority": "none",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn releases_sort_unshipped_by_target_then_shipped_by_recency() {
+        let mut rows = vec![
+            release("shipped-old", None, Some("2026-06-01T00:00:00Z"), "2026-05-01T00:00:00Z"),
+            release("shipped-new", None, Some("2026-07-01T00:00:00Z"), "2026-05-01T00:00:00Z"),
+            release("no-target-new", None, None, "2026-07-02T00:00:00Z"),
+            release("no-target-old", None, None, "2026-07-01T00:00:00Z"),
+            release("target-aug", Some("2026-08-01"), None, "2026-05-01T00:00:00Z"),
+            release("target-jul", Some("2026-07-15"), None, "2026-05-01T00:00:00Z"),
+        ];
+        rows.sort_by(compare_releases);
+        let order: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        // Unshipped first (target asc, nulls last by created desc), then
+        // shipped by shipped_at desc.
+        assert_eq!(
+            order,
+            [
+                "target-jul",
+                "target-aug",
+                "no-target-new",
+                "no-target-old",
+                "shipped-new",
+                "shipped-old",
+            ]
+        );
+    }
+
+    #[test]
+    fn release_progress_drops_cancelled_and_duplicate_from_the_denominator() {
+        let issues = vec![
+            issue("i-1", "done"),
+            issue("i-2", "in_progress"),
+            issue("i-3", "cancelled"),
+            issue("i-4", "duplicate"),
+            issue("i-5", "todo"),
+        ];
+        let progress = release_progress(&issues);
+        assert_eq!(progress.total, 5);
+        assert_eq!(progress.done, 1);
+        assert_eq!(progress.denominator, 3);
+        assert_eq!(progress.label().as_deref(), Some("1 of 3 done"));
+
+        // All-dropped releases show no counter (never "0 of 0 done").
+        let dropped = vec![issue("i-1", "cancelled")];
+        assert_eq!(release_progress(&dropped).label(), None);
+        assert_eq!(release_progress(&[]).label(), None);
     }
 }

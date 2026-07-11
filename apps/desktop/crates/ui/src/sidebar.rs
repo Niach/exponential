@@ -6,8 +6,8 @@
 //! - [`RailView`] — a 44px icon-only strip owned by the `Workspace` shell and
 //!   rendered OUTSIDE the `DockArea`, full height below the top bar. Top: the
 //!   Search action, then the tool-window selectors — **Inbox / My Issues /
-//!   All Issues / Reviews** (mini issue lists; Reviews carries a dot while
-//!   open PRs exist) and **Files / Source Control** (Source Control carries
+//!   All Issues / Reviews / Releases** (mini issue lists; Reviews carries a
+//!   dot while open PRs exist) and **Files / Source Control** (Source Control carries
 //!   an amber badge in conflict mode and opens the changes
 //!   screen immediately). The active tool's icon is tinted with the active
 //!   project's color. One tool is ALWAYS active — re-clicking never
@@ -34,20 +34,23 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::DropdownMenu as _,
+    menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
+use domain::board::format_short_date;
+
 use crate::actions::{
     CreateWorkspace, DeleteAccount, OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
 };
 use crate::board::BoardView;
+use crate::coding_flow;
 use crate::git_bar::GitBar;
 use crate::icons::ExpIcon;
-use crate::issue_list::IssueQuery;
+use crate::issue_list::{IssueListView, IssueQuery};
 use crate::navigation::{
     active_project_id, active_workspace_id, nav_for_window, navigate, resolved_screen, Navigation,
     Screen,
@@ -74,6 +77,9 @@ pub(crate) enum ToolWindow {
     /// Open pull requests across the workspace, grouped by project, with an
     /// inline squash-merge action (server-side via the GitHub App).
     Reviews,
+    /// The workspace's releases (EXP-56): list + in-panel detail (issues
+    /// grouped by status; rows open the issue detail in the center pane).
+    Releases,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -513,6 +519,15 @@ impl Render for RailView {
                 accent,
                 cx,
             ))
+            .child(self.rail_tool_icon(
+                "rail-releases",
+                Icon::from(ExpIcon::Rocket),
+                ToolWindow::Releases,
+                "Releases",
+                false,
+                accent,
+                cx,
+            ))
             .child(self.divider(cx))
             // Repo tool windows.
             .child(self.rail_tool_icon(
@@ -583,6 +598,13 @@ pub struct SidebarPanel {
     /// The last merge failure, `(issue_id, message)` — a caption under the
     /// row, cleared on the next attempt.
     review_error: Option<(String, String)>,
+    /// The Releases tool window's drill-down (EXP-56): the selected release's
+    /// id, `None` = the list. Self-heals to the list when the row leaves the
+    /// collection (delete echo) or the workspace switches.
+    release_selected: Option<String>,
+    /// The release detail's status-grouped issue list (the shared board core,
+    /// pinned to `IssueQuery::Release`).
+    release_list: Entity<IssueListView>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -611,7 +633,9 @@ impl SidebarPanel {
         let git_bar = shared.read(cx).git_bar.clone();
         let board_all = shared.read(cx).board_all.clone();
         let board_my = shared.read(cx).board_my.clone();
+        let release_list = cx.new(IssueListView::new);
         let collections = Store::global(cx).collections().clone();
+        let local_sessions = coding_flow::LocalSessions::global(cx);
         let subscriptions = vec![
             // Rail toggles swap the tool window.
             cx.observe(&shared, |_, _, cx| cx.notify()),
@@ -622,6 +646,13 @@ impl SidebarPanel {
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
+            // The Releases tool window is a live read over releases ⨝ issues.
+            cx.observe(&collections.releases, |_, _, cx| cx.notify()),
+            // The synced release "coding" badge (EXP-56 P10) rides the
+            // coding_sessions shape; the local Start↔Stop flip rides the
+            // process-global LocalSessions registry.
+            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            cx.observe(&local_sessions, |_, _, cx| cx.notify()),
             // Branch list + syncing state ride the shared git bar.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
@@ -637,6 +668,8 @@ impl SidebarPanel {
             review_arm_seq: 0,
             review_merging: HashSet::new(),
             review_error: None,
+            release_selected: None,
+            release_list,
             _subscriptions: subscriptions,
         }
     }
@@ -1237,6 +1270,374 @@ impl SidebarPanel {
         .detach();
     }
 
+    // -- Releases tool window -----------------------------------------------------
+
+    /// *Releases* tool window (EXP-56): the workspace's releases in the
+    /// shared display order (unshipped first — target date asc, then newest;
+    /// shipped by recency), each row with target date, shipped pill and the
+    /// "N of M done" progress (cancelled/duplicate leave the denominator).
+    /// Selecting a release drills into the in-panel detail.
+    fn render_releases_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let workspace_id = active_workspace_id(&self.nav, cx);
+
+        // Drill-down: a selected release renders the detail; a deleted or
+        // workspace-foreign selection self-heals back to the list (this is
+        // where the delete echo lands).
+        let selected = self.release_selected.as_deref().and_then(|id| {
+            Store::global(cx)
+                .collections()
+                .releases
+                .read(cx)
+                .get(id)
+                .filter(|release| {
+                    workspace_id.is_some()
+                        && release.workspace_id.as_deref() == workspace_id.as_deref()
+                })
+                .cloned()
+        });
+        if let Some(release) = selected {
+            return self.render_release_detail(&release, cx);
+        }
+        self.release_selected = None;
+
+        let releases = workspace_id
+            .as_deref()
+            .map(|id| queries::workspace_releases(cx, id))
+            .unwrap_or_default();
+        let is_ready = Store::global(cx).collections().releases.read(cx).is_ready();
+
+        let header = self
+            .tool_header(Icon::from(ExpIcon::Rocket), "Releases", cx)
+            .child(
+                Button::new("releases-new")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(IconName::Plus))
+                    .tooltip("New release")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        if let Some(workspace_id) = active_workspace_id(&this.nav, cx) {
+                            crate::create_release_dialog::open(window, cx, workspace_id);
+                        }
+                    })),
+            );
+
+        let body: gpui::AnyElement = if !is_ready {
+            self.list_skeleton(cx)
+        } else if releases.is_empty() {
+            self.list_note("No releases yet.", cx)
+        } else {
+            let rows: Vec<gpui::AnyElement> = releases
+                .iter()
+                .map(|release| self.release_row(release, cx))
+                .collect();
+            div()
+                .id("releases-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .child(v_flex().p_1().gap_0p5().children(rows))
+                .into_any_element()
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One Releases list row: rocket + name + shipped pill, sub-line
+    /// `Target <date> · N of M done`. Clicking drills into the detail.
+    fn release_row(
+        &self,
+        release: &domain::rows::Release,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        let green = theme::tokens::GREEN.to_hsla();
+
+        let name: SharedString = release_name(release).into();
+        let shipped = release.shipped_at.is_some();
+        // The synced "coding" badge (EXP-56 P10): any device's running
+        // release-orchestrator session for this release.
+        let coding = release_coding_now(cx, &release.id);
+        let progress = queries::release_progress(&queries::release_issues(cx, &release.id));
+        let mut sub_parts: Vec<String> = Vec::new();
+        if let Some(target) = release.target_date.as_deref() {
+            sub_parts.push(format!("Target {}", format_short_date(target)));
+        }
+        sub_parts.push(progress.label().unwrap_or_else(|| "No issues".to_string()));
+        let sub: SharedString = sub_parts.join(" \u{00B7} ").into();
+
+        let click_id = release.id.clone();
+        v_flex()
+            .id(SharedString::from(format!("release-{}", release.id)))
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_0p5()
+            .rounded(radius)
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.release_selected = Some(click_id.clone());
+                cx.notify();
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(ExpIcon::Rocket)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(if shipped { green } else { muted }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(fg)
+                            .child(name),
+                    )
+                    .when(coding, |this| this.child(coding_pill(green)))
+                    .when(shipped, |this| this.child(shipped_pill(green))),
+            )
+            .child(
+                div()
+                    .pl_5()
+                    .text_xs()
+                    .truncate()
+                    .text_color(muted)
+                    .child(sub),
+            )
+            .into_any_element()
+    }
+
+    /// The in-panel release detail: back + name header with the ship/unship
+    /// action and a delete behind a nested confirm (destructive actions
+    /// confirm first on native); an info line (shipped/target date, progress,
+    /// the release PR pill when set); then the release's issues grouped by
+    /// status via the shared [`IssueListView`] — rows open the issue detail
+    /// in the center pane, and the row context menu carries "Remove from
+    /// release".
+    fn render_release_detail(
+        &mut self,
+        release: &domain::rows::Release,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let border = cx.theme().sidebar_border;
+        let green = theme::tokens::GREEN.to_hsla();
+
+        let name: SharedString = release_name(release).into();
+        let shipped = release.shipped_at.is_some();
+
+        let ship_id = release.id.clone();
+        let delete_id = release.id.clone();
+        // EXP-56 coding launcher: Stop while THIS process runs the release's
+        // orchestrator (kill the tab child — the exit hook ends the row and
+        // clears the registry), else the dialog-opening Start button.
+        let local_session = coding_flow::LocalSessions::global(cx)
+            .read(cx)
+            .get_release(&release.id)
+            .map(|session| (session.manager.clone(), session.tab));
+        let locally_coding = local_session.is_some();
+        let coding_control: gpui::AnyElement = match local_session {
+            Some((manager, tab)) => Button::new("release-stop-coding")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::CircleX).text_color(cx.theme().danger))
+                .label("Stop")
+                .tooltip("Stop the release coding session (ends it for every client)")
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    if let Some(manager) = manager.upgrade() {
+                        if let Some(tab) = manager.read(cx).tab(tab) {
+                            tab.view.read(cx).session().borrow().kill();
+                        }
+                    }
+                }))
+                .into_any_element(),
+            None => {
+                let launch_id = release.id.clone();
+                Button::new("release-start-coding")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(IconName::Play).text_color(green))
+                    .label("Start coding")
+                    .tooltip("Launch a Claude orchestrator on this release's issues")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        crate::release_coding_dialog::open(window, cx, launch_id.clone());
+                    }))
+                    .into_any_element()
+            }
+        };
+        let header = h_flex()
+            .flex_shrink_0()
+            .w_full()
+            .h(px(30.))
+            .px_2()
+            .gap_1()
+            .items_center()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                Button::new("release-back")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(IconName::ChevronLeft))
+                    .tooltip("All releases")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.release_selected = None;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .truncate()
+                    .child(name),
+            )
+            .child(coding_control)
+            .child(
+                Button::new("release-ship")
+                    .outline()
+                    .xsmall()
+                    .label(if shipped { "Unship" } else { "Mark shipped" })
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        spawn_release_mark_shipped(cx, ship_id.clone(), !shipped);
+                    })),
+            )
+            .child(
+                Button::new("release-actions")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(IconName::Ellipsis))
+                    .dropdown_menu(move |menu, window, cx| {
+                        // Delete → nested confirm (the issue-row pattern).
+                        // Member issues are unbundled server-side, never
+                        // deleted; the detail self-heals to the list when the
+                        // delete echo removes the row.
+                        let release_id = delete_id.clone();
+                        menu.submenu_with_icon(
+                            Some(Icon::new(IconName::Delete)),
+                            "Delete release",
+                            window,
+                            cx,
+                            move |menu, _, _| {
+                                let release_id = release_id.clone();
+                                menu.item(
+                                    PopupMenuItem::new("Confirm delete")
+                                        .icon(Icon::new(IconName::Delete))
+                                        .on_click(move |_, _, cx| {
+                                            spawn_release_delete(cx, release_id.clone());
+                                        }),
+                                )
+                            },
+                        )
+                    }),
+            );
+
+        // Info line: shipped/target date · progress · the release PR pill.
+        let progress = queries::release_progress(&queries::release_issues(cx, &release.id));
+        let mut info = h_flex()
+            .flex_shrink_0()
+            .w_full()
+            .px_3()
+            .py_1p5()
+            .gap_2()
+            .items_center()
+            .flex_wrap()
+            .text_xs()
+            .text_color(muted)
+            .border_b_1()
+            .border_color(border);
+        if shipped {
+            info = info.child(shipped_pill(green));
+            if let Some(shipped_at) = release.shipped_at.as_deref() {
+                info = info.child(SharedString::from(format!(
+                    "Shipped {}",
+                    format_short_date(shipped_at)
+                )));
+            }
+        } else if let Some(target) = release.target_date.as_deref() {
+            info = info.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(Icon::from(ExpIcon::CalendarDays).xsmall().text_color(muted))
+                    .child(SharedString::from(format!(
+                        "Target {}",
+                        format_short_date(target)
+                    ))),
+            );
+        }
+        info = info.child(SharedString::from(
+            progress.label().unwrap_or_else(|| "No issues".to_string()),
+        ));
+        // The SYNCED cross-device "coding" badge (EXP-56 P10) — skipped while
+        // OUR session runs (the header already shows Stop; the Electric echo
+        // would double it).
+        if !locally_coding && release_coding_now(cx, &release.id) {
+            info = info.child(coding_pill(green));
+        }
+        if let Some(pr_url) = release.pr_url.clone() {
+            let state = release
+                .pr_state
+                .clone()
+                .unwrap_or_else(|| "open".to_string());
+            let merged = state == "merged";
+            let label = match release.pr_number {
+                Some(number) => format!("PR #{number} \u{00B7} {state}"),
+                None => format!("PR \u{00B7} {state}"),
+            };
+            let (icon, color) = if merged {
+                (ExpIcon::GitMerge, muted)
+            } else {
+                (ExpIcon::GitPullRequest, green)
+            };
+            info = info.child(
+                Button::new("release-pr")
+                    .outline()
+                    .xsmall()
+                    .icon(Icon::from(icon).text_color(color))
+                    .label(SharedString::from(label))
+                    .on_click(move |_, _, _| {
+                        if let Err(error) = api::opener::open_in_browser(&pr_url) {
+                            log::warn!("[ui] release PR link open failed: {error}");
+                        }
+                    }),
+            );
+        }
+
+        // The bundled issues, grouped by status (shared board core).
+        let release_id = release.id.clone();
+        self.release_list.update(cx, |list, cx| {
+            list.set_query(IssueQuery::Release { release_id }, cx)
+        });
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(info)
+            .child(div().flex_1().min_h_0().child(self.release_list.clone()))
+            .into_any_element()
+    }
+
     // -- Files tool window ----------------------------------------------------
 
     /// *Files* tool window: the trunk file tree at full panel height.
@@ -1403,6 +1804,93 @@ impl SidebarPanel {
     }
 }
 
+/// Whether ANY device is running a release-orchestrator `coding_sessions`
+/// row for `release_id` (the synced cross-client badge signal, EXP-56 P10 —
+/// the desktop-local Start↔Stop flip rides `LocalSessions::by_release`
+/// instead).
+fn release_coding_now(cx: &App, release_id: &str) -> bool {
+    Store::global(cx)
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+        .any(|session| {
+            session.release_id.as_deref() == Some(release_id)
+                && session.status.as_deref() == Some("running")
+        })
+}
+
+/// The small green "coding" pill — the release analog of the issue rows'
+/// "Coding now" pill (dot + label, same green).
+fn coding_pill(green: Hsla) -> gpui::AnyElement {
+    h_flex()
+        .flex_shrink_0()
+        .gap_1()
+        .px_1p5()
+        .items_center()
+        .rounded_full()
+        .border_1()
+        .border_color(green.opacity(0.4))
+        .text_xs()
+        .child(div().size_1p5().rounded_full().bg(green))
+        .child("coding")
+        .into_any_element()
+}
+
+/// The green "Shipped" pill (Releases list rows + the detail info line).
+fn shipped_pill(green: Hsla) -> gpui::AnyElement {
+    div()
+        .flex_shrink_0()
+        .px_1p5()
+        .rounded_full()
+        .border_1()
+        .border_color(green.opacity(0.4))
+        .text_xs()
+        .text_color(green)
+        .child("Shipped")
+        .into_any_element()
+}
+
+/// A release's display name — the row is tolerant, so `name` is an Option.
+fn release_name(release: &domain::rows::Release) -> String {
+    release
+        .name
+        .clone()
+        .unwrap_or_else(|| "Untitled release".to_string())
+}
+
+/// §4.1 un-gated `releases.markShipped` on a background thread (ship/unship —
+/// neither confirms; the action is symmetric and reversible).
+fn spawn_release_mark_shipped(cx: &mut App, release_id: String, shipped: bool) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] releases.markShipped skipped: no signed-in account");
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::releases::mark_shipped(&trpc, &release_id, shipped) {
+                log::warn!("[ui] releases.markShipped({release_id}) failed: {err}");
+            }
+        })
+        .detach();
+}
+
+/// §4.1 un-gated `releases.delete` on a background thread — the row vanishes
+/// on the Electric echo and the detail self-heals back to the list.
+fn spawn_release_delete(cx: &mut App, release_id: String) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] releases.delete skipped: no signed-in account");
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::releases::delete(&trpc, &release_id) {
+                log::warn!("[ui] releases.delete({release_id}) failed: {err}");
+            }
+        })
+        .detach();
+}
+
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let tool = self.shared.read(cx).tool;
@@ -1419,6 +1907,7 @@ impl Render for SidebarPanel {
                 ToolWindow::MyIssues => self.render_my_issues_tool(cx),
                 ToolWindow::AllIssues => self.render_all_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
+                ToolWindow::Releases => self.render_releases_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

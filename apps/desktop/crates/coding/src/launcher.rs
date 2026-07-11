@@ -37,7 +37,8 @@ use terminal::TerminalManager;
 use crate::agent::Agent;
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_worktree::{
-    branch_name, create_worktree, ensure_clone, fetch_base, set_token_remote, GitError, TokenUrl,
+    branch_name, clone_path, create_worktree, ensure_clone, fetch_base, set_token_remote,
+    GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
 use crate::prompt::write_rendered_prompt;
@@ -240,6 +241,13 @@ pub struct PreparedLaunch {
     pub session_id: String,
     pub issue_identifier: String,
     pub worktree: PathBuf,
+    /// The shared clone the worktree hangs off (`<repos_root>/<owner>/<name>`)
+    /// — the token refresher's `set_token_remote` target (EXP-56 P9: remotes
+    /// are repo-level config, so refreshing the clone covers every worktree).
+    pub clone: PathBuf,
+    /// The workspace `repositories` row id — re-mints the installation token
+    /// mid-session (EXP-56 P9).
+    pub repository_id: String,
     /// The real git branch (keeps its `/`), e.g. `exp/EXP-42`.
     pub branch: String,
     /// The agent invocation in the worktree (§7.1 step 7) — by default
@@ -336,13 +344,16 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     // Step 3 — git via argv (never gh): clone → token remote → worktree.
     let branch = branch_name(&deps.settings.branch_prefix, &req.issue_identifier);
     let url = TokenUrl::new(token.full_name.clone(), token.token.clone());
+    let repos_root = deps.settings.repos_root_path();
     let worktree = deps.worktrees.prepare(
-        &deps.settings.repos_root_path(),
+        &repos_root,
         &token.full_name,
         &token.default_branch,
         &branch,
         &url,
     )?;
+    // The clone path the worktree hangs off — the P9 token refresher's target.
+    let clone = clone_path(&repos_root, &token.full_name);
 
     // Step 4 — .mcp.json (authenticates the spawned claude as the real
     // user). A no-MCP agent (codex) never gets the personal key on disk —
@@ -387,7 +398,7 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     // TUI enters raw mode get swallowed during startup, so the prompt must
     // never be delivered via stdin.
     let mut spawn = SpawnSpec::new(&agent.program(&deps.settings))
-        .args(agent.coding_args(&deps.settings))
+        .args(agent.coding_args(&deps.settings, &report.claude_flags))
         .cwd(&worktree);
     for (key, value) in agent.env() {
         spawn = spawn.env(key, value);
@@ -397,6 +408,8 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
         session_id: session.id,
         issue_identifier: req.issue_identifier.clone(),
         worktree,
+        clone,
+        repository_id: repo.repository_id.clone(),
         branch,
         spawn,
         tab_title: format!("{} · {}", agent.label(), req.issue_identifier),
@@ -782,6 +795,10 @@ mod tests {
         assert_eq!(prepared.branch, "exp/EXP-42");
         assert_eq!(prepared.worktree, worktree);
         assert_eq!(prepared.tab_title, "claude · EXP-42");
+        // P9 refresher inputs: the server-confirmed repo id + the clone path
+        // under the repos root (independent of the fake worktree location).
+        assert_eq!(prepared.repository_id, "repo-1");
+        assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
 
         // Step 7's spawn spec: configured program, explicit --model, the skip
         // flag, the seed line as the positional prompt (never typed into the

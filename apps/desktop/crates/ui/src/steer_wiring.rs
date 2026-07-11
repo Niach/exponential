@@ -198,6 +198,8 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 /// sequence the Start-coding button runs (`coding_flow::build_launch` →
 /// `prepare_launch` → `spawn_into_window`), only the [`LaunchOrigin`] differs
 /// (§7.1: there is no second, divergent remote-start implementation).
+/// ISSUE-only by design: remote RELEASE start is deferred (needs a release-
+/// aware `steer.startSession` + per-repo-group resolution — EXP-56 v2).
 fn handle_remote_start(issue_id: String, cx: &mut App) {
     // Dedup: never launch a second session for an issue this process is
     // already coding. Without this, a relay `start_session` arriving while a
@@ -254,9 +256,13 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
                 // Remote start defaults to NOT private — the phone user
                 // initiating it opted the project into live coding; publish if
                 // the project is a live feedback board.
-                if let Err(message) =
-                    coding_flow::spawn_into_window(prepared, issue_id, false, window, cx)
-                {
+                if let Err(message) = coding_flow::spawn_into_window(
+                    prepared,
+                    coding_flow::SessionSubject::Issue(issue_id),
+                    false,
+                    window,
+                    cx,
+                ) {
                     log::warn!("steer: remote start spawn failed: {message}");
                 }
             }
@@ -364,11 +370,14 @@ fn activity_decision(keep_private: bool, live_public_board: bool) -> ActivityDec
 
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
 /// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
-/// Spawned`. Best-effort and non-blocking: a disabled/unreachable relay ends
-/// the publisher task quietly and the session keeps running locally.
+/// Spawned` — for BOTH subjects (issue sessions and EXP-56 release
+/// orchestrators; a release session publishes with `issue_id: None` and is
+/// never publicly fanned). Best-effort and non-blocking: a disabled/
+/// unreachable relay ends the publisher task quietly and the session keeps
+/// running locally.
 pub fn attach_publisher(
     session_id: &str,
-    issue_id: &str,
+    subject: &coding_flow::SessionSubject,
     tab: TabId,
     manager: &Entity<TerminalManager>,
     worktree: PathBuf,
@@ -425,16 +434,28 @@ pub fn attach_publisher(
         coding_session_id: session_id.to_string(),
     });
     // EXP-32: the keep-private/live-board decision table (pure, tested below).
-    let live_public_board = coding_flow::issue_project(issue_id, cx)
-        .map(|project| project.is_live_public_coding())
-        .unwrap_or(false);
+    // The live-public check is issue→project based; a RELEASE session has no
+    // single project, so it is hard-coded members-only — release activity is
+    // NEVER publicly fanned in v1.
+    let live_public_board = match subject {
+        coding_flow::SessionSubject::Issue(issue_id) => coding_flow::issue_project(issue_id, cx)
+            .map(|project| project.is_live_public_coding())
+            .unwrap_or(false),
+        coding_flow::SessionSubject::Release(_) => false,
+    };
     let ActivityDecision {
         emit: emit_activity,
         public: activity_public,
     } = activity_decision(keep_private, live_public_board);
     let spec = PublishSpec {
         session_id: session_id.to_string(),
-        issue_id: Some(issue_id.to_string()),
+        // Release sessions publish an issue-less room (the field is already
+        // Option): no issue page ever surfaces them, viewers reach them by
+        // session id only.
+        issue_id: match subject {
+            coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
+            coding_flow::SessionSubject::Release(_) => None,
+        },
         activity_public,
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);

@@ -77,7 +77,7 @@ pub fn account_id_for(instance_url: &str, user_id: &str) -> String {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AuthEvent {
     /// A (re-)login completed; the SyncManager reconcile spawns this
-    /// account's 14 shape threads (§5.10).
+    /// account's 15 shape threads (§5.10).
     SignedIn { account_id: String },
     /// User-initiated sign-out; threads stop, SQLite stays on disk.
     SignedOut { account_id: String },
@@ -300,7 +300,7 @@ impl AuthStore {
 
     /// The hard-401 path (§5.6b, §5.7): delete the stored
     /// session token, clear the in-memory mirror, emit
-    /// [`AuthEvent::Unauthorized`] exactly once (14 shape threads may all
+    /// [`AuthEvent::Unauthorized`] exactly once (15 shape threads may all
     /// 401 at the same instant; only the first caller finds a token to
     /// clear). The account metadata stays so login can prefill.
     pub fn handle_unauthorized(&self, account_id: &str) {
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn handle_unauthorized_clears_token_and_emits_once() {
         // Dead token → token gone + ONE Unauthorized event,
-        // even when all 14 shape threads report simultaneously.
+        // even when all 15 shape threads report simultaneously.
         let dir = TempDir::new("unauth");
         let store = test_store(&dir);
         let account = store
@@ -456,7 +456,7 @@ mod tests {
         let _ = events.recv_timeout(Duration::from_secs(1)).unwrap(); // SignedIn
 
         let handler = store.unauthorized_handler_fn();
-        for _ in 0..14 {
+        for _ in 0..15 {
             handler(&account.id);
         }
 

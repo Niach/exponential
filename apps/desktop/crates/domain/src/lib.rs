@@ -6,7 +6,7 @@
 //!
 //! * [`enums`] — typed enums with tolerant-unknown deserialization + the
 //!   board display orders (locked to the generated contract by test);
-//! * [`rows`] — the 14 hand-written shape row structs mirroring
+//! * [`rows`] — the 15 hand-written shape row structs mirroring
 //!   `packages/db-schema`, hydrated from the sync store's snake_case JSON;
 //! * [`hydrate`] — the tolerant `string → native` serde helpers (§5.5 — NOT
 //!   `BoolFromInt`; Electric booleans surface in many forms);

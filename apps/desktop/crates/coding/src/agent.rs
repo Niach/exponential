@@ -19,7 +19,7 @@
 //! set is small and known, and matching keeps every per-agent decision
 //! greppable from one type.
 
-use crate::doctor::Tool;
+use crate::doctor::{ClaudeFlagSupport, Tool};
 use crate::prompt::{render_prompt, render_prompt_no_mcp, SEED_LINE};
 use crate::settings::Settings;
 
@@ -136,16 +136,24 @@ impl Agent {
 
     /// The full spawn argv, seed prompt positional-last (§7.1 step 7 — never
     /// PTY stdin). Claude: explicit `--model` ALWAYS (never the CLI default,
-    /// which may be a scarcer model — §7.7, locked 2026-07-03) plus the skip
-    /// flag. Codex: [`CODEX_CODING_ARGS`].
-    pub fn coding_args(self, settings: &Settings) -> Vec<String> {
+    /// which may be a scarcer model — §7.7, locked 2026-07-03), `--effort`
+    /// when the setting is non-blank AND the installed CLI advertises the
+    /// flag (doctor probe, EXP-56 — old CLIs just lose it), plus the skip
+    /// flag. Codex: [`CODEX_CODING_ARGS`] (its effort knob is a `-c` config
+    /// override, out of scope while codex support is experimental).
+    pub fn coding_args(self, settings: &Settings, flags: &ClaudeFlagSupport) -> Vec<String> {
         match self {
-            Agent::Claude => vec![
-                "--model".to_string(),
-                settings.claude_model.clone(),
-                "--dangerously-skip-permissions".to_string(),
-                SEED_LINE.to_string(),
-            ],
+            Agent::Claude => {
+                let mut args = vec!["--model".to_string(), settings.claude_model.clone()];
+                let effort = settings.claude_effort.trim();
+                if !effort.is_empty() && flags.effort {
+                    args.push("--effort".to_string());
+                    args.push(effort.to_string());
+                }
+                args.push("--dangerously-skip-permissions".to_string());
+                args.push(SEED_LINE.to_string());
+                args
+            }
             Agent::Codex => CODEX_CODING_ARGS
                 .iter()
                 .map(|arg| (*arg).to_string())
@@ -205,9 +213,10 @@ mod tests {
     fn claude_args_are_byte_identical_to_the_pre_adapter_launcher() {
         // The exact pre-adapter argv: --model <model>
         // --dangerously-skip-permissions <seed>. Behavior-preserving is the
-        // adapter's contract for the default agent.
+        // adapter's contract for the default agent (blank effort by default,
+        // so nothing changes without an explicit opt-in).
         assert_eq!(
-            Agent::Claude.coding_args(&settings()),
+            Agent::Claude.coding_args(&settings(), &ClaudeFlagSupport::default()),
             vec![
                 "--model".to_string(),
                 "opus".to_string(),
@@ -224,9 +233,49 @@ mod tests {
         assert_eq!(Agent::Claude.label(), "claude");
     }
 
+    /// EXP-56 effort plumbing: the flag rides argv only when BOTH the setting
+    /// is non-blank AND the doctor probe saw `--effort` — and it sits before
+    /// the skip flag so the seed stays positional-last.
+    #[test]
+    fn effort_flag_requires_setting_and_cli_support() {
+        let supported = ClaudeFlagSupport { effort: true, ..Default::default() };
+        let mut with_effort = settings();
+        with_effort.claude_effort = "xhigh".to_string();
+        assert_eq!(
+            Agent::Claude.coding_args(&with_effort, &supported),
+            vec![
+                "--model".to_string(),
+                "opus".to_string(),
+                "--effort".to_string(),
+                "xhigh".to_string(),
+                "--dangerously-skip-permissions".to_string(),
+                SEED_LINE.to_string(),
+            ]
+        );
+        // Old CLI (probe negative) → the flag is dropped, never a hard fail.
+        assert!(!Agent::Claude
+            .coding_args(&with_effort, &ClaudeFlagSupport::default())
+            .iter()
+            .any(|a| a == "--effort"));
+        // Blank / whitespace effort → omitted even on a new CLI.
+        let mut blank = settings();
+        blank.claude_effort = "  ".to_string();
+        assert!(!Agent::Claude
+            .coding_args(&blank, &supported)
+            .iter()
+            .any(|a| a == "--effort"));
+        // Codex never receives claude's effort flag.
+        let mut codex = with_effort.clone();
+        codex.coding_agent = "codex".to_string();
+        assert!(!Agent::Codex
+            .coding_args(&codex, &supported)
+            .iter()
+            .any(|a| a == "--effort"));
+    }
+
     #[test]
     fn codex_args_are_the_centralized_constant_plus_the_seed() {
-        let args = Agent::Codex.coding_args(&settings());
+        let args = Agent::Codex.coding_args(&settings(), &ClaudeFlagSupport::default());
         let (fixed, seed) = args.split_at(CODEX_CODING_ARGS.len());
         assert_eq!(fixed, CODEX_CODING_ARGS);
         assert_eq!(seed, [SEED_LINE.to_string()]);

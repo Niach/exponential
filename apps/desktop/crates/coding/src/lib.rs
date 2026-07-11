@@ -35,6 +35,7 @@
 //! [`launcher`] / [`git_worktree`].
 
 pub mod agent;
+pub mod agents_json;
 pub mod claude_task;
 pub mod clone_manager;
 pub mod doctor;
@@ -42,9 +43,12 @@ pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
 pub mod prompt;
+pub mod release_launcher;
+pub mod release_prompt;
 pub mod run_launch;
 pub mod scm;
 pub mod settings;
+pub mod token_refresh;
 pub mod trunk_state;
 
 pub use agent::{Agent, CODEX_CODING_ARGS};
@@ -52,7 +56,10 @@ pub use claude_task::{
     claude_task, create_run_configs_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::CloneEvent;
-pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
+pub use doctor::{
+    probe_claude_flags, run_doctor, run_doctor_for, ClaudeFlagSupport, DoctorReport, Tool,
+    ToolCheck,
+};
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
     FileStatus, StatusSummary, UnifiedHunk,
@@ -66,6 +73,11 @@ pub use launcher::{
     WorktreeProvider,
 };
 pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
+pub use release_launcher::{
+    prepare_release_launch, release_args, release_branch_name, release_slug,
+    ReleaseIssueSpec, ReleaseLaunchOptions, ReleaseLaunchRequest, RepoGroup,
+};
+pub use release_prompt::{render_release_prompt, ReleasePromptArgs, ReleasePromptIssue};
 pub use prompt::{
     render_prompt, render_prompt_no_mcp, write_prompt, write_rendered_prompt, PROMPT_FILE,
     SEED_LINE,
@@ -75,3 +87,4 @@ pub use run_launch::{
     run_spawn_spec, shell_cwd, PlayState, STOP_GRACE,
 };
 pub use settings::Settings;
+pub use token_refresh::refresh_clone_token;

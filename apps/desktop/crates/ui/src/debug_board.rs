@@ -1,10 +1,10 @@
-//! Debug board — the Phase-2 "live sync of the 14 shapes renders a board"
+//! Debug board — the Phase-2 "live sync of the 15 shapes renders a board"
 //! gate surface (masterplan-v3 §11.4 Phase 2; §5.11 gate 2). Phase 3 replaces
 //! it with the real virtualized project board.
 //!
 //! Renders, live off the sync collections:
 //! * a per-shape **status line** — name + sync phase
-//!   (waiting/snapshot/live/refetching) + row count for all 14 shapes — the
+//!   (waiting/snapshot/live/refetching) + row count for all 15 shapes — the
 //!   runtime-verification instrument for the §5.11 gates (cursor resume,
 //!   atomic refetch, long-poll pacing);
 //! * the issues grouped by status in the domain display order, identifier +
@@ -43,7 +43,7 @@ impl DebugBoardPanel {
         }
     }
 
-    /// The 14-shape status line — snapshot/live/refetching + row counts.
+    /// The 15-shape status line — snapshot/live/refetching + row counts.
     fn render_status_line(&self, cx: &App) -> impl IntoElement {
         let statuses = Store::global(cx).shape_statuses(cx);
         h_flex()

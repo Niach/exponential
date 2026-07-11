@@ -31,8 +31,10 @@
 //! implementation").
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -166,22 +168,36 @@ impl CodingHub {
 // LocalSessions — the sessions THIS process launched (§7.5 play↔stop)
 // ---------------------------------------------------------------------------
 
+/// What a local coding session works on: one issue (§7.1) or a whole release
+/// (the EXP-56 orchestrator — one session per release × repo group).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionSubject {
+    Issue(String),
+    Release(String),
+}
+
 /// One locally running coding session (a `coding_sessions` row whose child
 /// lives in one of OUR terminal docks).
 pub struct LocalCodingSession {
     pub session_id: String,
-    pub issue_id: String,
+    pub subject: SessionSubject,
+    /// The shared clone the session's worktree hangs off — releases its P9
+    /// token-refresher hold when the session ends.
+    pub clone: PathBuf,
     pub tab: TabId,
     pub manager: WeakEntity<TerminalManager>,
 }
 
-/// Issue-keyed registry of local sessions. An entity (not a bare global) so
+/// Subject-keyed registry of local sessions. An entity (not a bare global) so
 /// the header affordances can `cx.observe` it for the play↔stop flip.
 #[derive(Default)]
 pub struct LocalSessions {
     by_issue: HashMap<String, LocalCodingSession>,
-    /// Keeps the per-session `TabClosed` watchers alive (keyed like
-    /// `by_issue`; dropped with the entry).
+    /// EXP-56: release-orchestrator sessions, keyed by release id (the
+    /// release-detail Start↔Stop flip).
+    by_release: HashMap<String, LocalCodingSession>,
+    /// Keeps the per-session `TabClosed` watchers alive (keyed by session id;
+    /// dropped with the entry).
     watchers: HashMap<String, Subscription>,
 }
 
@@ -209,22 +225,42 @@ impl LocalSessions {
         self.by_issue.get(issue_id)
     }
 
+    /// The release-orchestrator session for `release_id`, if this process is
+    /// running one (EXP-56 — the release-detail Start↔Stop flip).
+    pub fn get_release(&self, release_id: &str) -> Option<&LocalCodingSession> {
+        self.by_release.get(release_id)
+    }
+
     /// The coding session id whose terminal tab is `tab`, if this process is
-    /// coding it (reverse of the issue-keyed map — the §8.5 banner resolves a
-    /// dock tab back to its steer session).
+    /// coding it (reverse of the subject-keyed maps — the §8.5 banner resolves
+    /// a dock tab back to its steer session).
     pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
         self.by_issue
             .values()
+            .chain(self.by_release.values())
             .find(|session| session.tab == tab)
             .map(|session| session.session_id.as_str())
     }
 
-    fn remove(sessions: &Entity<LocalSessions>, issue_id: &str, cx: &mut App) {
-        sessions.update(cx, |this, cx| {
-            this.by_issue.remove(issue_id);
-            this.watchers.remove(issue_id);
+    /// Drop the session for `subject` and release its P9 token-refresher
+    /// hold. Both exit paths (child-exit notify + `TabClosed` watcher) land
+    /// here; the second one finds the entry already gone, so the refresher is
+    /// released exactly once.
+    fn remove(sessions: &Entity<LocalSessions>, subject: &SessionSubject, cx: &mut App) {
+        let removed = sessions.update(cx, |this, cx| {
+            let entry = match subject {
+                SessionSubject::Issue(id) => this.by_issue.remove(id),
+                SessionSubject::Release(id) => this.by_release.remove(id),
+            };
+            if let Some(entry) = &entry {
+                this.watchers.remove(&entry.session_id);
+            }
             cx.notify();
+            entry
         });
+        if let Some(entry) = removed {
+            TokenRefreshers::release(&entry.clone, cx);
+        }
     }
 
     /// Track a freshly spawned session. Also watches the manager for a
@@ -238,10 +274,11 @@ impl LocalSessions {
         trpc: Arc<api::TrpcClient>,
         cx: &mut App,
     ) {
-        let issue_id = session.issue_id.clone();
+        let subject = session.subject.clone();
+        let session_key = session.session_id.clone();
         let watcher = session.manager.upgrade().map(|manager| {
             let sessions = sessions.downgrade();
-            let watch_issue = issue_id.clone();
+            let watch_subject = subject.clone();
             let watch_tab = session.tab;
             let session_id = session.session_id.clone();
             cx.subscribe(&manager, move |_, event: &TerminalManagerEvent, cx| {
@@ -256,15 +293,22 @@ impl LocalSessions {
                     coding::end_session_best_effort(&trpc, &session_id);
                 });
                 if let Some(sessions) = sessions.upgrade() {
-                    LocalSessions::remove(&sessions, &watch_issue, cx);
+                    LocalSessions::remove(&sessions, &watch_subject, cx);
                 }
             })
         });
         sessions.update(cx, |this, cx| {
             if let Some(watcher) = watcher {
-                this.watchers.insert(issue_id.clone(), watcher);
+                this.watchers.insert(session_key, watcher);
             }
-            this.by_issue.insert(issue_id, session);
+            match &subject {
+                SessionSubject::Issue(id) => {
+                    this.by_issue.insert(id.clone(), session);
+                }
+                SessionSubject::Release(id) => {
+                    this.by_release.insert(id.clone(), session);
+                }
+            }
             cx.notify();
         });
     }
@@ -276,6 +320,112 @@ pub fn local_session_for<'a>(
     issue_id: &str,
 ) -> Option<&'a LocalCodingSession> {
     sessions.get(issue_id)
+}
+
+// ---------------------------------------------------------------------------
+// TokenRefreshers — per-clone installation-token keep-alive (EXP-56 P9)
+// ---------------------------------------------------------------------------
+
+/// Refresh cadence: safely under the ~55-min installation-token TTL.
+const TOKEN_REFRESH_INTERVAL: Duration = Duration::from_secs(40 * 60);
+/// Error backoff before the next attempt.
+const TOKEN_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
+
+struct RefresherEntry {
+    /// Live sessions sharing this clone (single-issue + release runs on the
+    /// same repo share one loop).
+    count: usize,
+    cancel: Arc<AtomicBool>,
+}
+
+/// Process-global, ref-counted per-CLONE token refreshers: while any local
+/// session runs on a clone, a background loop re-mints the JIT installation
+/// token every ~40 min and re-sets the clone's `origin` remote
+/// ([`coding::refresh_clone_token`]) so `git push` keeps working past the
+/// ~55-min token TTL — for the main worktree AND every subagent worktree
+/// (remotes are repo-level config). `retain` after every successful spawn;
+/// `release` rides [`LocalSessions::remove`] (both exit paths, exactly once).
+#[derive(Default)]
+pub struct TokenRefreshers {
+    by_clone: HashMap<PathBuf, RefresherEntry>,
+}
+
+impl gpui::Global for TokenRefreshers {}
+
+impl TokenRefreshers {
+    /// Hold a refresh loop for `clone` (starting one on the first hold).
+    pub fn retain(clone: &Path, repository_id: &str, cx: &mut App) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return; // signed out mid-spawn — the session itself is doomed anyway
+        };
+        {
+            let refreshers = cx.default_global::<TokenRefreshers>();
+            if let Some(entry) = refreshers.by_clone.get_mut(clone) {
+                entry.count += 1;
+                return;
+            }
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        cx.default_global::<TokenRefreshers>().by_clone.insert(
+            clone.to_path_buf(),
+            RefresherEntry {
+                count: 1,
+                cancel: cancel.clone(),
+            },
+        );
+
+        let trpc = Arc::new(trpc);
+        let clone = clone.to_path_buf();
+        let repository_id = repository_id.to_string();
+        cx.spawn(async move |cx| {
+            let mut delay = TOKEN_REFRESH_INTERVAL;
+            loop {
+                cx.background_executor().timer(delay).await;
+                if cancel.load(Ordering::SeqCst) {
+                    break; // released while sleeping — a stale refresh is useless
+                }
+                let trpc = Arc::clone(&trpc);
+                let refresh_clone = clone.clone();
+                let refresh_repo = repository_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        coding::refresh_clone_token(&trpc, &refresh_repo, &refresh_clone)
+                    })
+                    .await;
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                delay = match result {
+                    Ok(()) => TOKEN_REFRESH_INTERVAL,
+                    Err(err) => {
+                        // A persistent failure eventually surfaces as a
+                        // visible push 401 in the tab (GIT_TERMINAL_PROMPT=0
+                        // — never a hidden prompt); keep retrying meanwhile.
+                        log::warn!(
+                            "[ui] clone token refresh failed for {}: {err} — retrying in {}s",
+                            clone.display(),
+                            TOKEN_REFRESH_RETRY.as_secs()
+                        );
+                        TOKEN_REFRESH_RETRY
+                    }
+                };
+            }
+        })
+        .detach();
+    }
+
+    /// Drop one hold; the loop is cancelled when the last holder releases.
+    pub fn release(clone: &Path, cx: &mut App) {
+        let refreshers = cx.default_global::<TokenRefreshers>();
+        if let Some(entry) = refreshers.by_clone.get_mut(clone) {
+            entry.count = entry.count.saturating_sub(1);
+            if entry.count == 0 {
+                entry.cancel.store(true, Ordering::SeqCst);
+                refreshers.by_clone.remove(clone);
+            }
+        }
+    }
 }
 
 /// The synced project row backing `issue_id`, if both are in the collections.
@@ -384,13 +534,37 @@ pub fn build_launch(
     Some((request, deps))
 }
 
+/// [`CodingDeps`] for a RELEASE launch (EXP-56) — the same assembly as
+/// [`build_launch`] minus the issue lookup: the release dialog snapshots
+/// every issue's title/description into the [`coding::ReleaseLaunchRequest`]
+/// itself, so the seed fn is inert. `None` when signed out.
+pub fn build_release_deps(cx: &mut App) -> Option<CodingDeps> {
+    let account = queries::active_account(cx)?;
+    let trpc = Arc::new(queries::trpc_client(cx)?);
+    let data_dir = cx
+        .try_global::<AuthContext>()
+        .map(|auth| auth.data_dir.clone())
+        .unwrap_or_else(api::default_data_dir);
+    let hub = CodingHub::global(cx);
+    let settings = hub.read(cx).settings.clone();
+    Some(CodingDeps {
+        trpc,
+        token_store: Arc::new(api::token_store::TokenStore::new(data_dir)),
+        account_id: account.id,
+        settings,
+        issue_seed: Arc::new(|_| None),
+        worktrees: Arc::new(coding::GitWorktrees),
+    })
+}
+
 /// Foreground half of the launch: spawn the prepared Claude tab into THIS
 /// window's dock, register the local session (play→stop), and hook the exit
-/// edge to clear it again. A spawn failure never strands the row —
-/// `spawn_prepared_with` already ends it.
+/// edge to clear it again. Shared by the single-issue and release (EXP-56)
+/// paths — only the [`SessionSubject`] differs. A spawn failure never strands
+/// the row — `spawn_prepared_with` already ends it.
 pub fn spawn_into_window(
     prepared: coding::PreparedLaunch,
-    issue_id: String,
+    subject: SessionSubject,
     keep_private: bool,
     window: &mut Window,
     cx: &mut App,
@@ -411,12 +585,16 @@ pub fn spawn_into_window(
     };
     let trpc = Arc::new(trpc);
 
+    // The P9 refresher inputs, snapshotted before the spawn consumes them.
+    let clone = prepared.clone.clone();
+    let repository_id = prepared.repository_id.clone();
+
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
-    let notify_issue = issue_id.clone();
+    let notify_subject = subject.clone();
     let exit_notify: coding::ExitNotify = Box::new(move |cx: &mut App| {
         if let Some(sessions) = notify_sessions.upgrade() {
-            LocalSessions::remove(&sessions, &notify_issue, cx);
+            LocalSessions::remove(&sessions, &notify_subject, cx);
         }
     });
 
@@ -432,18 +610,22 @@ pub fn spawn_into_window(
             // keep-private — that opt-out fails closed client-side).
             crate::steer_wiring::attach_publisher(
                 &session_id,
-                &issue_id,
+                &subject,
                 terminal_tab,
                 &manager,
                 worktree,
                 keep_private,
                 cx,
             );
+            // P9: keep the clone's embedded token fresh for the session's
+            // life (released via LocalSessions::remove on either exit path).
+            TokenRefreshers::retain(&clone, &repository_id, cx);
             LocalSessions::insert(
                 &sessions,
                 LocalCodingSession {
                     session_id,
-                    issue_id,
+                    subject,
+                    clone,
                     tab: terminal_tab,
                     manager: manager.downgrade(),
                 },
@@ -598,9 +780,13 @@ impl StartCodingControl {
                 this.launching = false;
                 match prepared {
                     Ok(Prepared::Ready(prepared)) => {
-                        if let Err(message) =
-                            spawn_into_window(prepared, issue_id, this.keep_private, window, cx)
-                        {
+                        if let Err(message) = spawn_into_window(
+                            prepared,
+                            SessionSubject::Issue(issue_id),
+                            this.keep_private,
+                            window,
+                            cx,
+                        ) {
                             window.push_notification(Notification::error(message), cx);
                         }
                     }

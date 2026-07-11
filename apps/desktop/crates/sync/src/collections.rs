@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (14 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (15 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -38,7 +38,7 @@ use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
     Attachment, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber, Label,
-    Notification, Project, User, Workspace, WorkspaceInvite, WorkspaceMember,
+    Notification, Project, Release, User, Workspace, WorkspaceInvite, WorkspaceMember,
 };
 
 // ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ impl ShapeSyncPhase {
     }
 }
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 14
+/// A typed row hydratable from the store's snake_case JSON objects. The 15
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -150,6 +150,7 @@ id_shape_row!(Notification, "notifications");
 id_shape_row!(IssueEvent, "issue_events");
 id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(CodingSession, "coding_sessions");
+id_shape_row!(Release, "releases");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -269,7 +270,7 @@ pub struct ShapeStatus {
     pub rows: usize,
 }
 
-/// The 14 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 15 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub workspaces: Entity<Collection<Workspace>>,
@@ -286,10 +287,11 @@ pub struct Collections {
     pub issue_events: Entity<Collection<IssueEvent>>,
     pub issue_subscribers: Entity<Collection<IssueSubscriber>>,
     pub coding_sessions: Entity<Collection<CodingSession>>,
+    pub releases: Entity<Collection<Release>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 14-way fan-out in one
+/// entity — the single dispatch point that keeps the 15-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -321,6 +323,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.coding_sessions;
         $body;
+        let $entity = &$collections.releases;
+        $body;
     }};
 }
 
@@ -341,6 +345,7 @@ impl Collections {
             issue_events: cx.new(|_| Collection::new()),
             issue_subscribers: cx.new(|_| Collection::new()),
             coding_sessions: cx.new(|_| Collection::new()),
+            releases: cx.new(|_| Collection::new()),
         }
     }
 
@@ -375,11 +380,12 @@ impl Collections {
                 apply_to(&self.issue_subscribers, keys, full_replace, sqlite, cx)
             }
             "coding_sessions" => apply_to(&self.coding_sessions, keys, full_replace, sqlite, cx),
+            "releases" => apply_to(&self.releases, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 14 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 15 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -398,13 +404,13 @@ impl Collections {
     }
 
     fn statuses(&self, cx: &App) -> Vec<ShapeStatus> {
-        let mut out = Vec::with_capacity(14);
+        let mut out = Vec::with_capacity(15);
         for_each_collection!(self, entity => out.push(status_of(entity, cx)));
         out
     }
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
-        let mut out = Vec::with_capacity(14);
+        let mut out = Vec::with_capacity(15);
         for_each_collection!(self, entity => {
             out.push(cx.observe(entity, |_, _, cx| cx.notify()))
         });
@@ -617,7 +623,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 14 collection entities,
+    /// Build the store: the shared-state entity, the 15 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -661,7 +667,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 14 reactive collections.
+    /// The 15 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -690,7 +696,7 @@ impl Store {
         self.set_session(SessionPhase::SignedOut, cx);
     }
 
-    /// `SigningIn/SignedOut → Synced`: start (or resume) the account's 14
+    /// `SigningIn/SignedOut → Synced`: start (or resume) the account's 15
     /// shape threads against its per-account SQLite, hydrate the collections
     /// from disk (a warm start paints the last-known board immediately while
     /// the pipeline resumes from the persisted cursor — §5.11 gate 3), and
@@ -799,7 +805,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 14 ShapeRow impls cover the registry exactly (a 15th shape
+        // The 15 ShapeRow impls cover the registry exactly (a 16th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Workspace::spec().name,
@@ -816,6 +822,7 @@ mod tests {
             IssueEvent::spec().name,
             IssueSubscriber::spec().name,
             CodingSession::spec().name,
+            Release::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

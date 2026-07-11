@@ -2,11 +2,11 @@
 //! gpui-free; a direct port of the proven iOS `SyncManager.reconcile`.
 //!
 //! One manager owns every running sync pipeline. A pipeline is one account's
-//! 14 shape threads (one dedicated `std::thread` per shape, §5.3) plus its
+//! 15 shape threads (one dedicated `std::thread` per shape, §5.3) plus its
 //! per-account rusqlite/WAL store (§5.4). Reconciling against the signed-in
 //! account set:
 //!
-//! * **login / token refresh** → [`SyncManager::start_account`] spawns the 14
+//! * **login / token refresh** → [`SyncManager::start_account`] spawns the 15
 //!   threads against `{data_dir}/accounts/{id}/sync.sqlite`;
 //! * **logout** → [`SyncManager::stop_account`] flips the shared stop flag and
 //!   joins within a short grace window; the SQLite DB stays on disk for
@@ -115,7 +115,7 @@ impl SyncManager {
     }
 
     /// Start (or restart) one account's pipeline: open the per-account store
-    /// and spawn the 14 shape threads (§5.3), each named after its shape.
+    /// and spawn the 15 shape threads (§5.3), each named after its shape.
     /// Returns `Ok(false)` when the account is already running (no-op); a
     /// dead entry (self-torn-down after a 401) is swept and restarted.
     pub fn start_account(&self, config: AccountSyncConfig) -> Result<bool, StoreError> {
@@ -133,7 +133,7 @@ impl SyncManager {
 
         let store = Arc::new(ShapeStore::open(&config.db_path)?);
         let stop = Arc::new(AtomicBool::new(false));
-        // Shared by the 14 threads so the 401 signal fires exactly once per
+        // Shared by the 15 threads so the 401 signal fires exactly once per
         // account (§5.6b).
         let unauthorized_reported = Arc::new(AtomicBool::new(false));
 

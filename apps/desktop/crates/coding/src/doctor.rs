@@ -62,12 +62,28 @@ pub struct ToolCheck {
     pub error: Option<String>,
 }
 
-/// `{ agent, git }` — the §7.7 report. `agent` is whichever coding agent is
-/// active per the settings (claude by default).
+/// Which EXP-56 launch flags the installed Claude CLI advertises
+/// (`claude --help` grep). Old CLIs simply lose the corresponding argv piece
+/// — the launch itself never hard-fails on a missing flag. All-false for
+/// codex and whenever the probe can't run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClaudeFlagSupport {
+    /// `--effort <level>` (reasoning effort).
+    pub effort: bool,
+    /// `--agents <json>` (session-scoped subagent definitions).
+    pub agents: bool,
+    /// `--settings <json>` (carries the ultracode/dynamic-workflows toggle).
+    pub settings: bool,
+}
+
+/// `{ agent, git, claude_flags }` — the §7.7 report. `agent` is whichever
+/// coding agent is active per the settings (claude by default);
+/// `claude_flags` is probed only when that agent is Claude.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorReport {
     pub agent: ToolCheck,
     pub git: ToolCheck,
+    pub claude_flags: ClaudeFlagSupport,
 }
 
 impl DoctorReport {
@@ -91,10 +107,43 @@ impl DoctorReport {
 /// spawned, never falsely blocking on the other one); `git` is always plain
 /// `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
-    let agent = Agent::from_settings(settings);
+    run_doctor_for(Agent::from_settings(settings), settings)
+}
+
+/// [`run_doctor`] for an EXPLICIT agent — the release orchestrator (EXP-56)
+/// is Claude-only regardless of the `codingAgent` setting, so it doctors
+/// Claude directly instead of whatever the single-issue setting says.
+pub fn run_doctor_for(agent: Agent, settings: &Settings) -> DoctorReport {
+    let program = agent.program(settings);
+    let check = check_tool(agent.tool(), &program);
+    // Probe launch-flag support only for a WORKING Claude binary — a dead
+    // binary would just add a second slow spawn failure for no signal.
+    let claude_flags = if agent == Agent::Claude && check.ok {
+        probe_claude_flags(&program)
+    } else {
+        ClaudeFlagSupport::default()
+    };
     DoctorReport {
-        agent: check_tool(agent.tool(), &agent.program(settings)),
+        agent: check,
         git: check_tool(Tool::Git, "git"),
+        claude_flags,
+    }
+}
+
+/// `<program> --help` grepped for the EXP-56 launch flags. Any spawn/decode
+/// failure degrades to all-false (the flags are omitted, never a hard fail).
+pub fn probe_claude_flags(program: &str) -> ClaudeFlagSupport {
+    let Ok(output) = Command::new(program).arg("--help").output() else {
+        return ClaudeFlagSupport::default();
+    };
+    if !output.status.success() {
+        return ClaudeFlagSupport::default();
+    }
+    let help = String::from_utf8_lossy(&output.stdout);
+    ClaudeFlagSupport {
+        effort: help.contains("--effort"),
+        agents: help.contains("--agents"),
+        settings: help.contains("--settings"),
     }
 }
 
@@ -257,18 +306,44 @@ mod tests {
             version: None,
             error: Some("claude not found on PATH — set an absolute path".into()),
         };
-        let report = DoctorReport { agent: bad.clone(), git: good.clone() };
+        let flags = ClaudeFlagSupport::default();
+        let report = DoctorReport { agent: bad.clone(), git: good.clone(), claude_flags: flags };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad));
 
-        let report = DoctorReport { agent: good.clone(), git: good.clone() };
+        let report =
+            DoctorReport { agent: good.clone(), git: good.clone(), claude_flags: flags };
         assert!(report.ok());
         assert_eq!(report.first_failure(), None);
 
         // git missing must ALSO block (§7.1 step 1 ANDs both).
         let bad_git = ToolCheck { tool: Tool::Git, ok: false, version: None, error: None };
-        let report = DoctorReport { agent: good, git: bad_git.clone() };
+        let report = DoctorReport { agent: good, git: bad_git.clone(), claude_flags: flags };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad_git));
+    }
+
+    /// The EXP-56 flag probe: greps `--help` output; degrades to all-false on
+    /// a missing binary; never probed for codex.
+    #[test]
+    fn flag_probe_greps_help_and_degrades_gracefully() {
+        // A missing binary → all-false, no panic.
+        assert_eq!(
+            probe_claude_flags("definitely-not-a-real-binary-exp"),
+            ClaudeFlagSupport::default()
+        );
+        // `git --help` mentions none of the claude flags → all-false, proving
+        // the grep is specific (and giving the probe a real-binary run).
+        assert_eq!(probe_claude_flags("git"), ClaudeFlagSupport::default());
+        // The codex agent never probes: run_doctor_for leaves flags default
+        // even with a green binary.
+        let settings = crate::settings::Settings {
+            coding_agent: "codex".to_string(),
+            codex_path: "git".to_string(),
+            ..crate::settings::Settings::default()
+        };
+        let report = run_doctor(&settings);
+        assert!(report.agent.ok);
+        assert_eq!(report.claude_flags, ClaudeFlagSupport::default());
     }
 }

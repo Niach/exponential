@@ -469,6 +469,10 @@ impl IssueDetailView {
                 workspace_id,
                 user_id,
             } => queries::my_issues(cx, workspace_id, user_id, &filters),
+            // The rail boards never carry a release scope, but stay total.
+            IssueQuery::Release { release_id } => {
+                queries::release_board(cx, release_id, &filters)
+            }
         };
         let ids = domain::board::flatten_group_issue_ids(&data.groups);
         let position = ids.iter().position(|id| *id == issue.id)?;

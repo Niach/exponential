@@ -671,7 +671,7 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
         .unwrap();
     assert!(started);
 
-    // All 14 threads 401 near-simultaneously — exactly ONE Unauthorized.
+    // All 15 threads 401 near-simultaneously — exactly ONE Unauthorized.
     let delta = deltas.recv_timeout(Duration::from_secs(10)).unwrap();
     match delta {
         ShapeDelta::Unauthorized { ref account_id } => assert_eq!(account_id, "acct-1"),
@@ -751,12 +751,12 @@ fn idle_live_loop_never_repolls_under_one_second() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Manager lifecycle: 14 named threads per account, clean stop, first-sync
+// 5. Manager lifecycle: 15 named threads per account, clean stop, first-sync
 //    wait (§5.10)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn manager_runs_all_14_shapes_and_stops_cleanly() {
+fn manager_runs_all_15_shapes_and_stops_cleanly() {
     let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(30)));
 
     let dir = TempDir::new("mgr");
@@ -773,7 +773,7 @@ fn manager_runs_all_14_shapes_and_stops_cleanly() {
     assert!(!manager.start_account(config()).unwrap());
     assert_eq!(manager.running_accounts(), vec!["acct-1".to_string()]);
 
-    // Every one of the 14 shape proxies gets polled (with the bearer).
+    // Every one of the 15 shape proxies gets polled (with the bearer).
     let expected: HashSet<&str> = SHAPES.iter().map(|s| s.path).collect();
     assert!(
         wait_until(Duration::from_secs(10), || {

@@ -1,4 +1,4 @@
-//! Typed row structs for the 14 synced shapes (masterplan-v3 §5.1/§5.5) —
+//! Typed row structs for the 15 synced shapes (masterplan-v3 §5.1/§5.5) —
 //! hand-written mirrors of `packages/db-schema`, one per Electric shape,
 //! hydrated from the sync store's snake_case JSON objects.
 //!
@@ -145,6 +145,9 @@ pub struct Issue {
     pub archived_at: Option<String>,
     #[serde(default)]
     pub duplicate_of_id: Option<String>,
+    /// EXP-56: the [`Release`] this issue is bundled into, if any.
+    #[serde(default)]
+    pub release_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub recurrence_interval: Option<i64>,
     #[serde(default)]
@@ -388,11 +391,15 @@ pub struct IssueSubscriber {
 }
 
 /// `coding_sessions` shape row (the cross-client "coding now" badge).
+/// EXP-56: exactly one of `issue_id` (issue-scoped session) and `release_id`
+/// (release-orchestrator session) is set, enforced by the tRPC writer.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct CodingSession {
     pub id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
+    #[serde(default)]
+    pub release_id: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
@@ -406,6 +413,43 @@ pub struct CodingSession {
     pub started_at: Option<String>,
     #[serde(default)]
     pub ended_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// `releases` shape row (EXP-56) — a workspace-level bundle of issues
+/// (membership is 1:N via [`Issue::release_id`]). No status enum: state
+/// derives from `shipped_at` plus member-issue progress. The pr_* fields
+/// mirror the issue PR fields (the release PR: integration branch → default).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Release {
+    pub id: String,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// GFM markdown (the cross-client interchange contract).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `date` column — `"2026-08-01"`; parse at the UI edge if needed (§5.5).
+    #[serde(default)]
+    pub target_date: Option<String>,
+    /// Non-null = shipped (independent of progress — shipping early is fine).
+    #[serde(default)]
+    pub shipped_at: Option<String>,
+    /// Audit only (mirrors `issue_events.actor_user_id`) — never authorization.
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub pr_number: Option<i64>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+    #[serde(default)]
+    pub pr_merged_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -529,5 +573,26 @@ mod tests {
         .unwrap();
         assert_eq!(sub.unsubscribed, Some(false));
         // Compile-time guarantee: no `email` field exists to read.
+    }
+
+    #[test]
+    fn release_hydrates_with_heterogeneous_scalars() {
+        // Mirrors the wire forms: bare number OR TEXT for `pr_number`,
+        // date/timestamp columns as ISO strings.
+        let release: Release = serde_json::from_value(json!({
+            "id": "r-1",
+            "workspace_id": "w-1",
+            "name": "v1.0",
+            "target_date": "2026-08-01",
+            "shipped_at": null,
+            "pr_url": "https://github.com/o/r/pull/9",
+            "pr_number": "9",
+            "pr_state": "open"
+        }))
+        .expect("release hydrates");
+        assert_eq!(release.name.as_deref(), Some("v1.0"));
+        assert_eq!(release.pr_number, Some(9));
+        assert_eq!(release.shipped_at, None);
+        assert_eq!(release.target_date.as_deref(), Some("2026-08-01"));
     }
 }

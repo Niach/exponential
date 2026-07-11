@@ -65,6 +65,7 @@ pub mod notifications;
 pub mod opener;
 pub mod patch;
 pub mod projects;
+pub mod releases;
 pub mod repositories;
 pub mod run_configs;
 pub mod steer;

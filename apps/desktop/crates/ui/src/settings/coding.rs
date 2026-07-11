@@ -34,6 +34,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     skeleton::Skeleton,
+    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 
@@ -50,10 +51,16 @@ use super::{card, card_header, error_notice};
 pub struct CodingPane {
     claude_input: Entity<InputState>,
     model_input: Entity<InputState>,
+    effort_input: Entity<InputState>,
     agent_input: Entity<InputState>,
     codex_input: Entity<InputState>,
     repos_input: Entity<InputState>,
     prefix_input: Entity<InputState>,
+    /// EXP-56 release-run defaults (the launch dialog's prefill).
+    subagent_model_input: Entity<InputState>,
+    subagent_effort_input: Entity<InputState>,
+    release_ultracode: bool,
+    release_autonomous: bool,
     /// The hub settings the inputs were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -66,6 +73,8 @@ impl CodingPane {
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
         let model_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_MODEL));
+        let effort_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("CLI default"));
         let agent_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODING_AGENT));
         let codex_input =
@@ -74,6 +83,10 @@ impl CodingPane {
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_REPOS_ROOT));
         let prefix_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_BRANCH_PREFIX));
+        let subagent_model_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Claude model"));
+        let subagent_effort_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("inherit"));
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -87,10 +100,13 @@ impl CodingPane {
         for input in [
             &claude_input,
             &model_input,
+            &effort_input,
             &agent_input,
             &codex_input,
             &repos_input,
             &prefix_input,
+            &subagent_model_input,
+            &subagent_effort_input,
         ] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -102,10 +118,15 @@ impl CodingPane {
         let mut this = Self {
             claude_input,
             model_input,
+            effort_input,
             agent_input,
             codex_input,
             repos_input,
             prefix_input,
+            subagent_model_input,
+            subagent_effort_input,
+            release_ultracode: true,
+            release_autonomous: true,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -128,6 +149,9 @@ impl CodingPane {
         self.model_input.update(cx, |input, cx| {
             input.set_value(settings.claude_model.clone(), window, cx)
         });
+        self.effort_input.update(cx, |input, cx| {
+            input.set_value(settings.claude_effort.clone(), window, cx)
+        });
         self.agent_input.update(cx, |input, cx| {
             input.set_value(settings.coding_agent.clone(), window, cx)
         });
@@ -140,6 +164,14 @@ impl CodingPane {
         self.prefix_input.update(cx, |input, cx| {
             input.set_value(settings.branch_prefix.clone(), window, cx)
         });
+        self.subagent_model_input.update(cx, |input, cx| {
+            input.set_value(settings.subagent_model.clone(), window, cx)
+        });
+        self.subagent_effort_input.update(cx, |input, cx| {
+            input.set_value(settings.subagent_effort.clone(), window, cx)
+        });
+        self.release_ultracode = settings.release_ultracode;
+        self.release_autonomous = settings.release_autonomous;
         self.synced = Some(settings);
         cx.notify();
     }
@@ -160,6 +192,13 @@ impl CodingPane {
         Settings {
             claude_path: value(&self.claude_input, &defaults.claude_path),
             claude_model: value(&self.model_input, &defaults.claude_model),
+            // Blank effort is VALID ("omit --effort") — no default degrade.
+            claude_effort: self.effort_input.read(cx).value().trim().to_string(),
+            // Blank release-run fields are VALID (= inherit) — no degrade.
+            subagent_model: self.subagent_model_input.read(cx).value().trim().to_string(),
+            subagent_effort: self.subagent_effort_input.read(cx).value().trim().to_string(),
+            release_ultracode: self.release_ultracode,
+            release_autonomous: self.release_autonomous,
             coding_agent: value(&self.agent_input, &defaults.coding_agent),
             codex_path: value(&self.codex_input, &defaults.codex_path),
             repos_root: value(&self.repos_input, &defaults.repos_root),
@@ -203,6 +242,41 @@ impl CodingPane {
                     .text_xs()
                     .text_color(cx.theme().muted_foreground.opacity(0.7))
                     .child(hint),
+            )
+    }
+
+    /// One release-run toggle row: label + hint on the left, a `Switch` on
+    /// the right (the notifications pane's row shape).
+    fn toggle_row(
+        id: &'static str,
+        label: &'static str,
+        hint: &'static str,
+        checked: bool,
+        on_click: impl Fn(&mut Self, &bool, &mut gpui::Context<Self>) + 'static,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        h_flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground.opacity(0.7))
+                            .child(hint),
+                    ),
+            )
+            .child(
+                Switch::new(id)
+                    .checked(checked)
+                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                        on_click(this, checked, cx);
+                        cx.notify();
+                    })),
             )
     }
 
@@ -318,6 +392,12 @@ impl Render for CodingPane {
                 cx,
             ))
             .child(Self::labeled_input(
+                "Claude effort",
+                "Passed as --effort when set and the installed CLI supports it. Try low, medium, high, xhigh, or max — blank keeps the CLI default.",
+                &self.effort_input,
+                cx,
+            ))
+            .child(Self::labeled_input(
                 "Coding agent (experimental)",
                 "claude (default) or codex — codex launches OpenAI's Codex CLI instead and is EXPERIMENTAL: no Exponential MCP tools, so it stops at commit + push. Anything else falls back to claude.",
                 &self.agent_input,
@@ -339,6 +419,43 @@ impl Render for CodingPane {
                 "Branch prefix",
                 "Prepended to the issue identifier for the coding branch (exp/EXP-42).",
                 &self.prefix_input,
+                cx,
+            ))
+            // EXP-56: defaults for "Start coding" on a whole RELEASE — the
+            // launch dialog prefills from these four.
+            .child(
+                div()
+                    .pt_2()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .child("Release runs"),
+            )
+            .child(Self::labeled_input(
+                "Subagent model",
+                "Default model for per-issue subagents in release runs — blank inherits the Claude model above.",
+                &self.subagent_model_input,
+                cx,
+            ))
+            .child(Self::labeled_input(
+                "Subagent effort",
+                "Default effort for per-issue subagents — blank inherits the session's effort.",
+                &self.subagent_effort_input,
+                cx,
+            ))
+            .child(Self::toggle_row(
+                "release-ultracode",
+                "Dynamic workflows (ultracode)",
+                "Run the release orchestrator with dynamic workflows — requires Opus and a Claude Code build with --settings.",
+                self.release_ultracode,
+                |this, checked, _| this.release_ultracode = *checked,
+                cx,
+            ))
+            .child(Self::toggle_row(
+                "release-autonomous",
+                "Autonomous",
+                "No plan approval gate — the orchestrator fans out without waiting for a go-ahead.",
+                self.release_autonomous,
+                |this, checked, _| this.release_autonomous = *checked,
                 cx,
             ));
         if let Some(error) = &self.save_error {
