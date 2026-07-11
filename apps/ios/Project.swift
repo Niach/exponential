@@ -18,7 +18,6 @@ let stagingResources: ResourceFileElements = [
 ]
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
-    .external(name: "MarkdownUI"),
     .external(name: "FirebaseCore"),
     .external(name: "FirebaseMessaging"),
     .external(name: "cmark-gfm"),
@@ -73,7 +72,7 @@ let shareExtensionSources: SourceFilesList = [
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
 let appMarketingVersion = "0.11.0"
-let appBuildVersion = "27"
+let appBuildVersion = "28"
 
 let shareExtensionInfoPlist: [String: Plist.Value] = [
     // Must match the parent app's version (CFBundleVersion mismatch trips

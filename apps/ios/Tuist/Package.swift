@@ -11,15 +11,6 @@ let packageSettings = PackageSettings(
     // dynamic framework: one shared copy linked by both.
     productTypes: [
         "GRDB": .framework,
-    ],
-    // MarkdownUI at -Onone even in Release: the optimizer emits a symbolic-
-    // reference mangled name for Markdown's opaque `Body` witness that the
-    // iOS 27 (beta) Swift runtime fails to demangle — opening any issue with
-    // comments aborted with "failed to demangle witness for associated type
-    // 'Body' in conformance 'MarkdownUI.Markdown: View'". Debug (-Onone)
-    // metadata resolves fine, so pin this one package to -Onone.
-    targetSettings: [
-        "MarkdownUI": ["SWIFT_OPTIMIZATION_LEVEL": "-Onone"],
     ]
 )
 #endif
@@ -27,8 +18,11 @@ let packageSettings = PackageSettings(
 let package = Package(
     name: "Exponential",
     dependencies: [
+        // swift-markdown-ui was removed on purpose (2026-07-11): its one
+        // usage was the read-only comment display, and its optimized opaque-
+        // Body metadata hard-crashed the iOS 27 runtime. Comments render via
+        // the in-house block editor (read-only mode) instead.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
     ]
 )

@@ -22,6 +22,10 @@ struct MarkdownEditor: View {
     /// Tap on a rendered `#IDENTIFIER` issue-ref pill (value = resolved issue
     /// id). Pills only render when the host set `model.issueRefResolver`.
     var onIssueRefTap: ((String) -> Void)?
+    /// Display-only rendering (comment bodies): text views are non-editable
+    /// (link taps open URLs), image blocks lose their delete affordance, and
+    /// the editing chrome (toolbar, pickers, autocomplete bars) never mounts.
+    var isReadOnly: Bool = false
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -49,6 +53,7 @@ struct MarkdownEditor: View {
                                 isFocused: model.focusedBlockId == id,
                                 placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
                                 toolbar: toolbar,
+                                isReadOnly: isReadOnly,
                                 onPasteImage: { image in insert(uiImage: image) },
                                 onIssueRefTap: onIssueRefTap
                             )
@@ -64,6 +69,7 @@ struct MarkdownEditor: View {
                                 accountId: accountId,
                                 httpClient: httpClient,
                                 pendingImages: model.pendingImages,
+                                isReadOnly: isReadOnly,
                                 onDelete: { model.deleteImageBlock(id: id) },
                                 onTapBelow: { focusBlock(after: id) },
                                 onRetry: { Task { await model.retryImage(blockId: id) } }
@@ -72,15 +78,15 @@ struct MarkdownEditor: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 12)
+                .padding(.horizontal, isReadOnly ? 0 : 8)
+                .padding(.top, isReadOnly ? 0 : 12)
         }
         .overlay(alignment: .top) {
             // The two token shapes are mutually exclusive, so at most one bar
             // has candidates at a time.
-            if !model.mentionCandidates.isEmpty {
+            if !isReadOnly, !model.mentionCandidates.isEmpty {
                 mentionBar
-            } else if !model.issueRefCandidates.isEmpty {
+            } else if !isReadOnly, !model.issueRefCandidates.isEmpty {
                 issueRefBar
             }
         }
@@ -103,6 +109,7 @@ struct MarkdownEditor: View {
             Text("Link the selected text to a URL.")
         }
         .onAppear {
+            guard !isReadOnly else { return }
             toolbar.onImagePick = { showPhotoPicker = true }
             toolbar.onInsertLink = { showLinkAlert = true }
             model.mentionMembers = mentionMembers
@@ -243,6 +250,9 @@ private final class EditorTextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onPasteImage: ((UIImage) -> Void)?
     var onIssueRefTap: ((String) -> Void)?
+    /// Display-only rendering: issue-ref taps still navigate, but checkbox
+    /// glyph taps must not mutate the (never-persisted) text.
+    var isReadOnlyRendering = false
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -264,6 +274,7 @@ private final class EditorTextView: UITextView {
             onIssueRefTap?(issueId)
             return
         }
+        guard !isReadOnlyRendering else { return }
         let char = (textStorage.string as NSString).substring(with: NSRange(location: charIndex, length: 1))
         if char == "\u{2610}" || char == "\u{2611}" {
             let replacement = char == "\u{2610}" ? "\u{2611}" : "\u{2610}"
@@ -312,6 +323,7 @@ private struct BlockTextEditor: UIViewRepresentable {
     let isFocused: Bool
     let placeholder: String?
     let toolbar: MarkdownToolbar
+    var isReadOnly = false
     var onPasteImage: (UIImage) -> Void
     var onIssueRefTap: ((String) -> Void)?
 
@@ -321,7 +333,10 @@ private struct BlockTextEditor: UIViewRepresentable {
         tv.textColor = MarkdownStyle.textColor
         tv.tintColor = MarkdownStyle.linkColor
         tv.font = MarkdownStyle.bodyFont
-        tv.isEditable = true
+        // Read-only display (comment bodies): non-editable but selectable —
+        // UITextView then opens .link attributes natively on tap.
+        tv.isEditable = !isReadOnly
+        tv.isReadOnlyRendering = isReadOnly
         tv.isScrollEnabled = false
         tv.alwaysBounceVertical = false
         tv.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
@@ -329,7 +344,9 @@ private struct BlockTextEditor: UIViewRepresentable {
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
         tv.typingAttributes = MarkdownStyle.baseAttributes
-        tv.inputAccessoryView = toolbar
+        if !isReadOnly {
+            tv.inputAccessoryView = toolbar
+        }
         tv.delegate = context.coordinator
 
         let coord = context.coordinator
@@ -406,11 +423,11 @@ private struct BlockTextEditor: UIViewRepresentable {
             coord.hidePlaceholder()
         }
 
-        if isFocused, !tv.isFirstResponder {
+        if !isReadOnly, isFocused, !tv.isFirstResponder {
             tv.becomeFirstResponder()
             toolbar.textView = tv
         }
-        if tv.isFirstResponder {
+        if !isReadOnly, tv.isFirstResponder {
             toolbar.textView = tv
         }
     }
@@ -568,6 +585,7 @@ private struct BlockImageView: View {
     let accountId: String
     let httpClient: HTTPClient?
     let pendingImages: [String: PendingImage]
+    var isReadOnly = false
     var onDelete: () -> Void
     var onTapBelow: () -> Void
     var onRetry: () -> Void
@@ -599,20 +617,24 @@ private struct BlockImageView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .animation(.easeInOut(duration: 0.15), value: aspectRatio)
 
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white.opacity(0.8), .black.opacity(0.5))
+                if !isReadOnly {
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white.opacity(0.8), .black.opacity(0.5))
+                    }
+                    .padding(8)
                 }
-                .padding(8)
             }
             .padding(.vertical, 4)
 
-            Color.clear
-                .frame(height: 20)
-                .contentShape(Rectangle())
-                .onTapGesture { onTapBelow() }
+            if !isReadOnly {
+                Color.clear
+                    .frame(height: 20)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onTapBelow() }
+            }
         }
         .task(id: url) { await loadImage() }
     }

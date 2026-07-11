@@ -2,7 +2,6 @@ import ExpUI
 import ExpCore
 import SwiftUI
 import GRDB
-import MarkdownUI
 
 // The activity timeline. Reads live comments + issue_events from the local GRDB
 // store (populated by Electric sync) and routes create/update/delete through
@@ -327,6 +326,10 @@ private struct RegularCommentRow: View {
     let onDelete: () -> Void
 
     @State private var saving = false
+    // Read-only display model for the comment body (same block stack as the
+    // editors); rebuilt only when the body text actually changes.
+    @State private var displayModel = IssueEditorModel()
+    @State private var displayedBody: String?
 
     private var canModify: Bool { isAuthor || isAdmin }
 
@@ -396,19 +399,34 @@ private struct RegularCommentRow: View {
                             .disabled(saving)
                     }
                 } else {
-                    // Display-only transform: resolved `#IDENTIFIER` refs become
-                    // tappable links routed back to the app (never persisted —
-                    // the edit path reseeds from the raw stored markdown).
-                    Markdown(IssueRefs.linkifyForDisplay(getCommentBodyText(comment.body), resolver: resolveIssueRef))
-                        .markdownTheme(.gitHub)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .environment(\.openURL, OpenURLAction { url in
-                            if url.scheme == "exp-issue", let issueId = url.host, !issueId.isEmpty {
-                                onOpenIssue(issueId)
-                                return .handled
-                            }
-                            return .systemAction
-                        })
+                    // Read-only render through the SAME block stack as the
+                    // description and the composer (no MarkdownUI — its
+                    // optimized opaque-Body metadata hard-crashed the iOS 27
+                    // runtime, and one dependency for one read-only view isn't
+                    // worth that class of bug). The model decorates @mentions
+                    // and resolved `#IDENTIFIER` refs as tappable pills; the
+                    // raw stored markdown stays untouched (the edit path
+                    // reseeds from it).
+                    MarkdownEditor(
+                        model: displayModel,
+                        placeholder: "",
+                        baseURL: baseURL,
+                        accountId: accountId,
+                        httpClient: httpClient,
+                        onIssueRefTap: { issueId in onOpenIssue(issueId) },
+                        isReadOnly: true
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .task(id: getCommentBodyText(comment.body)) {
+                        let text = getCommentBodyText(comment.body)
+                        guard displayedBody != text else { return }
+                        displayedBody = text
+                        let model = IssueEditorModel()
+                        model.mentionMembers = mentionMembers
+                        model.issueRefResolver = resolveIssueRef
+                        model.load(markdown: text, baseURL: baseURL)
+                        displayModel = model
+                    }
                 }
             }
         }
