@@ -524,6 +524,16 @@ export const MarkdownEditor = forwardRef<
       editor?.setEditable(editable)
     }, [editable, editor])
 
+    // TipTap reads `content` only at editor creation. Read-only instances
+    // (e.g. comment bodies fed live from sync) have no local edits to
+    // protect, so re-apply the markdown prop when it diverges; editable
+    // instances own their document and sync explicitly via the ref.
+    useEffect(() => {
+      if (!editor || editable) return
+      if (getEditorMarkdown(editor) === markdown) return
+      editor.commands.setContent(markdown)
+    }, [editor, editable, markdown])
+
     // Re-run the issue-ref/mention decorations when resolution data changes
     // (issues/members sync in live) — a no-op transaction recomputes plugin
     // decorations without touching the document (onUpdate only fires on doc
