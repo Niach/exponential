@@ -137,7 +137,7 @@ struct SyncDebugView: View {
     }
 
     // Manual escape hatch (EXP-1#13): wipe the active account's synced rows +
-    // offsets and refetch all 14 shapes from scratch. resync() itself purges
+    // offsets and refetch all 15 shapes from scratch. resync() itself purges
     // URLCache and is serialized per account inside SyncManager.
     @ViewBuilder
     private var resyncSection: some View {

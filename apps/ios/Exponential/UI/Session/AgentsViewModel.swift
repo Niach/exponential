@@ -74,6 +74,8 @@ final class AgentsViewModel {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         rows = sessions
             .sorted { $0.startedAt > $1.startedAt }
-            .map { Row(session: $0, issue: issuesById[$0.issueId]) }
+            // issueId is nil for release-scoped orchestrator sessions (EXP-56)
+            // — those rows render without an issue link.
+            .map { Row(session: $0, issue: $0.issueId.flatMap { issuesById[$0] }) }
     }
 }

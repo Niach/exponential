@@ -52,6 +52,13 @@ struct IssuesHomeView: View {
             ToolbarItem(placement: .principal) {
                 switcherControl
             }
+            // Releases (EXP-56): the tab bar is full, so the workspace's
+            // releases live behind a nav-bar action on the Issues screen.
+            if let workspaceRef = currentWorkspaceRef {
+                ToolbarItem(placement: .topBarTrailing) {
+                    releasesButton(workspaceRef)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 settingsButton
             }
@@ -128,6 +135,31 @@ struct IssuesHomeView: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
         }
+    }
+
+    /// (accountId, workspaceId) of the CURRENT project — the workspace whose
+    /// releases the toolbar action opens. Resolved from the loader tree, which
+    /// spans every signed-in server.
+    private var currentWorkspaceRef: (accountId: String, workspaceId: String)? {
+        guard let current = currentProject else { return nil }
+        for group in projectLoader?.groups ?? [] where group.accountId == current.accountId {
+            for block in group.workspaceBlocks
+            where block.projects.contains(where: { $0.id == current.projectId }) {
+                return (current.accountId, block.workspace.id)
+            }
+        }
+        return nil
+    }
+
+    private func releasesButton(_ ref: (accountId: String, workspaceId: String)) -> some View {
+        NavigationLink(value: AppRoute.releases(accountId: ref.accountId, workspaceId: ref.workspaceId)) {
+            Image(systemName: "shippingbox")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Releases")
     }
 
     // MARK: - Empty state

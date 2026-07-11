@@ -167,7 +167,7 @@ struct WorkspaceSettingsView: View {
             // recreates one server-side when none is left.
             _ = try? await deps.workspacesApi.ensureDefault(accountId: accountId)
             // Membership changed, so every shape's server-derived where clause
-            // rotated — relaunch the pipeline so all 14 shapes re-scope
+            // rotated — relaunch the pipeline so all 15 shapes re-scope
             // immediately instead of waiting out the in-flight live long-polls
             // (up to ~60s of "deleted workspace still there / new personal
             // workspace missing").

@@ -239,6 +239,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("pr_state", .text)
                 t.column("branch", .text)
                 t.column("pr_merged_at", .text)
+                // Release membership (EXP-56): nullable FK-ish text uuid.
+                t.column("release_id", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -370,15 +372,36 @@ public final class DatabaseManager: @unchecked Sendable {
 
             // The live "coding now" record — one row per interactive desktop
             // coding session. Replaces the old agent_runs shape (14th shape).
+            // issue_id/project_id are nullable since EXP-56: release-scoped
+            // orchestrator sessions carry release_id instead.
             try db.create(table: "coding_sessions", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("issue_id", .text).notNull().indexed()
+                t.column("issue_id", .text).indexed()
+                t.column("project_id", .text)
+                t.column("release_id", .text)
                 t.column("workspace_id", .text).notNull().indexed()
                 t.column("user_id", .text).notNull().indexed()
                 t.column("device_label", .text)
                 t.column("status", .text).notNull().defaults(to: "running")
                 t.column("started_at", .text).notNull()
                 t.column("ended_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            // Workspace-level releases (EXP-56, the 15th shape).
+            try db.create(table: "releases", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("name", .text).notNull()
+                t.column("description", .text)
+                t.column("target_date", .text)
+                t.column("shipped_at", .text)
+                t.column("created_by", .text)
+                t.column("pr_url", .text)
+                t.column("pr_number", .integer)
+                t.column("pr_state", .text)
+                t.column("pr_merged_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -540,6 +563,82 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v7 (EXP-56 releases): the `releases` table (15th shape),
+        // `issues.release_id`, and the coding_sessions loosening (nullable
+        // issue_id + new project_id/release_id for release-scoped sessions).
+        // Fresh installs get all of this from the v1 creates above; upgrading
+        // devices converge here. Strictly additive where possible — never bump
+        // the `-v4` file suffix (that would wipe local snapshots + cursors).
+        migrator.registerMigration("v7_releases") { db in
+            // Fresh installs created this in v1; ifNotExists makes both paths
+            // converge (same rule as every guarded ALTER since v3).
+            try db.create(table: "releases", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("name", .text).notNull()
+                t.column("description", .text)
+                t.column("target_date", .text)
+                t.column("shipped_at", .text)
+                t.column("created_by", .text)
+                t.column("pr_url", .text)
+                t.column("pr_number", .integer)
+                t.column("pr_state", .text)
+                t.column("pr_merged_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            // issues.release_id — guarded ALTER (v3/v4/v5 pattern). The member
+            // issues shape rotates server-side when the column lands, so rows
+            // refetch with the new column via the normal 409 path; no manual
+            // offset reset needed.
+            if try db.tableExists("issues") {
+                let existing = Set(try db.columns(in: "issues").map(\.name))
+                if !existing.contains("release_id") {
+                    try db.alter(table: "issues") { t in
+                        t.add(column: "release_id", .text)
+                    }
+                }
+            }
+
+            // coding_sessions: the legacy table declares issue_id NOT NULL, and
+            // SQLite can't drop NOT NULL in place. The table is a pure sync
+            // cache, so drop + recreate to the new shape (nullable issue_id +
+            // project_id/release_id, matching the v1 create above) and force a
+            // refetch — the v6 workspace_invites playbook.
+            if try db.tableExists("coding_sessions") {
+                let issueIdNotNull = try db.columns(in: "coding_sessions")
+                    .contains { $0.name == "issue_id" && $0.isNotNull }
+                if issueIdNotNull {
+                    try db.drop(table: "coding_sessions")
+                    try db.create(table: "coding_sessions") { t in
+                        t.primaryKey("id", .text)
+                        t.column("issue_id", .text).indexed()
+                        t.column("project_id", .text)
+                        t.column("release_id", .text)
+                        t.column("workspace_id", .text).notNull().indexed()
+                        t.column("user_id", .text).notNull().indexed()
+                        t.column("device_label", .text)
+                        t.column("status", .text).notNull().defaults(to: "running")
+                        t.column("started_at", .text).notNull()
+                        t.column("ended_at", .text)
+                        t.column("created_at", .text).notNull()
+                        t.column("updated_at", .text).notNull()
+                    }
+                    // Same must-refetch reset as v5/v6 so the emptied table
+                    // re-snapshots atomically (offset keys are the hyphenated
+                    // makeShapeTask names).
+                    if try db.tableExists("electric_offsets") {
+                        try db.execute(sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = 'coding-sessions'
+                            """)
+                    }
+                }
+            }
+        }
+
         return migrator
     }
 
@@ -548,6 +647,7 @@ public final class DatabaseManager: @unchecked Sendable {
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
             try db.execute(sql: "DELETE FROM coding_sessions")
+            try db.execute(sql: "DELETE FROM releases")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")

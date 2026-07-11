@@ -21,6 +21,9 @@ final class IssueDetailViewModel {
     /// The issue's workspace — needed (with the project + issue identifier) to
     /// build the shareable web URL.
     var workspace: WorkspaceEntity?
+    /// Every synced release (all workspaces) — filtered to the issue's
+    /// workspace by `workspaceReleases` for the single-select picker (EXP-56).
+    var releases: [ReleaseEntity] = []
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -48,6 +51,7 @@ final class IssueDetailViewModel {
     private let issueImagesApi: IssueImagesApi
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
+    private let releasesApi: ReleasesApi
     private let auth: AuthRepository
     private let baseURL: URL?
     /// Raw instance base string for building shareable web links.
@@ -63,6 +67,7 @@ final class IssueDetailViewModel {
         issueImagesApi: IssueImagesApi,
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
+        releasesApi: ReleasesApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
@@ -72,6 +77,7 @@ final class IssueDetailViewModel {
         self.issueImagesApi = issueImagesApi
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
+        self.releasesApi = releasesApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.instanceUrl = instanceUrl
@@ -150,6 +156,14 @@ final class IssueDetailViewModel {
             Task {
                 for try await labels in labelObs.values(in: pool) {
                     self.labels = labels
+                }
+            }
+
+            // Workspace releases for the single-select release picker (EXP-56).
+            let releaseObs = ValueObservation.tracking { db in try ReleaseEntity.fetchAll(db) }
+            Task {
+                for try await releases in releaseObs.values(in: pool) {
+                    self.releases = releases
                 }
             }
 
@@ -234,6 +248,37 @@ final class IssueDetailViewModel {
     func assignee() -> UserEntity? {
         guard let id = issue?.assigneeId else { return nil }
         return users.first { $0.id == id }
+    }
+
+    /// The issue's workspace's releases, in the canonical order (unshipped by
+    /// target date first, shipped last) — the picker's option list.
+    var workspaceReleases: [ReleaseEntity] {
+        guard let workspaceId = project?.workspaceId else { return [] }
+        return releases
+            .filter { $0.workspaceId == workspaceId }
+            .sorted(by: compareReleases)
+    }
+
+    /// The release this issue currently ships in (nil = none).
+    var currentRelease: ReleaseEntity? {
+        guard let releaseId = issue?.releaseId else { return nil }
+        return releases.first { $0.id == releaseId }
+    }
+
+    /// Single-select: move the issue into `releaseId`, or out with nil. The
+    /// Electric issues shape echoes the write back into GRDB (standard
+    /// mutation pattern — no local optimistic write).
+    func setRelease(_ releaseId: String?) async {
+        guard let issue else { return }
+        do {
+            try await releasesApi.setIssueRelease(
+                accountId: accountId,
+                issueId: issue.id,
+                releaseId: releaseId
+            )
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func reloadRemoteDescription() {

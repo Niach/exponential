@@ -13,6 +13,10 @@ enum AppRoute: Hashable {
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
+    /// Workspace releases (EXP-56) — pushed from the Issues screen's toolbar
+    /// (the tab bar is full, so releases live behind a nav-bar action).
+    case releases(accountId: String, workspaceId: String)
+    case releaseDetail(accountId: String, id: String)
     case settings
     case serverDetail(accountId: String)
     case workspaceSettings(accountId: String, workspaceId: String)
@@ -318,6 +322,12 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .changes(accountId, issueId):
             ChangesView(issueId: issueId)
+                .environment(\.accountId, accountId)
+        case let .releases(accountId, workspaceId):
+            ReleasesListView(workspaceId: workspaceId)
+                .environment(\.accountId, accountId)
+        case let .releaseDetail(accountId, id):
+            ReleaseDetailView(releaseId: id)
                 .environment(\.accountId, accountId)
         case .settings:
             SettingsView()

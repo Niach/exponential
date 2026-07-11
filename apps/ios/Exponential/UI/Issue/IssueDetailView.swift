@@ -14,6 +14,7 @@ struct IssueDetailView: View {
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
+    @State private var showReleasePicker = false
     @State private var showRecurrencePicker = false
     @State private var showDuplicatePicker = false
     @State private var showCreateLabel = false
@@ -191,6 +192,34 @@ struct IssueDetailView: View {
                                     .buttonStyle(.plain)
                                     .disabled(!vm.permissions.isModerator)
                                 }
+                            }
+
+                            // Release (EXP-56): single-select — an issue ships
+                            // in at most one workspace release.
+                            Divider().background(Color.white.opacity(0.06))
+
+                            detailRow(label: "Release") {
+                                Button {
+                                    showReleasePicker = true
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        if let release = vm.currentRelease {
+                                            Image(systemName: "shippingbox")
+                                                .font(.caption)
+                                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                            Text(release.name)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        } else {
+                                            Text("No release")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!vm.permissions.isModerator)
                             }
 
                         }
@@ -403,6 +432,34 @@ struct IssueDetailView: View {
                         }
                     }
                 }
+                .sheet(isPresented: $showReleasePicker) {
+                    PickerSheet(
+                        title: "Release",
+                        items: releaseOptions(releases: vm.workspaceReleases),
+                        selectedID: issue.releaseId ?? ReleaseOption.none.id,
+                        idFor: { $0.id },
+                        onSelect: { option in
+                            Task { await vm.setRelease(option.releaseId) }
+                        }
+                    ) { option in
+                        if option.releaseId == nil {
+                            Label("No release", systemImage: "xmark")
+                        } else {
+                            Label {
+                                HStack(spacing: 6) {
+                                    Text(option.displayName)
+                                    if option.isShipped {
+                                        Text("Shipped")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            } icon: {
+                                Image(systemName: "shippingbox")
+                            }
+                        }
+                    }
+                }
                 .sheet(isPresented: $showRecurrencePicker) {
                     RecurrencePickerSheet(
                         currentInterval: issue.recurrenceInterval,
@@ -506,6 +563,7 @@ struct IssueDetailView: View {
                     issueImagesApi: deps.issueImagesApi,
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
+                    releasesApi: deps.releasesApi,
                     auth: deps.auth
                 )
                 viewModel = vm

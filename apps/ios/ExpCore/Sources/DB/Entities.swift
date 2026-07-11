@@ -244,6 +244,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let prState: String?
     public let branch: String?
     public let prMergedAt: String?
+    // Release membership (EXP-56): the workspace release this issue ships in
+    // (at most one — 1:N via issues.release_id). Nullable; member-only (the
+    // anonymous issues allowlist omits it).
+    public let releaseId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -272,6 +276,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         prState: String?,
         branch: String?,
         prMergedAt: String?,
+        releaseId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -299,6 +304,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.prState = prState
         self.branch = branch
         self.prMergedAt = prMergedAt
+        self.releaseId = releaseId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -321,6 +327,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case prNumber = "pr_number"
         case prState = "pr_state"
         case prMergedAt = "pr_merged_at"
+        case releaseId = "release_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -354,6 +361,7 @@ extension IssueEntity: Codable {
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
+        releaseId = try container.decodeIfPresent(String.self, forKey: .releaseId)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
 
@@ -386,7 +394,14 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     public static let databaseTableName = "coding_sessions"
 
     public let id: String
-    public let issueId: String
+    // Nullable since EXP-56: NULL for release-scoped orchestrator sessions
+    // (release_id set instead — exactly one of issueId/releaseId is set).
+    public let issueId: String?
+    // Set for issue-scoped sessions (trigger-denormalized server-side); NULL
+    // for release-scoped ones (a release run spans projects).
+    public let projectId: String?
+    // Set for release-scoped sessions; NULL for issue-scoped ones.
+    public let releaseId: String?
     public let workspaceId: String
     public let userId: String
     public let deviceLabel: String?
@@ -398,7 +413,9 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
 
     public init(
         id: String,
-        issueId: String,
+        issueId: String?,
+        projectId: String? = nil,
+        releaseId: String? = nil,
         workspaceId: String,
         userId: String,
         deviceLabel: String?,
@@ -410,6 +427,8 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     ) {
         self.id = id
         self.issueId = issueId
+        self.projectId = projectId
+        self.releaseId = releaseId
         self.workspaceId = workspaceId
         self.userId = userId
         self.deviceLabel = deviceLabel
@@ -423,11 +442,85 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     enum CodingKeys: String, CodingKey {
         case id, status
         case issueId = "issue_id"
+        case projectId = "project_id"
+        case releaseId = "release_id"
         case workspaceId = "workspace_id"
         case userId = "user_id"
         case deviceLabel = "device_label"
         case startedAt = "started_at"
         case endedAt = "ended_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - Release
+
+// Workspace-level issue bundle (EXP-56) — the 15th Electric shape. Issues
+// reference it 1:N via issues.release_id; state derives from shipped_at plus
+// member-issue progress (no status enum). The pr_* fields carry the release PR
+// (integration branch → default), written server-side only. Mirrors
+// packages/db-schema releases.
+public struct ReleaseEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "releases"
+
+    public let id: String
+    public let workspaceId: String
+    public let name: String
+    public let description: String?
+    // Plain DATE (no time component), like issues.due_date.
+    public let targetDate: String?
+    // Non-null = shipped. Independent of progress — shipping early is allowed.
+    public let shippedAt: String?
+    // Audit-only creator (nullable — SET NULL on user delete server-side).
+    public let createdBy: String?
+    public let prUrl: String?
+    public let prNumber: Int?
+    public let prState: String?
+    public let prMergedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        workspaceId: String,
+        name: String,
+        description: String?,
+        targetDate: String?,
+        shippedAt: String?,
+        createdBy: String?,
+        prUrl: String? = nil,
+        prNumber: Int? = nil,
+        prState: String? = nil,
+        prMergedAt: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.name = name
+        self.description = description
+        self.targetDate = targetDate
+        self.shippedAt = shippedAt
+        self.createdBy = createdBy
+        self.prUrl = prUrl
+        self.prNumber = prNumber
+        self.prState = prState
+        self.prMergedAt = prMergedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description
+        case workspaceId = "workspace_id"
+        case targetDate = "target_date"
+        case shippedAt = "shipped_at"
+        case createdBy = "created_by"
+        case prUrl = "pr_url"
+        case prNumber = "pr_number"
+        case prState = "pr_state"
+        case prMergedAt = "pr_merged_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

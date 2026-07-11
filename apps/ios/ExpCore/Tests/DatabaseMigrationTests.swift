@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 6)
+        XCTAssertEqual(try appliedMigrations(pool).count, 7)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 6)
+        XCTAssertEqual(try appliedMigrations(pool).count, 7)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 6)
+        XCTAssertEqual(try appliedMigrations(pool).count, 7)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -106,7 +106,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 6)
+        XCTAssertEqual(try appliedMigrations(pool).count, 7)
         let tokenColumn = try pool.read { db in
             try db.columns(in: "workspace_invites").first { $0.name == "token" }
         }

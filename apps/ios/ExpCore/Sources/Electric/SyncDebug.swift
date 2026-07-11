@@ -16,7 +16,7 @@ public struct AccountHealth: Sendable {
     /// cleared by ANY 2xx, and RESTARTED when a failure lands after a long
     /// quiet gap (the retry loops weren't running — app suspended mid-outage).
     /// The banner alarms only once a streak has PERSISTED (EXP-44) — a single
-    /// failed long-poll or the app-wake burst (all 14 shapes dying
+    /// failed long-poll or the app-wake burst (all 15 shapes dying
     /// simultaneously on resume) must never flash it.
     public var failureStreakStartedAt: Date?
     public init() {}

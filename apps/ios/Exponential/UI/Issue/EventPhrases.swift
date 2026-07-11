@@ -15,6 +15,8 @@ func eventVerb(_ type: String) -> String {
     case "label_removed": return "removed a label"
     case "pr_opened": return "opened a pull request"
     case "pr_merged": return "merged the pull request"
+    case "release_added": return "added this to a release"
+    case "release_removed": return "removed this from a release"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -51,7 +53,8 @@ func eventField(_ payload: String?, _ key: String) -> String? {
 func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],
-    labels: [String: LabelEntity]?
+    labels: [String: LabelEntity]?,
+    releases: [String: ReleaseEntity]? = nil
 ) -> String {
     switch event.type {
     case "status_changed":
@@ -79,6 +82,17 @@ func eventPhrase(
     case "pr_merged":
         if let n = eventField(event.payload, "prNumber") { return "merged PR #\(n)" }
         return "merged the pull request"
+    case "release_added":
+        // A deleted release leaves no name behind — fall back generically.
+        if let name = eventField(event.payload, "releaseId").flatMap({ releases?[$0]?.name }) {
+            return "added this to release \(name)"
+        }
+        return "added this to a release"
+    case "release_removed":
+        if let name = eventField(event.payload, "releaseId").flatMap({ releases?[$0]?.name }) {
+            return "removed this from release \(name)"
+        }
+        return "removed this from a release"
     default:
         return eventVerb(event.type)
     }
