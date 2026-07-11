@@ -11,13 +11,16 @@
 //! project board or an issue detail resolves to that project's primary repo;
 //! other screens render nothing. On first resolve the bar kicks the
 //! lifecycle — auto-clone when `<clone>/.git` is missing (progress streams
-//! into the chip), else a freshness fetch — then reads the trunk state.
+//! into the chip), else a freshness sync (fetch + ff-only catch-up) — then
+//! reads the trunk state.
 //!
 //! **Auto-sync engine** lives here: a [`clone_manager::AUTO_SYNC_INTERVAL`]
 //! timer plus a window-focus observer call [`GitBar::maybe_auto_sync`],
 //! debounced through [`clone_manager::should_fetch`] and skipped while a
-//! sync is in flight or a ClaudeTask/Run terminal tab is alive for this repo
-//! (never fast-forward the tree under a running task). The background pass is
+//! sync is in flight or a Claude TASK tab is alive for this repo (never
+//! fast-forward the tree under Claude's feet; Run tabs — dev servers — do
+//! NOT hold it off, an ff under them equals the manual pull it replaces).
+//! The background pass is
 //! [`clone_manager::auto_sync`]: fetch → fast-forward ONLY when clean +
 //! behind-only; anything else is a loud-but-quiet Skipped outcome. Background
 //! failures collapse into one sticky amber badge (cleared on the next
@@ -250,9 +253,8 @@ impl GitBar {
 
     /// Debounced background sync trigger (timer tick + window focus): no-op
     /// while an op is in flight, before the clone exists, inside the
-    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while a ClaudeTask/Run
-    /// terminal tab is alive for this repo (never move the tree under a
-    /// running task).
+    /// [`clone_manager::FETCH_DEBOUNCE`] window, or while a Claude task tab
+    /// is alive for this repo (never move the tree under Claude's feet).
     fn maybe_auto_sync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             return;
@@ -275,8 +277,12 @@ impl GitBar {
         self.start_sync(SyncMode::AutoSync, cx);
     }
 
-    /// Whether a live ClaudeTask/Run terminal tab is working inside this
-    /// repo's clone (or one of its worktrees) — the auto-sync hold-off.
+    /// Whether a live Claude TASK tab (conflict fix, run-config authoring…)
+    /// is working inside this repo's clone (or one of its worktrees) — the
+    /// auto-sync hold-off. Run tabs deliberately do NOT hold auto-sync off:
+    /// a dev server is alive for entire work sessions, and an ff under it is
+    /// the same event as the manual pull it replaces — blocking on Run tabs
+    /// would disable auto-sync exactly when the IDE is in use.
     fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
         let Some(repo) = &self.repo else {
             return false;
@@ -286,7 +292,7 @@ impl GitBar {
         };
         let worktrees = git_worktree::worktrees_dir(&repo.clone);
         manager.read(cx).tabs().iter().any(|tab| {
-            matches!(tab.kind, TabKind::ClaudeTask | TabKind::Run(_))
+            matches!(tab.kind, TabKind::ClaudeTask)
                 && tab.is_running()
                 && tab
                     .cwd
@@ -572,8 +578,9 @@ impl GitBar {
                 let clone_exists = repo.clone_exists;
                 this.repo = Some(repo);
                 this.repo_error = None;
-                // Auto-clone a missing trunk, else a freshness fetch on
-                // project open.
+                // Auto-clone a missing trunk, else a freshness sync on
+                // project open (fetch + ff when cleanly behind-only — the
+                // bar must never open onto a stale ↓N it could resolve).
                 this.start_sync(
                     if clone_exists {
                         SyncMode::Fetch
@@ -1122,7 +1129,11 @@ fn run_sync_worker(
             let _ = clone_manager::ensure(&repo.repos_root, &repo.full_name, &url, &mut on_event);
         }
         SyncMode::Fetch => {
-            if let Err(err) = clone_manager::fetch(clone, &url) {
+            // A freshness pass is fetch + the same ff-only catch-up AutoSync
+            // runs: a refresh that KNOWS the tree is cleanly behind-only must
+            // fast-forward it, not park the count on "Get latest" until the
+            // next timer tick (dirty/diverged trees still surface manually).
+            if let Err(err) = clone_manager::auto_sync(clone, &url) {
                 let _ = tx.send(SyncMsg::Failed(err.to_string()));
             }
         }
