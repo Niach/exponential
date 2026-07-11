@@ -42,9 +42,14 @@ chrono = { version = "0.4.38", default-features = false, features = ["std", "clo
 anyhow.workspace = true
 dirs.workspace = true
 log = "0.4"
+# EXP-22 self-update engine (download/verify/swap); ui owns the state machine
+# and banner on top of it.
+updater = { path = "../updater" }
 comrak = { version = "0.53.0", default-features = false }
 ureq.workspace = true
 
 [dev-dependencies]
 # markdown/image_paste.rs one-shot HTTP fixture server.
 flume.workspace = true
+# update.rs end-to-end fixture: digest the fake release asset for SHA256SUMS.
+sha2 = "0.10"

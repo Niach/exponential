@@ -1,0 +1,22 @@
+[package]
+name = "updater"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ureq.workspace = true
+dirs.workspace = true
+log = "0.4"
+# Streaming digest for SHA256SUMS.txt verification — already in the tree
+# transitively (rustls ecosystem), so this adds no new tree weight.
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+# The rustup/uv-proven locked-exe swap: rename the running exe aside, move the
+# new one into place, schedule the leftover for deletion.
+self-replace = "1"
+
+[dev-dependencies]
+tempfile = "3"
