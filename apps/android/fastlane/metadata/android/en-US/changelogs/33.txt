@@ -1,0 +1,4 @@
+• More reliable notifications when you're signed into more than one account
+• Signing out now fully clears push notifications for that account
+• Editing an issue description no longer drops your final change
+• Stability and reliability fixes
