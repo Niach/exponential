@@ -131,6 +131,23 @@ describe(`planFromSubscription — workspace-bound resolution`, () => {
       planFromSubscription({ productId: PRO_ID, seats: -5 }).limits.seats
     ).toBe(1)
   })
+
+  it(`unknown productId fails closed to free (rotated/unset CREEM_* env)`, () => {
+    const { plan, limits } = planFromSubscription({
+      productId: `prod_unknown`,
+      seats: 5,
+    })
+    expect(plan).toBe(`free`)
+    expect(limits.storageMb).toBe(250)
+    expect(limits.widgetConfigs).toBe(0)
+  })
+
+  it(`a configured id no longer matching after env rotation resolves free, not pro`, () => {
+    delete process.env.CREEM_BUSINESS_PRODUCT_ID
+    expect(
+      planFromSubscription({ productId: BUSINESS_ID, seats: 3 }).plan
+    ).toBe(`free`)
+  })
 })
 
 describe(`assertSeatAvailable — the invite-time seat gate`, () => {

@@ -77,11 +77,25 @@ export function getPlanLimits(plan: PlanTier): PlanLimits {
   return PLAN_LIMITS[plan]
 }
 
+// Deduped so a single stale subscription row can't flood the logs — the warn
+// exists to make an env misconfiguration visible, once per product id.
+const warnedUnknownProductIds = new Set<string>()
+
 function productIdToTier(productId: string): PlanTier {
   if (productId === process.env.CREEM_BUSINESS_PRODUCT_ID) return `business`
   if (productId === process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID) return `business`
   if (productId === process.env.CREEM_PRO_PRODUCT_ID) return `pro`
-  return `pro`
+  // Fail closed: an unrecognized product id (rotated/decommissioned product,
+  // unset CREEM_*_PRODUCT_ID env) must not grant paid entitlements — a
+  // Business customer silently under-provisioned to Pro would go unnoticed,
+  // and a legacy product would be over-granted forever.
+  if (!warnedUnknownProductIds.has(productId)) {
+    warnedUnknownProductIds.add(productId)
+    console.warn(
+      `[billing] subscription productId "${productId}" matches no configured CREEM_*_PRODUCT_ID — treating as free (check the env configuration)`
+    )
+  }
+  return `free`
 }
 
 const ACTIVE_STATUSES = [`active`, `trialing`, `paid`]
