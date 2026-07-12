@@ -59,14 +59,23 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
   }
 
   const { perKeyLimiter, perIpLimiter } = getWidgetRateLimiters()
-  const keyLimit = perKeyLimiter.tryTake(`key:${config.publicKey}`)
+  // Per-IP bucket first, short-circuiting: a request already throttled by its
+  // own IP must not keep draining the shared per-key bucket — otherwise one
+  // hostile IP 429s every legitimate reporter of that widget.
   const ipLimit = perIpLimiter.tryTake(`ip:${clientIpFromRequest(request)}`)
-  const limited = !keyLimit.ok ? keyLimit : !ipLimit.ok ? ipLimit : null
-  if (limited && !limited.ok) {
+  if (!ipLimit.ok) {
     return jsonResponse(
       429,
       { error: `Too many submissions, try again later` },
-      { ...cors, "Retry-After": String(limited.retryAfterSeconds) }
+      { ...cors, "Retry-After": String(ipLimit.retryAfterSeconds) }
+    )
+  }
+  const keyLimit = perKeyLimiter.tryTake(`key:${config.publicKey}`)
+  if (!keyLimit.ok) {
+    return jsonResponse(
+      429,
+      { error: `Too many submissions, try again later` },
+      { ...cors, "Retry-After": String(keyLimit.retryAfterSeconds) }
     )
   }
 

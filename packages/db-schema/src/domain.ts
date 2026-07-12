@@ -42,6 +42,21 @@ export const PROJECT_TRASH_RETENTION_MS =
 // headlines + scrubbed diffs) — never raw terminal bytes.
 export const publicCodingVisibilityValues = [`off`, `badge`, `live`] as const
 
+// How long a `running` coding_sessions row may go without a liveness signal
+// (updated_at — the desktop heartbeats it while the claude child is alive)
+// before the server-side staleness sweep DELETES it. The desktop's exit hook
+// is the normal end path, but it is in-process only — a SIGKILL/panic/power
+// loss never fires it, and nothing reconciles on relaunch. The sweep deletes
+// rather than flipping to `ended` because the desktop's own-row kill-switch
+// treats that flip as a remote kill of the live claude child, while a
+// vanished row deliberately never fires it — so even a live session whose
+// heartbeats all fail (or a pre-heartbeat desktop build) only loses its
+// badge, never its process. Generous relative to the heartbeat cadence so
+// flaky pings can never strand a live session's badge.
+export const CODING_SESSION_STALE_HOURS = 24
+export const CODING_SESSION_STALE_MS =
+  CODING_SESSION_STALE_HOURS * 60 * 60 * 1000
+
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
 // Selectable recurrence interval options shown in the editor. Mirrors

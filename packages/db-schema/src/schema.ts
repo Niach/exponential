@@ -646,8 +646,14 @@ export const githubInstallationRepoGrants = pgTable(
     fullName: text(`full_name`).notNull(),
     private: boolean().notNull().default(false),
     defaultBranch: text(`default_branch`),
+    // Cascade, never set-null: a grant row means "THIS user proved access",
+    // and the entitlement check (assertRepoGrant) matches on
+    // workspace+installation+repo alone. A set-null here would leave an
+    // ownerless row that keeps entitling the workspace to the departed
+    // user's private repos while being unreachable by the per-user re-auth
+    // REPLACE and every other cleanup path.
     grantedByUserId: text(`granted_by_user_id`).references(() => users.id, {
-      onDelete: `set null`,
+      onDelete: `cascade`,
     }),
     ...timestamps,
   },

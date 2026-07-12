@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { eq, inArray, or } from "drizzle-orm"
 import {
   attachments,
+  githubInstallationRepoGrants,
   issues,
   users,
   workspaces,
@@ -92,7 +93,10 @@ export function classifyWorkspacesForUserDeletion(
  * 1. Fail closed when the user is the sole owner of a workspace that still
  *    has other members (see classifyWorkspacesForUserDeletion) — nothing is
  *    deleted when this throws.
- * 2. Delete workspaces whose entire membership is just this user (the
+ * 2. Delete the GitHub repo grants this user proved (the FK would only null
+ *    them out, leaving permanently unreachable rows that keep entitling the
+ *    workspace to browse/connect the departed user's private repos).
+ * 3. Delete workspaces whose entire membership is just this user (the
  *    is_public check keeps the bootstrap feedback board untouchable).
  *
  * Returns the ids of the workspaces actually deleted PLUS the active Creem
@@ -149,6 +153,18 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
       message: `${subject} the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members — transfer ownership or remove those members ${tail}`,
     })
   }
+
+  // GitHub repo grants this user proved: a grant row means "workspace W may
+  // see/connect this repo because user U proved user-scoped GitHub access",
+  // so the entitlement must die with the user (assertRepoGrant matches on
+  // workspace+installation+repo alone — an ownerless row would keep entitling
+  // the workspace forever). The FK cascades on user delete as the schema-level
+  // backstop; this explicit delete makes the revocation part of the guard
+  // transaction itself rather than a side effect of whichever statement later
+  // removes the users row.
+  await tx
+    .delete(githubInstallationRepoGrants)
+    .where(eq(githubInstallationRepoGrants.grantedByUserId, userId))
 
   // Never cascade-delete the bootstrap feedback workspace (a sole-admin
   // account deletion would otherwise take every public feedback issue with it).

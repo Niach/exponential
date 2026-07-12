@@ -124,8 +124,27 @@ export const adminRouter = router({
         })
       }
 
+      const [target] = await ctx.db
+        .select({ isAdmin: users.isAdmin, isAgent: users.isAgent })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1)
+      if (!target) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `User not found` })
+      }
+      if (target.isAgent) {
+        // Same guard as users.deleteAccount: synthetic widget bot users own
+        // every issue their widget created, and issues.creator_id cascades on
+        // user delete — deleting the bot would irreversibly erase all its
+        // widget-submitted feedback.
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This is a synthetic widget user — deleting it would cascade-delete every issue its widget created`,
+        })
+      }
+
       // Block deleting the last admin.
-      if (await isTargetAdmin(ctx.db, input.userId)) {
+      if (target.isAdmin) {
         const [{ adminCount }] = await ctx.db
           .select({ adminCount: sql<number>`count(*)::int` })
           .from(users)

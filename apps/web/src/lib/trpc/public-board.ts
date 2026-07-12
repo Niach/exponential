@@ -500,13 +500,22 @@ export const publicBoardRouter = router({
       }
 
       const { createIpLimiter, createProjectLimiter } = getCreateIssueLimiters()
+      // Per-IP bucket first, short-circuiting: a request already throttled by
+      // its own IP must not keep draining the shared per-project bucket —
+      // otherwise one hostile IP starves the whole board's public write path.
       const ipLimit = createIpLimiter.tryTake(
         `ip:${clientIpFromRequest(ctx.request)}`
       )
+      if (!ipLimit.ok) {
+        throw new TRPCError({
+          code: `TOO_MANY_REQUESTS`,
+          message: `Too many submissions, try again later`,
+        })
+      }
       const projectLimit = createProjectLimiter.tryTake(
         `project:${board.projectId}`
       )
-      if (!ipLimit.ok || !projectLimit.ok) {
+      if (!projectLimit.ok) {
         throw new TRPCError({
           code: `TOO_MANY_REQUESTS`,
           message: `Too many submissions, try again later`,

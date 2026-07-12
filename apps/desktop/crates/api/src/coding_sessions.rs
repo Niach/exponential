@@ -71,8 +71,13 @@ struct StartReleaseInput<'a> {
 }
 
 #[derive(Serialize)]
-struct EndInput<'a> {
+struct SessionIdInput<'a> {
     id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct HeartbeatEnvelope {
+    alive: bool,
 }
 
 /// `codingSessions.start` — mutation. A 412 (`PRECONDITION_FAILED`) is the
@@ -114,8 +119,21 @@ pub fn start_release(
 
 /// `codingSessions.end` — mutation, idempotent server-side.
 pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
-    let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &EndInput { id })?;
+    let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &SessionIdInput { id })?;
     Ok(envelope.session)
+}
+
+/// `codingSessions.heartbeat` — mutation. Advances the synced row's
+/// `updated_at` while the claude child is alive so the server's staleness
+/// sweep (which DELETES `running` rows whose liveness signal stopped) never
+/// reaps a live session's badge. Fire-and-forget from the launcher's
+/// heartbeat thread: `alive: false` (row ended or cascade-deleted) and
+/// transport errors are both ignorable — the next child-exit hook still ends
+/// the session normally.
+pub fn heartbeat(trpc: &TrpcClient, id: &str) -> Result<bool, ApiError> {
+    let envelope: HeartbeatEnvelope =
+        trpc.mutation("codingSessions.heartbeat", &SessionIdInput { id })?;
+    Ok(envelope.alive)
 }
 
 #[cfg(test)]
@@ -187,6 +205,22 @@ mod tests {
             }
             other => panic!("expected 412 Http error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn heartbeat_posts_id_and_decodes_alive() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let alive = heartbeat(&client(&base), "sess-1").unwrap();
+        assert!(alive);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.heartbeat HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"sess-1"}"#));
+    }
+
+    #[test]
+    fn heartbeat_reports_a_dead_row_without_erroring() {
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{"alive":false}}}"#);
+        assert!(!heartbeat(&client(&base), "sess-1").unwrap());
     }
 
     #[test]
