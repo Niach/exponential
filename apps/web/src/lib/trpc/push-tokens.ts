@@ -13,8 +13,16 @@ export const pushTokensRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      // Steal the token from any other user it was previously registered to —
-      // happens when a phone signs out and another user signs in.
+      // One device token may be held by several signed-in accounts at once
+      // (multi-account phones), so the conflict target is the (token, user)
+      // pair: a re-register only refreshes this user's own row and never
+      // steals the registration from another account on the same device.
+      // Cleanup is three-layered: sign-out issues its own unregister (but that
+      // call is best-effort — it can miss when offline or on old client
+      // builds that never call it), rows FCM invalidates are swept by the
+      // send path, and rows that stop being re-registered age out via the
+      // staleness sweep (lib/fcm-token-sweep.ts) so a departed account's
+      // pushes can never leak to the device indefinitely.
       await ctx.db
         .insert(fcmTokens)
         .values({
@@ -23,8 +31,8 @@ export const pushTokensRouter = router({
           platform: input.platform,
         })
         .onConflictDoUpdate({
-          target: fcmTokens.token,
-          set: { userId, platform: input.platform, updatedAt: new Date() },
+          target: [fcmTokens.token, fcmTokens.userId],
+          set: { platform: input.platform, updatedAt: new Date() },
         })
       return { ok: true }
     }),

@@ -44,16 +44,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.UsersApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -63,8 +66,18 @@ class ServerDetailViewModel @Inject constructor(
     private val databaseHolder: DatabaseHolder,
     private val syncManager: SyncManager,
     private val usersApi: UsersApi,
+    private val pushTokenManager: PushTokenManager,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
+
+    // Account teardown must NOT run in viewModelScope: the callers pop the nav
+    // entry right after invoking it, which clears this ViewModel and cancels
+    // viewModelScope — the awaited network unregister at the head of the flow
+    // would be cancelled mid-flight and take the whole sign-out (removeAccount,
+    // cache deletion) down with it. Same main dispatcher as viewModelScope, but
+    // process-lifetime so teardown always completes; every job here is bounded
+    // (the unregister is timeout-capped, the rest is local work).
+    private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     var deletingAccount by mutableStateOf(false)
         private set
@@ -78,7 +91,7 @@ class ServerDetailViewModel @Inject constructor(
     fun deleteAccount(accountId: String, onDeleted: () -> Unit) {
         if (deletingAccount) return
         deletingAccount = true
-        viewModelScope.launch {
+        teardownScope.launch {
             try {
                 usersApi.deleteAccount(accountId)
             } catch (e: Exception) {
@@ -86,6 +99,8 @@ class ServerDetailViewModel @Inject constructor(
                 deletingAccount = false
                 return@launch
             }
+            // No push-token unregister here: deleting the user server-side
+            // cascades their fcm_tokens rows away.
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)
@@ -95,7 +110,10 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun signOut(accountId: String) {
-        viewModelScope.launch {
+        teardownScope.launch {
+            // Awaited before removeAccount drops the credentials the
+            // unregister request authenticates with.
+            pushTokenManager.unregisterToken(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             // Keep the server URL around so the user can hit Reauthenticate
@@ -112,7 +130,8 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun remove(accountId: String) {
-        viewModelScope.launch {
+        teardownScope.launch {
+            pushTokenManager.unregisterToken(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)

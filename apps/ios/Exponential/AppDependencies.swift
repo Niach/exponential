@@ -138,6 +138,9 @@ final class AppDependencies: @unchecked Sendable {
         // on the previous account's database.
         syncManager.start()
         notificationDelegate.setup()
+        // Reconcile loop: registers the FCM token for every signed-in account,
+        // so logins/switches after the Messaging callback still get pushes.
+        pushTokenManager.start()
         // UI-test/screenshot runs (fastlane snapshot launches with -uiTesting)
         // must never trigger the system push-permission alert — it would sit on
         // top of every capture.

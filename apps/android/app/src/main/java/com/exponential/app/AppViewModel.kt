@@ -163,7 +163,9 @@ class AppViewModel @Inject constructor(
 
     fun clearInstance() {
         viewModelScope.launch {
-            pushTokenManager.unregisterAndForget()
+            // Awaited before the credentials drop — the unregister request
+            // needs the bearer token that clearInstanceUrl removes.
+            auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
             syncManager.signOut()
             auth.clearInstanceUrl()
         }
@@ -171,7 +173,7 @@ class AppViewModel @Inject constructor(
 
     fun signOut() {
         viewModelScope.launch {
-            pushTokenManager.unregisterAndForget()
+            auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
             syncManager.signOut()
             auth.clearToken()
         }
@@ -183,6 +185,7 @@ class AppViewModel @Inject constructor(
 
     fun removeAccount(id: String) {
         viewModelScope.launch {
+            pushTokenManager.unregisterToken(id)
             auth.removeAccount(id)
             databaseHolder.deleteFiles(id)
         }

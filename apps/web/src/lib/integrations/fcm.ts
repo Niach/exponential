@@ -61,7 +61,10 @@ export async function sendToUser(
       body: JSON.stringify({
         tokens,
         notification: { title: payload.title, body: payload.body },
-        data: payload.data,
+        // The recipient's user id rides along so multi-account clients can
+        // route a tapped notification into the signed-in account it belongs
+        // to instead of whichever account happens to be active.
+        data: { ...payload.data, userId },
       }),
     })
 
@@ -78,6 +81,8 @@ export async function sendToUser(
   }
 
   if (invalidTokens.length > 0) {
+    // FCM invalidates a token for the whole device, so delete every account's
+    // registration of it — not just the notified user's row.
     await db.delete(fcmTokens).where(inArray(fcmTokens.token, invalidTokens))
   }
 }

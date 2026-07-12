@@ -53,11 +53,16 @@ struct ServerDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
                 guard let account else { return }
-                Task { await deps.syncManager.signOut(accountId: account.id) }
-                deps.auth.removeAccount(id: account.id)
-                deps.db.closePool(forAccountId: account.id)
-                DatabaseManager.deleteFiles(forAccountId: account.id)
-                dismiss()
+                Task {
+                    // Unregister while the credentials still exist — the
+                    // request needs the bearer token removeAccount drops.
+                    await deps.pushTokenManager.unregister(accountId: account.id)
+                    await deps.syncManager.signOut(accountId: account.id)
+                    deps.auth.removeAccount(id: account.id)
+                    deps.db.closePool(forAccountId: account.id)
+                    DatabaseManager.deleteFiles(forAccountId: account.id)
+                    dismiss()
+                }
             }
         } message: {
             Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
@@ -98,6 +103,8 @@ struct ServerDetailView: View {
             deleteAccountError = error.trpcUserMessage
             return
         }
+        // No push-token unregister here: deleting the user server-side
+        // cascades their fcm_tokens rows away.
         await deps.syncManager.signOut(accountId: account.id)
         deps.auth.removeAccount(id: account.id)
         deps.db.closePool(forAccountId: account.id)
@@ -160,6 +167,9 @@ struct ServerDetailView: View {
                             // Capture the URL BEFORE removeAccount — `account` is
                             // a computed lookup that returns nil once removed.
                             let url = account?.instanceUrl
+                            // Unregister while the credentials still exist — the
+                            // request needs the bearer token removeAccount drops.
+                            await deps.pushTokenManager.unregister(accountId: accountId)
                             await deps.syncManager.signOut(accountId: accountId)
                             deps.auth.removeAccount(id: accountId)
                             // Delete the local DB so a signed-out account leaves
