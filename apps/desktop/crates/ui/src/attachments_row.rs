@@ -148,8 +148,10 @@ pub(crate) fn image_count_label(count: usize) -> String {
 /// like web (always rendered — "0 images" included). `None` only when the
 /// issue row itself is gone from the synced collection.
 ///
-/// EXP-33: a quiet, GitHub-like strip — one separator above (the timeline
-/// draws its own below), borderless soft chips inside; no boxes-in-boxes.
+/// EXP-33: a quiet, GitHub-like strip — borderless soft chips, no
+/// boxes-in-boxes. No separator of its own (EXP-67): the old top border cut
+/// across the description editor's rounded corner; the timeline below draws
+/// the one dividing line.
 pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let description = Store::global(cx)
         .collections()
@@ -168,8 +170,6 @@ pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoEleme
             .py_2p5()
             .gap_2()
             .items_center()
-            .border_t_1()
-            .border_color(cx.theme().border.opacity(0.6))
             .child(
                 h_flex()
                     .flex_1()

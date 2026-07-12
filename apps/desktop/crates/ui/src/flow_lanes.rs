@@ -109,15 +109,12 @@ pub fn lane_indicator(
     }
 }
 
-/// The built strip: capped lanes + how many non-default lanes were hidden.
+/// The built lane list (EXP-67: uncapped — the sidebar scrolls the full list
+/// instead of collapsing it behind a "+N more" toggle).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlowModel {
     pub lanes: Vec<Lane>,
-    pub hidden: usize,
 }
-
-/// Non-default lanes shown while collapsed; "+N more" beyond.
-pub const MAX_LANES: usize = 5;
 
 /// The synced issue fields the join needs (kept `coding`/gpui-free so the
 /// builder stays pure and testable).
@@ -154,7 +151,6 @@ pub fn build_lanes(
     branch_prefix: &str,
     issues: &[IssueLite],
     releases: &[ReleaseLite],
-    expanded: bool,
 ) -> FlowModel {
     let default_info = branches.iter().find(|b| b.name == default_branch);
     let default_lane = Lane {
@@ -267,19 +263,10 @@ pub fn build_lanes(
     flat.append(&mut orphans);
     flat.append(&mut others);
 
-    let hidden = if expanded || flat.len() <= MAX_LANES {
-        0
-    } else {
-        flat.len() - MAX_LANES
-    };
-    if hidden > 0 {
-        flat.truncate(MAX_LANES);
-    }
-
     let mut lanes = Vec::with_capacity(flat.len() + 1);
     lanes.push(default_lane);
     lanes.extend(flat);
-    FlowModel { lanes, hidden }
+    FlowModel { lanes }
 }
 
 /// Tree-connector geometry for one lane row — drives the graph gutter the
@@ -392,12 +379,11 @@ mod tests {
 
     #[test]
     fn default_lane_is_always_first_even_without_a_local_branch_row() {
-        let model = build_lanes(&[], "main", "exp/", &[], &[], false);
+        let model = build_lanes(&[], "main", "exp/", &[], &[]);
         assert_eq!(model.lanes.len(), 1);
         assert_eq!(model.lanes[0].kind, LaneKind::Default);
         assert_eq!(model.lanes[0].branch, "main");
         assert!(!model.lanes[0].current);
-        assert_eq!(model.hidden, 0);
     }
 
     #[test]
@@ -418,7 +404,7 @@ mod tests {
         ];
         let releases = [release(release_id, "Release 4", Some("merged"))];
 
-        let model = build_lanes(&branches, "main", "exp/", &issues, &releases, false);
+        let model = build_lanes(&branches, "main", "exp/", &issues, &releases);
         let kinds: Vec<(LaneKind, u8)> =
             model.lanes.iter().map(|lane| (lane.kind, lane.indent)).collect();
         assert_eq!(
@@ -448,7 +434,7 @@ mod tests {
     #[test]
     fn unmatched_release_branch_gets_a_generic_release_lane() {
         let branches = [branch("main", true, false), branch("exp/rel-mystery-12345678", false, false)];
-        let model = build_lanes(&branches, "main", "exp/", &[], &[], false);
+        let model = build_lanes(&branches, "main", "exp/", &[], &[]);
         assert_eq!(model.lanes[1].kind, LaneKind::Release);
         assert_eq!(model.lanes[1].label, "exp/rel-mystery-12345678");
         assert_eq!(model.lanes[1].pr, PrTone::None);
@@ -463,7 +449,7 @@ mod tests {
             issue("i1", "EXP-1", Some("feat/custom"), Some("closed"), None),
             issue("i2", "EXP-2", None, None, None),
         ];
-        let model = build_lanes(&branches, "main", "exp/", &issues, &[], false);
+        let model = build_lanes(&branches, "main", "exp/", &issues, &[]);
         assert_eq!(model.lanes[1].issue_id.as_deref(), Some("i1"));
         assert_eq!(model.lanes[1].pr, PrTone::Closed);
     }
@@ -471,26 +457,21 @@ mod tests {
     #[test]
     fn unjoined_branches_are_muted_other_lanes() {
         let branches = [branch("main", false, false), branch("spike/wild-idea", true, false)];
-        let model = build_lanes(&branches, "main", "exp/", &[], &[], false);
+        let model = build_lanes(&branches, "main", "exp/", &[], &[]);
         assert_eq!(model.lanes[1].kind, LaneKind::Other);
         assert!(model.lanes[1].current);
         assert_eq!(model.lanes[1].indent, 1);
     }
 
     #[test]
-    fn cap_hides_beyond_max_lanes_and_expanded_shows_all() {
+    fn every_lane_is_kept_no_cap() {
+        // EXP-67: the sidebar scrolls the full list — no "+N more" cap.
         let names: Vec<String> = (1..=8).map(|n| format!("branch-{n}")).collect();
         let mut branches = vec![branch("main", true, false)];
         branches.extend(names.iter().map(|name| branch(name, false, false)));
 
-        let collapsed = build_lanes(&branches, "main", "exp/", &[], &[], false);
-        // default + MAX_LANES shown, the rest counted as hidden.
-        assert_eq!(collapsed.lanes.len(), 1 + MAX_LANES);
-        assert_eq!(collapsed.hidden, 8 - MAX_LANES);
-
-        let expanded = build_lanes(&branches, "main", "exp/", &[], &[], true);
-        assert_eq!(expanded.lanes.len(), 1 + 8);
-        assert_eq!(expanded.hidden, 0);
+        let model = build_lanes(&branches, "main", "exp/", &[], &[]);
+        assert_eq!(model.lanes.len(), 1 + 8);
     }
 
     #[test]
@@ -510,7 +491,7 @@ mod tests {
             issue("i9", "EXP-9", None, None, None),
         ];
         let releases = [release(release_id, "Release 4", None)];
-        let model = build_lanes(&branches, "main", "exp/", &issues, &releases, false);
+        let model = build_lanes(&branches, "main", "exp/", &issues, &releases);
         // main(0) · release(1) · EXP-7(2) · EXP-8(2) · EXP-9 orphan(1)
         let connectors = connectors(&model.lanes);
         // Root: no gutter at all.
@@ -562,7 +543,7 @@ mod tests {
             pr_state: None,
             release_id: None,
         }];
-        let model = build_lanes(&branches, "main", "exp/", &issues, &[], false);
+        let model = build_lanes(&branches, "main", "exp/", &issues, &[]);
         assert!(model.lanes[1].label.chars().count() <= MAX_LABEL);
         assert!(model.lanes[1].label.ends_with('…'));
     }

@@ -46,8 +46,6 @@ const FLOW_GROUP: &str = "flow-lane";
 pub struct FlowView {
     nav: Entity<Navigation>,
     git_bar: Entity<GitBar>,
-    /// "+N more" toggle.
-    expanded: bool,
     /// branch → (ahead, behind) vs origin, filled by the background pass.
     counts: HashMap<String, (u32, u32)>,
     /// branch → uncommitted-changes probe of its worktree (the trunk clone
@@ -95,7 +93,6 @@ impl FlowView {
         Self {
             nav,
             git_bar,
-            expanded: false,
             counts: HashMap::new(),
             dirty: HashMap::new(),
             counts_for: Vec::new(),
@@ -122,14 +119,7 @@ impl FlowView {
         }
         let branch_prefix = CodingHub::global(cx).read(cx).settings.branch_prefix.clone();
         let (issues, releases) = self.join_rows(cx);
-        build_lanes(
-            &branches,
-            &default_branch,
-            &branch_prefix,
-            &issues,
-            &releases,
-            self.expanded,
-        )
+        build_lanes(&branches, &default_branch, &branch_prefix, &issues, &releases)
     }
 
     /// Snapshot the synced rows the lane join reads (active workspace).
@@ -564,23 +554,6 @@ impl Render for FlowView {
                 }
             };
             section = section.child(self.render_lane(lane, connector, viewing, cx));
-        }
-        if flow.hidden > 0 || self.expanded {
-            let label = if self.expanded {
-                "Show fewer".to_string()
-            } else {
-                format!("+{} more", flow.hidden)
-            };
-            section = section.child(
-                Button::new("flow-toggle")
-                    .ghost()
-                    .xsmall()
-                    .label(SharedString::from(label))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.expanded = !this.expanded;
-                        cx.notify();
-                    })),
-            );
         }
         if let Some(error) = &self.error {
             section = section.child(

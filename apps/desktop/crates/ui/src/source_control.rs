@@ -29,14 +29,13 @@ use std::path::PathBuf;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Window,
+    IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     input::{Input, InputState},
-    scroll::ScrollableElement as _,
     ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use sync::Store;
@@ -50,6 +49,7 @@ use crate::diff::{build_scm_diff, DiffView};
 use crate::navigation::{self, Navigation};
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::scroll_pane::v_scroll_pane;
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
@@ -106,6 +106,10 @@ pub struct SourceControlView {
     /// auto-sync must show up in the history pane without closing/reopening
     /// the screen; the bar itself rides the observer, not a field).
     seen_sync_seq: u64,
+    /// Scroll positions of the changes / history panes (EXP-67 scrollable
+    /// left column).
+    changes_scroll: ScrollHandle,
+    history_scroll: ScrollHandle,
     /// The branch whose history is shown (`None` = the checked-out branch,
     /// including the working-tree changes + commit box).
     viewing: Option<String>,
@@ -192,6 +196,8 @@ impl SourceControlView {
             nav,
             rail,
             seen_sync_seq,
+            changes_scroll: ScrollHandle::new(),
+            history_scroll: ScrollHandle::new(),
             viewing: None,
             repo_resolver,
             diff,
@@ -846,41 +852,38 @@ impl SourceControlView {
         let staged: Vec<_> = changes.iter().filter(|c| c.staged).collect();
         let unstaged: Vec<_> = changes.iter().filter(|c| !c.staged).collect();
 
-        div()
-            .id("scm-changes")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scrollbar()
-            .child(
-                gpui_component::v_flex()
-                    .p_2()
-                    .gap_1()
-                    .when(!staged.is_empty(), |this| {
-                        this.child(self.group_header(format!("Staged ({})", staged.len()), cx))
-                            .children(
-                                staged
-                                    .iter()
-                                    .map(|change| self.change_row(change, true, cx)),
-                            )
-                    })
-                    .when(!unstaged.is_empty(), |this| {
-                        this.child(self.group_header(format!("Changes ({})", unstaged.len()), cx))
-                            .children(
-                                unstaged
-                                    .iter()
-                                    .map(|change| self.change_row(change, false, cx)),
-                            )
-                    })
-                    .when(staged.is_empty() && unstaged.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .py_2()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("No changes — the working tree is clean."),
+        v_scroll_pane(
+            "scm-changes",
+            &self.changes_scroll,
+            gpui_component::v_flex()
+                .p_2()
+                .gap_1()
+                .when(!staged.is_empty(), |this| {
+                    this.child(self.group_header(format!("Staged ({})", staged.len()), cx))
+                        .children(
+                            staged
+                                .iter()
+                                .map(|change| self.change_row(change, true, cx)),
                         )
-                    }),
-            )
+                })
+                .when(!unstaged.is_empty(), |this| {
+                    this.child(self.group_header(format!("Changes ({})", unstaged.len()), cx))
+                        .children(
+                            unstaged
+                                .iter()
+                                .map(|change| self.change_row(change, false, cx)),
+                        )
+                })
+                .when(staged.is_empty() && unstaged.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .py_2()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("No changes — the working tree is clean."),
+                    )
+                }),
+        )
     }
 
     fn group_header(
@@ -1041,47 +1044,44 @@ impl SourceControlView {
 
     fn render_history(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        div()
-            .id("scm-history")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scrollbar()
-            .child(
-                gpui_component::v_flex()
-                    .p_2()
-                    .gap_0p5()
-                    .child(self.group_header("History", cx))
-                    .children(
-                        self.history
-                            .iter()
-                            .map(|commit| self.commit_row(commit, cx)),
+        v_scroll_pane(
+            "scm-history",
+            &self.history_scroll,
+            gpui_component::v_flex()
+                .p_2()
+                .gap_0p5()
+                .child(self.group_header("History", cx))
+                .children(
+                    self.history
+                        .iter()
+                        .map(|commit| self.commit_row(commit, cx)),
+                )
+                .when(self.history.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .py_2()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("No commits yet."),
                     )
-                    .when(self.history.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .py_2()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("No commits yet."),
-                        )
-                    })
-                    .when(self.history_has_more, |this| {
-                        this.child(
-                            Button::new("scm-history-more")
-                                .ghost()
-                                .xsmall()
-                                .label(if self.history_loading {
-                                    "Loading…"
-                                } else {
-                                    "Load more"
-                                })
-                                .disabled(self.history_loading)
-                                .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.load_more_history(cx);
-                                })),
-                        )
-                    }),
-            )
+                })
+                .when(self.history_has_more, |this| {
+                    this.child(
+                        Button::new("scm-history-more")
+                            .ghost()
+                            .xsmall()
+                            .label(if self.history_loading {
+                                "Loading…"
+                            } else {
+                                "Load more"
+                            })
+                            .disabled(self.history_loading)
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.load_more_history(cx);
+                            })),
+                    )
+                }),
+        )
     }
 
     fn commit_row(&self, commit: &CommitInfo, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -1364,6 +1364,8 @@ impl Render for SourceControlView {
             self.history.clear();
             self.history_skip = 0;
             self.history_has_more = false;
+            self.history_scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
             self.refresh(cx);
         }
         let theme = cx.theme();
