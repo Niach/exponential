@@ -7,6 +7,7 @@ import {
   Files,
   Link2,
   MoreHorizontal,
+  Trash2,
   Undo2,
 } from "lucide-react"
 import { Link, useNavigate } from "@tanstack/react-router"
@@ -33,6 +34,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -435,6 +440,21 @@ export function IssueDetailView({
     setAttachmentStatus(null)
   }
 
+  // Delete is a hard delete (issues.delete cleans up attachments server-side);
+  // once it commits, land back on the project board with the carried filters.
+  const handleDeleteIssue = async () => {
+    await trpc.issues.delete.mutate({ id: issue.id })
+    void navigate({
+      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      params: { workspaceSlug, projectSlug: project.slug },
+      search: {
+        status: filterSearch?.status,
+        priority: filterSearch?.priority,
+        labels: filterSearch?.labels,
+      },
+    })
+  }
+
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
 
@@ -630,7 +650,7 @@ export function IssueDetailView({
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}
-        {!readOnly && !restrictModeration && issue.duplicateOfId && (
+        {!readOnly && !restrictModeration && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -642,18 +662,42 @@ export function IssueDetailView({
                 <MoreHorizontal className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => {
-                  void trpc.issues.update.mutate({
-                    id: issue.id,
-                    duplicateOfId: null,
-                  })
-                }}
-              >
-                <Undo2 className="size-4" />
-                Unmark duplicate
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-[13rem]">
+              {issue.duplicateOfId && (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void trpc.issues.update.mutate({
+                        id: issue.id,
+                        duplicateOfId: null,
+                      })
+                    }}
+                  >
+                    <Undo2 className="size-4" />
+                    Unmark duplicate
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {/* Destructive → confirm via submenu, matching the issue-row
+                  context menu's delete pattern (EXP-59). */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="text-destructive focus:bg-destructive/10 focus:text-destructive data-[state=open]:bg-destructive/10 data-[state=open]:text-destructive [&_svg]:text-destructive!">
+                  <Trash2 className="size-4" />
+                  Delete issue
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-[14rem]">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      void handleDeleteIssue()
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                    Confirm delete
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
