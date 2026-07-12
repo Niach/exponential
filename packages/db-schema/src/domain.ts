@@ -42,6 +42,17 @@ export const PROJECT_TRASH_RETENTION_MS =
 // headlines + scrubbed diffs) — never raw terminal bytes.
 export const publicCodingVisibilityValues = [`off`, `badge`, `live`] as const
 
+// How long a coding_sessions row may stay `running` before the server-side
+// staleness sweep force-ends it. The desktop's exit hook is the normal end
+// path, but it is in-process only — a SIGKILL/panic/power loss never fires
+// it, and nothing reconciles on relaunch. Generous on purpose: real sessions
+// (including release orchestrator runs) end well within this, and a sweep of
+// a genuinely-live outlier only drops the badge (the desktop session itself
+// is unaffected; its eventual end call is idempotent).
+export const CODING_SESSION_STALE_HOURS = 24
+export const CODING_SESSION_STALE_MS =
+  CODING_SESSION_STALE_HOURS * 60 * 60 * 1000
+
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
 // Selectable recurrence interval options shown in the editor. Mirrors

@@ -29,6 +29,7 @@ import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startProjectTrashScheduler } from "@/lib/project-trash"
+import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 import {
   injectMeta,
   matchPublicPath,
@@ -57,6 +58,11 @@ startEmailDigestScheduler()
 // the 48h retention window and reclaims their attachment blobs. In-process
 // guard only; the row delete is the atomic multi-instance claim.
 startProjectTrashScheduler()
+
+// Coding sessions: periodic sweep that force-ends rows still `running` past
+// the staleness window — a crashed desktop never fires its exit hook, and the
+// orphaned row would otherwise pin a phantom "coding now" badge forever.
+startCodingSessionSweepScheduler()
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000
