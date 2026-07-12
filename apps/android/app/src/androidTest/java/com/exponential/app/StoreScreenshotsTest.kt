@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -152,20 +153,24 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasText("Discard")).performClick()
         waitFor(hasContentDescription("New issue"), NAV_TIMEOUT)
 
-        // --- Search tab. Gate on search-screen content ("Assigned to you"
-        // header + the demo user's assigned issues) — a bare settle() once
-        // captured the board because the tab switch hadn't landed yet.
+        // --- Search tab (EXP-58: pure search — the field + results, no
+        // embedded My-Issues list). Type a query so the store screenshot
+        // shows results instead of the empty hint; gate on a seeded match —
+        // a bare settle() once captured the board because the tab switch
+        // hadn't landed yet.
         composeRule.onNode(hasContentDescription("Search")).performClick()
-        // The section header is uppercased by styling ("ASSIGNED TO YOU").
-        waitFor(hasText("Assigned to you", ignoreCase = true), NAV_TIMEOUT)
+        waitFor(hasSetTextAction(), NAV_TIMEOUT)
+        composeRule.onNode(hasSetTextAction()).performTextInput("push")
         waitFor(hasText("Push notificatio", substring = true), SYNC_TIMEOUT)
+        Espresso.closeSoftKeyboard()
         settle()
         Screengrab.screenshot("5_search")
 
-        // --- Inbox tab (seeded with 5 notifications, 3 unread). Wait for a
-        // real group row — capturing "You're all caught up" would silently
-        // ship an empty store screenshot.
-        composeRule.onNode(hasContentDescription("Inbox")).performClick()
+        // --- My Work tab (EXP-58: Inbox + My Issues merged behind a
+        // segmented control; Inbox is the default segment, seeded with 5
+        // notifications, 3 unread). Wait for a real group row — capturing
+        // "You're all caught up" would silently ship an empty screenshot.
+        composeRule.onNode(hasContentDescription("My Work")).performClick()
         waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         settle()
         Screengrab.screenshot("6_inbox")

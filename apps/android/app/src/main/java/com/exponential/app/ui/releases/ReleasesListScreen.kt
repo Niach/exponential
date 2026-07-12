@@ -49,6 +49,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ReleasesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -125,6 +126,11 @@ class ReleasesListViewModel @Inject constructor(
     private val _creating = MutableStateFlow(false)
     val creating: StateFlow<Boolean> = _creating.asStateFlow()
 
+    // Surfaced inside the creation sheet — a rejected create (offline, server
+    // validation) must never fail silently now that the flow takes user input.
+    private val _createError = MutableStateFlow<String?>(null)
+    val createError: StateFlow<String?> = _createError.asStateFlow()
+
     /**
      * Create WITH the creation-time issue bundle (EXP-62): the sheet picks
      * the issues BEFORE the release exists and the server attaches them in
@@ -138,6 +144,7 @@ class ReleasesListViewModel @Inject constructor(
     fun createRelease(name: String?, issueIds: List<String>, onCreated: (String) -> Unit) {
         if (issueIds.isEmpty()) return
         if (!_creating.compareAndSet(expect = false, update = true)) return
+        _createError.value = null
         viewModelScope.launch {
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
@@ -147,6 +154,9 @@ class ReleasesListViewModel @Inject constructor(
                             holder.database(forAccountId = accountId).releaseDao().upsert(created)
                         }
                         onCreated(created.id)
+                    }
+                    .onFailure {
+                        _createError.value = trpcErrorMessage(it, "Couldn't create the release")
                     }
             } finally {
                 _creating.value = false
@@ -164,6 +174,7 @@ fun ReleasesListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val createError by viewModel.createError.collectAsStateWithLifecycle()
     val addableIssues by viewModel.addableIssues.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
 
@@ -218,6 +229,7 @@ fun ReleasesListScreen(
         CreateReleaseSheet(
             candidates = addableIssues,
             creating = creating,
+            error = createError,
             onConfirm = { name, issueIds ->
                 viewModel.createRelease(name, issueIds) { releaseId ->
                     createOpen = false

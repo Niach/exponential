@@ -22,6 +22,7 @@ use gpui_component::{
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputEvent, InputState},
+    notification::Notification,
     scroll::ScrollableElement as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
@@ -144,20 +145,32 @@ impl ReleaseCreateDialogView {
                 .spawn(async move {
                     // create caps issueIds at 200 — the first chunk rides the
                     // create transaction, any overflow chunks through
-                    // addIssues (the shared bulk wire contract).
+                    // addIssues (the shared bulk wire contract). A chunk
+                    // failure AFTER a successful create must NOT bubble as an
+                    // error: re-arming Create would mint a duplicate release
+                    // on retry — instead we still land on the created release
+                    // and report the shortfall (the detail's "Add issues"
+                    // attaches the rest).
                     let (first, rest) = ids.split_at(ids.len().min(200));
                     let created =
                         api::releases::create(&trpc, &workspace_id, name.as_deref(), first)?;
                     let release_id = created.release.id.clone();
+                    let mut chunk_error: Option<api::ApiError> = None;
                     for chunk in rest.chunks(200) {
-                        api::releases::add_issues(&trpc, &release_id, chunk)?;
+                        if let Err(err) = api::releases::add_issues(&trpc, &release_id, chunk) {
+                            chunk_error = Some(err);
+                            break;
+                        }
                     }
-                    Ok::<String, api::ApiError>(release_id)
+                    Ok::<(String, Option<api::ApiError>), api::ApiError>((
+                        release_id,
+                        chunk_error,
+                    ))
                 })
                 .await;
 
             match result {
-                Ok(release_id) => {
+                Ok((release_id, chunk_error)) => {
                     // Gate on the echo so the drill-down renders from the
                     // synced row (the Releases detail self-heals to the list
                     // while the row is missing — a too-early selection would
@@ -170,6 +183,14 @@ impl ReleaseCreateDialogView {
                     }
                     let _ = this.update_in(window, |_, window, cx| {
                         window.close_dialog(cx);
+                        if let Some(err) = chunk_error {
+                            window.push_notification(
+                                Notification::error(format!(
+                                    "Release created, but some issues could not be added: {err}. Use \"Add issues\" on the release to attach the rest."
+                                )),
+                                cx,
+                            );
+                        }
                         crate::sidebar::open_release(window, cx, release_id);
                     });
                 }

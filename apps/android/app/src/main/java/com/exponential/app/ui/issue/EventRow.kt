@@ -55,13 +55,25 @@ internal fun eventVerb(type: String): String = when (type) {
     "pr_merged" -> "merged the pull request"
     "release_added" -> "added this to a release"
     "release_removed" -> "removed this from a release"
+    "project_moved" -> "moved this to another project"
     else -> type.replace('_', ' ')
 }
 
 // A richer phrase for release membership events: resolves the release name
 // from the payload's `releaseId` against the synced releases table. A deleted
 // release leaves no name behind — fall back to eventVerb's generic wording.
+// project_moved (EXP-57) is self-contained: the payload carries the retired
+// and new identifiers, so no lookup is needed.
 internal fun eventPhrase(event: IssueEventEntity, releaseNames: Map<String, String>): String {
+    if (event.type == "project_moved") {
+        val from = eventPayloadField(event.payload, "fromIdentifier")
+        val to = eventPayloadField(event.payload, "toIdentifier")
+        return if (from != null && to != null) {
+            "moved this to another project ($from → $to)"
+        } else {
+            eventVerb(event.type)
+        }
+    }
     if (event.type != "release_added" && event.type != "release_removed") {
         return eventVerb(event.type)
     }
