@@ -8,59 +8,35 @@ import SwiftUI
 /// unread dot trailing. Fully-read groups render dimmed. Tapping a row marks
 /// its group read and opens the issue. Open-PR review triage moved to the
 /// web/desktop Reviews surfaces.
-struct InboxView: View {
-    @Environment(AppDependencies.self) private var deps
+///
+/// EXP-58: no background or navigation chrome of its own — it renders
+/// embedded as the My Work tab's Inbox segment; MyWorkView owns the view
+/// model (segment control needs the unread count) and its observation
+/// lifecycle.
+struct InboxListContent: View {
     @Environment(\.accountId) private var accountId
-    @State private var viewModel: InboxViewModel?
+    let viewModel: InboxViewModel
 
     var body: some View {
-        ZStack {
-            AppBackground()
-
-            if let vm = viewModel {
-                if vm.groups.isEmpty {
-                    emptyState("You're all caught up.")
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(vm.groups) { group in
-                                NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
-                                    streamRow(group)
-                                }
-                                .buttonStyle(.plain)
-                                .simultaneousGesture(TapGesture().onEnded { vm.markGroupRead(group) })
-                            }
+        if viewModel.groups.isEmpty {
+            emptyState("You're all caught up.")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(viewModel.groups) { group in
+                        NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
+                            streamRow(group)
                         }
-                        .padding()
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded { viewModel.markGroupRead(group) })
                     }
-                    // Clearance for the floating tab bar (EXP-36) — the last
-                    // row was fully hidden under it before.
-                    .tabBarBottomInset()
                 }
+                .padding()
             }
+            // Clearance for the floating tab bar (EXP-36) — the last
+            // row was fully hidden under it before.
+            .tabBarBottomInset()
         }
-        .navigationTitle("Inbox")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            if let vm = viewModel, vm.totalUnread > 0 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Mark all read") { vm.markAllRead() }
-                }
-            }
-        }
-        .onAppear {
-            if viewModel == nil {
-                let vm = InboxViewModel(
-                    accountId: accountId,
-                    db: deps.db,
-                    auth: deps.auth,
-                    notificationsApi: deps.notificationsApi
-                )
-                viewModel = vm
-                vm.startObserving()
-            }
-        }
-        .onDisappear { viewModel?.stopObserving() }
     }
 
     private func streamRow(_ group: InboxViewModel.Group) -> some View {

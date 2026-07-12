@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the five
 /// top-level destinations (Issues, Search, Agents — with a running-session
-/// dot — Inbox — with an unread dot — and Releases) plus a detached
+/// dot — My Work — with an unread dot — and Releases) plus a detached
 /// circular compose button on the right. Attached via
 /// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
 /// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
@@ -13,7 +13,7 @@ struct MobileTabBar: View {
     let releasesActive: Bool
     let searchActive: Bool
     let agentsActive: Bool
-    let inboxActive: Bool
+    let myWorkActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
     let showsCompose: Bool
@@ -21,7 +21,7 @@ struct MobileTabBar: View {
     let onReleases: () -> Void
     let onSearch: () -> Void
     let onAgents: () -> Void
-    let onInbox: () -> Void
+    let onMyWork: () -> Void
     let onCompose: () -> Void
 
     /// SF Symbols has no robot-head glyph, so the Agents tab draws a bundled
@@ -47,15 +47,17 @@ struct MobileTabBar: View {
                     action: onAgents
                 )
                 .accessibilityIdentifier("tab-agents")
+                // EXP-58: the Inbox tab became My Work (Inbox + My Issues
+                // merged) — same slot, same glyph, same unread dot.
                 tab(
                     glyph: .system("tray"),
-                    label: "Inbox",
-                    active: inboxActive,
+                    label: "My Work",
+                    active: myWorkActive,
                     badge: unreadCount > 0,
                     badgeColor: Accent.indigo,
-                    action: onInbox
+                    action: onMyWork
                 )
-                .accessibilityIdentifier("tab-inbox")
+                .accessibilityIdentifier("tab-mywork")
                 tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
                     .accessibilityIdentifier("tab-releases")
             }
@@ -142,7 +144,7 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Issues list, Search results, "Assigned to you", Agents, Inbox) applies
+    /// (Issues list, Search results, Agents, My Work's inbox/my-issues) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a
     /// bar-less surface.

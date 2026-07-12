@@ -115,10 +115,10 @@ final class StoreScreenshots: XCTestCase {
         // area above the medium-detent sheet.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
 
-        // ── 05: inbox ───────────────────────────────────────────────────────
+        // ── 05: inbox (My Work tab, Inbox segment — the default) ────────────
         // Wait for a real notification group — capturing the "You're all
         // caught up" empty state would silently ship an empty store shot.
-        let inboxTab = app.buttons["tab-inbox"]
+        let inboxTab = app.buttons["tab-mywork"]
         XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "Tab bar missing after sheet dismissal")
         inboxTab.tap()
         XCTAssertTrue(

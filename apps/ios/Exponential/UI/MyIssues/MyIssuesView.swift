@@ -6,8 +6,8 @@ import SwiftUI
 /// active account with `assigneeId == me`, grouped by status, rows pushing
 /// the issue detail. Same glass row language as `IssueListView`, plus a
 /// project name per row since rows span projects. No background or navigation
-/// chrome of its own — it renders embedded as the Search tab's empty-query
-/// "Assigned to you" state (its former standalone tab was folded in there).
+/// chrome of its own — it renders embedded as the My Work tab's My Issues
+/// segment (EXP-58; it previously hid inside Search's empty-query state).
 struct MyIssuesListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -77,7 +77,7 @@ struct MyIssuesListContent: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         // Clearance for the floating tab bar (EXP-36) — this List renders as
-        // the Search tab's empty-query "Assigned to you" state.
+        // the My Work tab's My Issues segment.
         .tabBarBottomInset()
     }
 

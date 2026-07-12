@@ -7,7 +7,10 @@ import GRDB
 enum AppRoute: Hashable {
     case search
     case agents
-    case inbox
+    /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
+    /// Nothing external ever landed on the old inbox route — notification
+    /// taps deep-link straight to the issue.
+    case myWork
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
@@ -218,7 +221,7 @@ struct MainNavigator: View {
                     releasesActive: isOnReleases,
                     searchActive: isOnSearch,
                     agentsActive: isOnAgents,
-                    inboxActive: isOnInbox,
+                    myWorkActive: isOnMyWork,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     showsCompose: resolvedComposeTarget != nil,
@@ -232,7 +235,7 @@ struct MainNavigator: View {
                     },
                     onSearch: { if !isOnSearch { path = [.search] } },
                     onAgents: { if !isOnAgents { path = [.agents] } },
-                    onInbox: { if !isOnInbox { path = [.inbox] } },
+                    onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onCompose: { composeTarget = resolvedComposeTarget }
                 )
             }
@@ -247,12 +250,12 @@ struct MainNavigator: View {
     // MARK: - Tab bar
 
     /// The bar floats only over the top-level surfaces (Issues root, Releases,
-    /// Search, Agents, Inbox, pushed project lists); detail and settings
+    /// Search, Agents, My Work, pushed project lists); detail and settings
     /// screens get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .releases, .search, .agents, .inbox, .project:
+        case .releases, .search, .agents, .myWork, .project:
             return true
         default:
             return false
@@ -264,8 +267,8 @@ struct MainNavigator: View {
         return false
     }
 
-    private var isOnInbox: Bool {
-        if case .inbox = path.last { return true }
+    private var isOnMyWork: Bool {
+        if case .myWork = path.last { return true }
         return false
     }
 
@@ -281,7 +284,7 @@ struct MainNavigator: View {
 
     /// Compose targets the project in view: a pushed project list wins,
     /// otherwise the Issues tab root composes into its current project. The
-    /// other surfaces (Search, Agents, Inbox) hide the button — creating an
+    /// other surfaces (Search, Agents, My Work) hide the button — creating an
     /// issue without a project context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
         if case let .project(accountId, id)? = path.last {
@@ -326,8 +329,8 @@ struct MainNavigator: View {
         case .agents:
             AgentsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case .inbox:
-            InboxView()
+        case .myWork:
+            MyWorkView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .project(accountId, id):
             IssueListView(projectId: id)

@@ -5,8 +5,8 @@ import SwiftUI
 /// The Search tab: cross-project issue search over the active account's local
 /// data, augmented by a debounced server full-text search (description +
 /// comments). The glass field mirrors the inline search that used to live in
-/// the issue list; while the query is empty the screen shows the cross-project
-/// "Assigned to you" list (the former My Issues tab, folded in here).
+/// the issue list. Pure search (EXP-58): the empty-query state is a hint —
+/// the "Assigned to you" list that used to live here moved to My Work.
 struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -26,7 +26,7 @@ struct SearchView: View {
                 if let vm = viewModel {
                     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
-                        assignedToYou
+                        searchHint
                     } else {
                         let groups = vm.results(for: trimmed)
                         if groups.isEmpty {
@@ -90,24 +90,25 @@ struct SearchView: View {
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Empty-query state ("Assigned to you")
+    // MARK: - Empty-query state (search hint)
 
-    private var assignedToYou: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "person.crop.circle")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text("Assigned to you")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
-
-            MyIssuesListContent()
+    private var searchHint: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.title2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text("Search issues across all projects")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text("Titles match instantly; descriptions and comments search the server.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Results
@@ -147,8 +148,7 @@ struct SearchView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
-        // Clearance for the floating tab bar (EXP-36). The empty-query
-        // "Assigned to you" state gets its own inside MyIssuesListContent.
+        // Clearance for the floating tab bar (EXP-36).
         .tabBarBottomInset()
     }
 
