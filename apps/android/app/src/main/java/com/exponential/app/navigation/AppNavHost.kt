@@ -354,12 +354,12 @@ private fun AuthenticatedNav(
             WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("share-compose") {
-            // Single-screen share composer (iOS ShareComposeView parity): the
-            // prefilled create form with an inline project selector at the
-            // bottom. The pending share lives in the WorkspaceSelection
-            // singleton (not route state) so backing out and re-entering
-            // re-fills the form; it's consumed exactly once — on a successful
-            // create or an explicit discard.
+            // Single-screen share composer: the prefilled create form with the
+            // "Share to" destination selector on top (EXP-60). The pending
+            // share lives in the WorkspaceSelection singleton (not route
+            // state) so backing out and re-entering re-fills the form; it's
+            // consumed exactly once — on a successful create or an explicit
+            // discard.
             val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
