@@ -121,6 +121,22 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     }
   }, [state, open, close])
 
+  // The loader resolves the remote config in parallel with this bundle; when
+  // the panel wins that race it renders from a null config. Re-render once
+  // the config lands so gates like emailRequired (and remote accent/label)
+  // reflect the board's real settings. The loader's own `.then` (registered
+  // at init, before this bundle could load) has already written state.config
+  // by the time this continuation runs.
+  useEffect(() => {
+    let cancelled = false
+    void state.configPromise.then(() => {
+      if (!cancelled) bumpVersion((version) => version + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [state])
+
   const retake = useCallback(() => {
     // Close the panel, recapture without it, reopen.
     setPhase({ kind: `capturing` })

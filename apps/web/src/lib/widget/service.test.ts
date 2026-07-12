@@ -72,6 +72,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 import { issues, issueSubscribers } from "@/db/schema"
 import {
   createWidgetSubmission,
+  WidgetRequestError,
   type WidgetConfigWithProject,
 } from "@/lib/widget/service"
 
@@ -168,5 +169,56 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     ).rejects.toThrow(`TX_FAILED`)
 
     expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
+  })
+
+  // The panel's required-email gate is client-side only (and disappears when
+  // the config fetch races the first open), so the server must enforce the
+  // board owner's policy itself.
+  describe(`emailRequired enforcement`, () => {
+    const requiredConfig: WidgetConfigWithProject = {
+      ...config,
+      formConfig: { emailRequired: true },
+    }
+
+    it(`rejects an email-less submission on a required-email board`, async () => {
+      const attempt = createWidgetSubmission({
+        config: requiredConfig,
+        formData: submitForm(),
+        userAgent: null,
+      })
+
+      await expect(attempt).rejects.toBeInstanceOf(WidgetRequestError)
+      await expect(attempt).rejects.toMatchObject({
+        status: 400,
+        message: `Email is required`,
+      })
+      expect(h.inserts.length).toBe(0)
+      expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
+    })
+
+    it(`accepts and records the reporter when the email is present`, async () => {
+      const form = submitForm()
+      form.set(`email`, `reporter@example.com`)
+
+      await createWidgetSubmission({
+        config: requiredConfig,
+        formData: form,
+        userAgent: null,
+      })
+
+      const subscriber = h.inserts.find((i) => i.table === issueSubscribers)
+      expect(subscriber?.values.email).toBe(`reporter@example.com`)
+      expect(subscriber?.values.source).toBe(`widget_reporter`)
+    })
+
+    it(`keeps email optional when the board does not require it`, async () => {
+      await createWidgetSubmission({
+        config,
+        formData: submitForm(),
+        userAgent: null,
+      })
+
+      expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+    })
   })
 })
