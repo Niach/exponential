@@ -134,6 +134,13 @@
       "when": 1783817945712,
       "tag": "0018_superb_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783879971536,
+      "tag": "0019_neat_magus",
+      "breakpoints": true
     }
   ]
 }
