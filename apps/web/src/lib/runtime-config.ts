@@ -63,7 +63,13 @@ function resolveCloudFeedbackWidget(): Promise<FeedbackWidgetConfig | null> {
       // lib/widget/dogfood.ts before changing this.
       const { findDogfoodWidgetKey } = await import(`@/lib/widget/dogfood`)
       const widgetKey = await findDogfoodWidgetKey()
-      if (!widgetKey) return null
+      if (!widgetKey) {
+        // No key yet (bootstrap still running, or the config is toggled off)
+        // — don't memoize the null, or the embedded widget stays disabled for
+        // the process lifetime even after the key appears.
+        cloudWidgetPromise = null
+        return null
+      }
       return { scriptUrl: `/widget/v1/loader.js`, widgetKey }
     } catch {
       cloudWidgetPromise = null

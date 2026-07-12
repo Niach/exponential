@@ -68,6 +68,7 @@ export async function runEmailDigestSweep(
       createdAt: notifications.createdAt,
       readAt: notifications.readAt,
       email: users.email,
+      emailVerified: users.emailVerified,
       isAgent: users.isAgent,
       issueIdentifier: issues.identifier,
       workspaceSlug: workspaces.slug,
@@ -90,11 +91,17 @@ export async function runEmailDigestSweep(
     .limit(SCAN_LIMIT)
   if (rows.length === 0) return { emailsSent: 0, notificationsClaimed: 0 }
 
-  // Bot/addressless recipients can never be emailed — claim their rows
-  // outright so they don't rescan forever (deliver() filters bots, so these
-  // are stragglers at most).
-  const unmailable = rows.filter((row) => row.isAgent || !row.email)
-  const candidates = rows.filter((row) => !row.isAgent && row.email)
+  // Bot/addressless/unverified recipients can never be emailed — claim their
+  // rows outright so they don't rescan forever (deliver() filters bots, so
+  // these are stragglers at most). Unverified addresses are excluded because
+  // digest content must never go to an address the account holder hasn't
+  // proven they own.
+  const unmailable = rows.filter(
+    (row) => row.isAgent || !row.email || !row.emailVerified
+  )
+  const candidates = rows.filter(
+    (row) => !row.isAgent && row.email && row.emailVerified
+  )
 
   const userIds = [...new Set(candidates.map((row) => row.userId))]
   const prefs = await getEmailPrefsMap(userIds)
@@ -228,6 +235,25 @@ export async function runEmailDigestSweep(
         }
       } catch (err) {
         console.error(`[digest] email to ${to} failed:`, err)
+        // Un-claim this batch so a later sweep retries — a transient
+        // transport error must not permanently swallow the digest. Rows read
+        // in the meantime stay claimed (the push did its job late).
+        try {
+          await db
+            .update(notifications)
+            .set({ emailedAt: null })
+            .where(
+              and(
+                inArray(
+                  notifications.id,
+                  items.map((item) => item.notificationId)
+                ),
+                isNull(notifications.readAt)
+              )
+            )
+        } catch (unclaimErr) {
+          console.error(`[digest] un-claim failed:`, unclaimErr)
+        }
       }
     })
   )

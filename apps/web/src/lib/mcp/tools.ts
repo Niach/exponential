@@ -1,6 +1,17 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-orm"
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lte,
+  or,
+} from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   attachments,
@@ -47,6 +58,7 @@ import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import { escapeLikePattern } from "@/lib/like-pattern"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
 import {
@@ -484,7 +496,9 @@ export function registerExponentialTools(
         }
         if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
         if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
-        if (search) conditions.push(ilike(issues.title, `%${search}%`))
+        if (search) {
+          conditions.push(ilike(issues.title, `%${escapeLikePattern(search)}%`))
+        }
         // Filter in SQL, not after — a post-limit JS filter under-fills
         // pages and makes offset pagination skip live issues.
         if (!includeArchived) conditions.push(isNull(issues.archivedAt))
@@ -1278,13 +1292,23 @@ export function registerExponentialTools(
         }
         // Scoped connection: the inbox spans every workspace, so join through
         // the notification's issue and keep only granted projects (rows
-        // without an issue stay private).
+        // without an issue stay private). The grant filter runs in SQL,
+        // BEFORE limit/offset — a post-limit JS filter under-fills pages and
+        // makes offset pagination skip in-scope notifications.
+        const grantedProjectIds = [...access.grantedProjectIds]
+        const fullWorkspaceIds = [...access.fullWorkspaceIds]
+        const grantClauses = [
+          ...(grantedProjectIds.length > 0
+            ? [inArray(issues.projectId, grantedProjectIds)]
+            : []),
+          ...(fullWorkspaceIds.length > 0
+            ? [inArray(projects.workspaceId, fullWorkspaceIds)]
+            : []),
+        ]
+        if (grantClauses.length === 0) return ok([])
+        conditions.push(or(...grantClauses)!)
         const rows = await db
-          .select({
-            notification: notifications,
-            projectId: issues.projectId,
-            workspaceId: projects.workspaceId,
-          })
+          .select({ notification: notifications })
           .from(notifications)
           .innerJoin(issues, eq(notifications.issueId, issues.id))
           .innerJoin(projects, eq(issues.projectId, projects.id))
@@ -1292,11 +1316,7 @@ export function registerExponentialTools(
           .orderBy(desc(notifications.createdAt))
           .limit(limit)
           .offset(offset)
-        return ok(
-          rows
-            .filter((r) => isProjectGranted(access, r.projectId, r.workspaceId))
-            .map((r) => r.notification)
-        )
+        return ok(rows.map((r) => r.notification))
       } catch (e) {
         return err(e)
       }
@@ -1401,7 +1421,17 @@ export function registerExponentialTools(
         const result = await caller(user, request).repositories.list({
           workspaceId,
         })
-        return ok(result)
+        if (access.full) return ok(result)
+        // Each repo rides with the projects it backs — a project-scoped
+        // grant must not enumerate ungranted sibling projects through them.
+        return ok(
+          result.map((repo) => ({
+            ...repo,
+            projects: repo.projects.filter((p) =>
+              isProjectGranted(access, p.id, workspaceId)
+            ),
+          }))
+        )
       } catch (e) {
         return err(e)
       }

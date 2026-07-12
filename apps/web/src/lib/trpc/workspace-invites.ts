@@ -120,14 +120,29 @@ export const workspaceInvitesRouter = router({
           .where(eq(workspaces.id, invite.workspaceId))
           .limit(1)
 
-        // Mark invite as accepted
-        await tx
-          .update(workspaceInvites)
-          .set({ acceptedAt: new Date() })
-          .where(eq(workspaceInvites.id, invite.id))
-
+        // An existing member must not burn the single-use invite.
         if (existing) {
           return { workspace, alreadyMember: true }
+        }
+
+        // Mark invite as accepted (the acceptedAt IS NULL predicate guards
+        // against two concurrent accepts both consuming the invite).
+        const accepted = await tx
+          .update(workspaceInvites)
+          .set({ acceptedAt: new Date() })
+          .where(
+            and(
+              eq(workspaceInvites.id, invite.id),
+              isNull(workspaceInvites.acceptedAt)
+            )
+          )
+          .returning({ id: workspaceInvites.id })
+
+        if (accepted.length === 0) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Invite has already been used`,
+          })
         }
 
         const txId = await generateTxId(tx)

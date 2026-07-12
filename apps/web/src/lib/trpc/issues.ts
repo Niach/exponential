@@ -27,12 +27,14 @@ import {
   fetchPullFiles,
   GitHubMergeError,
   mergePullRequest,
-  resolveRepoToken,
 } from "@/lib/integrations/github-pr"
 import {
   githubAppConfigured,
   resolveRepoInstallationToken,
+  resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
+import { isInstallationLinkedToWorkspace } from "@/lib/trpc/integrations"
+import { escapeLikePattern } from "@/lib/like-pattern"
 import { applyPrMergeState } from "@/lib/integrations/pr-sync"
 import {
   dateOnlySchema,
@@ -105,7 +107,7 @@ type Tx = Parameters<
 // === undefined) — update's duplicateOfId input block runs BEFORE this.
 function applyStatusDerivations(
   setValues: Record<string, unknown>,
-  current: { duplicateOfId: string | null }
+  current: { status: string; duplicateOfId: string | null }
 ): void {
   if (
     setValues.status !== undefined &&
@@ -123,7 +125,11 @@ function applyStatusDerivations(
     nextStatus === `cancelled` ||
     nextStatus === `duplicate`
   ) {
-    setValues.completedAt = new Date()
+    // Only an actual transition stamps completedAt — a redundant write of the
+    // same terminal status must not clobber the original completion time.
+    if (nextStatus !== current.status) {
+      setValues.completedAt = new Date()
+    }
   } else if (nextStatus) {
     setValues.completedAt = null
   }
@@ -473,6 +479,11 @@ export const issuesRouter = router({
           .from(issues)
           .where(eq(issues.id, id))
           .limit(1)
+          // FOR UPDATE serializes concurrent updates of the same issue so the
+          // transition checks below (recurrence spawn, status events) never
+          // run against a stale snapshot — without it two concurrent 'done'
+          // writes both see the old status and both spawn a recurrence clone.
+          .for(`update`)
 
         if (!currentIssue) {
           throw new TRPCError({
@@ -1170,13 +1181,26 @@ export const issuesRouter = router({
         return { repo: null as string | null, prNumber: null, files: [] }
       }
 
-      try {
-        const token = await resolveRepoToken({
-          actorUserId: ctx.session.user.id,
+      // Link-gate (mirrors repositories.installationToken): the installation
+      // serving this repo must still be claimed by the issue's workspace — a
+      // deliberately severed GitHub connection must not keep exposing
+      // private-repo PR contents through an old prUrl.
+      const resolved = await resolveRepoInstallationTokenInfo(repo)
+      if (
+        resolved &&
+        !(await isInstallationLinkedToWorkspace(
           workspaceId,
-          repo,
+          resolved.installationId
+        ))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repo} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
         })
-        const files = await fetchPullFiles(repo, row.prNumber, token)
+      }
+
+      try {
+        const files = await fetchPullFiles(repo, row.prNumber, resolved?.token)
         return { repo, prNumber: row.prNumber, files }
       } catch (err) {
         throw new TRPCError({
@@ -1209,8 +1233,7 @@ export const issuesRouter = router({
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
 
       // Escape LIKE wildcards so the substring fallback matches literally.
-      const escaped = input.query.replace(/[%_\\]/g, (m) => `\\${m}`)
-      const like = `%${escaped}%`
+      const like = `%${escapeLikePattern(input.query)}%`
 
       const result = await ctx.db.execute(sql`
         select

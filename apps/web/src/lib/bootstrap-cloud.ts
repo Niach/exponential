@@ -88,7 +88,14 @@ export function getFeedbackWorkspaceId(): Promise<string | null> {
         .from(workspaces)
         .where(eq(workspaces.slug, FEEDBACK_WORKSPACE_SLUG))
         .limit(1)
-      return row?.id ?? null
+      const id = row?.id ?? null
+      // A null just means the async bootstrap hasn't inserted the workspace
+      // yet — don't memoize it, or every guard keyed on this id stays
+      // disabled for the process lifetime.
+      if (id === null) {
+        feedbackWorkspaceIdPromise = null
+      }
+      return id
     })().catch((err) => {
       feedbackWorkspaceIdPromise = null
       throw err
