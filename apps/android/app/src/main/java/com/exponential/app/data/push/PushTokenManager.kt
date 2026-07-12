@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -56,12 +57,21 @@ class PushTokenManager @Inject constructor(
         }
     }
 
-    fun unregisterAndForget() {
-        scope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            val token = runCatching { currentFcmToken() }.getOrNull() ?: return@launch
+    /**
+     * Unregisters this device's FCM token for [accountId] on the server.
+     * Must be awaited BEFORE the account's credentials are cleared: the tRPC
+     * client resolves the bearer token at request time, so a fire-and-forget
+     * call racing clearToken()/removeAccount() sends an unauthenticated
+     * request that the server rejects, leaving the signed-out device still
+     * receiving pushes. Bounded so sign-out can never hang on Firebase or
+     * the network.
+     */
+    suspend fun unregisterToken(accountId: String) {
+        withTimeoutOrNull(UNREGISTER_TIMEOUT_MS) {
+            val token = currentFcmToken() ?: return@withTimeoutOrNull
             try {
                 api.unregister(accountId, token)
+                Log.i(TAG, "Unregistered FCM token with backend")
             } catch (err: Throwable) {
                 Log.w(TAG, "Failed to unregister FCM token: ${err.message}")
             }
@@ -81,5 +91,6 @@ class PushTokenManager @Inject constructor(
 
     companion object {
         private const val TAG = "PushTokenMgr"
+        private const val UNREGISTER_TIMEOUT_MS = 3_000L
     }
 }

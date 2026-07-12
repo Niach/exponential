@@ -50,6 +50,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -63,6 +64,7 @@ class ServerDetailViewModel @Inject constructor(
     private val databaseHolder: DatabaseHolder,
     private val syncManager: SyncManager,
     private val usersApi: UsersApi,
+    private val pushTokenManager: PushTokenManager,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
 
@@ -86,6 +88,8 @@ class ServerDetailViewModel @Inject constructor(
                 deletingAccount = false
                 return@launch
             }
+            // No push-token unregister here: deleting the user server-side
+            // cascades their fcm_tokens rows away.
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)
@@ -96,6 +100,9 @@ class ServerDetailViewModel @Inject constructor(
 
     fun signOut(accountId: String) {
         viewModelScope.launch {
+            // Awaited before removeAccount drops the credentials the
+            // unregister request authenticates with.
+            pushTokenManager.unregisterToken(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             // Keep the server URL around so the user can hit Reauthenticate
@@ -113,6 +120,7 @@ class ServerDetailViewModel @Inject constructor(
 
     fun remove(accountId: String) {
         viewModelScope.launch {
+            pushTokenManager.unregisterToken(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)
