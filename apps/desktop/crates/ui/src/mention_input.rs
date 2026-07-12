@@ -293,7 +293,11 @@ impl Render for MentionInput {
             .capture_action(cx.listener(Self::on_escape))
             .capture_action(cx.listener(Self::on_enter))
             .capture_action(cx.listener(Self::on_tab))
-            .child(Input::new(&self.input))
+            // `Input` has no intrinsic width (its root is plain flex) and this
+            // wrapper is a flex ROW — without an explicit width an empty
+            // input collapses to its content (the tiny comment composer,
+            // EXP-67).
+            .child(Input::new(&self.input).w_full())
             .child(
                 canvas(
                     move |element_bounds, _, _| bounds.set(element_bounds),

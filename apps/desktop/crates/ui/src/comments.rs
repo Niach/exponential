@@ -162,6 +162,7 @@ pub(crate) fn comment_row(
     }
 
     let header = h_flex()
+        .w_full()
         .gap_2()
         .items_baseline()
         .text_xs()
@@ -262,7 +263,12 @@ pub(crate) fn comment_row(
         }
     };
 
+    // `.w_full()` is load-bearing on both the row and the composer below:
+    // without an explicit width the h_flex sizes to content, so a long
+    // unwrappable comment line blows the row past the column (clipped text)
+    // while an empty thread leaves the composer tiny (EXP-67).
     h_flex()
+        .w_full()
         .py_2()
         .gap_2p5()
         .items_start()
@@ -284,6 +290,7 @@ pub(crate) fn composer_row(
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
     h_flex()
+        .w_full()
         .mt_2()
         .gap_2()
         .items_end()

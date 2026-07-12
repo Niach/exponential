@@ -105,6 +105,12 @@ pub struct Navigation {
     /// identity in place instead of opening a new tab. Cleared by every
     /// ordinary navigation.
     replaced_screen: Option<Screen>,
+    /// EXP-67: a pending "open this issue on its Changes tab" request (the
+    /// issue id), set by [`navigate_issue_changes`] and consumed by the
+    /// screens panel after it re-points the detail view. Cleared by every
+    /// ordinary navigation so a stale marker can't flip an unrelated
+    /// issue-open to Changes later.
+    pending_issue_changes: Option<String>,
 }
 
 impl Navigation {
@@ -122,6 +128,7 @@ impl Navigation {
             back_stack: Vec::new(),
             last_project_id: None,
             replaced_screen: None,
+            pending_issue_changes: None,
         }
     }
 
@@ -250,8 +257,38 @@ pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
         }
         nav.screen = Some(screen);
         nav.replaced_screen = None;
+        nav.pending_issue_changes = None;
         cx.notify();
     });
+}
+
+/// Navigate to an issue AND land on its **Changes** tab (EXP-67: PR rows in
+/// the Reviews tool and issue lanes in the flow graph — the diff is why you
+/// clicked). The tab request rides a pending marker the screens panel
+/// consumes after re-pointing the detail view; the extra `nav.update` runs
+/// unconditionally so the marker is delivered even when the issue's tab is
+/// already the active screen (where [`navigate`] no-ops without notifying).
+pub fn navigate_issue_changes(window: &Window, cx: &mut App, issue_id: String) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    navigate(
+        window,
+        cx,
+        Screen::IssueDetail {
+            issue_id: issue_id.clone(),
+        },
+    );
+    nav.update(cx, |nav, cx| {
+        nav.pending_issue_changes = Some(issue_id);
+        cx.notify();
+    });
+}
+
+/// Consume the pending "open on Changes" marker (the issue id it targets).
+/// The screens panel calls this from its nav observer after `set_issue`.
+pub fn take_pending_issue_changes(nav: &Entity<Navigation>, cx: &mut App) -> Option<String> {
+    nav.update(cx, |nav, _| nav.pending_issue_changes.take())
 }
 
 /// Swap the current screen IN PLACE (EXP-48 prev/next issue switcher): no
@@ -289,6 +326,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
         if nav.screen != screen {
             nav.screen = screen;
             nav.replaced_screen = None;
+            nav.pending_issue_changes = None;
             cx.notify();
         }
     });
@@ -318,6 +356,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
         if let Some(previous) = nav.back_stack.pop() {
             nav.screen = Some(previous);
             nav.replaced_screen = None;
+            nav.pending_issue_changes = None;
             cx.notify();
         }
     });
@@ -339,6 +378,7 @@ pub fn switch_workspace(window: &Window, cx: &mut App, workspace_id: String) {
         nav.back_stack.clear();
         nav.last_project_id = None;
         nav.replaced_screen = None;
+        nav.pending_issue_changes = None;
         cx.notify();
     });
     persist_last_workspace(cx, workspace_id);

@@ -395,10 +395,12 @@ impl Render for IssueTimeline {
             format!("Activity ({})", items.len())
         };
 
+        // Content re-centers to the detail column; the section border lives
+        // on the full-width wrapper below (EXP-67 full-bleed divider).
         let mut body = v_flex()
             .w_full()
-            .border_t_1()
-            .border_color(cx.theme().border)
+            .max_w(gpui::px(crate::issue_detail::DETAIL_COLUMN_W))
+            .mx_auto()
             .px_4()
             .py_3()
             .child(
@@ -462,7 +464,11 @@ impl Render for IssueTimeline {
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
         let composer =
             comments::composer_row(&self.composer_mention, self.submitting, has_draft, cx);
-        body.child(composer)
+        v_flex()
+            .w_full()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .child(body.child(composer))
     }
 }
 

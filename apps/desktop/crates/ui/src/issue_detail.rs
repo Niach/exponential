@@ -63,6 +63,11 @@ use crate::{attachments_row, comments};
 /// `track_focus` + `on_action`, bindings scoped via [`init`]).
 const KEY_CONTEXT: &str = "IssueDetail";
 
+/// The Details body's centered content width (web `max-w-3xl` parity) —
+/// shared with the timeline, whose full-bleed divider re-centers its content
+/// to this same column.
+pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
+
 /// Register the EXP-48 J/K switcher bindings (call once from `ui::init`).
 ///
 /// The predicate guards bare-letter keys against every editable surface that
@@ -159,6 +164,12 @@ pub struct IssueDetailView {
     /// dispatch path so the scoped J/K bindings fire (focused on
     /// `set_issue`, re-acquired by clicking the body).
     focus_handle: FocusHandle,
+    /// The Details body's scroll position. gpui persists scroll offsets per
+    /// element id, and this view is ONE shared instance re-pointed across
+    /// issues — without an explicit reset, issue B opens at issue A's scroll
+    /// offset and the title sits above the viewport ("the title vanishes",
+    /// EXP-67).
+    body_scroll: gpui::ScrollHandle,
     /// The window's shared rail state — the EXP-48 switcher reads the active
     /// issue board's query + filters from it.
     rail_shared: Entity<crate::sidebar::RailShared>,
@@ -236,6 +247,7 @@ impl IssueDetailView {
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
+            body_scroll: gpui::ScrollHandle::new(),
             rail_shared,
             title_input,
             synced_title: String::new(),
@@ -264,12 +276,40 @@ impl IssueDetailView {
         if self.issue_id.as_deref() == Some(issue_id.as_str()) {
             return;
         }
+        // Commit an in-flight title edit to the OUTGOING issue before the
+        // swap (its blur won't fire until `issue_id` already points at the
+        // new issue — saving there would write onto the wrong row).
+        self.save_title(cx);
         self.issue_id = Some(issue_id.clone());
         self.editor = None;
         self.editor_issue = None;
         self.synced_title = String::new();
         *self.last_saved_description.borrow_mut() = String::new();
         self.subscribe_busy = false;
+        // Back to the top: the scroll offset belongs to the PREVIOUS issue
+        // (gpui keys scroll state by element id and this view is shared) —
+        // without this the new issue opens mid-scroll with its title hidden.
+        self.body_scroll
+            .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
+        // Swap the title UNCONDITIONALLY on an issue switch. The focused-input
+        // guard in `sync_from_issue` exists for remote echoes of the SAME
+        // issue; across a switch it would leave the old issue's title in the
+        // input, and the blur that follows `window.focus` below would then
+        // save it onto the NEW issue.
+        if let Some(issue) = Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(&issue_id)
+            .cloned()
+        {
+            self.synced_title = issue.title.clone();
+            self.title_input
+                .update(cx, |input, cx| input.set_value(issue.title, window, cx));
+        } else {
+            self.title_input
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        }
 
         self.start_coding.update(cx, |control, cx| {
             control.set_issue(Some(issue_id.clone()), cx)
@@ -556,20 +596,38 @@ impl IssueDetailView {
 
     // -- header pieces -----------------------------------------------------------
 
-    /// The detail's slim action header. The breadcrumb trail lives in the
-    /// TOP BAR now (project picker › identifier › title) and the center tab
-    /// already shows the identifier — this row keeps only the actions,
-    /// right-aligned (EXP-65 follow-up: the identifier here was redundant).
+    /// The detail's ONE header row (EXP-67 — the former separate tab strip
+    /// merged in to save vertical space): the §4.8 Details · Changes segments
+    /// on the left, the actions right-aligned. The breadcrumb trail lives in
+    /// the TOP BAR (project picker › identifier › title) and the center tab
+    /// already shows the identifier (EXP-65 follow-up: the identifier here
+    /// was redundant).
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
+            let active = this.tab == tab;
+            Button::new(match tab {
+                DetailTab::Details => "issue-tab-details",
+                DetailTab::Changes => "issue-tab-changes",
+            })
+            .ghost()
+            .xsmall()
+            .label(label)
+            .text_color(if active {
+                cx.theme().foreground
+            } else {
+                cx.theme().muted_foreground
+            })
+        };
+
         let mut row = h_flex()
             .w_full()
             .px_4()
-            .py_2()
+            .py_1p5()
             .gap_1p5()
             .items_center()
             .min_w_0()
@@ -577,6 +635,21 @@ impl IssueDetailView {
             .text_color(cx.theme().muted_foreground)
             .border_b_1()
             .border_color(cx.theme().border);
+
+        // Left: the Details · Changes segments (selecting Changes makes the
+        // tab visible — it fetches on focus; Details hides it, stopping its
+        // poll).
+        row = row
+            .child(
+                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
+                )),
+            )
+            .child(
+                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
+                )),
+            );
 
         row = row.child(div().flex_1().min_w_0());
 
@@ -803,7 +876,7 @@ impl IssueDetailView {
 
         let mut column = v_flex()
             .w_full()
-            .max_w(px(768.))
+            .max_w(px(DETAIL_COLUMN_W))
             .mx_auto()
             .child(title)
             .child(self.render_description(issue, window, cx));
@@ -811,47 +884,21 @@ impl IssueDetailView {
         if let Some(rail) = attachments_row::attachments_row(&issue.id, cx) {
             column = column.child(rail);
         }
-        column.child(self.timeline.clone())
+        // The timeline sits OUTSIDE the centered column: its top border runs
+        // full-bleed across the detail body (EXP-67 — one line splitting the
+        // description+images section from the comment section); the
+        // timeline's own content re-centers to the same column width.
+        v_flex()
+            .w_full()
+            .child(column)
+            .child(self.timeline.clone())
     }
 
-    /// §4.8 segmented header — Details (the body) · Changes (the diff tab).
-    /// Selecting Changes makes the tab visible (it fetches on focus); selecting
-    /// Details hides it (stops its poll).
-    fn render_tabs(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
-            let active = this.tab == tab;
-            Button::new(match tab {
-                DetailTab::Details => "issue-tab-details",
-                DetailTab::Changes => "issue-tab-changes",
-            })
-            .ghost()
-            .xsmall()
-            .label(label)
-            .text_color(if active {
-                cx.theme().foreground
-            } else {
-                cx.theme().muted_foreground
-            })
-        };
-
-        h_flex()
-            .w_full()
-            .px_4()
-            .py_1()
-            .gap_1()
-            .items_center()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
-                )),
-            )
-            .child(
-                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
-                )),
-            )
+    /// Flip to the Changes tab (EXP-67: PR rows / flow lanes land here — the
+    /// screens panel calls this right after `set_issue` when the navigation
+    /// carried the pending-Changes marker).
+    pub(crate) fn show_changes(&mut self, cx: &mut gpui::Context<Self>) {
+        self.select_tab(DetailTab::Changes, cx);
     }
 
     fn select_tab(&mut self, tab: DetailTab, cx: &mut gpui::Context<Self>) {
@@ -912,13 +959,14 @@ impl Render for IssueDetailView {
                 .into_any_element();
         };
 
+        // ONE header row (tabs + actions merged, EXP-67) — the standalone
+        // tab strip is gone.
         let mut view = base.child(self.render_breadcrumb(&issue, window, cx));
         if let Some(duplicate_of_id) = issue.duplicate_of_id.clone() {
             if let Some(banner) = self.render_duplicate_banner(&duplicate_of_id, cx) {
                 view = view.child(banner);
             }
         }
-        view = view.child(self.render_tabs(cx));
 
         // §4.8: Changes is a full-width single diff surface (no properties
         // panel); Details keeps the two-pane body + properties panel.
@@ -943,6 +991,7 @@ impl Render for IssueDetailView {
                             .min_w_0()
                             .h_full()
                             .overflow_y_scroll()
+                            .track_scroll(&self.body_scroll)
                             .child(left),
                     )
                     .child(self.properties.clone())

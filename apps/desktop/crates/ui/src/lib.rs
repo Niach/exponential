@@ -59,6 +59,7 @@ mod release_add_issues_dialog;
 mod repo_resolver;
 mod run_bar;
 mod screens;
+mod scroll_pane;
 mod search_sheet;
 mod session;
 mod settings;

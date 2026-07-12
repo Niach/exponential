@@ -30,7 +30,7 @@ use std::collections::{HashMap, HashSet};
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FontWeight,
-    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
@@ -612,6 +612,9 @@ pub struct SidebarPanel {
     /// The Source Control tool window's branch-flow graph (replaced the flat
     /// branch list — [`crate::flow_view`]).
     flow: Entity<crate::flow_view::FlowView>,
+    /// Scroll position of the flow graph's lane list (EXP-67: the full
+    /// uncapped list scrolls instead of collapsing behind "+N more").
+    flow_scroll: ScrollHandle,
     /// Two-click merge confirm: the armed row's issue id. Any other click or
     /// ~5s of inactivity disarms.
     review_arm: Option<String>,
@@ -697,6 +700,7 @@ impl SidebarPanel {
             release_creating: false,
             release_list,
             flow,
+            flow_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -1173,13 +1177,8 @@ impl SidebarPanel {
                     this.review_arm_seq += 1;
                     cx.notify();
                 }
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: nav_id.clone(),
-                    },
-                );
+                // A PR row's payload is the diff — land on the Changes tab.
+                crate::navigation::navigate_issue_changes(window, cx, nav_id.clone());
             }))
             .child(
                 h_flex()
@@ -1802,14 +1801,11 @@ impl SidebarPanel {
             .min_h_0()
             .min_w_0()
             .child(header)
-            .child(
-                div()
-                    .id("flow-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .child(self.flow.clone()),
-            )
+            .child(crate::scroll_pane::v_scroll_pane(
+                "flow-scroll",
+                &self.flow_scroll,
+                self.flow.clone(),
+            ))
             .into_any_element()
     }
 }
