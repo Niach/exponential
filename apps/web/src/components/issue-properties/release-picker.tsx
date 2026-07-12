@@ -100,7 +100,8 @@ export function ReleasePicker({
               {releases.map((release) => (
                 <CommandItem
                   key={release.id}
-                  value={release.name}
+                  value={release.id}
+                  keywords={[release.name]}
                   onSelect={() => handlePick(release.id)}
                   className="flex items-center gap-2"
                 >
