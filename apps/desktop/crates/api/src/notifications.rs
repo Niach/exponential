@@ -63,7 +63,8 @@ pub struct UpdateEmailPrefsInput {
     pub email_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_prefs: Option<HashMap<String, bool>>,
-    /// A digest value (`none`/`daily`/`weekly` — server `digestValues`).
+    /// A digest cadence (`off` = hourly digest / `daily` — the server
+    /// `digestValues` in `lib/notification-email-policy.ts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }
