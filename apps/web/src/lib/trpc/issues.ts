@@ -721,6 +721,10 @@ export const issuesRouter = router({
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
 
+        // FOR UPDATE serializes concurrent moves of the same issue AND pairs
+        // with the FOR KEY SHARE read in populate_issue_child_project_id so a
+        // child row inserted mid-move can never commit with the old
+        // project_id (see 0001_triggers.sql §7).
         const [current] = await tx
           .select({
             identifier: issues.identifier,
@@ -729,8 +733,18 @@ export const issuesRouter = router({
           .from(issues)
           .where(eq(issues.id, input.id))
           .limit(1)
+          .for(`update`)
         if (!current) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+        // Re-validate under the lock: a concurrent move that already landed
+        // the issue here must not renumber it a second time (and would record
+        // a project_moved event with a stale from-side).
+        if (current.projectId === input.projectId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Issue is already in this project`,
+          })
         }
 
         const [target] = await tx

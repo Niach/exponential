@@ -1,6 +1,12 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects, releases, repositories } from "@/db/schema"
+import {
+  issueEvents,
+  issues,
+  projects,
+  releases,
+  repositories,
+} from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -34,7 +40,7 @@ export async function findIssueIdByBranch(
 
   // Projects backed by any of these repos (v4: projects.repositoryId).
   const projectRows = await db
-    .select({ projectId: projects.id })
+    .select({ projectId: projects.id, workspaceId: projects.workspaceId })
     .from(projects)
     .where(
       inArray(
@@ -52,7 +58,29 @@ export async function findIssueIdByBranch(
       and(inArray(issues.projectId, projectIds), eq(issues.identifier, identifier))
     )
     .limit(1)
-  return issue?.id ?? null
+  if (issue) return issue.id
+
+  // Second chance (EXP-57): the branch may predate a cross-project move that
+  // renumbered the issue — identifiers are monotonic and never reused, so a
+  // retired identifier matches nothing above. Every move records its retired
+  // identifier in a project_moved event; match it WORKSPACE-scoped, because
+  // the move re-pointed the issue's events onto the TARGET project, which may
+  // not be backed by this repo at all. Latest event wins (a chain of moves
+  // still resolves each retired identifier to the same issue exactly once).
+  const workspaceIds = [...new Set(projectRows.map((p) => p.workspaceId))]
+  const [movedEvent] = await db
+    .select({ issueId: issueEvents.issueId })
+    .from(issueEvents)
+    .where(
+      and(
+        inArray(issueEvents.workspaceId, workspaceIds),
+        eq(issueEvents.type, `project_moved`),
+        sql`${issueEvents.payload} ->> 'fromIdentifier' = ${identifier}`
+      )
+    )
+    .orderBy(desc(issueEvents.createdAt))
+    .limit(1)
+  return movedEvent?.issueId ?? null
 }
 
 // Pure transition guard for the merge/close writers below. One issue = one

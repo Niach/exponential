@@ -183,17 +183,31 @@ function CreateReleaseDialog({
     setSubmitting(true)
     try {
       const trimmed = name.trim()
+      // The server caps issueIds at 200 per call — the first chunk rides
+      // create, overflow goes through addIssues (mirrors the desktop
+      // dialog's chunking so an oversized selection never fails wholesale).
+      const ids = [...selectedIds]
+      const CHUNK = 200
       const { txId, release } = await trpc.releases.create.mutate({
         workspaceId: workspace.id,
         // Blank name ⇒ the server auto-names sequentially ("Release N").
         ...(trimmed ? { name: trimmed } : {}),
-        issueIds: [...selectedIds],
+        issueIds: ids.slice(0, CHUNK),
       })
-      // ONE transaction wrote the release row AND the issue moves — the same
-      // txId gates both collections, so the detail lands fully populated.
+      let lastIssuesTxId = txId
+      for (let i = CHUNK; i < ids.length; i += CHUNK) {
+        const chunkResult = await trpc.releases.addIssues.mutate({
+          releaseId: release.id,
+          issueIds: ids.slice(i, i + CHUNK),
+        })
+        lastIssuesTxId = chunkResult.txId
+      }
+      // The create transaction wrote the release row AND the first chunk's
+      // issue moves; the last chunk's txId gates the remaining issue moves —
+      // awaiting both lands the detail fully populated.
       await Promise.all([
         releaseCollection.utils.awaitTxId(txId),
-        issueCollection.utils.awaitTxId(txId),
+        issueCollection.utils.awaitTxId(lastIssuesTxId),
       ])
       handleOpenChange(false)
       onCreated(release.id)

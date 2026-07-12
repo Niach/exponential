@@ -7,9 +7,10 @@ import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 // href targets the visitor's OS asset directly and falls back to the GitHub
 // releases page on mobile/unknown platforms.
 export function DesktopDownloadButton() {
-  const href = desktopDownloadHref(
-    typeof navigator === `undefined` ? `` : navigator.userAgent
-  )
+  const href =
+    typeof navigator === `undefined`
+      ? desktopDownloadHref(``)
+      : desktopDownloadHref(navigator.userAgent, navigator.maxTouchPoints)
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild className="text-muted-foreground">

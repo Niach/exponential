@@ -40,6 +40,13 @@ describe(`desktopDownloadHref`, () => {
     )
   })
 
+  it(`sends desktop-mode iPadOS (mac UA + touch) to the releases page`, () => {
+    const ipadDesktopUa = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15`
+    expect(desktopDownloadHref(ipadDesktopUa, 5)).toBe(DESKTOP_RELEASES_URL)
+    // A real Mac (no touch points) keeps the direct .dmg link.
+    expect(desktopDownloadHref(ipadDesktopUa, 0)).toBe(DESKTOP_ASSET_URLS.macos)
+  })
+
   it(`sends mobile and unknown platforms to the releases page`, () => {
     // Android UAs contain "linux" — mobile detection must win.
     expect(

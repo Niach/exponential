@@ -801,7 +801,9 @@ export function AgentSessionView({
                     Waiting for activity…
                   </span>
                   <span className="text-xs text-muted-foreground/70">
-                    Update the Exponential desktop app to see the live feed.
+                    This session isn&apos;t publishing an activity feed — it may
+                    be marked private on the desktop, or the desktop app needs
+                    an update.
                   </span>
                 </CenteredState>
               ) : (

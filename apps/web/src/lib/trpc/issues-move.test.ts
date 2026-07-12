@@ -98,7 +98,7 @@ function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
   const p = Promise.resolve(
     selectQueue.shift() ?? []
   ) as Promise<unknown[]> & Record<string, () => unknown>
-  for (const m of [`from`, `where`, `innerJoin`, `limit`]) {
+  for (const m of [`from`, `where`, `innerJoin`, `limit`, `for`]) {
     p[m] = () => p
   }
   return p

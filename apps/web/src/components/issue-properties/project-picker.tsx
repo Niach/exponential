@@ -106,7 +106,9 @@ export function ProjectPicker({
               {projects.map((project) => (
                 <CommandItem
                   key={project.id}
-                  value={project.name}
+                  // Name keeps cmdk text filtering working; the id suffix
+                  // keeps values unique when two projects share a name.
+                  value={`${project.name} ${project.id}`}
                   onSelect={() => handlePick(project.id)}
                   className="flex items-center gap-2"
                 >

@@ -163,7 +163,12 @@ CREATE OR REPLACE TRIGGER populate_coding_session_workspace_id
 --    leak sibling projects). Covers every writer (tRPC, widget service,
 --    attachment storage, MCP) without touching each insert site; overwrites
 --    any explicitly-passed value with issue-derived truth, mirroring the
---    workspace_id pattern. INSERT-only: issues never move between projects.
+--    workspace_id pattern. Issues CAN move between projects (EXP-57,
+--    issues.move): the move re-points these denormalized columns in its own
+--    transaction, and the FOR KEY SHARE read below closes the race with a
+--    concurrent child insert — it blocks against the move's FOR UPDATE row
+--    lock, so the trigger always reads the committed post-move project_id
+--    (or commits first, where the move's re-point UPDATEs then heal it).
 --    issue_labels intentionally has BOTH triggers (workspace_id from the
 --    label, project_id from the issue). Guarded on issue_id like the
 --    workspace_id populate: release-scoped coding_sessions rows (issue_id
@@ -173,7 +178,8 @@ CREATE OR REPLACE FUNCTION populate_issue_child_project_id()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.issue_id IS NOT NULL THEN
-    SELECT project_id INTO NEW.project_id FROM issues WHERE id = NEW.issue_id;
+    SELECT project_id INTO NEW.project_id FROM issues WHERE id = NEW.issue_id
+      FOR KEY SHARE;
   END IF;
   RETURN NEW;
 END;
