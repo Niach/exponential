@@ -38,8 +38,12 @@ import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -354,6 +358,16 @@ class IssueDetailViewModel @Inject constructor(
     // instead of one tRPC mutation per character.
     private val descriptionInput = MutableStateFlow<String?>(null)
 
+    // Surfaced when a description save fails after retries (snackbar in the
+    // screen). The draft stays in descriptionInput, so a later edit or flush
+    // retries — the edit is never silently discarded.
+    private val _descriptionSaveError = MutableStateFlow<String?>(null)
+    val descriptionSaveError: StateFlow<String?> = _descriptionSaveError
+
+    fun consumeDescriptionSaveError() {
+        _descriptionSaveError.value = null
+    }
+
     // The backing repo's full name (owner/name) for the project + issue coding
     // chips. repository_id rides on the synced projects shape; the name is a
     // server-only tRPC read, cached per (account, workspace) so the chip doesn't
@@ -443,7 +457,10 @@ class IssueDetailViewModel @Inject constructor(
     /** Persist the latest description immediately, e.g. when leaving the screen. */
     fun flushDescription() {
         val text = descriptionInput.value ?: return
-        viewModelScope.launch { saveDescription(text) }
+        // Launched on a process-lifetime scope: this fires from onDispose while
+        // navigation is about to clear the ViewModel, and viewModelScope
+        // cancellation must not abort the final save mid-flight.
+        descriptionFlushScope.launch { saveDescription(text) }
     }
 
     private suspend fun saveDescription(text: String) {
@@ -454,11 +471,29 @@ class IssueDetailViewModel @Inject constructor(
         val sanitized = stripDraftImages(text)
         // Skip no-op saves (debounce can fire with the already-persisted value).
         if (sanitized == extractDescriptionMarkdown(state.value.issue?.description)) return
-        runCatching {
-            issuesApi.update(
-                accountId,
-                UpdateIssueInput(id = issueId, description = sanitized)
-            )
+        // This can be the LAST chance to persist an edit (the leave-screen
+        // flush), so a transient failure must not silently drop it: retry with
+        // backoff, then surface the error instead of swallowing it.
+        var attempt = 1
+        while (true) {
+            try {
+                issuesApi.update(
+                    accountId,
+                    UpdateIssueInput(id = issueId, description = sanitized)
+                )
+                _descriptionSaveError.value = null
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                if (attempt >= DESCRIPTION_SAVE_ATTEMPTS) {
+                    _descriptionSaveError.value =
+                        trpcErrorMessage(t, "Description changes could not be saved")
+                    return
+                }
+                delay(DESCRIPTION_SAVE_RETRY_DELAY_MS * attempt)
+                attempt++
+            }
         }
     }
 
@@ -595,6 +630,15 @@ class IssueDetailViewModel @Inject constructor(
         return repositoriesApi.branchDiff(accountId, issueId)
     }
 }
+
+// Description saves fired while leaving the issue screen must outlive the
+// ViewModel: viewModelScope is cancelled when navigation clears it, which
+// could abort the final flush mid-request. Process-lifetime, mirroring the
+// SyncManager/PushTokenManager scopes.
+private val descriptionFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+private const val DESCRIPTION_SAVE_ATTEMPTS = 3
+private const val DESCRIPTION_SAVE_RETRY_DELAY_MS = 500L
 
 // Process-wide cache of a workspace's repos (server-only, no Electric shape).
 // Keyed by "accountId:workspaceId"; the create-project picker and this chip both
