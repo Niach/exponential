@@ -268,10 +268,10 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
           </p>
 
           <p>
-            A relay authenticates senders: when its{` `}
-            <code>PUSH_RELAY_SECRET</code> is set, it rejects any{` `}
+            A relay always authenticates senders: it refuses to start without
+            a <code>PUSH_RELAY_SECRET</code>, and rejects any{` `}
             <code>/send</code> request whose <code>x-relay-secret</code> header
-            doesn&apos;t match. The public relay at{` `}
+            doesn&apos;t match it. The public relay at{` `}
             <code>https://push.exponential.at</code> serves the official cloud
             and mobile builds and its secret is not published — a self-hosted
             instance pointing at it gets <code>401</code>s, so run your own.
@@ -300,11 +300,12 @@ PUSH_RELAY_URL=https://push.yourapp.com
 PUSH_RELAY_SECRET=<shared secret>
 `}</DocsCode>
           <DocsCallout kind="warn" title="Set the secret on both sides">
-            Without <code>PUSH_RELAY_SECRET</code> the relay accepts
-            unauthenticated <code>/send</code> requests — fine on a private
-            network, not on the open internet. Set the same value on the relay
-            process and the web app; the web app sends it as the{` `}
-            <code>x-relay-secret</code> header.
+            <code>PUSH_RELAY_SECRET</code> is mandatory — the relay exits at
+            startup without it, private network or not (an open relay would
+            let anyone push notifications to harvested device tokens). Set the
+            same value on the relay process and the web app; the web app sends
+            it as the <code>x-relay-secret</code> header, and a missing or
+            mismatched value means every push fails with <code>401</code>.
           </DocsCallout>
           <DocsCallout kind="note" title="What a relay sees">
             The FCM device token, the notification title/body, and the data
@@ -406,7 +407,10 @@ PUSH_RELAY_SECRET=<shared secret>
             <EnvVar name="PUSH_RELAY_SECRET">
               Shared secret between the web app and the relay (sent as the{` `}
               <code>x-relay-secret</code> header) — must match the relay
-              process&apos;s env.
+              process&apos;s env. Always set it alongside{` `}
+              <code>PUSH_RELAY_URL</code>: the relay refuses to start without
+              a secret, so a secretless web app just collects{` `}
+              <code>401</code>s.
             </EnvVar>
             <EnvVar name="PUBLIC_FEEDBACK_URL">
               Where the in-app &quot;Send feedback&quot; button sends your
