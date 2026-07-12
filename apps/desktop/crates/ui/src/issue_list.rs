@@ -225,8 +225,18 @@ impl IssueListView {
 
     // -- bulk selection --------------------------------------------------------
 
+    /// Whether THIS list offers bulk selection at all. The release detail's
+    /// embedded list does not: it is already a curated bundle, and a second
+    /// bulk bar there (with its own "Add to release"…) reads as UI noise.
+    fn bulk_enabled(&self) -> bool {
+        !matches!(self.query, IssueQuery::Release { .. })
+    }
+
     /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
     fn toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if !self.bulk_enabled() {
+            return;
+        }
         if !self.selected.remove(&issue_id) {
             self.selected.insert(issue_id.clone());
         }
@@ -250,6 +260,9 @@ impl IssueListView {
     /// the target — the anchor stays put for further extensions (web
     /// parity). Without a usable anchor it degrades to a plain toggle.
     fn extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if !self.bulk_enabled() {
+            return;
+        }
         let ids = self.visible_issue_ids();
         let anchor_ix = self
             .select_anchor
@@ -409,14 +422,18 @@ impl IssueListView {
             // range from the anchor, plain navigates to the detail and
             // leaves selection mode (web `onIssueClick`).
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                // Modifier clicks drive selection only where bulk exists —
+                // on a bulk-less list they navigate like a plain click.
                 let modifiers = event.modifiers();
-                if modifiers.secondary() {
-                    this.toggle_selected(issue_id.clone(), cx);
-                    return;
-                }
-                if modifiers.shift {
-                    this.extend_selection_to(issue_id.clone(), cx);
-                    return;
+                if this.bulk_enabled() {
+                    if modifiers.secondary() {
+                        this.toggle_selected(issue_id.clone(), cx);
+                        return;
+                    }
+                    if modifiers.shift {
+                        this.extend_selection_to(issue_id.clone(), cx);
+                        return;
+                    }
                 }
                 this.clear_selection(cx);
                 navigate(
@@ -429,20 +446,23 @@ impl IssueListView {
             }))
             // Leading bulk-select checkbox: hover-revealed, pinned visible
             // while ANY selection exists (web `group-hover/row` parity).
-            .child({
-                let toggle_id = issue.id.clone();
-                control_cell(row_id("select-cell", &issue.id))
-                    .w_5()
-                    .when(!any_selected, |cell| {
-                        cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
-                    })
-                    .child(
-                        Checkbox::new(row_id("select", &issue.id))
-                            .checked(is_selected)
-                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                this.toggle_selected(toggle_id.clone(), cx);
-                            })),
-                    )
+            // Absent entirely on bulk-less lists (release detail).
+            .when(self.bulk_enabled(), |row| {
+                row.child({
+                    let toggle_id = issue.id.clone();
+                    control_cell(row_id("select-cell", &issue.id))
+                        .w_5()
+                        .when(!any_selected, |cell| {
+                            cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
+                        })
+                        .child(
+                            Checkbox::new(row_id("select", &issue.id))
+                                .checked(is_selected)
+                                .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                                    this.toggle_selected(toggle_id.clone(), cx);
+                                })),
+                        )
+                })
             })
             // 24px priority dropdown cell (stop_propagation wrapper, §4.6).
             .child(
@@ -1113,6 +1133,9 @@ impl Render for IssueListView {
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SelectAllIssues, _, cx| {
+                if !this.bulk_enabled() {
+                    return;
+                }
                 let ids = this.visible_issue_ids();
                 if ids.is_empty() {
                     return;
@@ -1227,7 +1250,7 @@ impl Render for IssueListView {
         // The floating bulk action bar — selected ids snapshotted in visible
         // list order (workspace resolution can lag the issue rows; the bar
         // waits for it, the selection itself does not).
-        let bulk_bar = if self.selected.is_empty() {
+        let bulk_bar = if !self.bulk_enabled() || self.selected.is_empty() {
             None
         } else {
             self.bulk_workspace_id(cx).map(|workspace_id| {
