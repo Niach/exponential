@@ -16,7 +16,15 @@ import kotlinx.serialization.json.put
 // from the synced `releases` shape.
 
 @Serializable
-data class CreateReleaseInput(val workspaceId: String)
+data class CreateReleaseInput(
+    val workspaceId: String,
+    // Both optional on the wire: the shared Json (explicitNulls=false) drops
+    // null keys, so a plain create still sends the pre-EXP-62 shape. name
+    // absent => the server auto-names ("Release N"); issueIds (EXP-62, max
+    // 200 per call) attach in the SAME server transaction.
+    val name: String? = null,
+    val issueIds: List<String>? = null,
+)
 
 @Serializable
 data class MarkReleaseShippedInput(val id: String, val shipped: Boolean)
@@ -31,26 +39,43 @@ data class AddReleaseIssuesInput(val releaseId: String, val issueIds: List<Strin
 class ReleasesApi @Inject constructor(private val trpc: TrpcClient, private val json: Json) {
 
     /**
-     * One-tap create: no name is sent, so the server auto-names sequentially
-     * ("Release N"). Returns the full created row (ReleaseEntity carries
-     * @JsonNames camelCase aliases, so the tRPC payload decodes directly) so
-     * the caller can upsert it locally as a visibility head-start instead of
-     * spinning until the Electric shape delivers it (EXP-61).
+     * Create a release WITH its creation-time issue bundle (EXP-62): the
+     * server attaches [issueIds] in the same transaction as the insert. A
+     * blank/absent name lets the server auto-name sequentially ("Release N").
+     * The server caps issueIds at 200 per call — the first 200 ride create
+     * itself, any overflow chunks through [addIssues]. Returns the full
+     * created row (ReleaseEntity carries @JsonNames camelCase aliases, so the
+     * tRPC payload decodes directly) so the caller can upsert it locally as a
+     * visibility head-start instead of spinning until the Electric shape
+     * delivers it (EXP-61).
      */
-    suspend fun create(accountId: String, workspaceId: String): ReleaseEntity {
+    suspend fun create(
+        accountId: String,
+        workspaceId: String,
+        name: String? = null,
+        issueIds: List<String> = emptyList(),
+    ): ReleaseEntity {
+        val first = issueIds.take(200)
         val result = trpc.mutation(
             accountId,
             path = "releases.create",
-            input = CreateReleaseInput(workspaceId),
+            input = CreateReleaseInput(
+                workspaceId = workspaceId,
+                name = name?.takeIf { it.isNotBlank() },
+                issueIds = first.ifEmpty { null },
+            ),
             inputSerializer = CreateReleaseInput.serializer(),
             // Decode as a raw JsonObject: the full release row rides along and
             // the shared strict Json must not choke on columns we don't model.
             outputSerializer = JsonObject.serializer(),
         )
-        return json.decodeFromJsonElement(
+        val release = json.decodeFromJsonElement(
             ReleaseEntity.serializer(),
             result["release"]!!.jsonObject,
         )
+        val rest = issueIds.drop(200)
+        if (rest.isNotEmpty()) addIssues(accountId, release.id, rest)
+        return release
     }
 
     suspend fun markShipped(accountId: String, id: String, shipped: Boolean) {
