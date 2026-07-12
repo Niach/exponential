@@ -1,5 +1,5 @@
-import { Flag, ListTodo, Rocket, Tag, UserRound, X } from "lucide-react"
-import type { Issue, Label, Release, User } from "@/db/schema"
+import { Flag, FolderInput, ListTodo, Rocket, Tag, UserRound, X } from "lucide-react"
+import type { Issue, Label, Project, Release, User } from "@/db/schema"
 import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -220,6 +220,69 @@ export function ReleaseSubmenu({
               >
                 <Rocket className="size-4 text-muted-foreground" />
                 <span className="truncate">{release.name}</span>
+              </ContextMenuRadioItem>
+            ))
+          )}
+        </ContextMenuRadioGroup>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  )
+}
+
+interface ProjectSubmenuProps {
+  projectId: Issue[`projectId`]
+  // Workspace projects (sorted by name, trashed excluded upstream by the
+  // projects shape). Kept a plain prop (no live query here) so this stays
+  // presentational like its siblings.
+  projects: Project[]
+  topLevelValueClass: string
+  onSelect: (projectId: string) => void
+}
+
+// EXP-57: move the issue to another project in the same workspace. The issue
+// is renumbered in the target project (EXP-42 → ABC-17) server-side.
+export function ProjectSubmenu({
+  projectId,
+  projects,
+  topLevelValueClass,
+  onSelect,
+}: ProjectSubmenuProps) {
+  const currentName = projects.find(
+    (project) => project.id === projectId
+  )?.name
+
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <FolderInput className="size-4" />
+        Move to project
+        <ContextMenuShortcut className={topLevelValueClass}>
+          {currentName ?? `Project`}
+        </ContextMenuShortcut>
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-[15rem]">
+        <ContextMenuRadioGroup value={projectId}>
+          {projects.length === 0 ? (
+            <ContextMenuItem disabled inset>
+              No projects yet
+            </ContextMenuItem>
+          ) : (
+            projects.map((project) => (
+              <ContextMenuRadioItem
+                key={project.id}
+                value={project.id}
+                disabled={project.id === projectId}
+                onSelect={() => {
+                  if (project.id !== projectId) {
+                    onSelect(project.id)
+                  }
+                }}
+              >
+                <div
+                  className="size-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: project.color }}
+                />
+                <span className="truncate">{project.name}</span>
               </ContextMenuRadioItem>
             ))
           )}
