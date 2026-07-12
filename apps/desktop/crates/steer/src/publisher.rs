@@ -188,14 +188,33 @@ pub struct PublisherHooks {
     pub error: Arc<dyn Fn(String) + Send + Sync>,
 }
 
+/// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, lone
+/// control bytes) must land raw; anything else is message TEXT from a
+/// steerer's composer and gets local-paste treatment (bracketed, EXP-72).
+fn is_keystroke(bytes: &[u8]) -> bool {
+    bytes.first() == Some(&0x1b) || (bytes.len() == 1 && (bytes[0] < 0x20 || bytes[0] == 0x7f))
+}
+
 /// [`PublisherHooks::write_input`] over the shared PTY writer
-/// (`Terminal::writer()`): remote keystrokes land exactly like local typing.
+/// (`Terminal::writer()`): remote keystrokes land exactly like local typing,
+/// and remote message TEXT lands exactly like a local PASTE — bracketed when
+/// the child turned mode 2004 on (EXP-72: an unbracketed text+`\r` burst
+/// trips the `claude` TUI's paste heuristic, which inserts a newline instead
+/// of submitting).
 pub fn pty_writer_input_hook(
     writer: Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
+    term: terminal::TermHandle,
 ) -> InputHook {
     Arc::new(move |bytes| {
+        let bracket = !is_keystroke(bytes) && terminal::bracketed_paste_enabled(&term);
         if let Ok(mut w) = writer.lock() {
-            let _ = w.write_all(bytes);
+            if bracket {
+                let _ = w.write_all(b"\x1b[200~");
+                let _ = w.write_all(bytes);
+                let _ = w.write_all(b"\x1b[201~");
+            } else {
+                let _ = w.write_all(bytes);
+            }
             let _ = w.flush();
         }
     })
@@ -558,6 +577,13 @@ async fn pump_connection(
     running: &Arc<AtomicBool>,
     last_sent_geometry: &mut (u16, u16),
 ) -> LoopEnd {
+    // EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
+    // text this closely, the child can read text+`\r` as ONE chunk and the
+    // `claude` TUI's paste heuristic inserts a newline instead of submitting.
+    // Hold the `\r` back until the child has had a beat to drain the text.
+    // Ordering is safe — this task is the only remote-input writer.
+    const ENTER_SEPARATION: Duration = Duration::from_millis(150);
+    let mut last_input_at: Option<Instant> = None;
     loop {
         tokio::select! {
             // 1) terminal output → binary 0x01 frame (+ replay ring).
@@ -619,7 +645,18 @@ async fn pump_connection(
             // 3) relay → publisher control frames.
             msg = ws.next() => match msg {
                 Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                    Some(ServerFrame::Input { data }) => (hooks.write_input)(data.as_bytes()),
+                    Some(ServerFrame::Input { data }) => {
+                        if data == "\r" {
+                            if let Some(at) = last_input_at {
+                                let elapsed = at.elapsed();
+                                if elapsed < ENTER_SEPARATION {
+                                    tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
+                                }
+                            }
+                        }
+                        last_input_at = Some(Instant::now());
+                        (hooks.write_input)(data.as_bytes())
+                    }
                     Some(ServerFrame::Resize { cols, rows }) => (hooks.resize)(cols, rows),
                     Some(ServerFrame::Kill) => {
                         // §8.4: relay kill → end the session. The kill hook
@@ -788,6 +825,71 @@ mod tests {
                 outcome: Some("killed".to_string())
             }
         );
+    }
+
+    // ── EXP-72: remote input = keystrokes raw, message text = local paste ──
+
+    /// A `Terminal::writer()`-shaped writer that records into a shared Vec.
+    fn vec_writer() -> (
+        Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
+        Arc<Mutex<Vec<u8>>>,
+    ) {
+        struct SharedVec(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for SharedVec {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>> = Arc::new(
+            std::sync::Mutex::new(Box::new(SharedVec(recorded.clone()))),
+        );
+        (writer, recorded)
+    }
+
+    /// Feed raw bytes into an emulator term (the emulator-test `advance`
+    /// pattern) — turbofish REQUIRED for the `T: Timeout` default param.
+    fn advance(term: &terminal::TermHandle, bytes: &[u8]) {
+        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
+        processor.advance(&mut *term.lock(), bytes);
+    }
+
+    #[test]
+    fn keystroke_frames_pass_raw_even_with_bracketed_paste_on() {
+        let (writer, recorded) = vec_writer();
+        let term = terminal::Emulator::new(80, 24).term();
+        advance(&term, b"\x1b[?2004h");
+        let hook = pty_writer_input_hook(writer, term);
+        hook(b"\r"); // Enter (submit)
+        hook(b"\x1b"); // interrupt
+        hook(b"\x1b[A"); // CSI sequence (arrow up)
+        assert_eq!(recorded.lock().unwrap().as_slice(), b"\r\x1b\x1b[A");
+    }
+
+    #[test]
+    fn text_frames_are_bracketed_when_the_child_enabled_mode_2004() {
+        let (writer, recorded) = vec_writer();
+        let term = terminal::Emulator::new(80, 24).term();
+        advance(&term, b"\x1b[?2004h");
+        let hook = pty_writer_input_hook(writer, term);
+        hook("fix the login bug".as_bytes());
+        assert_eq!(
+            recorded.lock().unwrap().as_slice(),
+            b"\x1b[200~fix the login bug\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn text_frames_pass_raw_when_mode_2004_is_off() {
+        let (writer, recorded) = vec_writer();
+        let term = terminal::Emulator::new(80, 24).term();
+        let hook = pty_writer_input_hook(writer, term);
+        hook(b"echo hi");
+        assert_eq!(recorded.lock().unwrap().as_slice(), b"echo hi");
     }
 
     // ── Full-task test against a local fake relay (tokio-tungstenite server)
