@@ -24,6 +24,8 @@
 
     "dev:marketing": "bun --filter @exp/marketing dev",
     "build:marketing": "bun --filter @exp/marketing build",
+    "studio:video": "bun --filter @exp/video studio",
+    "render:video": "bun --filter @exp/video render",
 
     "dev:widget": "bun --filter @exp/widget dev",
     "build:widget": "bun --filter @exp/widget build",
