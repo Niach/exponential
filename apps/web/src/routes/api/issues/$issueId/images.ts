@@ -45,9 +45,18 @@ async function uploadIssueImage({
   const file = formData.get(`file`)
 
   if (!(file instanceof File)) {
+    // Bun's multipart parser mangles a part whose Content-Disposition uses
+    // the RFC-legal UNQUOTED token form (`name=file; filename=...` → key
+    // "file; filename=", value decoded as a lossy STRING — the bytes are
+    // unrecoverable here). Ktor's MultiPartFormDataContent emits exactly
+    // that form, so every Android build before the EXP-61 fix lands in this
+    // branch. Name the failure instead of a bare "Missing image file".
+    const mangled = [...formData.keys()].some((key) => key.startsWith(`file;`))
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `Missing image file`,
+      message: mangled
+        ? `Unsupported multipart encoding (unquoted disposition) — update the app`
+        : `Missing image file`,
     })
   }
 

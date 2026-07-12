@@ -42,12 +42,12 @@ data class ProjectEntity(
     val type: String = "dev",
     // Anonymous-visitor toggles — only meaningful on feedback boards, inert
     // otherwise. publicShowCoding is the enum off|badge|live (default off).
-    @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: Boolean = true,
-    @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: Boolean = false,
+    @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: PgBool = true,
+    @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: PgBool = false,
     @ColumnInfo(name = "public_show_coding") @SerialName("public_show_coding") @JsonNames("publicShowCoding") val publicShowCoding: String = "off",
     // Server-owned protection flag (the dogfood feedback board). A protected
     // project can't be deleted/archived, so clients hide the delete affordance.
-    @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: Boolean = false,
+    @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: PgBool = false,
     // A project is repo-backed only when `type='dev'`; nullable for tasks/feedback
     // boards (repo-optional since project types landed). repository_id rides on
     // the existing projects shape; the repo name is resolved via the
@@ -139,7 +139,7 @@ data class UserEntity(
     val name: String? = null,
     val email: String,
     val image: String? = null,
-    @ColumnInfo(name = "is_agent") @SerialName("is_agent") @JsonNames("isAgent") val isAgent: Boolean = false,
+    @ColumnInfo(name = "is_agent") @SerialName("is_agent") @JsonNames("isAgent") val isAgent: PgBool = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -316,7 +316,7 @@ data class IssueSubscriberEntity(
     val email: String? = null,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
     val source: String,
-    val unsubscribed: Boolean = false,
+    val unsubscribed: PgBool = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

@@ -103,7 +103,7 @@ class ShapeClient<T : Any>(
                 // transport error: report, back off, keep polling.
                 coroutineContext.ensureActive()
                 android.util.Log.w("ShapeClient", "[$shapeName] request cancelled: ${cancel.message}", cancel)
-                onError(false, cancel.cause?.message ?: cancel.message, false)
+                onError(false, describe(cancel.cause ?: cancel), false)
                 consecutiveSchemaErrors = 0
                 delay(backoffMs)
                 backoffMs = min(backoffMs * 2, 30_000L)
@@ -117,8 +117,8 @@ class ShapeClient<T : Any>(
                 backoffMs = min(backoffMs * 2, 30_000L)
             } catch (error: Throwable) {
                 val schema = isSchemaError(error)
-                android.util.Log.w("ShapeClient", "[$shapeName] error: ${error.message}", error)
-                onError(false, error.message, schema)
+                android.util.Log.w("ShapeClient", "[$shapeName] error: ${describe(error)}", error)
+                onError(false, describe(error), schema)
                 if (schema) {
                     consecutiveSchemaErrors++
                     // A local table that drifted past what tolerant-apply can
@@ -139,6 +139,12 @@ class ShapeClient<T : Any>(
             }
         }
     }
+
+    // Some transport exceptions carry no message at all (e.g. a DNS
+    // UnresolvedAddressException) — the diagnostics row then read "null".
+    // Always fall back to the exception's class name.
+    private fun describe(error: Throwable): String =
+        error.message ?: error.javaClass.simpleName
 
     private fun isSchemaError(error: Throwable): Boolean {
         var t: Throwable? = error
