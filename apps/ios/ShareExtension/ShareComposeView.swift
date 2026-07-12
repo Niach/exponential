@@ -30,8 +30,9 @@ struct ShareRootView: View {
     }
 }
 
-/// Editable compose form: title, description, image thumbnails and a project
-/// picker (defaulting to the most recently used project).
+/// Editable compose form: a "Share to" destination picker on top (EXP-60,
+/// defaulting to the most recently used project), then title, description and
+/// image thumbnails.
 struct ShareComposeView: View {
     let deps: ShareDependencies
     let payload: SharedPayload
@@ -96,6 +97,16 @@ struct ShareComposeView: View {
             )
         } else {
             Form {
+                // Destination first (EXP-60): choosing where the share lands
+                // leads the form, matching the Android share composer.
+                Section("Share to") {
+                    Picker("Project", selection: $selectedProjectId) {
+                        ForEach(projects) { project in
+                            Text("\(project.workspaceName) / \(project.projectName)")
+                                .tag(Optional(project.projectId))
+                        }
+                    }
+                }
                 Section("Title") {
                     TextField("Issue title", text: $title)
                 }
@@ -118,14 +129,6 @@ struct ShareComposeView: View {
                                 }
                             }
                             .padding(.vertical, 4)
-                        }
-                    }
-                }
-                Section("Project") {
-                    Picker("Project", selection: $selectedProjectId) {
-                        ForEach(projects) { project in
-                            Text("\(project.workspaceName) / \(project.projectName)")
-                                .tag(Optional(project.projectId))
                         }
                     }
                 }
