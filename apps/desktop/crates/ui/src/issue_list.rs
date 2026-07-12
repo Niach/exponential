@@ -814,19 +814,19 @@ impl IssueListView {
                 .disabled(busy)
                 .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
                     let mut menu = menu.scrollable(true).max_h(px(320.));
-                    // One-click new release (auto-named server-side) with the
-                    // selection added — the bulk bar must not force a detour
-                    // through the Releases screen.
+                    // "New release" routes through the creation dialog
+                    // pre-seeded with the selection (EXP-62): name + confirm
+                    // BEFORE the release exists, and the dialog lands on the
+                    // new release's detail on success.
                     menu = menu.item(
                         PopupMenuItem::new("New release")
                             .icon(Icon::new(IconName::Plus))
                             .on_click({
                                 let ids = ids.clone();
-                                let list = list.clone();
                                 let workspace_id = workspace_id.clone();
-                                move |_, _, cx| {
-                                    spawn_bulk_new_release(
-                                        list.clone(),
+                                move |_, window, cx| {
+                                    crate::release_create_dialog::open(
+                                        window,
                                         cx,
                                         workspace_id.clone(),
                                         ids.clone(),
@@ -1007,55 +1007,10 @@ fn spawn_bulk_op(
     .detach();
 }
 
-/// The bulk bar's "New release": ONE auto-named `releases.create`, then the
-/// selection added in [`BULK_CHUNK`]s — a single background task so the bar's
-/// busy gate covers the whole sequence. Selection stays alive (a property
-/// edit, not a delete), and success LANDS on the new release (Releases tool
-/// drill-down) — a bulk add with no visible destination reads as "nothing
-/// happened".
-fn spawn_bulk_new_release(
-    list: WeakEntity<IssueListView>,
-    cx: &mut App,
-    workspace_id: String,
-    ids: Vec<String>,
-) {
-    if ids.is_empty() {
-        return;
-    }
-    let Some(trpc) = queries::trpc_client(cx) else {
-        log::warn!("[ui] releases.create skipped: no signed-in account");
-        return;
-    };
-    let _ = list.update(cx, |this, cx| {
-        this.bulk_busy = true;
-        cx.notify();
-    });
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                let created = api::releases::create(&trpc, &workspace_id, None)?;
-                let release_id = created.release.id.clone();
-                for chunk in ids.chunks(BULK_CHUNK) {
-                    api::releases::add_issues(&trpc, &release_id, chunk)?;
-                }
-                Ok::<String, api::ApiError>(release_id)
-            })
-            .await;
-        let _ = list.update(cx, |this, cx| {
-            this.bulk_busy = false;
-            cx.notify();
-        });
-        match result {
-            Ok(release_id) => open_release_after(cx, release_id).await,
-            Err(err) => log::warn!("[ui] bulk new release failed: {err}"),
-        }
-    })
-    .detach();
-}
-
 /// The bulk bar's add-to-EXISTING-release: chunked `releases.addIssues`,
-/// then land on that release (see [`spawn_bulk_new_release`]).
+/// then land on that release. (The bulk "New release" path opens
+/// [`crate::release_create_dialog`] pre-seeded with the selection instead —
+/// EXP-62.)
 fn spawn_bulk_add_to_release(
     list: WeakEntity<IssueListView>,
     cx: &mut App,
