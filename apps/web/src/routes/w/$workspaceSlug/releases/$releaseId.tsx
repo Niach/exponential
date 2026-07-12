@@ -41,19 +41,13 @@ import {
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { EmptyState } from "@/components/empty-state"
 import { IssueList } from "@/components/issue-list"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  ReleaseIssuePicker,
+  releaseCandidateIssues,
+} from "@/components/release-issue-picker"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import {
   Dialog,
   DialogContent,
@@ -114,10 +108,9 @@ function ReleasePrPill({ release }: { release: Release }) {
   )
 }
 
-// "Add issues" picker: a Command search over the workspace's issues that are
-// not already in THIS release. Issues bundled into another release stay
-// offered (the server records both timeline sides) with a badge showing where
-// they currently live. Multi-select, one bulk addIssues call.
+// "Add issues" picker: the shared ReleaseIssuePicker (EXP-62) over the
+// workspace's issues that are not already in THIS release. Multi-select, one
+// bulk addIssues call.
 function AddIssuesDialog({
   open,
   onOpenChange,
@@ -144,21 +137,8 @@ function AddIssuesDialog({
     [open, projectIds.join(`,`)]
   )
 
-  // Closed statuses and archived issues are excluded — they have nothing
-  // left to ship. Issues living in ANOTHER release stay offered (Rocket
-  // badge below shows where).
   const candidates = useMemo(
-    () =>
-      ((issueRows ?? []) as Issue[])
-        .filter(
-          (issue) =>
-            issue.releaseId !== release.id &&
-            issue.archivedAt === null &&
-            issue.status !== `done` &&
-            issue.status !== `cancelled` &&
-            issue.status !== `duplicate`
-        )
-        .sort((a, b) => a.identifier.localeCompare(b.identifier)),
+    () => releaseCandidateIssues((issueRows ?? []) as Issue[], release.id),
     [issueRows, release.id]
   )
 
@@ -202,51 +182,12 @@ function AddIssuesDialog({
             Add issues to {release.name}
           </DialogTitle>
         </DialogHeader>
-        <Command className="flex-1 overflow-hidden">
-          <CommandInput placeholder="Search issues..." />
-          <CommandList className="max-h-none flex-1">
-            <CommandEmpty>No issues found.</CommandEmpty>
-            <CommandGroup>
-              {candidates.map((issue) => {
-                const otherReleaseName = issue.releaseId
-                  ? releaseNameById.get(issue.releaseId)
-                  : undefined
-                return (
-                  <CommandItem
-                    key={issue.id}
-                    value={`${issue.identifier} ${issue.title}`}
-                    onSelect={() => toggle(issue.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <Checkbox
-                      checked={selectedIds.has(issue.id)}
-                      className="pointer-events-none"
-                    />
-                    <StatusIcon
-                      status={issue.status}
-                      className="size-3.5 shrink-0"
-                    />
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                      {issue.identifier}
-                    </span>
-                    <span className="min-w-0 truncate text-sm">
-                      {issue.title}
-                    </span>
-                    {issue.releaseId && (
-                      <Badge
-                        variant="outline"
-                        className="ml-auto shrink-0 text-muted-foreground"
-                      >
-                        <Rocket className="size-2.5" />
-                        {otherReleaseName ?? `Another release`}
-                      </Badge>
-                    )}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+        <ReleaseIssuePicker
+          candidates={candidates}
+          selectedIds={selectedIds}
+          onToggle={toggle}
+          releaseNameById={releaseNameById}
+        />
         <DialogFooter className="border-t border-border/50 px-4 py-3">
           <Button
             variant="outline"

@@ -16,23 +16,49 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 // the "manageable by the whole team" contract. Issue membership is 1:N via
 // issues.release_id, so setIssueRelease/addIssues write the ISSUES table
 // (clients await the issues collection txId); the other mutations write
-// releases (await the releases collection txId). The release-PR fields
+// releases (await the releases collection txId). `create` with issueIds
+// (EXP-62) writes BOTH in one transaction — the returned txId covers the
+// releases AND issues collections. The release-PR fields
 // (pr_url/pr_number/pr_state/pr_merged_at) are written only by the
 // exponential_release_pr_open MCP tool + the GitHub webhook/poller — never
 // from here.
 export const releasesRouter = router({
-  // One-click create: name is optional — when absent the server auto-names
+  // Create: name is optional — when absent the server auto-names
   // sequentially ("Release N", N = max existing trailing integer + 1).
   // Description/targetDate are set post-create via `update` (inline editing).
+  // issueIds is the creation-time bundle (EXP-62): clients pick the issues
+  // BEFORE the release exists; the attach happens in the SAME transaction as
+  // the insert (addIssues semantics — timeline events included). It stays
+  // optional so older native clients calling plain create keep working.
   create: authedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
+        issueIds: z.array(z.string().uuid()).min(1).max(200).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+
+      // Pre-tx eligibility read (the addIssues pattern): silently drops
+      // workspace-foreign / trashed-project ids, but refuses when the
+      // requested bundle leaves nothing — an empty release is exactly what
+      // creation-time picking exists to prevent.
+      let attach: AttachableIssue[] = []
+      if (input.issueIds) {
+        attach = await selectAttachableIssues(
+          ctx.db,
+          input.workspaceId,
+          input.issueIds
+        )
+        if (attach.length === 0) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `No addable issues in this workspace`,
+          })
+        }
+      }
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -62,6 +88,15 @@ export const releasesRouter = router({
             createdBy: ctx.session.user.id,
           })
           .returning()
+        // A brand-new release can't already hold any of the picked issues,
+        // so every eligible row moves (incl. pulls from other releases —
+        // both timeline sides recorded, like addIssues).
+        await attachIssuesInTx(tx, {
+          releaseId: release.id,
+          workspaceId: input.workspaceId,
+          actorUserId: ctx.session.user.id,
+          moving: attach,
+        })
         return { txId, release }
       })
     }),
@@ -211,17 +246,11 @@ export const releasesRouter = router({
       const release = await getReleaseOrThrow(ctx.db, input.releaseId)
       await assertWorkspaceMember(ctx.session.user.id, release.workspaceId)
 
-      const eligible = await ctx.db
-        .select({ id: issues.id, releaseId: issues.releaseId })
-        .from(issues)
-        .innerJoin(projects, eq(issues.projectId, projects.id))
-        .where(
-          and(
-            inArray(issues.id, input.issueIds),
-            eq(projects.workspaceId, release.workspaceId),
-            isNull(projects.deletedAt)
-          )
-        )
+      const eligible = await selectAttachableIssues(
+        ctx.db,
+        release.workspaceId,
+        input.issueIds
+      )
       // Issues already in this release are a no-op (no update, no event).
       const moving = eligible.filter((row) => row.releaseId !== input.releaseId)
       if (eligible.length === 0) {
@@ -233,43 +262,85 @@ export const releasesRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        if (moving.length > 0) {
-          await tx
-            .update(issues)
-            .set({ releaseId: input.releaseId })
-            .where(
-              inArray(
-                issues.id,
-                moving.map((row) => row.id)
-              )
-            )
-          for (const row of moving) {
-            // An issue can be pulled over from another release — record both
-            // sides so each timeline stays honest.
-            if (row.releaseId) {
-              await recordIssueEvent(tx, {
-                issueId: row.id,
-                workspaceId: release.workspaceId,
-                actorUserId: ctx.session.user.id,
-                type: `release_removed`,
-                payload: { releaseId: row.releaseId },
-              })
-            }
-            await recordIssueEvent(tx, {
-              issueId: row.id,
-              workspaceId: release.workspaceId,
-              actorUserId: ctx.session.user.id,
-              type: `release_added`,
-              payload: { releaseId: input.releaseId },
-            })
-          }
-        }
+        await attachIssuesInTx(tx, {
+          releaseId: input.releaseId,
+          workspaceId: release.workspaceId,
+          actorUserId: ctx.session.user.id,
+          moving,
+        })
         return { txId, added: moving.length }
       })
     }),
 })
 
 type Db = typeof db
+type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
+
+type AttachableIssue = { id: string; releaseId: string | null }
+
+// The shared attach eligibility read (create + addIssues): issues from the
+// batch that live in the target workspace, in non-trashed projects. Runs
+// pre-transaction — a stale/foreign id silently drops out instead of failing
+// the whole batch.
+async function selectAttachableIssues(
+  database: Db,
+  workspaceId: string,
+  issueIds: string[]
+): Promise<AttachableIssue[]> {
+  return await database
+    .select({ id: issues.id, releaseId: issues.releaseId })
+    .from(issues)
+    .innerJoin(projects, eq(issues.projectId, projects.id))
+    .where(
+      and(
+        inArray(issues.id, issueIds),
+        eq(projects.workspaceId, workspaceId),
+        isNull(projects.deletedAt)
+      )
+    )
+}
+
+// The shared in-tx attach (create + addIssues): bulk-move `moving` into the
+// release and record the timeline events. An issue can be pulled over from
+// another release — record both sides so each timeline stays honest.
+async function attachIssuesInTx(
+  tx: Tx,
+  args: {
+    releaseId: string
+    workspaceId: string
+    actorUserId: string
+    moving: AttachableIssue[]
+  }
+): Promise<void> {
+  if (args.moving.length === 0) return
+  await tx
+    .update(issues)
+    .set({ releaseId: args.releaseId })
+    .where(
+      inArray(
+        issues.id,
+        args.moving.map((row) => row.id)
+      )
+    )
+  for (const row of args.moving) {
+    if (row.releaseId) {
+      await recordIssueEvent(tx, {
+        issueId: row.id,
+        workspaceId: args.workspaceId,
+        actorUserId: args.actorUserId,
+        type: `release_removed`,
+        payload: { releaseId: row.releaseId },
+      })
+    }
+    await recordIssueEvent(tx, {
+      issueId: row.id,
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      type: `release_added`,
+      payload: { releaseId: args.releaseId },
+    })
+  }
+}
 
 async function getReleaseOrThrow(db: Db, releaseId: string) {
   const [release] = await db

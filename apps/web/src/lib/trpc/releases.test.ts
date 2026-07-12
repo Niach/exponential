@@ -212,6 +212,86 @@ describe(`releases.create`, () => {
     expect(fakeDb.transaction).not.toHaveBeenCalled()
     expect(inserts).toHaveLength(0)
   })
+
+  it(`without issueIds it never touches the issues table (older-client path)`, async () => {
+    await caller.create({ workspaceId: WS, name: `plain` })
+
+    expect(updates).toHaveLength(0)
+    expect(inserts.filter((i) => i.table === issueEvents)).toHaveLength(0)
+  })
+
+  it(`issueIds attach in the create transaction: bulk update + release_added events`, async () => {
+    // The pre-tx eligibility join keeps both ids, neither bundled elsewhere.
+    selectQueue.push([
+      { id: ISSUE_ID, releaseId: null },
+      { id: ISSUE_ID_2, releaseId: null },
+    ])
+
+    const result = await caller.create({
+      workspaceId: WS,
+      name: `v2.0`,
+      issueIds: [ISSUE_ID, ISSUE_ID_2],
+    })
+
+    expect(result.release).toMatchObject({ id: RELEASE_ID, name: `v2.0` })
+    // ONE transaction covers insert + attach (the same txId gates both the
+    // releases and issues collections client-side).
+    expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.table).toBe(issues)
+    expect(updates[0]!.set).toEqual({ releaseId: RELEASE_ID })
+    expect(collectParams(updates[0]!.where)).toEqual([ISSUE_ID, ISSUE_ID_2])
+    const events = inserts.filter((i) => i.table === issueEvents)
+    expect(events.map((e) => [e.values.type, e.values.payload])).toEqual([
+      [`release_added`, { releaseId: RELEASE_ID }],
+      [`release_added`, { releaseId: RELEASE_ID }],
+    ])
+  })
+
+  it(`an issue pulled from another release records both timeline sides`, async () => {
+    const OLD_RELEASE = `55555555-5555-4555-8555-555555555555`
+    selectQueue.push([{ id: ISSUE_ID, releaseId: OLD_RELEASE }])
+
+    await caller.create({
+      workspaceId: WS,
+      name: `v3.0`,
+      issueIds: [ISSUE_ID],
+    })
+
+    const events = inserts.filter((i) => i.table === issueEvents)
+    expect(events.map((e) => [e.values.type, e.values.payload])).toEqual([
+      [`release_removed`, { releaseId: OLD_RELEASE }],
+      [`release_added`, { releaseId: RELEASE_ID }],
+    ])
+  })
+
+  it(`throws BAD_REQUEST (before creating anything) when no picked issue is eligible`, async () => {
+    selectQueue.push([]) // eligibility join drops the whole batch
+
+    const error = await rejectionOf(
+      caller.create({ workspaceId: WS, name: `empty`, issueIds: [ISSUE_ID] })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toBe(
+      `No addable issues in this workspace`
+    )
+    // No release row without its issues — creation-time picking exists to
+    // prevent empty releases.
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`auto-naming still works alongside issueIds`, async () => {
+    selectQueue.push([{ id: ISSUE_ID, releaseId: null }]) // eligibility
+    selectQueue.push([{ name: `Release 4` }]) // in-tx auto-name read
+
+    await caller.create({ workspaceId: WS, issueIds: [ISSUE_ID] })
+
+    const releaseInserts = inserts.filter((i) => i.table === releases)
+    expect(releaseInserts[0]!.values.name).toBe(`Release 5`)
+    expect(updates[0]!.set).toEqual({ releaseId: RELEASE_ID })
+  })
 })
 
 describe(`releases.setIssueRelease`, () => {
