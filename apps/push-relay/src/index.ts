@@ -126,11 +126,49 @@ function clientIp(headers: Headers, fallback = `unknown`): string {
   return fallback
 }
 
-// ── Dead-token error codes per Firebase docs ──────────────────────────────────
+// Read a request body with a hard byte cap, aborting the stream as soon as it
+// exceeds the cap. Returns null when over the cap; a read error yields an
+// empty string (which then fails JSON parsing as before).
+async function readBodyCapped(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number
+): Promise<string | null> {
+  if (!body) return ``
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {})
+        return null
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return ``
+  }
+  return Buffer.concat(chunks).toString(`utf8`)
+}
+
+// ── Dead-token error codes ────────────────────────────────────────────────────
+// Codes the FCM v1 path (sendEachForMulticast) can actually emit for a token
+// that is PERMANENTLY undeliverable and must be pruned:
+//   - registration-token-not-registered: v1 UNREGISTERED, the canonical
+//     dead-token code.
+//   - mismatched-credential: v1 SENDER_ID_MISMATCH — the token belongs to a
+//     different Firebase project and will never work with our credential.
+// Deliberately absent: invalid-argument (also fired for malformed payloads —
+// pruning on it would mass-delete valid tokens on a payload bug) and
+// invalid-registration-token (legacy-API-only; the v1 endpoint never maps to
+// it, so listing it was dead weight).
 
 const DEAD_CODES = new Set([
   `messaging/registration-token-not-registered`,
-  `messaging/invalid-registration-token`,
+  `messaging/mismatched-credential`,
 ])
 
 // ── Hono app ──────────────────────────────────────────────────────────────────
@@ -153,7 +191,7 @@ app.post(`/send`, async (c) => {
   }
 
   // Reject oversized bodies before parsing JSON — the relay only ever needs
-  // tokens + a short notification.
+  // tokens + a short notification. Cheap pre-check on the declared length…
   const contentLength = Number.parseInt(
     c.req.raw.headers.get(`content-length`) ?? `0`,
     10
@@ -167,8 +205,11 @@ app.post(`/send`, async (c) => {
     return c.json({ error: `Firebase not configured` }, 503)
   }
 
-  const rawText = await c.req.text().catch(() => ``)
-  if (rawText.length > MAX_BODY_BYTES) {
+  // …then a size-capped streaming read: a chunked request carries no
+  // Content-Length, so reading the stream and aborting past the cap is the
+  // only way to avoid buffering an unbounded body into memory.
+  const rawText = await readBodyCapped(c.req.raw.body, MAX_BODY_BYTES)
+  if (rawText === null) {
     return c.json({ error: `Body too large` }, 413)
   }
   const body = (() => {

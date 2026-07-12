@@ -314,6 +314,38 @@ describe(`session rooms`, () => {
     ).toBe(`resumed`)
   })
 
+  test(`re-hello with changed geometry broadcasts resize to attached viewers`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub) // 120x40
+    const viewer = connectViewer(hub)
+    const pv = connectPublicViewer(hub)
+    expect(viewer.lastFrame(`resize`)).toMatchObject({ cols: 120, rows: 40 })
+
+    // Publisher drops, gets resized while disconnected, re-hellos at 80x24.
+    hub.onClose(pub)
+    const pub2 = new FakeSocket()
+    hub.onOpen(pub2, claims({ role: `publisher`, sessionId: `sess-1`, perm: `view` }))
+    hub.onMessage(
+      pub2,
+      JSON.stringify({ t: `hello`, sessionId: `sess-1`, cols: 80, rows: 24 })
+    )
+    expect(viewer.lastFrame(`resize`)).toMatchObject({ cols: 80, rows: 24 })
+    // The anonymous activity audience never receives geometry.
+    expect(pv.lastFrame(`resize`)).toBeUndefined()
+
+    // A same-geometry re-hello stays quiet.
+    const resizes = () => viewer.frames().filter((f) => f.t === `resize`).length
+    const before = resizes()
+    hub.onClose(pub2)
+    const pub3 = new FakeSocket()
+    hub.onOpen(pub3, claims({ role: `publisher`, sessionId: `sess-1`, perm: `view` }))
+    hub.onMessage(
+      pub3,
+      JSON.stringify({ t: `hello`, sessionId: `sess-1`, cols: 80, rows: 24 })
+    )
+    expect(resizes()).toBe(before)
+  })
+
   test(`slow consumer gets frames dropped, then a resync on recovery`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -545,6 +577,31 @@ describe(`member activity channel (EXP-32)`, () => {
       { userId: `w`, name: `Viewer`, perm: `view` },
     ])
     expect(watcher.lastFrame(`presence`)).toMatchObject({ steererId: null })
+  })
+
+  test(`disconnect evicts a socket that joined BOTH the pty and activity channels`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const dual = connectViewer(hub, { sub: `dual`, name: `Dual` })
+    hub.onMessage(dual, JSON.stringify({ t: `join`, channel: `activity` }))
+    // The socket now sits in both audiences; presence lists it twice.
+    expect(pub.lastFrame(`presence`)?.viewers).toEqual([
+      { userId: `dual`, name: `Dual`, perm: `steer` },
+      { userId: `dual`, name: `Dual`, perm: `steer` },
+    ])
+
+    hub.onClose(dual)
+    // No ghost entry survives in either map.
+    expect(pub.lastFrame(`presence`)?.viewers).toEqual([])
+
+    // Activity frames after the disconnect no longer reach the dead socket.
+    const sentBefore = dual.sent.length
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `after` } })
+    )
+    output(hub, pub, `after`)
+    expect(dual.sent.length).toBe(sentBefore)
   })
 
   test(`room close sends bye to activity members and evicts them`, () => {

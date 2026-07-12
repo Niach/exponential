@@ -11,6 +11,7 @@
 // refuses connections (503) — the web app equally treats the subsystem as off
 // when STEER_RELAY_URL is unset.
 
+import { timingSafeEqual } from "node:crypto"
 import { Hono } from "hono"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
@@ -56,14 +57,35 @@ setInterval(() => {
   }
 }, RATE_LIMIT_WINDOW_MS).unref?.()
 
+// Forwarded headers are client-forgeable: every spoofed value would mint its
+// own fresh rate-limit bucket. They are honored only when TRUST_PROXY says a
+// reverse proxy we control fronts the relay — and then only the RIGHTMOST
+// x-forwarded-for entry (the one that proxy appended) counts. Otherwise all
+// requests share the fallback bucket.
+const TRUST_PROXY = process.env.TRUST_PROXY === `true`
+
+// Loose IPv4/IPv6 shape check — anything else falls back to the shared bucket.
 const IP_RE = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]+)$/
 
 function clientIp(headers: Headers, fallback = `unknown`): string {
-  const forwarded = headers.get(`x-forwarded-for`)
-  const candidate =
-    forwarded?.split(`,`)[0]!.trim() || headers.get(`x-real-ip`)?.trim()
+  if (!TRUST_PROXY) return fallback
+  const forwarded = headers
+    .get(`x-forwarded-for`)
+    ?.split(`,`)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  const candidate = forwarded?.at(-1) ?? headers.get(`x-real-ip`)?.trim()
   if (candidate && IP_RE.test(candidate)) return candidate
   return fallback
+}
+
+// Constant-time secret check — a plain string compare leaks length and
+// prefix-match timing on the single shared credential.
+function secretMatches(provided: string | null): boolean {
+  if (!provided || !RELAY_SECRET) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(RELAY_SECRET)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 // ── HTTP app (health + secret-authed server-to-server endpoints) ──────────────
@@ -76,7 +98,7 @@ app.get(`/healthz`, (c) => c.json({ ok: true, ...hub.stats() }))
 app.use(`*`, async (c, next) => {
   if (c.req.path === `/healthz`) return next()
   if (!RELAY_SECRET) return c.json({ error: `Relay not configured` }, 503)
-  if (c.req.raw.headers.get(`x-relay-secret`) !== RELAY_SECRET) {
+  if (!secretMatches(c.req.raw.headers.get(`x-relay-secret`))) {
     return c.json({ error: `Unauthorized` }, 401)
   }
   return next()

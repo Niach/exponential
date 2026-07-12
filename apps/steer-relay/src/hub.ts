@@ -180,12 +180,15 @@ export class Hub {
       room.staleTimer ??= setTimeout(() => {
         this.closeRoom(room, `publisher_lost`)
       }, PUBLISHER_GRACE_MS)
-    } else if (room.viewers.has(conn)) {
-      room.viewers.delete(conn)
-      if (room.steerer === conn) room.steerer = null
-      this.broadcastPresence(room)
-    } else if (room.activityMembers.has(conn)) {
-      room.activityMembers.delete(conn)
+      return
+    }
+
+    // One socket may sit in BOTH audiences (a viewer ticket can join the pty
+    // channel and the activity channel), so the evictions must be independent
+    // — an else-if here would leave a ghost Conn in the other map.
+    const wasViewer = room.viewers.delete(conn)
+    const wasActivityMember = room.activityMembers.delete(conn)
+    if (wasViewer || wasActivityMember) {
       if (room.steerer === conn) room.steerer = null
       this.broadcastPresence(room)
     }
@@ -251,8 +254,21 @@ export class Hub {
             room.publisher.sock.close(CLOSE_REPLACED, `replaced`)
           }
           room.publisher = conn
+          // The re-hello carries the publisher's TRUE current geometry — it
+          // may have been resized while disconnected, so already-attached
+          // viewers need a resize frame or they keep rendering the stale grid.
+          const geometryChanged =
+            (!!msg.cols && msg.cols !== room.cols) ||
+            (!!msg.rows && msg.rows !== room.rows)
           if (msg.cols) room.cols = msg.cols
           if (msg.rows) room.rows = msg.rows
+          if (geometryChanged) {
+            for (const viewer of room.viewers.keys()) {
+              viewer.sock.send(
+                frame({ t: `resize`, cols: room.cols, rows: room.rows })
+              )
+            }
+          }
           room.activityPublic = msg.activityPublic ?? true
         }
         this.broadcastPresence(room)
