@@ -38,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -128,6 +130,18 @@ fun IssueDetailScreen(
         if (issue != null) {
             titleField = issue.title
             descriptionField = extractDescriptionMarkdown(issue.description)
+        }
+    }
+
+    // Surface failed description saves (retries exhausted) — the draft is
+    // retained in the ViewModel, so the user knows to stay/retry instead of
+    // believing the edit persisted.
+    val descriptionSaveError by viewModel.descriptionSaveError.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(descriptionSaveError) {
+        descriptionSaveError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeDescriptionSaveError()
         }
     }
 
@@ -222,6 +236,7 @@ fun IssueDetailScreen(
                 ),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent,
     ) { padding ->
         if (issue == null) {
