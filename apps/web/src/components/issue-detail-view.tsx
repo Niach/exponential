@@ -215,8 +215,10 @@ export function IssueDetailView({
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
+  // Always holds a normalized value — the unsaved-edits check below compares
+  // normalized local text against it.
   const lastSavedDescriptionRef = useRef(
-    getIssueDescriptionText(issue.description)
+    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
   )
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -255,15 +257,23 @@ export function IssueDetailView({
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
 
+  // Destructive replace of the local editor content with a synced value —
+  // setMarkdown resets the caret, so callers must ensure there are no unsaved
+  // local edits worth keeping.
+  const applyIncomingDescription = (nextDescription: string) => {
+    setDescription(nextDescription)
+    descriptionRef.current = nextDescription
+    lastSavedDescriptionRef.current =
+      normalizeIssueDescriptionText(nextDescription)
+    editorRef.current?.setMarkdown(nextDescription)
+  }
+
   // Full reset when navigating to a different issue.
   useEffect(() => {
     setTitle(issue.title)
-    setDescription(incomingDescription)
-    descriptionRef.current = incomingDescription
-    lastSavedDescriptionRef.current = normalizedIncoming
+    applyIncomingDescription(incomingDescription)
     setAttachmentStatus(null)
     setActiveTab(`details`)
-    editorRef.current?.setMarkdown(incomingDescription)
   }, [issue.id])
 
   // Sync title from Electric when another client changes it,
@@ -274,14 +284,22 @@ export function IssueDetailView({
     }
   }, [issue.title])
 
-  // Sync description from Electric when another client changes it.
+  // Sync description from Electric when another client changes it — without
+  // clobbering typing in progress. An incoming value the editor already shows
+  // (the Electric echo of a save can beat the tRPC response) only settles the
+  // bookkeeping; with unsaved local edits the replace is deferred to the next
+  // blur instead of wiping the user's text and resetting the caret.
   useEffect(() => {
-    if (normalizedIncoming !== lastSavedDescriptionRef.current) {
-      setDescription(incomingDescription)
-      descriptionRef.current = incomingDescription
+    if (normalizedIncoming === lastSavedDescriptionRef.current) return
+    const normalizedLocal = normalizeIssueDescriptionText(
+      descriptionRef.current
+    )
+    if (normalizedIncoming === normalizedLocal) {
       lastSavedDescriptionRef.current = normalizedIncoming
-      editorRef.current?.setMarkdown(incomingDescription)
+      return
     }
+    if (normalizedLocal !== lastSavedDescriptionRef.current) return
+    applyIncomingDescription(incomingDescription)
   }, [normalizedIncoming])
 
   const handleTitleBlur = async () => {
@@ -320,10 +338,22 @@ export function IssueDetailView({
   }
 
   const handleDescriptionBlur = async () => {
+    const hadLocalEdits =
+      normalizeIssueDescriptionText(descriptionRef.current) !==
+      lastSavedDescriptionRef.current
     try {
       await queueDescriptionSave(descriptionRef.current)
     } catch {
       return
+    }
+    // A remote change that arrived mid-edit was deferred by the sync effect;
+    // when this blur had nothing of ours to write over it, show it now. After
+    // a real save the Electric echo of our own write reconciles instead.
+    if (
+      !hadLocalEdits &&
+      normalizedIncoming !== lastSavedDescriptionRef.current
+    ) {
+      applyIncomingDescription(incomingDescription)
     }
   }
 
