@@ -17,8 +17,12 @@ export const pushTokensRouter = router({
       // (multi-account phones), so the conflict target is the (token, user)
       // pair: a re-register only refreshes this user's own row and never
       // steals the registration from another account on the same device.
-      // Rows for accounts that sign out are removed by their own unregister
-      // call; rows FCM invalidates are swept by the send path.
+      // Cleanup is three-layered: sign-out issues its own unregister (but that
+      // call is best-effort — it can miss when offline or on old client
+      // builds that never call it), rows FCM invalidates are swept by the
+      // send path, and rows that stop being re-registered age out via the
+      // staleness sweep (lib/fcm-token-sweep.ts) so a departed account's
+      // pushes can never leak to the device indefinitely.
       await ctx.db
         .insert(fcmTokens)
         .values({

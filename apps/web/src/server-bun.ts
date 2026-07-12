@@ -27,6 +27,7 @@ import { resolveWebsocketHooks } from "nitro/~internal/runtime/app"
 import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
+import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startProjectTrashScheduler } from "@/lib/project-trash"
 import {
@@ -57,6 +58,11 @@ startEmailDigestScheduler()
 // the 48h retention window and reclaims their attachment blobs. In-process
 // guard only; the row delete is the atomic multi-instance claim.
 startProjectTrashScheduler()
+
+// FCM tokens: periodic sweep deleting token rows not re-registered within the
+// staleness window — the server-side backstop for sign-outs whose best-effort
+// unregister never landed and for old client builds that never unregister.
+startFcmTokenSweepScheduler()
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000
