@@ -1,0 +1,4 @@
+• Fixes projects and releases that could stop syncing after the app sat idle
+• Attaching images to issues and comments now works reliably
+• Clearer errors when an upload is rejected
+• Stability and reliability fixes
