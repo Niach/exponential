@@ -505,8 +505,13 @@ class IssueListViewModel @Inject constructor(
                 }
                 val uploaded = issueImagesApi.upload(accountId, issueId, bytes, filename, contentType)
                 out[placeholder] = uploaded.url
-            } catch (_: Throwable) {
-                // Skip this image; placeholder will be stripped from final description.
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                // Skip this image; placeholder will be stripped from final
+                // description. Log the actual server rejection — silent drops
+                // made upload failures undiagnosable (EXP-61).
+                android.util.Log.w("IssueListViewModel", "Pending image upload failed", error)
             }
         }
         return out

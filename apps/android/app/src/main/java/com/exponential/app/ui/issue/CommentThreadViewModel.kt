@@ -126,12 +126,16 @@ class CommentThreadViewModel @Inject constructor(
 
     // Comment images upload to the issue's attachments (same store as
     // descriptions) and embed as /api/attachments/{id} in the comment body.
-    suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
-        val issueId = issueIdFlow.value ?: return@runCatching null
-        val accountId = auth.activeAccountId.value ?: return@runCatching null
+    // Throws on upload failure (after logging) so the editor's per-row upload
+    // state can surface the server's actual rejection (EXP-61); local read
+    // failures stay a benign null.
+    suspend fun uploadImage(uri: android.net.Uri): String? {
+        val issueId = issueIdFlow.value ?: return null
+        val accountId = auth.activeAccountId.value ?: return null
         val resolver = appContext.contentResolver
-        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: return@runCatching null
+        val bytes = runCatching {
+            resolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull() ?: return null
         val contentType = resolver.getType(uri) ?: "image/jpeg"
         val filename = run {
             resolver.query(
@@ -145,6 +149,13 @@ class CommentThreadViewModel @Inject constructor(
                 if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
             } ?: uri.lastPathSegment ?: "image"
         }
-        issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
-    }.getOrNull()
+        try {
+            return issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (error: Throwable) {
+            android.util.Log.w("CommentThreadViewModel", "Image upload failed (type=$contentType, ${bytes.size} bytes)", error)
+            throw error
+        }
+    }
 }

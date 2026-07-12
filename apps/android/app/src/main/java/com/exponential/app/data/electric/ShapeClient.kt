@@ -3,6 +3,7 @@ package com.exponential.app.data.electric
 import com.exponential.app.data.db.ElectricOffsetDao
 import com.exponential.app.data.db.ElectricOffsetEntity
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -13,6 +14,7 @@ import io.ktor.http.isSuccess
 import kotlinx.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
@@ -28,6 +30,13 @@ import kotlin.math.min
 
 private const val INITIAL_OFFSET = "-1"
 private const val LIVE_TIMEOUT_MS = 60_000L
+// Per-request HTTP budget for shape polls. MUST exceed the server's live
+// long-poll hold window (~20s on prod Electric, up to ~60s per the
+// long-poll-canary.md contract) or every idle live poll times out client-side
+// and the loop degrades into error/backoff churn. iOS uses liveTimeout + 30s
+// (ShapeClient.swift), desktop 90s (sync/client.rs LIVE_READ_TIMEOUT) — same
+// figure here. The socket timeout must match: an idle hold sends zero bytes.
+private const val REQUEST_TIMEOUT_MS = LIVE_TIMEOUT_MS + 30_000L
 // Consecutive schema-class apply errors before a one-shot per-shape reset.
 private const val SCHEMA_RESET_THRESHOLD = 3
 
@@ -84,7 +93,20 @@ class ShapeClient<T : Any>(
                 // response that never reaches up-to-date can't spin-request.
                 if (shouldPause) delay(500)
             } catch (cancel: CancellationException) {
-                throw cancel
+                // Only exit for a REAL cancellation of this loop's own job
+                // (sign-out / pipeline reconcile). HTTP engines can surface
+                // request-level failures as CancellationExceptions too (ktor
+                // CIO's engine timeout cancels the call job) — before the
+                // HttpTimeout plugin was installed, that silently killed this
+                // loop forever and froze sync (EXP-61). Treat any cancellation
+                // that arrives while our job is still active as a transient
+                // transport error: report, back off, keep polling.
+                coroutineContext.ensureActive()
+                android.util.Log.w("ShapeClient", "[$shapeName] request cancelled: ${cancel.message}", cancel)
+                onError(false, describe(cancel.cause ?: cancel), false)
+                consecutiveSchemaErrors = 0
+                delay(backoffMs)
+                backoffMs = min(backoffMs * 2, 30_000L)
             } catch (auth: ShapeAuthException) {
                 android.util.Log.w("ShapeClient", "[$shapeName] auth error: ${auth.message}")
                 onError(true, auth.message, false)
@@ -95,8 +117,8 @@ class ShapeClient<T : Any>(
                 backoffMs = min(backoffMs * 2, 30_000L)
             } catch (error: Throwable) {
                 val schema = isSchemaError(error)
-                android.util.Log.w("ShapeClient", "[$shapeName] error: ${error.message}", error)
-                onError(false, error.message, schema)
+                android.util.Log.w("ShapeClient", "[$shapeName] error: ${describe(error)}", error)
+                onError(false, describe(error), schema)
                 if (schema) {
                     consecutiveSchemaErrors++
                     // A local table that drifted past what tolerant-apply can
@@ -117,6 +139,12 @@ class ShapeClient<T : Any>(
             }
         }
     }
+
+    // Some transport exceptions carry no message at all (e.g. a DNS
+    // UnresolvedAddressException) — the diagnostics row then read "null".
+    // Always fall back to the exception's class name.
+    private fun describe(error: Throwable): String =
+        error.message ?: error.javaClass.simpleName
 
     private fun isSchemaError(error: Throwable): Boolean {
         var t: Throwable? = error
@@ -141,8 +169,14 @@ class ShapeClient<T : Any>(
         // live=true from a mid-snapshot offset is rejected by Electric.
         val wasLive = saved?.isLive ?: false
         onPhase(if (isInitial) "initial" else if (wasLive) "live" else "catchup")
-        val response: HttpResponse = withTimeoutOrNull(LIVE_TIMEOUT_MS + 30_000L) {
+        val response: HttpResponse = withTimeoutOrNull(REQUEST_TIMEOUT_MS + 30_000L) {
             client.get("$baseUrl$urlPath") {
+                // Long-poll budget — overrides the client-wide 30s default,
+                // which would kill the idle live hold (see REQUEST_TIMEOUT_MS).
+                timeout {
+                    requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                    socketTimeoutMillis = REQUEST_TIMEOUT_MS
+                }
                 // Authenticate the shape request so the server scopes data to
                 // this user (not just public workspaces). Mirrors TrpcClient /
                 // AuthApi / IssueImagesApi. Without this, every shape polled
@@ -159,7 +193,21 @@ class ShapeClient<T : Any>(
             }
         } ?: throw IOException("Shape $shapeName request timed out")
 
-        if (response.status == HttpStatusCode.Conflict || response.status.value == 409) {
+        // 409 = Electric must-refetch (stale/rotated handle). 400 = a
+        // deterministic definition error — most notably "shape definition and
+        // handle do not match" after the server-derived where clause rotated
+        // under a persisted handle (membership change). Neither will EVER
+        // succeed by retrying the identical request; both recover by dropping
+        // the cursor and re-snapshotting from scratch.
+        if (response.status == HttpStatusCode.Conflict ||
+            response.status == HttpStatusCode.BadRequest
+        ) {
+            if (response.status == HttpStatusCode.BadRequest) {
+                android.util.Log.w(
+                    "ShapeClient",
+                    "[$shapeName] HTTP 400 — resetting shape: ${response.bodyAsText().take(300)}"
+                )
+            }
             offsetDao.deleteShape(shapeName)
             onMessages(listOf(ShapeMessage.MustRefetch))
             return false

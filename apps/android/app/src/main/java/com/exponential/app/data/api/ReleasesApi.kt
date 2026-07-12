@@ -1,13 +1,14 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.data.db.ReleaseEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 // tRPC surface for the releases router (EXP-56). Mobile is view/manage only:
@@ -27,14 +28,16 @@ data class DeleteReleaseInput(val id: String)
 data class AddReleaseIssuesInput(val releaseId: String, val issueIds: List<String>)
 
 @Singleton
-class ReleasesApi @Inject constructor(private val trpc: TrpcClient) {
+class ReleasesApi @Inject constructor(private val trpc: TrpcClient, private val json: Json) {
 
     /**
      * One-tap create: no name is sent, so the server auto-names sequentially
-     * ("Release N"). Returns the new release's id so the caller can navigate
-     * straight to the detail (which renders a loading state until sync).
+     * ("Release N"). Returns the full created row (ReleaseEntity carries
+     * @JsonNames camelCase aliases, so the tRPC payload decodes directly) so
+     * the caller can upsert it locally as a visibility head-start instead of
+     * spinning until the Electric shape delivers it (EXP-61).
      */
-    suspend fun create(accountId: String, workspaceId: String): String {
+    suspend fun create(accountId: String, workspaceId: String): ReleaseEntity {
         val result = trpc.mutation(
             accountId,
             path = "releases.create",
@@ -44,7 +47,10 @@ class ReleasesApi @Inject constructor(private val trpc: TrpcClient) {
             // the shared strict Json must not choke on columns we don't model.
             outputSerializer = JsonObject.serializer(),
         )
-        return result["release"]!!.jsonObject["id"]!!.jsonPrimitive.content
+        return json.decodeFromJsonElement(
+            ReleaseEntity.serializer(),
+            result["release"]!!.jsonObject,
+        )
     }
 
     suspend fun markShipped(accountId: String, id: String, shipped: Boolean) {
