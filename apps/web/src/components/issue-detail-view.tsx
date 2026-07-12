@@ -215,8 +215,23 @@ export function IssueDetailView({
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
+  // Two baselines in two coordinate systems, both always normalized. The
+  // editor re-serializes whatever it parses, and markdown authored on other
+  // clients (native apps, MCP, the widget) need not round-trip
+  // byte-identically through TipTap — mixing the spaces made one applied
+  // non-canonical description look like unsaved local edits forever,
+  // deferring every later remote update and letting a mere focus+blur save
+  // stale re-serialized text over newer remote saves.
+  // - lastSavedDescriptionRef: EDITOR-serialized text at the last
+  //   apply/save/settle — compared against the editor's local text to detect
+  //   unsaved edits.
+  // - syncedDescriptionRef: RAW synced text this view has accounted for —
+  //   compared against the incoming value to detect new remote content.
   const lastSavedDescriptionRef = useRef(
-    getIssueDescriptionText(issue.description)
+    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
+  )
+  const syncedDescriptionRef = useRef(
+    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
   )
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -255,15 +270,37 @@ export function IssueDetailView({
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
 
+  // Destructive replace of the local editor content with a synced value —
+  // setMarkdown resets the caret, so callers must ensure there are no unsaved
+  // local edits worth keeping.
+  const applyIncomingDescription = (nextDescription: string) => {
+    setDescription(nextDescription)
+    descriptionRef.current = nextDescription
+    syncedDescriptionRef.current =
+      normalizeIssueDescriptionText(nextDescription)
+    editorRef.current?.setMarkdown(nextDescription)
+    // Settle the local text and the unsaved-edits baseline from the editor's
+    // OWN serialization of what it just parsed (setMarkdown also re-enters
+    // onChange with it), never from the raw incoming string — the two need
+    // not match byte-for-byte. While the editor instance does not exist yet
+    // the raw value stands in for both, and the editor is then created from
+    // that same value, so the pair stays consistent either way.
+    const editorMarkdown = editorRef.current?.getMarkdown()
+    if (editorMarkdown != null) {
+      setDescription(editorMarkdown)
+      descriptionRef.current = editorMarkdown
+    }
+    lastSavedDescriptionRef.current = normalizeIssueDescriptionText(
+      descriptionRef.current
+    )
+  }
+
   // Full reset when navigating to a different issue.
   useEffect(() => {
     setTitle(issue.title)
-    setDescription(incomingDescription)
-    descriptionRef.current = incomingDescription
-    lastSavedDescriptionRef.current = normalizedIncoming
+    applyIncomingDescription(incomingDescription)
     setAttachmentStatus(null)
     setActiveTab(`details`)
-    editorRef.current?.setMarkdown(incomingDescription)
   }, [issue.id])
 
   // Sync title from Electric when another client changes it,
@@ -274,14 +311,23 @@ export function IssueDetailView({
     }
   }, [issue.title])
 
-  // Sync description from Electric when another client changes it.
+  // Sync description from Electric when another client changes it — without
+  // clobbering typing in progress. An incoming value the editor already shows
+  // (the Electric echo of a save can beat the tRPC response) only settles the
+  // bookkeeping; with unsaved local edits the replace is deferred to the next
+  // blur instead of wiping the user's text and resetting the caret.
   useEffect(() => {
-    if (normalizedIncoming !== lastSavedDescriptionRef.current) {
-      setDescription(incomingDescription)
-      descriptionRef.current = incomingDescription
-      lastSavedDescriptionRef.current = normalizedIncoming
-      editorRef.current?.setMarkdown(incomingDescription)
+    if (normalizedIncoming === syncedDescriptionRef.current) return
+    const normalizedLocal = normalizeIssueDescriptionText(
+      descriptionRef.current
+    )
+    if (normalizedIncoming === normalizedLocal) {
+      syncedDescriptionRef.current = normalizedIncoming
+      lastSavedDescriptionRef.current = normalizedLocal
+      return
     }
+    if (normalizedLocal !== lastSavedDescriptionRef.current) return
+    applyIncomingDescription(incomingDescription)
   }, [normalizedIncoming])
 
   const handleTitleBlur = async () => {
@@ -300,11 +346,18 @@ export function IssueDetailView({
       return
     }
     const saveTask = async () => {
+      const baselineAtSaveStart = lastSavedDescriptionRef.current
       await trpc.issues.update.mutate({
         id: issue.id,
         description: normalizedDescription ? normalizedDescription : null,
       })
-      lastSavedDescriptionRef.current = normalizedDescription
+      // A remote apply, an echo settle, or an issue switch may have moved the
+      // baselines while the mutate was in flight — rewinding them to this
+      // save would mark the newer editor content as unsaved local edits.
+      if (lastSavedDescriptionRef.current === baselineAtSaveStart) {
+        lastSavedDescriptionRef.current = normalizedDescription
+        syncedDescriptionRef.current = normalizedDescription
+      }
     }
     const queuedSave = saveQueueRef.current.then(saveTask, saveTask)
     saveQueueRef.current = queuedSave.catch(() => undefined)
@@ -320,10 +373,19 @@ export function IssueDetailView({
   }
 
   const handleDescriptionBlur = async () => {
+    const hadLocalEdits =
+      normalizeIssueDescriptionText(descriptionRef.current) !==
+      lastSavedDescriptionRef.current
     try {
       await queueDescriptionSave(descriptionRef.current)
     } catch {
       return
+    }
+    // A remote change that arrived mid-edit was deferred by the sync effect;
+    // when this blur had nothing of ours to write over it, show it now. After
+    // a real save the Electric echo of our own write reconciles instead.
+    if (!hadLocalEdits && normalizedIncoming !== syncedDescriptionRef.current) {
+      applyIncomingDescription(incomingDescription)
     }
   }
 

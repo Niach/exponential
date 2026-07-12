@@ -40,23 +40,7 @@ export function RegularCommentRow({
   users,
 }: RegularCommentRowProps) {
   const bodyText = getCommentBodyText(comment.body)
-  const [draft, setDraft] = useState(bodyText)
-  const [saving, setSaving] = useState(false)
   const name = authorLabel(author, false, comment.authorId)
-
-  const handleSave = async () => {
-    const trimmed = draft.trim()
-    if (!trimmed || trimmed === bodyText) {
-      onCancelEdit()
-      return
-    }
-    setSaving(true)
-    try {
-      await onSaveEdit(trimmed)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <div className="flex gap-2.5 py-2">
@@ -93,40 +77,82 @@ export function RegularCommentRow({
           )}
         </div>
         {editing ? (
-          <div className="mt-1 space-y-2">
-            <MentionTextarea
-              autoFocus
-              value={draft}
-              onValueChange={setDraft}
-              users={users}
-              className="min-h-16 text-sm"
-              disabled={saving}
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="xs"
-                onClick={() => void handleSave()}
-                disabled={saving || !draft.trim()}
-              >
-                Save
-              </Button>
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                onClick={onCancelEdit}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
+          <CommentEditComposer
+            bodyText={bodyText}
+            users={users}
+            onCancel={onCancelEdit}
+            onSave={onSaveEdit}
+          />
         ) : (
           <div className="mt-0.5 text-sm text-foreground">
             <MarkdownEditor markdown={bodyText} editable={false} onChange={() => {}} />
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// Mounted only while the row is in edit mode: mounting seeds the draft from
+// the body as it is at edit-start (so a remotely synced update is picked up
+// instead of a value captured at row mount), and unmounting on cancel
+// discards abandoned drafts instead of resurfacing them on the next edit.
+function CommentEditComposer({
+  bodyText,
+  users,
+  onCancel,
+  onSave,
+}: {
+  bodyText: string
+  users: User[]
+  onCancel: () => void
+  onSave: (text: string) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(bodyText)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === bodyText) {
+      onCancel()
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(trimmed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 space-y-2">
+      <MentionTextarea
+        autoFocus
+        value={draft}
+        onValueChange={setDraft}
+        users={users}
+        className="min-h-16 text-sm"
+        disabled={saving}
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="xs"
+          onClick={() => void handleSave()}
+          disabled={saving || !draft.trim()}
+        >
+          Save
+        </Button>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={onCancel}
+          disabled={saving}
+        >
+          Cancel
+        </Button>
       </div>
     </div>
   )
