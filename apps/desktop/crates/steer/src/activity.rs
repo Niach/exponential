@@ -42,7 +42,11 @@ use crate::publisher::ActivitySender;
 const REDACTED: &str = "[redacted]";
 
 /// Relay-enforced caps (`activityEventSchema`), truncated client-side so a
-/// too-large frame is never silently dropped by the relay's zod parse.
+/// too-large frame is never silently dropped by the relay's zod parse. These
+/// are UTF-8 BYTE budgets: the relay caps each string in UTF-16 code units
+/// (zod `.max()`) and the whole frame in bytes (`maxPayloadLength`), and for
+/// any string UTF-8 bytes >= UTF-16 code units, so staying under the byte
+/// budget satisfies both regardless of script.
 pub const NARRATION_MAX: usize = 16 * 1024;
 pub const TOOL_NAME_MAX: usize = 128;
 pub const TOOL_DETAIL_MAX: usize = 1024;
@@ -462,15 +466,21 @@ fn tail_transcript(
     start + consumed as u64
 }
 
-/// Truncate to `max` chars on a char boundary (the relay caps are string
-/// lengths; code/diff text is ASCII in practice, so char-count truncation
-/// stays comfortably under the byte cap).
+/// Truncate to at most `max` UTF-8 BYTES, backing up to a char boundary.
+/// The relay enforces string caps in UTF-16 code units and the whole-frame
+/// cap in bytes; UTF-8 bytes >= UTF-16 code units >= chars for any string,
+/// so the byte cap is the strictest of the three. (A char-count cap let
+/// CJK/emoji-heavy diffs through at up to 4x the byte budget, and the relay
+/// answered an oversize frame by severing the shared publisher socket.)
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        s.chars().take(max).collect()
+    if s.len() <= max {
+        return s.to_string();
     }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 #[cfg(test)]
@@ -609,7 +619,39 @@ mod tests {
         .to_string();
         let events = parse_transcript_line(&line, &redactor);
         match &events[0] {
-            ActivityEvent::Narration { text } => assert_eq!(text.chars().count(), NARRATION_MAX),
+            ActivityEvent::Narration { text } => assert_eq!(text.len(), NARRATION_MAX),
+            other => panic!("expected narration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn truncation_caps_utf8_bytes_on_a_char_boundary() {
+        // 4 UTF-8 bytes per crab — a char-count cap would overshoot the
+        // relay's byte budget fourfold.
+        let crabs = "\u{1F980}".repeat(8);
+        let out = truncate(&crabs, 10);
+        assert_eq!(out, "\u{1F980}\u{1F980}", "backs up to a char boundary");
+        assert!(out.len() <= 10);
+        assert_eq!(truncate(&crabs, 32), crabs, "under the cap is untouched");
+        assert_eq!(truncate("abcdef", 3), "abc");
+    }
+
+    #[test]
+    fn multibyte_narration_never_exceeds_the_byte_cap() {
+        let redactor = Redactor::new(vec![]);
+        // 3 UTF-8 bytes (and 1 UTF-16 code unit) per char.
+        let big = "\u{898B}".repeat(NARRATION_MAX);
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [ { "type": "text", "text": big } ] }
+        })
+        .to_string();
+        let events = parse_transcript_line(&line, &redactor);
+        match &events[0] {
+            ActivityEvent::Narration { text } => {
+                assert!(text.len() <= NARRATION_MAX, "byte cap exceeded: {}", text.len());
+                assert!(!text.is_empty());
+            }
             other => panic!("expected narration, got {other:?}"),
         }
     }

@@ -40,6 +40,12 @@ use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTE
 /// the relay's own viewer-side slow-consumer guard.
 pub const IN_FLIGHT_CAP: usize = 32;
 
+/// The relay's WebSocket `maxPayloadLength` (bytes). A text frame at or past
+/// this makes the relay sever the connection — killing the members' PTY
+/// mirror along with the activity stream — so oversize activity frames are
+/// dropped client-side instead of sent.
+const RELAY_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+
 /// Clamp a grid dimension to the relay's zod bounds (`helloFrame`/`resizeFrame`
 /// require `positive().max(1000)` in `protocol.ts`). Sending cols/rows outside
 /// `1..=1000` makes `parseClientFrame` return `null` and the relay SILENTLY
@@ -589,7 +595,16 @@ async fn pump_connection(
                         // §P7: publish one already-redacted public activity
                         // event. The relay fans it to public viewers only.
                         let frame = ClientFrame::Activity { event }.to_json();
-                        if ws.send(Message::Text(frame)).await.is_err() {
+                        // The emitter caps event strings in UTF-8 bytes, but
+                        // JSON escaping can still inflate pathological content
+                        // past the relay's frame limit — dropping the event
+                        // beats letting the relay close the shared socket.
+                        if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
+                            log::warn!(
+                                "steer publisher: dropping oversize activity frame ({} bytes)",
+                                frame.len()
+                            );
+                        } else if ws.send(Message::Text(frame)).await.is_err() {
                             return LoopEnd::Dropped;
                         }
                     }
