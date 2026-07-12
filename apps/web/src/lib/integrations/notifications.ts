@@ -413,7 +413,22 @@ export function fireAndForgetPrNotify(args: {
         await subscriberRecipients(issueId, actorUserId)
       )
       if (issue.assigneeId && issue.assigneeId !== actorUserId) {
-        recipients.add(issue.assigneeId)
+        // Respect an explicit unsubscribe: an assignee who muted the issue
+        // must not be re-added over their opt-out.
+        const [optedOut] = await db
+          .select({ userId: issueSubscribers.userId })
+          .from(issueSubscribers)
+          .where(
+            and(
+              eq(issueSubscribers.issueId, issueId),
+              eq(issueSubscribers.userId, issue.assigneeId),
+              eq(issueSubscribers.unsubscribed, true)
+            )
+          )
+          .limit(1)
+        if (!optedOut) {
+          recipients.add(issue.assigneeId)
+        }
       }
       if (recipients.size === 0) return
 

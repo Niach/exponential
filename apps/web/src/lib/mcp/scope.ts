@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, projects } from "@/db/schema"
 
@@ -68,10 +68,14 @@ export async function resolveMcpAccessForGrant(
   if (grant.allWorkspaces) return FULL_ACCESS
   const map = new Map<string, string>()
   if (grant.projectIds.length > 0) {
+    // Trash-aware: a granted project sitting in the 48h trash must not keep
+    // its host workspace visible for workspace-level aux reads.
     const rows = await db
       .select({ id: projects.id, workspaceId: projects.workspaceId })
       .from(projects)
-      .where(inArray(projects.id, grant.projectIds))
+      .where(
+        and(inArray(projects.id, grant.projectIds), isNull(projects.deletedAt))
+      )
     for (const row of rows) map.set(row.id, row.workspaceId)
   }
   return buildMcpAccess(grant, map)

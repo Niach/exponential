@@ -14,6 +14,7 @@ import {
   assertWorkspaceOwner,
   invalidatePublicProjectCache,
 } from "@/lib/workspace-membership"
+import { invalidatePublicMetaCache } from "@/lib/seo/public-meta"
 import type { db } from "@/db/connection"
 import {
   assertCanManageRepos,
@@ -370,7 +371,10 @@ export const projectsRouter = router({
         .returning()
 
       // Type/toggle/archive changes can alter the instance's public surface.
-      if (ownerGated) invalidatePublicProjectCache()
+      if (ownerGated) {
+        invalidatePublicProjectCache()
+        invalidatePublicMetaCache()
+      }
 
       return { project }
     }),
@@ -421,6 +425,7 @@ export const projectsRouter = router({
         return { ok: true as const, txId }
       })
       invalidatePublicProjectCache()
+      invalidatePublicMetaCache()
       return result
     }),
 

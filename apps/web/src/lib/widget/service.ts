@@ -429,8 +429,10 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,
         accentColor:
           typeof form.accentColor === `string` ? form.accentColor : null,
+        // Default matches the loader's pre-config render (bottom-left) so the
+        // launcher doesn't jump sides when the config fetch resolves.
         position:
-          form.position === `bottom-left` ? `bottom-left` : `bottom-right`,
+          form.position === `bottom-right` ? `bottom-right` : `bottom-left`,
         emailRequired: form.emailRequired === true,
       },
       limits: { maxScreenshotBytes: maxImageUploadBytes },

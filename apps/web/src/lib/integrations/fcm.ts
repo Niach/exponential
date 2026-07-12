@@ -29,6 +29,9 @@ export type FcmPayload = {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+// The relay (and FCM multicast) accept at most 500 tokens per request.
+const MAX_TOKENS_PER_REQUEST = 500
+
 export async function sendToUser(
   userId: string,
   payload: FcmPayload
@@ -53,31 +56,33 @@ export async function sendToUser(
     headers[`x-relay-secret`] = relaySecret
   }
 
-  let invalidTokens: string[] = []
-  try {
-    const res = await fetch(`${url}/send`, {
-      method: `POST`,
-      headers,
-      body: JSON.stringify({
-        tokens,
-        notification: { title: payload.title, body: payload.body },
-        // The recipient's user id rides along so multi-account clients can
-        // route a tapped notification into the signed-in account it belongs
-        // to instead of whichever account happens to be active.
-        data: { ...payload.data, userId },
-      }),
-    })
+  const invalidTokens: string[] = []
+  for (let i = 0; i < tokens.length; i += MAX_TOKENS_PER_REQUEST) {
+    const batch = tokens.slice(i, i + MAX_TOKENS_PER_REQUEST)
+    try {
+      const res = await fetch(`${url}/send`, {
+        method: `POST`,
+        headers,
+        body: JSON.stringify({
+          tokens: batch,
+          notification: { title: payload.title, body: payload.body },
+          // The recipient's user id rides along so multi-account clients can
+          // route a tapped notification into the signed-in account it belongs
+          // to instead of whichever account happens to be active.
+          data: { ...payload.data, userId },
+        }),
+      })
 
-    if (!res.ok) {
-      console.error(`[fcm] relay responded ${res.status}:`, await res.text())
-      return
+      if (!res.ok) {
+        console.error(`[fcm] relay responded ${res.status}:`, await res.text())
+        continue
+      }
+
+      const json = (await res.json()) as { invalidTokens?: string[] }
+      invalidTokens.push(...(json.invalidTokens ?? []))
+    } catch (err) {
+      console.error(`[fcm] relay request failed:`, err)
     }
-
-    const json = (await res.json()) as { invalidTokens?: string[] }
-    invalidTokens = json.invalidTokens ?? []
-  } catch (err) {
-    console.error(`[fcm] relay request failed:`, err)
-    return
   }
 
   if (invalidTokens.length > 0) {
