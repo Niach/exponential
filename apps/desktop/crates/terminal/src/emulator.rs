@@ -14,7 +14,7 @@ use alacritty_terminal::event::{Event as AlacTermEvent, EventListener, WindowSiz
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::{Config, Osc52, Term};
+use alacritty_terminal::term::{Config, Osc52, Term, TermMode};
 use std::sync::Arc;
 use vte::ansi::Rgb;
 
@@ -192,6 +192,14 @@ pub fn grid_size(term: &TermHandle) -> (u16, u16) {
     )
 }
 
+/// Whether the child has bracketed paste (DEC private mode 2004) on — the
+/// same bit `Terminal::paste` gates on, as a free fn over a shared
+/// [`TermHandle`] (the [`grid_size`] pattern) for the steer publisher's
+/// off-thread remote-input path (§8.4).
+pub fn bracketed_paste_enabled(term: &TermHandle) -> bool {
+    term.lock().mode().contains(TermMode::BRACKETED_PASTE)
+}
+
 /// Free-function variant of [`Emulator::screen_lines`] usable with just a
 /// [`TermHandle`].
 pub fn screen_lines(term: &TermHandle) -> Vec<String> {
@@ -346,6 +354,17 @@ mod tests {
         let (signals, written) = drain(&mut emulator);
         assert!(written.is_empty());
         assert!(!signals.iter().any(|s| matches!(s, EmulatorSignal::Title(_))));
+    }
+
+    #[test]
+    fn bracketed_paste_tracks_mode_2004() {
+        let emulator = Emulator::new(20, 4);
+        let term = emulator.term();
+        assert!(!bracketed_paste_enabled(&term));
+        advance(&emulator, b"\x1b[?2004h");
+        assert!(bracketed_paste_enabled(&term));
+        advance(&emulator, b"\x1b[?2004l");
+        assert!(!bracketed_paste_enabled(&term));
     }
 
     #[test]

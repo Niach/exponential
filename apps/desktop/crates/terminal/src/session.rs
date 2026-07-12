@@ -11,7 +11,6 @@
 use crate::emulator::{Emulator, EmulatorSignal, TermHandle};
 use crate::pty::{self, ChildExit, ExitSlot, Pty, SpawnSpec};
 use crate::read_loop::{spawn_read_loop, RawSink, SinkSet, Wake};
-use alacritty_terminal::term::TermMode;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -71,11 +70,7 @@ impl Terminal {
     /// stops shells from running pasted newlines and lets editors/`claude`
     /// treat the block as literal input.
     pub fn paste(&self, text: &str) {
-        let bracketed = {
-            let term = self.emulator.term();
-            let mode = *term.lock().mode();
-            mode.contains(TermMode::BRACKETED_PASTE)
-        };
+        let bracketed = crate::emulator::bracketed_paste_enabled(&self.emulator.term());
         if bracketed {
             self.write(b"\x1b[200~");
             self.write(text.as_bytes());

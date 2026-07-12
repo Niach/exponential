@@ -24,3 +24,8 @@ log = "0.4"
 # Secret-redaction patterns for the public activity emitter (§P7). Already in
 # the workspace lock via transitive deps — adds no new build.
 regex = "1"
+
+[dev-dependencies]
+# EXP-72 input-hook tests: advance `\x1b[?2004h` into a terminal::Emulator
+# term to flip bracketed paste on (same vte the terminal crate parses with).
+vte = { workspace = true }

@@ -418,8 +418,9 @@ pub fn attach_publisher(
     let kill_tx = ui_tx.clone();
 
     let hooks = PublisherHooks {
-        // Remote input → the ONE shared PTY writer (Send+Sync Arc, no gpui).
-        write_input: pty_writer_input_hook(writer),
+        // Remote input → the ONE shared PTY writer (Send+Sync Arc, no gpui);
+        // the TermHandle is the EXP-72 bracketed-paste gate for text frames.
+        write_input: pty_writer_input_hook(writer, term.clone()),
         // TRUE geometry for `hello`/re-`hello` (Send+Sync TermHandle, no gpui).
         geometry: term_geometry_hook(term),
         // The rest marshal to the foreground (they touch the gpui-held term).

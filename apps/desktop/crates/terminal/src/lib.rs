@@ -29,7 +29,8 @@ pub mod tab;
 
 pub use element::{init, GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
 pub use emulator::{
-    grid_size, screen_lines, Emulator, EmulatorSignal, EventProxy, GridSize, TermHandle,
+    bracketed_paste_enabled, grid_size, screen_lines, Emulator, EmulatorSignal, EventProxy,
+    GridSize, TermHandle,
 };
 pub use keys::to_esc_str;
 pub use manager::{TerminalManager, TerminalManagerEvent};
