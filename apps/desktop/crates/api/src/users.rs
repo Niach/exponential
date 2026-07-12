@@ -8,8 +8,9 @@
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
 //!   createdAt, lastRequest}]}`.
 //! - `users.revokePersonalApiKey({id})` → `{ok: true}`.
-//! - `users.deleteAccount({confirm: true})` → `{ok: true}` — permanent
-//!   account deletion (App Store 5.1.1(v) analog).
+//!
+//! (Account deletion is deliberately web/mobile-only — EXP-69 removed the
+//! desktop flow, so there is no `users.deleteAccount` helper here.)
 //!
 //! **The rule is explicit: there is never a manual API-key text field in the
 //! desktop UI.** The key is minted silently on first need (the coding
@@ -79,11 +80,6 @@ struct RevokeInput<'a> {
     id: &'a str,
 }
 
-#[derive(Serialize)]
-struct DeleteAccountInput {
-    confirm: bool,
-}
-
 /// `users.mintPersonalApiKey` — mutation.
 pub fn mint_personal_api_key(
     trpc: &TrpcClient,
@@ -107,21 +103,6 @@ pub fn revoke_personal_api_key(trpc: &TrpcClient, id: &str) -> Result<(), ApiErr
         ok: bool,
     }
     let _: RevokeAck = trpc.mutation("users.revokePersonalApiKey", &RevokeInput { id })?;
-    Ok(())
-}
-
-/// `users.deleteAccount` — mutation. Permanently deletes the signed-in
-/// account (and its personal workspaces/issues/comments) server-side; the
-/// caller tears the local session down afterwards.
-pub fn delete_account(trpc: &TrpcClient) -> Result<(), ApiError> {
-    #[derive(Deserialize)]
-    struct DeleteAck {
-        #[allow(dead_code)]
-        #[serde(default)]
-        ok: bool,
-    }
-    let _: DeleteAck =
-        trpc.mutation("users.deleteAccount", &DeleteAccountInput { confirm: true })?;
     Ok(())
 }
 
@@ -282,15 +263,6 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         // tRPC routes reads as GET — POST to a .query 405s (iOS-proven).
         assert!(request.starts_with("GET /api/trpc/users.listPersonalApiKeys HTTP/1.1"));
-    }
-
-    #[test]
-    fn delete_account_posts_confirm() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        delete_account(&client(&base)).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/users.deleteAccount HTTP/1.1"));
-        assert!(request.ends_with(r#"{"confirm":true}"#));
     }
 
     #[test]
