@@ -60,6 +60,55 @@ pub struct Lane {
     pub issue_id: Option<String>,
 }
 
+/// What leads a lane row (EXP-67): the default lane carries nothing, PR
+/// states keep their tones (merged upgraded from a blue dot to a green
+/// check), and PR-less lanes with local work — a dirty worktree or commits
+/// ahead of origin — get the yellow in-progress badge; only truly idle
+/// lanes stay a muted dot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneIndicator {
+    /// The default branch — no indicator at all.
+    None,
+    /// PR merged — green check (the done-status glyph).
+    MergedCheck,
+    /// PR open — green dot.
+    OpenDot,
+    /// PR closed — red dot.
+    ClosedDot,
+    /// No PR, but local work exists (dirty worktree or ahead of origin) —
+    /// yellow in-progress badge (the in-progress-status glyph).
+    Progress,
+    /// Stale/idle — muted dot.
+    IdleDot,
+}
+
+/// Pure indicator pick for one lane. `ahead` is the background ↑ count when
+/// known; `dirty` is the lane worktree's (or, for the current lane, the
+/// trunk's) uncommitted-changes probe. PR state is authoritative: a merged
+/// lane keeps its check even if the worktree is dirty again.
+pub fn lane_indicator(
+    kind: LaneKind,
+    pr: PrTone,
+    ahead: Option<u32>,
+    dirty: bool,
+) -> LaneIndicator {
+    if matches!(kind, LaneKind::Default) {
+        return LaneIndicator::None;
+    }
+    match pr {
+        PrTone::Merged => LaneIndicator::MergedCheck,
+        PrTone::Open => LaneIndicator::OpenDot,
+        PrTone::Closed => LaneIndicator::ClosedDot,
+        PrTone::None => {
+            if dirty || ahead.is_some_and(|ahead| ahead > 0) {
+                LaneIndicator::Progress
+            } else {
+                LaneIndicator::IdleDot
+            }
+        }
+    }
+}
+
 /// The built strip: capped lanes + how many non-default lanes were hidden.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlowModel {
@@ -480,6 +529,25 @@ mod tests {
         );
         // Orphan EXP-9: last root-level sibling → └.
         assert_eq!(connectors[4], LaneConnector { rails: vec![], elbow: Some(true) });
+    }
+
+    #[test]
+    fn lane_indicator_maps_states_like_exp_67_asks() {
+        use LaneIndicator::*;
+        // Master/default: nothing — even when dirty or ahead.
+        assert_eq!(lane_indicator(LaneKind::Default, PrTone::None, Some(3), true), None);
+        // Merged: green check, authoritative over local noise.
+        assert_eq!(lane_indicator(LaneKind::Issue, PrTone::Merged, Some(2), true), MergedCheck);
+        // Open / closed PRs keep their dots.
+        assert_eq!(lane_indicator(LaneKind::Issue, PrTone::Open, Option::None, false), OpenDot);
+        assert_eq!(lane_indicator(LaneKind::Issue, PrTone::Closed, Option::None, false), ClosedDot);
+        // No PR + local work → yellow progress (dirty OR ahead).
+        assert_eq!(lane_indicator(LaneKind::Issue, PrTone::None, Option::None, true), Progress);
+        assert_eq!(lane_indicator(LaneKind::Other, PrTone::None, Some(1), false), Progress);
+        assert_eq!(lane_indicator(LaneKind::Release, PrTone::None, Some(0), true), Progress);
+        // Stale: muted dot (unknown counts stay idle, not progress).
+        assert_eq!(lane_indicator(LaneKind::Issue, PrTone::None, Option::None, false), IdleDot);
+        assert_eq!(lane_indicator(LaneKind::Other, PrTone::None, Some(0), false), IdleDot);
     }
 
     #[test]

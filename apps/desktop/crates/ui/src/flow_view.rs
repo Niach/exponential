@@ -28,7 +28,8 @@ use coding::{clone_manager, scm};
 
 use crate::coding_flow::CodingHub;
 use crate::flow_lanes::{
-    build_lanes, connectors, FlowModel, IssueLite, Lane, LaneKind, PrTone, ReleaseLite,
+    build_lanes, connectors, lane_indicator, FlowModel, IssueLite, Lane, LaneIndicator, LaneKind,
+    ReleaseLite,
 };
 use crate::git_bar::GitBar;
 use crate::navigation::{self, Navigation, Screen};
@@ -49,9 +50,15 @@ pub struct FlowView {
     expanded: bool,
     /// branch → (ahead, behind) vs origin, filled by the background pass.
     counts: HashMap<String, (u32, u32)>,
-    /// The sorted branch set `counts` belongs to — a changed set refires the
-    /// pass exactly once (render-time rebuilds stay cheap and git-free).
-    counts_for: Vec<String>,
+    /// branch → uncommitted-changes probe of its worktree (the trunk clone
+    /// for the checked-out lane) — feeds the yellow in-progress indicator.
+    dirty: HashMap<String, bool>,
+    /// The lane set (branch, current, worktree) `counts`/`dirty` belong to —
+    /// a changed set refires the pass exactly once (render-time rebuilds
+    /// stay cheap and git-free). The flags are part of the key: a checkout
+    /// or a worktree add/remove moves the dirty-probe target even when the
+    /// branch names are unchanged.
+    counts_for: Vec<(String, bool, bool)>,
     /// A delete op is in flight (the lane buttons disable).
     busy: bool,
     error: Option<SharedString>,
@@ -90,6 +97,7 @@ impl FlowView {
             git_bar,
             expanded: false,
             counts: HashMap::new(),
+            dirty: HashMap::new(),
             counts_for: Vec::new(),
             busy: false,
             error: None,
@@ -156,13 +164,19 @@ impl FlowView {
         (issues, releases)
     }
 
-    /// Refire the background ↑/↓ pass when the VISIBLE branch set changed
-    /// (bounded git cost — never per render).
+    /// Refire the background ↑/↓ + dirty pass when the VISIBLE lane set
+    /// changed (bounded git cost — never per render). The same pass probes
+    /// each lane's worktree (the trunk clone for the checked-out lane) for
+    /// uncommitted changes — the EXP-67 in-progress indicator's input.
     fn ensure_counts(&mut self, flow: &FlowModel, cx: &mut gpui::Context<Self>) {
         let Some(clone) = self.git_bar.read(cx).clone_dir() else {
             return;
         };
-        let mut wanted: Vec<String> = flow.lanes.iter().map(|lane| lane.branch.clone()).collect();
+        let mut wanted: Vec<(String, bool, bool)> = flow
+            .lanes
+            .iter()
+            .map(|lane| (lane.branch.clone(), lane.current, lane.worktree))
+            .collect();
         wanted.sort();
         wanted.dedup();
         if wanted == self.counts_for {
@@ -172,16 +186,32 @@ impl FlowView {
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
-            let counts = cx
+            let (counts, dirty) = cx
                 .background_executor()
                 .spawn(async move {
                     let mut counts = HashMap::new();
-                    for branch in wanted {
+                    let mut dirty = HashMap::new();
+                    for (branch, current, worktree) in wanted {
                         if let Ok(pair) = clone_manager::ahead_behind(&clone, &branch) {
-                            counts.insert(branch, pair);
+                            counts.insert(branch.clone(), pair);
+                        }
+                        // Where this lane's working tree lives: the trunk
+                        // clone when checked out there, else its session
+                        // worktree (the deterministic launch path).
+                        let tree = if current {
+                            Some(clone.clone())
+                        } else if worktree {
+                            Some(coding::worktree_path(&clone, &branch))
+                        } else {
+                            None
+                        };
+                        if let Some(tree) = tree {
+                            if let Ok(status) = scm::status(&tree) {
+                                dirty.insert(branch, !status.changes.is_empty());
+                            }
                         }
                     }
-                    counts
+                    (counts, dirty)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -189,6 +219,7 @@ impl FlowView {
                     return;
                 }
                 this.counts = counts;
+                this.dirty = dirty;
                 cx.notify();
             });
         })
@@ -279,17 +310,19 @@ impl FlowView {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let rail_color = muted.opacity(0.35);
-        let (green, blue, red) = (theme.green, theme.blue, theme.red);
+        let (green, yellow, red) = (theme.green, theme.yellow, theme.red);
         let foreground = theme.foreground;
         let accent = theme.accent;
         let radius = theme.radius;
 
-        let tone = match lane.pr {
-            PrTone::Open => green,
-            PrTone::Merged => blue,
-            PrTone::Closed => red,
-            PrTone::None => muted.opacity(0.5),
-        };
+        // EXP-67 indicator: merged = green check, local work without a PR =
+        // yellow in-progress, default = nothing; open/closed keep their dots.
+        let indicator = lane_indicator(
+            lane.kind,
+            lane.pr,
+            self.counts.get(&lane.branch).map(|(ahead, _)| *ahead),
+            self.dirty.get(&lane.branch).copied().unwrap_or(false),
+        );
         let label_color = match lane.kind {
             LaneKind::Other => muted,
             _ => foreground,
@@ -364,7 +397,12 @@ impl FlowView {
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 if let Some(issue_id) = issue_id.clone() {
-                    navigation::navigate(window, cx, Screen::IssueDetail { issue_id });
+                    // Issue lanes open the issue's Changes tab — the
+                    // issue-centric diff surface (EXP-67). Clear any branch
+                    // view so the SC screen doesn't stay pinned to a stale
+                    // history selection.
+                    crate::sidebar::set_view_branch(window, cx, None);
+                    navigation::navigate_issue_changes(window, cx, issue_id);
                 } else {
                     // Clicking VIEWS the branch's history in the changes
                     // screen — never a checkout (that's the top-bar chip).
@@ -377,7 +415,32 @@ impl FlowView {
                 }
             }))
             .child(gutter)
-            .child(div().size_1p5().flex_shrink_0().rounded_full().bg(tone))
+            .child({
+                // Fixed slot so dot lanes and icon lanes keep their labels
+                // aligned (and the indicator-less default lane too).
+                let slot = div()
+                    .w(px(12.))
+                    .h(px(ROW_H))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center();
+                let dot = |color: gpui::Hsla| div().size_1p5().rounded_full().bg(color);
+                match indicator {
+                    LaneIndicator::None => slot,
+                    LaneIndicator::MergedCheck => slot.child(
+                        Icon::from(crate::icons::ExpIcon::CircleCheck)
+                            .xsmall()
+                            .text_color(green),
+                    ),
+                    LaneIndicator::Progress => slot.child(
+                        Icon::from(crate::icons::ExpIcon::Timer).xsmall().text_color(yellow),
+                    ),
+                    LaneIndicator::OpenDot => slot.child(dot(green)),
+                    LaneIndicator::ClosedDot => slot.child(dot(red)),
+                    LaneIndicator::IdleDot => slot.child(dot(muted.opacity(0.5))),
+                }
+            })
             .child(
                 // The label IS the flexible element (`flex_1`, never a
                 // separate spacer): inside the sidebar's scroll container
@@ -471,8 +534,18 @@ impl Render for FlowView {
         }
         self.ensure_counts(&flow, cx);
         let lane_connectors = connectors(&flow.lanes);
-        // The rail's view-branch selection highlights the viewed lane (the
-        // checked-out lane while nothing is explicitly viewed).
+        // Highlight follows the ACTIVE center tab (EXP-67): an issue lane is
+        // selected while its issue detail is the active screen; branch lanes
+        // are selected while the Source Control screen shows them (the
+        // rail's view-branch selection, falling back to the checked-out
+        // lane). Previously issue lanes never highlighted — only the
+        // view-branch path did.
+        let active_screen = navigation::resolved_screen(&self.nav, cx);
+        let active_issue = match &active_screen {
+            Some(Screen::IssueDetail { issue_id }) => Some(issue_id.clone()),
+            _ => None,
+        };
+        let sc_active = matches!(active_screen, Some(Screen::SourceControl));
         let view_branch = crate::sidebar::rail_shared_for_window(window, cx)
             .read(cx)
             .view_branch()
@@ -480,9 +553,15 @@ impl Render for FlowView {
 
         let mut section = v_flex().w_full().p_1().px_2();
         for (lane, connector) in flow.lanes.iter().zip(&lane_connectors) {
-            let viewing = match &view_branch {
-                Some(viewed) => *viewed == lane.branch,
-                None => lane.current,
+            let viewing = match &lane.issue_id {
+                Some(issue_id) => active_issue.as_deref() == Some(issue_id.as_str()),
+                None => {
+                    sc_active
+                        && match &view_branch {
+                            Some(viewed) => *viewed == lane.branch,
+                            None => lane.current,
+                        }
+                }
             };
             section = section.child(self.render_lane(lane, connector, viewing, cx));
         }

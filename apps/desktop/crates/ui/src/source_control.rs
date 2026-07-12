@@ -101,6 +101,11 @@ pub struct SourceControlView {
     /// The shared per-window rail state — carries the sidebar's "view this
     /// branch's history" selection (no checkout).
     rail: Entity<crate::sidebar::RailShared>,
+    /// The last git-bar `sync_seq` this view re-read for — the shared bar's
+    /// counter is the freshness signal (EXP-67: an external commit pulled by
+    /// auto-sync must show up in the history pane without closing/reopening
+    /// the screen; the bar itself rides the observer, not a field).
+    seen_sync_seq: u64,
     /// The branch whose history is shown (`None` = the checked-out branch,
     /// including the working-tree changes + commit box).
     viewing: Option<String>,
@@ -159,6 +164,8 @@ impl SourceControlView {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Your name"));
         let email_input = cx.new(|cx| InputState::new(window, cx).placeholder("you@example.com"));
 
+        let git_bar = rail.read(cx).git_bar().clone();
+        let seen_sync_seq = git_bar.read(cx).sync_seq();
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -168,11 +175,23 @@ impl SourceControlView {
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // The sidebar's view-branch selection lives on the rail state.
             cx.observe(&rail, |_, _, cx| cx.notify()),
+            // Freshness (EXP-67): re-read status/history when a git-bar sync
+            // lands fresh on-disk state (external commits pulled by
+            // auto-sync used to stay invisible until the screen reopened).
+            cx.observe(&git_bar, |this: &mut Self, bar, cx| {
+                let seq = bar.read(cx).sync_seq();
+                if seq != this.seen_sync_seq {
+                    this.seen_sync_seq = seq;
+                    this.refresh(cx);
+                }
+                cx.notify();
+            }),
         ];
 
         Self {
             nav,
             rail,
+            seen_sync_seq,
             viewing: None,
             repo_resolver,
             diff,

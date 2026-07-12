@@ -159,6 +159,12 @@ pub struct IssueDetailView {
     /// dispatch path so the scoped J/K bindings fire (focused on
     /// `set_issue`, re-acquired by clicking the body).
     focus_handle: FocusHandle,
+    /// The Details body's scroll position. gpui persists scroll offsets per
+    /// element id, and this view is ONE shared instance re-pointed across
+    /// issues — without an explicit reset, issue B opens at issue A's scroll
+    /// offset and the title sits above the viewport ("the title vanishes",
+    /// EXP-67).
+    body_scroll: gpui::ScrollHandle,
     /// The window's shared rail state — the EXP-48 switcher reads the active
     /// issue board's query + filters from it.
     rail_shared: Entity<crate::sidebar::RailShared>,
@@ -236,6 +242,7 @@ impl IssueDetailView {
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
+            body_scroll: gpui::ScrollHandle::new(),
             rail_shared,
             title_input,
             synced_title: String::new(),
@@ -264,12 +271,40 @@ impl IssueDetailView {
         if self.issue_id.as_deref() == Some(issue_id.as_str()) {
             return;
         }
+        // Commit an in-flight title edit to the OUTGOING issue before the
+        // swap (its blur won't fire until `issue_id` already points at the
+        // new issue — saving there would write onto the wrong row).
+        self.save_title(cx);
         self.issue_id = Some(issue_id.clone());
         self.editor = None;
         self.editor_issue = None;
         self.synced_title = String::new();
         *self.last_saved_description.borrow_mut() = String::new();
         self.subscribe_busy = false;
+        // Back to the top: the scroll offset belongs to the PREVIOUS issue
+        // (gpui keys scroll state by element id and this view is shared) —
+        // without this the new issue opens mid-scroll with its title hidden.
+        self.body_scroll
+            .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
+        // Swap the title UNCONDITIONALLY on an issue switch. The focused-input
+        // guard in `sync_from_issue` exists for remote echoes of the SAME
+        // issue; across a switch it would leave the old issue's title in the
+        // input, and the blur that follows `window.focus` below would then
+        // save it onto the NEW issue.
+        if let Some(issue) = Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(&issue_id)
+            .cloned()
+        {
+            self.synced_title = issue.title.clone();
+            self.title_input
+                .update(cx, |input, cx| input.set_value(issue.title, window, cx));
+        } else {
+            self.title_input
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        }
 
         self.start_coding.update(cx, |control, cx| {
             control.set_issue(Some(issue_id.clone()), cx)
@@ -854,6 +889,13 @@ impl IssueDetailView {
             )
     }
 
+    /// Flip to the Changes tab (EXP-67: PR rows / flow lanes land here — the
+    /// screens panel calls this right after `set_issue` when the navigation
+    /// carried the pending-Changes marker).
+    pub(crate) fn show_changes(&mut self, cx: &mut gpui::Context<Self>) {
+        self.select_tab(DetailTab::Changes, cx);
+    }
+
     fn select_tab(&mut self, tab: DetailTab, cx: &mut gpui::Context<Self>) {
         if self.tab == tab {
             return;
@@ -943,6 +985,7 @@ impl Render for IssueDetailView {
                             .min_w_0()
                             .h_full()
                             .overflow_y_scroll()
+                            .track_scroll(&self.body_scroll)
                             .child(left),
                     )
                     .child(self.properties.clone())

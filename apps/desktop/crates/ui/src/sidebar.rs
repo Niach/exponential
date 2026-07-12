@@ -1173,13 +1173,8 @@ impl SidebarPanel {
                     this.review_arm_seq += 1;
                     cx.notify();
                 }
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: nav_id.clone(),
-                    },
-                );
+                // A PR row's payload is the diff — land on the Changes tab.
+                crate::navigation::navigate_issue_changes(window, cx, nav_id.clone());
             }))
             .child(
                 h_flex()

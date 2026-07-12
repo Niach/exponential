@@ -175,6 +175,11 @@ pub struct GitBar {
     /// Scope generation — bumped on every scope change so a stale background
     /// job's marshaled messages (and the old timer loop) are ignored.
     generation: u64,
+    /// Bumped whenever fresh on-disk git state lands here (sync completion,
+    /// local re-read, initial scope read) — a cheap change signal other
+    /// surfaces (the Source Control screen's history pane, EXP-67) compare
+    /// instead of diffing trunk snapshots.
+    sync_seq: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -214,8 +219,14 @@ impl GitBar {
             last_synced: None,
             job_failed: false,
             generation: 0,
+            sync_seq: 0,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Monotonic stamp of the last fresh on-disk read (see the field doc).
+    pub(crate) fn sync_seq(&self) -> u64 {
+        self.sync_seq
     }
 
     /// The scope: the window's active project (screen scope with the
@@ -307,6 +318,7 @@ impl GitBar {
                     this.trunk = trunk;
                 }
                 this.branches = branches;
+                this.sync_seq += 1;
                 cx.notify();
             });
         })
@@ -636,6 +648,7 @@ impl GitBar {
                     this.trunk = trunk;
                 }
                 this.branches = branches;
+                this.sync_seq += 1;
                 let clone_exists = repo.clone_exists;
                 this.repo = Some(repo);
                 this.repo_error = None;
@@ -750,6 +763,7 @@ impl GitBar {
                 self.trunk = trunk;
                 self.syncing = false;
                 self.clone_progress = None;
+                self.sync_seq += 1;
                 if let Some(repo) = &mut self.repo {
                     repo.clone_exists = true;
                 }
@@ -766,6 +780,7 @@ impl GitBar {
             }
             SyncMsg::Branches(branches) => {
                 self.branches = branches;
+                self.sync_seq += 1;
             }
         }
         cx.notify();
