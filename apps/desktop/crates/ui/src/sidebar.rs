@@ -75,8 +75,10 @@ pub(crate) enum ToolWindow {
     MyIssues,
     /// Every issue in the workspace (mini list).
     AllIssues,
-    /// Open pull requests across the workspace, grouped by project, with an
-    /// inline squash-merge action (server-side via the GitHub App).
+    /// Open pull requests across the workspace: issue-linked ones grouped by
+    /// project, plus GitHub-listed PRs not linked to any issue grouped by
+    /// repo — both with an inline squash-merge action (server-side via the
+    /// GitHub App).
     Reviews,
     /// The workspace's releases (EXP-56): list + in-panel detail (issues
     /// grouped by status; rows open the issue detail in the center pane).
@@ -559,22 +561,42 @@ pub struct SidebarPanel {
     /// Scroll position of the flow graph's lane list (EXP-67: the full
     /// uncapped list scrolls instead of collapsing behind "+N more").
     flow_scroll: ScrollHandle,
-    /// Two-click merge confirm: the armed row's issue id. Any other click or
-    /// ~5s of inactivity disarms.
+    /// Two-click merge confirm: the armed row's key — an issue id, or
+    /// `repo#number` for an unlinked pull (see [`pull_merge_key`]). Any other
+    /// click or ~5s of inactivity disarms.
     review_arm: Option<String>,
     /// Bumped on every arm/disarm — a stale disarm timer checks it before
     /// clearing so it never cancels a newer arm.
     review_arm_seq: u64,
-    /// Issue ids with an in-flight `issues.mergePr` call. On success the id
-    /// stays until the Electric echo removes the row (render prunes it).
+    /// Row keys with an in-flight merge call (`issues.mergePr` or
+    /// `repositories.mergePull`). Issue rows keep the id until the Electric
+    /// echo removes the row (render prunes it); pull rows clear on completion.
     review_merging: HashSet<String>,
-    /// The last merge failure, `(issue_id, message)` — a caption under the
+    /// The last merge failure, `(row_key, message)` — a caption under the
     /// row, cleared on the next attempt.
     review_error: Option<(String, String)>,
+    /// Fetched `repositories.openPulls` result: `(workspace_id, repos)` —
+    /// open PRs with NO issue link (release PRs, manual branches, external
+    /// contributors), listed straight from GitHub. Rendered below the project
+    /// groups; a merged pull is removed locally (no Electric echo).
+    open_pulls: Option<(String, Vec<api::repositories::OpenPullsRepo>)>,
+    /// The workspace the current openPulls fetch belongs to. Cleared whenever
+    /// the Reviews tool window is inactive, so re-opening refetches (the
+    /// server caches ~60s; there is deliberately no polling).
+    open_pulls_key: Option<String>,
+    /// Bumped per fetch — a stale response checks it before landing.
+    open_pulls_seq: u64,
     /// The release detail's status-grouped issue list (the shared board core,
     /// pinned to `IssueQuery::Release`).
     release_list: Entity<IssueListView>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Merge-state key for an unlinked pull. `review_arm`/`review_merging`/
+/// `review_error` share the namespace with issue rows, whose keys are issue
+/// UUIDs — `repo-uuid#number` can never collide with those.
+fn pull_merge_key(repository_id: &str, number: u64) -> String {
+    format!("{repository_id}#{number}")
 }
 
 /// Latest-notification kind → the inbox row's leading type-badge glyph (the
@@ -638,6 +660,9 @@ impl SidebarPanel {
             review_arm_seq: 0,
             review_merging: HashSet::new(),
             review_error: None,
+            open_pulls: None,
+            open_pulls_key: None,
+            open_pulls_seq: 0,
             release_list,
             flow,
             flow_scroll: ScrollHandle::new(),
@@ -952,28 +977,48 @@ impl SidebarPanel {
 
     // -- Reviews tool window ----------------------------------------------------
 
-    /// *Reviews* tool window: open pull requests across the workspace,
-    /// grouped by project, each row with a two-click inline merge confirm.
-    /// Merging goes through the server (`issues.mergePr`, GitHub App squash)
-    /// — never local git; on success the Electric echo flips `pr_state` and
-    /// the row leaves the list.
+    /// *Reviews* tool window: open pull requests across the workspace, each
+    /// row with a two-click inline merge confirm. Issue-linked PRs come from
+    /// the synced issues shape, grouped by project; below them, PRs NOT
+    /// linked to any issue (release PRs, manual branches, external
+    /// contributors) come from a background `repositories.openPulls` fetch,
+    /// grouped by repo — the synced list never waits on GitHub. Merging goes
+    /// through the server (`issues.mergePr` / `repositories.mergePull`,
+    /// GitHub App squash) — never local git; issue rows leave the list via
+    /// the Electric echo, unlinked pulls are removed locally.
     fn render_reviews_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let collections = Store::global(cx).collections().clone();
         let is_ready = collections.issues.read(cx).is_ready()
             && collections.projects.read(cx).is_ready();
-        let groups = active_workspace_id(&self.nav, cx)
-            .map(|id| queries::review_groups(cx, &id))
+        let workspace_id = active_workspace_id(&self.nav, cx);
+        if let Some(id) = workspace_id.as_deref() {
+            self.ensure_open_pulls(id, cx);
+        }
+        let groups = workspace_id
+            .as_deref()
+            .map(|id| queries::review_groups(cx, id))
+            .unwrap_or_default();
+        let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
+            .open_pulls
+            .as_ref()
+            .filter(|(ws, _)| Some(ws.as_str()) == workspace_id.as_deref())
+            .map(|(_, repos)| queries::visible_pull_repos(repos))
             .unwrap_or_default();
 
         // Rows that merged/closed (or left the workspace scope) drop their
         // transient merge state — this is also where a successful merge's
         // lingering "Merging…" id gets collected once the echo lands.
         {
-            let live_ids: HashSet<&str> = groups
+            let mut live_ids: HashSet<String> = groups
                 .iter()
-                .flat_map(|group| group.issues.iter().map(|issue| issue.id.as_str()))
+                .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
                 .collect();
-            self.review_merging.retain(|id| live_ids.contains(id.as_str()));
+            for repo in &pull_repos {
+                for pull in &repo.pulls {
+                    live_ids.insert(pull_merge_key(&repo.repository_id, pull.number));
+                }
+            }
+            self.review_merging.retain(|id| live_ids.contains(id));
             if self
                 .review_arm
                 .as_deref()
@@ -994,7 +1039,7 @@ impl SidebarPanel {
 
         let body: gpui::AnyElement = if !is_ready {
             self.list_skeleton(cx)
-        } else if groups.is_empty() {
+        } else if groups.is_empty() && pull_repos.is_empty() {
             self.list_note("No open pull requests.", cx)
         } else {
             let muted = cx.theme().muted_foreground;
@@ -1025,6 +1070,45 @@ impl SidebarPanel {
                 );
                 for issue in &group.issues {
                     children.push(self.review_row(issue, cx));
+                }
+            }
+            for repo in &pull_repos {
+                children.push(
+                    h_flex()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            Icon::from(ExpIcon::GitPullRequest)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(muted),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_xs()
+                                .truncate()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(muted)
+                                .child(SharedString::from(repo.full_name.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted.opacity(0.8))
+                                .child(SharedString::from(format!(
+                                    "not linked to an issue \u{00B7} {}",
+                                    repo.pulls.len()
+                                ))),
+                        )
+                        .into_any_element(),
+                );
+                for pull in &repo.pulls {
+                    children.push(self.pull_row(&repo.repository_id, pull, cx));
                 }
             }
             div()
@@ -1180,22 +1264,7 @@ impl SidebarPanel {
             return;
         }
         if self.review_arm.as_deref() != Some(issue_id.as_str()) {
-            self.review_arm = Some(issue_id);
-            self.review_arm_seq += 1;
-            let seq = self.review_arm_seq;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(5))
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.review_arm_seq == seq && this.review_arm.is_some() {
-                        this.review_arm = None;
-                        cx.notify();
-                    }
-                });
-            })
-            .detach();
-            cx.notify();
+            self.arm_merge_confirm(issue_id, cx);
             return;
         }
 
@@ -1231,6 +1300,270 @@ impl SidebarPanel {
                 }
                 // Success: nothing to do — the collection observer re-renders
                 // when the echo flips `pr_state` and the row leaves the list.
+            });
+        })
+        .detach();
+    }
+
+    /// First click of the two-click merge confirm: arm `key` (an issue id or
+    /// an unlinked-pull key) and start the ~5s auto-disarm timer.
+    fn arm_merge_confirm(&mut self, key: String, cx: &mut gpui::Context<Self>) {
+        self.review_arm = Some(key);
+        self.review_arm_seq += 1;
+        let seq = self.review_arm_seq;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(5))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.review_arm_seq == seq && this.review_arm.is_some() {
+                    this.review_arm = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Kick the `repositories.openPulls` fetch when the Reviews tool window
+    /// is shown or the workspace changes — never on a timer (the server
+    /// caches ~60s). Data from another workspace is dropped immediately; a
+    /// reopen in the same workspace keeps rendering the previous result while
+    /// the refresh is in flight.
+    fn ensure_open_pulls(&mut self, workspace_id: &str, cx: &mut gpui::Context<Self>) {
+        if self.open_pulls_key.as_deref() == Some(workspace_id) {
+            return;
+        }
+        self.open_pulls_key = Some(workspace_id.to_string());
+        if self
+            .open_pulls
+            .as_ref()
+            .is_some_and(|(ws, _)| ws != workspace_id)
+        {
+            self.open_pulls = None;
+        }
+        self.open_pulls_seq += 1;
+        let seq = self.open_pulls_seq;
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let ws = workspace_id.to_string();
+        cx.spawn(async move |this, cx| {
+            let call_ws = ws.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::open_pulls(&trpc, &call_ws) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.open_pulls_seq != seq {
+                    return;
+                }
+                match result {
+                    Ok(repos) => {
+                        this.open_pulls = Some((ws, repos));
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        // The synced rows still render; the unlinked section
+                        // just stays absent (same degradation as the web).
+                        log::warn!("[ui] repositories.openPulls failed: {err}");
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// One unlinked-PR row: `#N` + title with a trailing Merge button
+    /// (disabled for drafts — GitHub refuses those), sub-line
+    /// `branch → base`, optional Draft pill and error caption. Clicking the
+    /// row opens the PR on GitHub — no local detail exists behind these.
+    fn pull_row(
+        &self,
+        repository_id: &str,
+        pull: &api::repositories::OpenPull,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        let danger = theme.danger;
+        let pr_green = theme::tokens::GREEN.to_hsla();
+
+        let key = pull_merge_key(repository_id, pull.number);
+        let merging = self.review_merging.contains(&key);
+        let armed = self.review_arm.as_deref() == Some(key.as_str());
+        let error: Option<String> = self
+            .review_error
+            .as_ref()
+            .filter(|(id, _)| *id == key)
+            .map(|(_, message)| message.clone());
+
+        let sub = format!("{} \u{2192} {}", pull.branch, pull.base_branch);
+
+        let merge_button = {
+            let mut button = Button::new(SharedString::from(format!("pull-merge-{key}")))
+                .xsmall()
+                .outline();
+            if merging {
+                button = button.label("Merging…").loading(true).disabled(true);
+            } else if pull.draft {
+                button = button.label("Merge").disabled(true);
+            } else if armed {
+                button = button.label("Confirm merge").danger();
+            } else {
+                button = button.label("Merge");
+            }
+            let click_repo = repository_id.to_string();
+            let number = pull.number;
+            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.on_pull_merge_click(click_repo.clone(), number, cx);
+            }))
+        };
+
+        let url = pull.url.clone();
+        v_flex()
+            .id(SharedString::from(format!("pull-{key}")))
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_0p5()
+            .rounded(radius)
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                // Any click outside the armed button disarms the confirm.
+                if this.review_arm.is_some() {
+                    this.review_arm = None;
+                    this.review_arm_seq += 1;
+                    cx.notify();
+                }
+                crate::settings::open_url(cx, url.clone());
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(ExpIcon::GitPullRequest)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(pr_green),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(format!("#{}", pull.number))),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(fg)
+                            .child(SharedString::from(pull.title.clone())),
+                    )
+                    .when(pull.draft, |this| {
+                        this.child(
+                            div()
+                                .flex_shrink_0()
+                                .px_1()
+                                .rounded(radius)
+                                .bg(muted.opacity(0.15))
+                                .text_xs()
+                                .text_color(muted)
+                                .child("Draft"),
+                        )
+                    })
+                    .child(merge_button),
+            )
+            .child(
+                div()
+                    .pl_5()
+                    .text_xs()
+                    .truncate()
+                    .text_color(muted)
+                    .child(SharedString::from(sub)),
+            )
+            .when_some(error, |this, message| {
+                this.child(
+                    div()
+                        .pl_5()
+                        .text_xs()
+                        .truncate()
+                        .text_color(danger)
+                        .child(SharedString::from(message)),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The unlinked-pull Merge flow: same two-click confirm as issue rows,
+    /// firing `repositories.mergePull`. There is no Electric echo — success
+    /// removes the pull from the fetched state; failures caption the row.
+    fn on_pull_merge_click(
+        &mut self,
+        repository_id: String,
+        number: u64,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let key = pull_merge_key(&repository_id, number);
+        if self.review_merging.contains(&key) {
+            return;
+        }
+        if self.review_arm.as_deref() != Some(key.as_str()) {
+            self.arm_merge_confirm(key, cx);
+            return;
+        }
+
+        // Confirmed — fire the server-side squash merge.
+        self.review_arm = None;
+        self.review_arm_seq += 1;
+        self.review_error = None;
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("[ui] repositories.mergePull skipped: no active account");
+            cx.notify();
+            return;
+        };
+        self.review_merging.insert(key.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let call_repo = repository_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::merge_pull(&trpc, &call_repo, number) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.review_merging.remove(&key);
+                match result {
+                    Ok(_) => {
+                        if let Some((_, repos)) = this.open_pulls.as_mut() {
+                            queries::remove_merged_pull(repos, &repository_id, number);
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[ui] repositories.mergePull({repository_id}#{number}) failed: {err}"
+                        );
+                        // Show the server's user-facing message when there is
+                        // one; transport-level errors keep the full rendering.
+                        let message = match err {
+                            api::ApiError::Http { message, .. } => message,
+                            other => other.to_string(),
+                        };
+                        this.review_error = Some((key.clone(), message));
+                    }
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -1946,6 +2279,11 @@ fn spawn_release_delete(
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let tool = self.shared.read(cx).tool;
+        // Leaving the Reviews tool drops the openPulls fetch key so the next
+        // open refetches (the server cache keeps that cheap).
+        if tool != ToolWindow::Reviews {
+            self.open_pulls_key = None;
+        }
         v_flex()
             .size_full()
             .min_w_0()

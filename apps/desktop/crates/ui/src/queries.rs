@@ -389,6 +389,33 @@ pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
     groups
 }
 
+/// The Reviews tool window's unlinked-PR sections: keep only repos that have
+/// open pulls (the server returns every workspace repo, unreachable ones with
+/// an empty list — an empty section is noise, web parity).
+pub fn visible_pull_repos(
+    repos: &[api::repositories::OpenPullsRepo],
+) -> Vec<api::repositories::OpenPullsRepo> {
+    repos
+        .iter()
+        .filter(|repo| !repo.pulls.is_empty())
+        .cloned()
+        .collect()
+}
+
+/// Drop a pull from the fetched `repositories.openPulls` state after a
+/// successful merge — the mutation has no Electric echo, so removal is local.
+pub fn remove_merged_pull(
+    repos: &mut [api::repositories::OpenPullsRepo],
+    repository_id: &str,
+    number: u64,
+) {
+    for repo in repos.iter_mut() {
+        if repo.repository_id == repository_id {
+            repo.pulls.retain(|pull| pull.number != number);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Releases (EXP-56 — the Releases tool window + issue release picker)
 // ---------------------------------------------------------------------------
@@ -565,6 +592,57 @@ mod tests {
             "priority": "none",
         }))
         .unwrap()
+    }
+
+    fn pull(number: u64) -> api::repositories::OpenPull {
+        serde_json::from_value(json!({
+            "number": number,
+            "url": format!("https://github.com/acme/web/pull/{number}"),
+            "title": "t",
+            "branch": "b",
+            "baseBranch": "main",
+            "draft": false,
+            "createdAt": "2026-07-10T08:00:00Z",
+        }))
+        .unwrap()
+    }
+
+    fn pull_repo(repository_id: &str, numbers: &[u64]) -> api::repositories::OpenPullsRepo {
+        serde_json::from_value(json!({
+            "repositoryId": repository_id,
+            "fullName": format!("acme/{repository_id}"),
+            "pulls": [],
+        }))
+        .map(|mut repo: api::repositories::OpenPullsRepo| {
+            repo.pulls = numbers.iter().map(|n| pull(*n)).collect();
+            repo
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn visible_pull_repos_hides_empty_repos() {
+        let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
+        let visible = visible_pull_repos(&repos);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].repository_id, "repo-1");
+    }
+
+    #[test]
+    fn remove_merged_pull_drops_only_the_matching_row() {
+        let mut repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[1])];
+        remove_merged_pull(&mut repos, "repo-1", 1);
+        assert_eq!(
+            repos[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
+            [2]
+        );
+        // Same PR number in another repo is untouched.
+        assert_eq!(repos[1].pulls.len(), 1);
+        // Unknown targets are a no-op.
+        remove_merged_pull(&mut repos, "repo-9", 1);
+        remove_merged_pull(&mut repos, "repo-1", 99);
+        assert_eq!(repos[0].pulls.len(), 1);
+        assert_eq!(repos[1].pulls.len(), 1);
     }
 
     #[test]

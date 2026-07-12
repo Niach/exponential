@@ -62,10 +62,67 @@ impl fmt::Debug for InstallationToken {
     }
 }
 
+/// One repo's open pull requests from `repositories.openPulls`. Every pull is
+/// guaranteed issue-UNLINKED — the server excludes PRs a synced issue row
+/// already carries, so the Reviews queue renders these below the issue rows
+/// without dedup work.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPullsRepo {
+    pub repository_id: String,
+    /// `owner/name`.
+    pub full_name: String,
+    pub pulls: Vec<OpenPull>,
+}
+
+/// One open pull request as GitHub lists it (no issues row backs these —
+/// release PRs, manual branches, external contributors).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPull {
+    pub number: u64,
+    pub url: String,
+    pub title: String,
+    /// Head branch name.
+    pub branch: String,
+    pub base_branch: String,
+    pub draft: bool,
+    #[serde(default)]
+    pub author_login: Option<String>,
+    #[serde(default)]
+    pub author_avatar_url: Option<String>,
+    /// ISO timestamp.
+    pub created_at: String,
+}
+
+/// Output of `repositories.mergePull` — `{"merged": true}` on success.
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct MergePullResult {
+    pub merged: bool,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ForIssueInput<'a> {
     issue_id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenPullsOutput {
+    repos: Vec<OpenPullsRepo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenPullsInput<'a> {
+    workspace_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergePullInput<'a> {
+    repository_id: &'a str,
+    pr_number: u64,
 }
 
 #[derive(Serialize)]
@@ -91,6 +148,34 @@ pub fn installation_token(
     trpc.mutation(
         "repositories.installationToken",
         &InstallationTokenInput { repository_id },
+    )
+}
+
+/// `repositories.openPulls` — query. Member-gated, server-cached (~60s), so
+/// callers refetch on view-open/workspace-switch and never poll.
+pub fn open_pulls(
+    trpc: &TrpcClient,
+    workspace_id: &str,
+) -> Result<Vec<OpenPullsRepo>, ApiError> {
+    let out: OpenPullsOutput =
+        trpc.query_with_input("repositories.openPulls", &OpenPullsInput { workspace_id })?;
+    Ok(out.repos)
+}
+
+/// `repositories.mergePull` — mutation (GitHub-App squash merge of an
+/// issue-unlinked PR; the issue-linked path is `issues.mergePr`). There is no
+/// Electric echo — the caller drops the row from its local state on success.
+pub fn merge_pull(
+    trpc: &TrpcClient,
+    repository_id: &str,
+    pr_number: u64,
+) -> Result<MergePullResult, ApiError> {
+    trpc.mutation(
+        "repositories.mergePull",
+        &MergePullInput {
+            repository_id,
+            pr_number,
+        },
     )
 }
 
@@ -167,6 +252,64 @@ mod tests {
         assert!(!debug.contains("ghs_secret123"), "token leaked: {debug}");
         assert!(debug.contains("***"));
         assert!(debug.contains("acme/web"));
+    }
+
+    #[test]
+    fn open_pulls_decodes_repo_groups() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repos":[{"repositoryId":"repo-1","fullName":"acme/web","pulls":[{"number":42,"url":"https://github.com/acme/web/pull/42","title":"Fix login","branch":"fix/login","baseBranch":"main","draft":true,"authorLogin":"octocat","authorAvatarUrl":null,"createdAt":"2026-07-10T08:00:00Z"}]},{"repositoryId":"repo-2","fullName":"acme/api","pulls":[]}]}}}"#,
+        );
+        let repos = open_pulls(&client(&base), "11111111-2222-3333-4444-555555555555").unwrap();
+        assert_eq!(repos.len(), 2);
+        assert_eq!(
+            repos[0],
+            OpenPullsRepo {
+                repository_id: "repo-1".to_string(),
+                full_name: "acme/web".to_string(),
+                pulls: vec![OpenPull {
+                    number: 42,
+                    url: "https://github.com/acme/web/pull/42".to_string(),
+                    title: "Fix login".to_string(),
+                    branch: "fix/login".to_string(),
+                    base_branch: "main".to_string(),
+                    draft: true,
+                    author_login: Some("octocat".to_string()),
+                    author_avatar_url: None,
+                    created_at: "2026-07-10T08:00:00Z".to_string(),
+                }],
+            }
+        );
+        assert!(repos[1].pulls.is_empty());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Query → GET with percent-encoded raw-JSON input ({"workspaceId":…}).
+        assert!(request.starts_with("GET /api/trpc/repositories.openPulls?input=%7B%22workspaceId%22%3A%2211111111-2222-3333-4444-555555555555%22%7D HTTP/1.1"));
+    }
+
+    #[test]
+    fn merge_pull_posts_camel_case_input_and_decodes_result() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
+        let out = merge_pull(&client(&base), "repo-1", 42).unwrap();
+        assert!(out.merged);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/repositories.mergePull HTTP/1.1"));
+        assert!(request.ends_with(r#"{"repositoryId":"repo-1","prNumber":42}"#));
+    }
+
+    #[test]
+    fn merge_pull_surfaces_the_server_message() {
+        // e.g. a 405 "not mergeable" mapped to PRECONDITION_FAILED server-side.
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"Pull request is not mergeable","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        match merge_pull(&client(&base), "repo-1", 42) {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 412);
+                assert!(message.contains("not mergeable"));
+            }
+            other => panic!("expected 412 Http error, got {other:?}"),
+        }
     }
 
     #[test]
