@@ -3,11 +3,25 @@
 // desktop SIGKILL/panic/power loss fires neither and nothing reconciles on
 // relaunch — the row would stay `running` forever, pinning a phantom
 // "coding now" badge on every client and letting public boards keep minting
-// steer view tickets for a dead relay room. This sweep force-ends rows still
-// `running` past CODING_SESSION_STALE_MS. Mirrors project-trash.ts's
-// in-process scheduler shell; started once from server-bun.ts. Multi-instance
-// safe by construction: the status-conditioned UPDATE is the atomic claim, and
-// the desktop's own end mutation is idempotent either way.
+// steer view tickets for a dead relay room.
+//
+// The sweep DELETES stale rows instead of flipping them to `ended`: the
+// desktop's own-row kill-switch (sync::kill_watch) treats the running→ended
+// transition as a remote kill and tears the live claude child down, while a
+// vanished row deliberately does NOT fire it — so deletion is the only sweep
+// primitive that is badge-only by construction (the synced row IS the badge)
+// and can never kill a session that turns out to be alive. The cost is that a
+// crashed session leaves no "recently ended" recap entry, which would have
+// carried a fabricated endedAt anyway. Two belts against sweeping live work:
+// the desktop advances updated_at via codingSessions.heartbeat while the
+// child runs (staleness is measured from updated_at, so a heartbeating
+// session never goes stale however long it lives), and even a session whose
+// heartbeats all failed only loses its badge/steerability, never its process.
+//
+// Mirrors project-trash.ts's in-process scheduler shell; started once from
+// server-bun.ts. Multi-instance safe by construction: the status-conditioned
+// DELETE is the atomic claim, and the desktop's own end mutation tolerates a
+// vanished row either way.
 
 import { and, eq, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -17,35 +31,36 @@ import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
 const INITIAL_DELAY_MS = 2 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
 
-// Pure staleness predicate: a running session is stale once startedAt plus the
-// staleness window has passed. The sweep query applies the equivalent cutoff
-// server-side; this documents (and tests) the rule.
+// Pure staleness predicate: a running session is stale once its last liveness
+// signal (updated_at — advanced by every desktop heartbeat, equal to the
+// insert time when no heartbeat ever landed) plus the staleness window has
+// passed. The sweep query applies the equivalent cutoff server-side; this
+// documents (and tests) the rule.
 export function isCodingSessionStale(
-  startedAt: Date,
+  lastSeenAt: Date,
   now: Date = new Date()
 ): boolean {
-  return startedAt.getTime() + CODING_SESSION_STALE_MS <= now.getTime()
+  return lastSeenAt.getTime() + CODING_SESSION_STALE_MS <= now.getTime()
 }
 
 // One sweep pass, injectable clock for tests/manual runs. Returns the count
 // for the caller's logging.
 export async function runCodingSessionSweep(
   now: Date = new Date()
-): Promise<{ sessionsEnded: number }> {
+): Promise<{ sessionsDeleted: number }> {
   const cutoff = new Date(now.getTime() - CODING_SESSION_STALE_MS)
 
-  const ended = await db
-    .update(codingSessions)
-    .set({ status: `ended`, endedAt: now })
+  const deleted = await db
+    .delete(codingSessions)
     .where(
       and(
         eq(codingSessions.status, `running`),
-        lte(codingSessions.startedAt, cutoff)
+        lte(codingSessions.updatedAt, cutoff)
       )
     )
     .returning({ id: codingSessions.id })
 
-  return { sessionsEnded: ended.length }
+  return { sessionsDeleted: deleted.length }
 }
 
 let started = false
@@ -56,9 +71,9 @@ async function sweep(): Promise<void> {
   running = true
   try {
     const result = await runCodingSessionSweep()
-    if (result.sessionsEnded > 0) {
+    if (result.sessionsDeleted > 0) {
       console.log(
-        `[coding-session-sweep] force-ended ${result.sessionsEnded} stale running session(s)`
+        `[coding-session-sweep] deleted ${result.sessionsDeleted} stale running session(s)`
       )
     }
   } catch (err) {

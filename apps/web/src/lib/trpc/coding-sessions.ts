@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { codingSessions, releases } from "@/db/schema"
 import {
@@ -79,6 +79,51 @@ export const codingSessionsRouter = router({
         .returning()
 
       return { session }
+    }),
+
+  // Liveness ping from the desktop while the claude child is alive. The
+  // server-side staleness sweep treats a `running` row whose updated_at
+  // stopped advancing as a crashed desktop and force-ends it — and flipping
+  // the synced row to `ended` is exactly the desktop's remote-kill signal
+  // (the own-row kill-switch tears the live child down on that transition),
+  // so a genuinely-live session MUST keep its row fresh to survive the sweep.
+  // Fire-and-forget on the client: a vanished row (issue/release cascade
+  // delete) or an already-ended one is reported, never thrown.
+  heartbeat: authedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          status: codingSessions.status,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { alive: false }
+      if (existing.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can heartbeat it`,
+        })
+      }
+      if (existing.status !== `running`) return { alive: false }
+
+      // Status-conditioned so a heartbeat racing a kill/end can never
+      // resurrect the row's freshness after it ended.
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            eq(codingSessions.status, `running`)
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { alive: updated.length > 0 }
     }),
 
   end: authedProcedure

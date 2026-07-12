@@ -48,6 +48,14 @@ use crate::release_launcher::{release_branch_name, release_slug, ReleaseLaunchRe
 use crate::release_prompt::{render_release_prompt, ReleasePromptArgs, ReleasePromptIssue};
 use crate::settings::Settings;
 
+/// Cadence of the `codingSessions.heartbeat` liveness ping while the claude
+/// child is alive. Must stay far inside the server's staleness window
+/// (`CODING_SESSION_STALE_HOURS` = 24h in `@exp/db-schema/domain`, measured
+/// from the row's `updated_at`) so that dozens of pings would have to fail
+/// back-to-back before a live session's row could be swept.
+const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —
 /// the variant exists for the session's audit surface, not for branching.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -564,9 +572,35 @@ pub fn spawn_prepared_with(
 ) -> Result<LaunchOutcome, CodingError> {
     let PreparedLaunch { session_id, worktree, branch, spawn, tab_title, .. } = prepared;
 
+    // Liveness heartbeat: the server's staleness sweep deletes `running`
+    // rows whose `updated_at` stopped advancing, so a long-lived session (an
+    // IDE tab open over a weekend, a release-orchestrator run) must keep
+    // pinging or it loses its badge and steerability. The stop sender rides
+    // the exit hook: when the hook fires (child exited) or is dropped (spawn
+    // failure, tab teardown) the channel disconnects and the thread ends.
+    // Best-effort by design — a failed ping is at worst a swept badge, never
+    // a killed process (the sweep deletes the row; it never flips it to
+    // `ended`, which is the kill-switch signal).
+    let (heartbeat_stop, heartbeat_stopped) = std::sync::mpsc::channel::<()>();
+    {
+        let trpc = Arc::clone(&trpc);
+        let session_id = session_id.clone();
+        std::thread::spawn(move || loop {
+            match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = coding_sessions::heartbeat(&trpc, &session_id);
+                }
+                _ => return,
+            }
+        });
+    }
+
     let end_session_id = session_id.clone();
     let exit_trpc = Arc::clone(&trpc);
     let on_exit: terminal::ExitHook = Box::new(move |_tab, _exit, cx| {
+        // Disconnect the heartbeat thread — the child is gone, so the row is
+        // about to be ended and must stop being kept alive.
+        drop(heartbeat_stop);
         // Blocking HTTP off the foreground; best-effort — the server also
         // reconciles (idempotent end), and a dead network here must never
         // take the exit-strip rendering down with it.

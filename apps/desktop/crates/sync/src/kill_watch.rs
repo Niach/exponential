@@ -20,6 +20,10 @@
 //! fire). Sign-out clears the collections without marking rows `ended` —
 //! a vanished row deliberately does NOT fire (children owned by this desktop
 //! are torn down by the sign-out path itself, not by the kill-switch).
+//! The server's staleness sweep leans on the same distinction: it DELETES a
+//! `running` row whose heartbeat stopped (badge cleanup that must never kill
+//! a possibly-live child), so vanish-does-not-fire is load-bearing — only an
+//! explicit `ended` flip may ever tear a session down.
 
 use std::collections::HashMap;
 
