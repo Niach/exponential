@@ -53,7 +53,7 @@ use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_changes::IssueChanges;
 use crate::issue_list::IssueQuery;
-use crate::navigation::{navigate, replace_screen, Screen};
+use crate::navigation::{go_back, navigate, replace_screen, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
@@ -719,7 +719,7 @@ impl IssueDetailView {
             }
         }
         row = row.child(self.render_subscribe_toggle(issue, cx));
-        row = row.children(self.render_actions_menu(issue, cx));
+        row = row.child(self.render_actions_menu(issue, cx));
         row
     }
 
@@ -754,35 +754,78 @@ impl IssueDetailView {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_subscription(window, cx)))
     }
 
-    /// The `…` actions menu (web L361-398): Unmark duplicate only, and — like
-    /// the web — the whole menu is present only for a duplicate issue (L27
-    /// removed the standalone "Mark as duplicate…" entry; the status control
-    /// now owns that path via interception).
+    /// The `…` actions menu (web L361-398): always present (EXP-59) with the
+    /// Move-to-project submenu (EXP-57 — hidden without a move target; the
+    /// detail tab keys on the stable issue UUID, so no navigation is needed
+    /// when the identifier renumbers) and the destructive Delete-issue
+    /// confirm submenu — the issue-row context menu's patterns — plus Unmark
+    /// duplicate for a duplicate issue (L27 removed the standalone "Mark as
+    /// duplicate…" entry; the status control now owns that path via
+    /// interception). After the delete fires, the web navigates back to the
+    /// board — the tabbed analog is popping the back stack.
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> Option<impl IntoElement> {
-        if issue.duplicate_of_id.is_none() {
-            return None;
-        }
+    ) -> impl IntoElement {
         let issue_id = issue.id.clone();
-        Some(
-            Button::new("issue-actions")
-                .ghost()
-                .xsmall()
-                .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
-                .dropdown_menu(move |menu, _, _| {
+        let project_id = issue.project_id.clone();
+        let is_duplicate = issue.duplicate_of_id.is_some();
+        let can_move = !crate::issue_list::move_target_projects(cx, &project_id).is_empty();
+        Button::new("issue-actions")
+            .ghost()
+            .xsmall()
+            .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
+            .dropdown_menu(move |mut menu, window, cx| {
+                if is_duplicate {
                     let issue_id = issue_id.clone();
-                    menu.item(
-                        PopupMenuItem::new("Unmark duplicate")
-                            .icon(Icon::new(IconName::Undo2))
-                            .on_click(move |_, _, cx| {
-                                set_duplicate_of(issue_id.clone(), None, cx);
-                            }),
-                    )
-                }),
-        )
+                    menu = menu
+                        .item(
+                            PopupMenuItem::new("Unmark duplicate")
+                                .icon(Icon::new(IconName::Undo2))
+                                .on_click(move |_, _, cx| {
+                                    set_duplicate_of(issue_id.clone(), None, cx);
+                                }),
+                        )
+                        .separator();
+                }
+                if can_move {
+                    let issue_id = issue_id.clone();
+                    let project_id = project_id.clone();
+                    menu = menu.submenu_with_icon(
+                        Some(Icon::from(ExpIcon::SquareKanban)),
+                        "Move to project",
+                        window,
+                        cx,
+                        move |menu, _, cx| {
+                            crate::issue_list::move_to_project_menu(
+                                menu,
+                                &issue_id,
+                                &project_id,
+                                cx,
+                            )
+                        },
+                    );
+                }
+                let issue_id = issue_id.clone();
+                menu.submenu_with_icon(
+                    Some(Icon::new(IconName::Delete)),
+                    "Delete issue",
+                    window,
+                    cx,
+                    move |menu, _, _| {
+                        let issue_id = issue_id.clone();
+                        menu.item(
+                            PopupMenuItem::new("Confirm delete")
+                                .icon(Icon::new(IconName::Delete))
+                                .on_click(move |_, window, cx| {
+                                    crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
+                                    go_back(window, cx);
+                                }),
+                        )
+                    },
+                )
+            })
     }
 
     /// Web `DuplicateOfBanner`: "Duplicate of #IDENT — title" with Unmark.

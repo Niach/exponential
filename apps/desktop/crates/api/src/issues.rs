@@ -3,10 +3,11 @@
 //! Two surfaces share this router mirror:
 //!
 //! 1. **Mutations** (masterplan-v3 §4.1/§4.2) — `issues.create` /
-//!    `issues.update` / `issues.delete`, verified against
+//!    `issues.update` / `issues.delete` / `issues.move`, verified against
 //!    `apps/web/src/lib/trpc/issues.ts`: create returns `{issue, txId}`,
 //!    update returns `{issue}` (NO txId — inline edits are the §4.1 un-gated
-//!    form; the Electric echo re-renders), delete returns `{txId, id}`.
+//!    form; the Electric echo re-renders), delete returns `{txId, id}`,
+//!    move returns `{txId, issue, projectSlug}` (EXP-57).
 //!    Update inputs use [`Patch`] for the zod `.nullable().optional()` fields
 //!    (omit = unchanged, null = clear, value = set). Never pass
 //!    `IssueStatus::Unknown` / `IssuePriority::Unknown` — they serialize as
@@ -207,6 +208,19 @@ pub struct IssuesDeleteOutput {
     pub tx_id: Option<i64>,
 }
 
+/// `issues.move` output (EXP-57): the renumbered issue (fresh identifier +
+/// project_id) plus the target project's slug — the web navigates with it;
+/// the desktop's issue tabs key on the stable UUID, so it's informational.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuesMoveOutput {
+    pub issue: IssueOut,
+    #[serde(default)]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+}
+
 /// `issues.create` — mutation. Blocking; background executor only (§3.5).
 pub fn issues_create(
     trpc: &TrpcClient,
@@ -230,6 +244,25 @@ pub fn issues_delete(trpc: &TrpcClient, id: &str) -> Result<IssuesDeleteOutput, 
         id: &'a str,
     }
     trpc.mutation("issues.delete", &Input { id })
+}
+
+/// `issues.move` — same-workspace project move (EXP-57). The server
+/// renumbers the issue in the target project (EXP-42 → ABC-17), re-points
+/// the denormalized child rows and records a `project_moved` timeline event;
+/// moving to the current project or across workspaces is a BAD_REQUEST.
+/// Blocking; background executor only (§3.5).
+pub fn issues_move(
+    trpc: &TrpcClient,
+    id: &str,
+    project_id: &str,
+) -> Result<IssuesMoveOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        id: &'a str,
+        project_id: &'a str,
+    }
+    trpc.mutation("issues.move", &Input { id, project_id })
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +663,22 @@ mod tests {
         assert_eq!(out.tx_id, Some(7));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"i-1"}"#));
+    }
+
+    #[test]
+    fn move_sends_camel_case_input_and_decodes_new_identity() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"txId":9,"issue":{"id":"i-1","identifier":"ABC-17","projectId":"p-2"},"projectSlug":"abc"}}}"#,
+        );
+        let out = issues_move(&client(&base), "i-1", "p-2").unwrap();
+        assert_eq!(out.issue.identifier.as_deref(), Some("ABC-17"));
+        assert_eq!(out.issue.project_id.as_deref(), Some("p-2"));
+        assert_eq!(out.project_slug.as_deref(), Some("abc"));
+        assert_eq!(out.tx_id, Some(9));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.move HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"i-1","projectId":"p-2"}"#));
     }
 
     #[test]

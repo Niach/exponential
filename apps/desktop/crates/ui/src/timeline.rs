@@ -30,7 +30,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::rows::{Comment, IssueEvent, Label, Release, User};
+use domain::rows::{Comment, IssueEvent, Label, Project, Release, User};
 
 use crate::comments::{self, CommentRowProps};
 use crate::icons::ExpIcon;
@@ -113,12 +113,14 @@ impl IssueTimeline {
         // Release names in release_added/release_removed rows (EXP-56).
         subscriptions.push(cx.observe(&collections.releases, |_, _, cx| cx.notify()));
         // The autocomplete scope depends on the issue → project → workspace
-        // chain; re-resolve as those shapes land.
+        // chain; re-resolve as those shapes land. Projects also notify —
+        // project names in project_moved rows (EXP-57).
         subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
             this.refresh_scope(cx);
         }));
         subscriptions.push(cx.observe(&collections.projects, |this, _, cx| {
             this.refresh_scope(cx);
+            cx.notify();
         }));
 
         Self {
@@ -383,6 +385,13 @@ impl Render for IssueTimeline {
             .iter()
             .map(|release| (release.id.clone(), release.clone()))
             .collect();
+        // Project names in project_moved rows (EXP-57).
+        let project_map: HashMap<String, Project> = collections
+            .projects
+            .read(cx)
+            .iter()
+            .map(|project| (project.id.clone(), project.clone()))
+            .collect();
 
         let account = queries::active_account(cx);
         let current_user_id = account.as_ref().map(|a| a.user_id.clone());
@@ -425,7 +434,9 @@ impl Render for IssueTimeline {
         for item in &items {
             match item {
                 TimelineItem::Event(event) => {
-                    if let Some(row) = event_row(event, &user_map, &label_map, &release_map, cx) {
+                    if let Some(row) =
+                        event_row(event, &user_map, &label_map, &release_map, &project_map, cx)
+                    {
                         body = body.child(row);
                     }
                 }
@@ -506,6 +517,7 @@ fn event_phrase(
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     release_map: &HashMap<String, Release>,
+    project_map: &HashMap<String, Project>,
 ) -> Option<(ExpIcon, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
@@ -569,13 +581,18 @@ fn event_phrase(
             Some((ExpIcon::Rocket, format!("{verb} {target}"), None))
         }
         "project_moved" => {
-            // EXP-57: the payload is self-contained — the retired and new
-            // identifiers tell the story without a project-name lookup.
-            let phrase = match (payload_str("fromIdentifier"), payload_str("toIdentifier")) {
-                (Some(from), Some(to)) => {
-                    format!("moved this to another project ({from} → {to})")
-                }
-                _ => "moved this to another project".to_string(),
+            // EXP-57 (web `EventRow` parity): from/to project names resolve
+            // from the synced projects; a deleted source degrades generically
+            // and the payload's fromIdentifier keeps the row useful.
+            let project_name = |key: &str| {
+                payload_str(key).and_then(|id| project_map.get(&id).map(|p| p.name.clone()))
+            };
+            let from =
+                project_name("fromProjectId").unwrap_or_else(|| "another project".to_string());
+            let to = project_name("toProjectId").unwrap_or_else(|| "this project".to_string());
+            let phrase = match payload_str("fromIdentifier") {
+                Some(identifier) => format!("moved this from {from} ({identifier}) to {to}"),
+                None => format!("moved this from {from} to {to}"),
             };
             Some((ExpIcon::SquareKanban, phrase, None))
         }
@@ -609,9 +626,10 @@ fn event_row(
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     release_map: &HashMap<String, Release>,
+    project_map: &HashMap<String, Project>,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
-    let (icon, phrase, link) = event_phrase(event, user_map, label_map, release_map)?;
+    let (icon, phrase, link) = event_phrase(event, user_map, label_map, release_map, project_map)?;
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
@@ -694,10 +712,16 @@ mod tests {
                 .unwrap(),
         )]);
         let releases: HashMap<String, Release> = HashMap::new();
+        let projects: HashMap<String, Project> = HashMap::new();
 
-        let (_, phrase, _) =
-            event_phrase(&event("status_changed", json!({ "to": "in_progress" })), &users, &labels, &releases)
-                .unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("status_changed", json!({ "to": "in_progress" })),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "changed status to in progress");
 
         // The server payload carries from+to (issues.ts) — show both (EXP-33).
@@ -706,47 +730,93 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");
 
-        let (_, phrase, _) =
-            event_phrase(&event("assignee_changed", json!({ "to": "u-1" })), &users, &labels, &releases)
-                .unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("assignee_changed", json!({ "to": "u-1" })),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "assigned Ada");
 
         // Assigning an invisible user is still an assignment (web comment).
-        let (_, phrase, _) =
-            event_phrase(&event("assignee_changed", json!({ "to": "u-ghost" })), &users, &labels, &releases)
-                .unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("assignee_changed", json!({ "to": "u-ghost" })),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "assigned someone");
 
-        let (_, phrase, _) =
-            event_phrase(&event("assignee_changed", json!({})), &users, &labels, &releases).unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("assignee_changed", json!({})),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "removed the assignee");
 
-        let (_, phrase, _) =
-            event_phrase(&event("label_added", json!({ "labelId": "l-1" })), &users, &labels, &releases)
-                .unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("label_added", json!({ "labelId": "l-1" })),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "added label bug");
 
-        let (_, phrase, _) =
-            event_phrase(&event("label_removed", json!({ "labelId": "gone" })), &users, &labels, &releases)
-                .unwrap();
+        let (_, phrase, _) = event_phrase(
+            &event("label_removed", json!({ "labelId": "gone" })),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "removed label a label");
 
-        let (_, phrase, link) =
-            event_phrase(&event("pr_opened", json!({})), &users, &labels, &releases).unwrap();
+        let (_, phrase, link) = event_phrase(
+            &event("pr_opened", json!({})),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "opened a pull request");
         assert_eq!(link, None);
 
-        let (_, phrase, link) =
-            event_phrase(&event("pr_merged", json!({})), &users, &labels, &releases).unwrap();
+        let (_, phrase, link) = event_phrase(
+            &event("pr_merged", json!({})),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
         assert_eq!(phrase, "merged the pull request");
         assert_eq!(link, None);
 
         // Unknown event type renders nothing (web returns null).
-        assert!(event_phrase(&event("something_new", json!({})), &users, &labels, &releases).is_none());
+        assert!(event_phrase(
+            &event("something_new", json!({})),
+            &users,
+            &labels,
+            &releases,
+            &projects
+        )
+        .is_none());
     }
 
     #[test]
@@ -754,6 +824,7 @@ mod tests {
         let users = HashMap::new();
         let labels = HashMap::new();
         let releases = HashMap::new();
+        let projects = HashMap::new();
 
         // pr_opened payload: { prUrl, prNumber, branch } (pr-sync.ts).
         let (_, phrase, link) = event_phrase(
@@ -768,6 +839,7 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "opened pull request #42");
@@ -779,6 +851,7 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "merged pull request #42");
@@ -798,6 +871,7 @@ mod tests {
         }))
         .unwrap();
         let releases = HashMap::from([("rel-1".to_string(), release)]);
+        let projects = HashMap::new();
 
         // EXP-56: payload carries { releaseId } (releases.ts).
         let (_, phrase, link) = event_phrase(
@@ -805,6 +879,7 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "added this to release v1.0");
@@ -815,6 +890,7 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "removed this from release v1.0");
@@ -825,9 +901,75 @@ mod tests {
             &users,
             &labels,
             &releases,
+            &projects,
         )
         .unwrap();
         assert_eq!(phrase, "added this to a release");
+    }
+
+    #[test]
+    fn project_moved_resolves_names_and_degrades_gracefully() {
+        let users = HashMap::new();
+        let labels = HashMap::new();
+        let releases = HashMap::new();
+        let alpha: Project = serde_json::from_value(json!({
+            "id": "p-1", "workspace_id": "w-1", "name": "Alpha"
+        }))
+        .unwrap();
+        let beta: Project = serde_json::from_value(json!({
+            "id": "p-2", "workspace_id": "w-1", "name": "Beta"
+        }))
+        .unwrap();
+        let projects = HashMap::from([("p-1".to_string(), alpha), ("p-2".to_string(), beta)]);
+
+        // EXP-57 payload (issues.ts move): both projects synced → web parity.
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "project_moved",
+                json!({
+                    "fromProjectId": "p-1",
+                    "toProjectId": "p-2",
+                    "fromIdentifier": "EXP-42",
+                    "toIdentifier": "ABC-17"
+                }),
+            ),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
+        assert_eq!(phrase, "moved this from Alpha (EXP-42) to Beta");
+
+        // A deleted/unsynced source degrades generically; the retired
+        // identifier keeps the row useful (web fallback).
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "project_moved",
+                json!({
+                    "fromProjectId": "gone",
+                    "toProjectId": "p-2",
+                    "fromIdentifier": "EXP-42"
+                }),
+            ),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
+        assert_eq!(phrase, "moved this from another project (EXP-42) to Beta");
+
+        // Empty payload never panics.
+        let (_, phrase, _) = event_phrase(
+            &event("project_moved", json!({})),
+            &users,
+            &labels,
+            &releases,
+            &projects,
+        )
+        .unwrap();
+        assert_eq!(phrase, "moved this from another project to this project");
     }
 
     /// EXP-33 regression: the store binds jsonb payloads as JSON TEXT
@@ -878,8 +1020,14 @@ mod tests {
             payload.is_object(),
             "payload must hydrate as a JSON object, got {payload:?}"
         );
-        let (_, phrase, _) =
-            event_phrase(&hydrated, &HashMap::new(), &HashMap::new(), &HashMap::new()).unwrap();
+        let (_, phrase, _) = event_phrase(
+            &hydrated,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");
 
         drop(store);

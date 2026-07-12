@@ -47,7 +47,7 @@ use domain::options::{
     get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
     ISSUE_STATUS_OPTIONS,
 };
-use domain::rows::{Issue, Label, User};
+use domain::rows::{Issue, Label, Project, User};
 use domain::{IssueFilters, IssueStatus};
 
 use crate::icons::{option_icon, ExpIcon};
@@ -1456,8 +1456,9 @@ fn assignable_users(project_id: &str, current: Option<&str>, cx: &App) -> Vec<Us
 
 /// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
 /// done / Move to todo, Copy issue ID, Mark as duplicate… / Unmark duplicate,
-/// then Status / Assignee / Priority / Labels / Set-due-date submenus, then
-/// the Delete-issue confirm submenu. Mutations are the §4.1 un-gated form.
+/// then Status / Assignee / Priority / Labels / Add-to-release /
+/// Move-to-project / Set-due-date submenus, then the Delete-issue confirm
+/// submenu. Mutations are the §4.1 un-gated form.
 fn build_row_context_menu(
     menu: PopupMenu,
     issue: &Issue,
@@ -1551,11 +1552,13 @@ fn build_row_context_menu(
 
     menu = menu.separator();
 
-    // Status submenu (option icons + right-side check).
+    // Status submenu (option icons + right-side check). The trigger mirrors
+    // the row's status icon: the CURRENT status, not a generic glyph (EXP-59).
     {
         let issue_id = issue.id.clone();
         let current = issue.status;
-        menu = menu.submenu("Status", window, cx, move |menu, _, cx| {
+        let icon = option_icon(get_issue_status_config(current), cx);
+        menu = menu.submenu_with_icon(Some(icon), "Status", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
             for option in &ISSUE_STATUS_OPTIONS {
                 menu = menu.item(option_item(option, option.value == current, cx, {
@@ -1569,21 +1572,31 @@ fn build_row_context_menu(
         });
     }
 
-    // Assignee submenu (current member first, agents hidden).
+    // Assignee submenu (current member first, agents hidden). The trigger
+    // reflects the current assignment (EXP-59) — the member glyph when
+    // assigned, the unassigned placeholder otherwise (submenu triggers take
+    // an `Icon`, so the web's avatar degrades to the assignee-row glyph).
     {
         let issue_id = issue.id.clone();
         let project_id = issue.project_id.clone();
         let current = issue.assignee_id.clone();
-        menu = menu.submenu("Assignee", window, cx, move |menu, _, cx| {
+        let icon = if current.is_some() {
+            Icon::new(IconName::CircleUser)
+        } else {
+            Icon::new(IconName::User)
+        };
+        menu = menu.submenu_with_icon(Some(icon), "Assignee", window, cx, move |menu, _, cx| {
             assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
         });
     }
 
-    // Priority submenu.
+    // Priority submenu. The trigger mirrors the row's priority icon: the
+    // CURRENT priority, not a generic glyph (EXP-59).
     {
         let issue_id = issue.id.clone();
         let current = issue.priority;
-        menu = menu.submenu("Priority", window, cx, move |menu, _, cx| {
+        let icon = option_icon(get_issue_priority_config(current), cx);
+        menu = menu.submenu_with_icon(Some(icon), "Priority", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
             for option in &ISSUE_PRIORITY_OPTIONS {
                 menu = menu.item(option_item(option, option.value == current, cx, {
@@ -1604,7 +1617,8 @@ fn build_row_context_menu(
     {
         let issue_id = issue.id.clone();
         let project_id = issue.project_id.clone();
-        menu = menu.submenu("Labels", window, cx, move |menu, _, cx| {
+        let icon = Icon::from(ExpIcon::Tag);
+        menu = menu.submenu_with_icon(Some(icon), "Labels", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
             let collections = Store::global(cx).collections();
             let Some(project) = collections.projects.read(cx).get(&project_id).cloned() else {
@@ -1722,12 +1736,29 @@ fn build_row_context_menu(
         );
     }
 
+    // Move to project submenu (EXP-57, web `ProjectSubmenu`): the workspace's
+    // projects with the current one disabled; hidden unless another project
+    // exists. The server renumbers the issue in the target project
+    // (EXP-42 → ABC-17); the row re-homes on the Electric echo.
+    if !move_target_projects(cx, &issue.project_id).is_empty() {
+        let issue_id = issue.id.clone();
+        let project_id = issue.project_id.clone();
+        menu = menu.submenu_with_icon(
+            Some(Icon::from(ExpIcon::SquareKanban)),
+            "Move to project",
+            window,
+            cx,
+            move |menu, _, cx| move_to_project_menu(menu, &issue_id, &project_id, cx),
+        );
+    }
+
     // Set due date submenu (web `due-date-presets.tsx`: Tomorrow / End of this
     // week / In one week, plus Clear when set).
     {
         let issue_id = issue.id.clone();
         let due = issue.due_date.clone();
-        menu = menu.submenu("Set due date", window, cx, move |menu, _, _| {
+        let icon = Icon::from(ExpIcon::CalendarDays);
+        menu = menu.submenu_with_icon(Some(icon), "Set due date", window, cx, move |menu, _, _| {
             let mut menu = menu.check_side(Side::Right);
             let today = chrono::Local::now().date_naive();
             for (label, date) in due_date_presets(today) {
@@ -1804,9 +1835,89 @@ fn due_date_presets(today: chrono::NaiveDate) -> [(&'static str, chrono::NaiveDa
     ]
 }
 
+/// The move-to-project submenu's target list (EXP-57): the issue's
+/// workspace's projects in the shared sidebar order — empty (submenu hidden,
+/// web `projects.length > 1` gate) unless a move target exists.
+pub(crate) fn move_target_projects(cx: &App, project_id: &str) -> Vec<Project> {
+    let collections = Store::global(cx).collections();
+    let Some(workspace_id) = collections
+        .projects
+        .read(cx)
+        .get(project_id)
+        .map(|project| project.workspace_id.clone())
+    else {
+        return Vec::new();
+    };
+    let projects = collections.projects_in_workspace(&workspace_id, cx);
+    if projects.len() < 2 {
+        return Vec::new();
+    }
+    projects
+}
+
+/// The shared move-to-project menu body (row context submenu + the detail's
+/// actions menu, EXP-57): colored dot + name per project (the Labels submenu
+/// row pattern), current project checked + disabled; picking another fires
+/// `issues.move`.
+pub(crate) fn move_to_project_menu(
+    menu: PopupMenu,
+    issue_id: &str,
+    project_id: &str,
+    cx: &App,
+) -> PopupMenu {
+    let mut menu = menu.check_side(Side::Right);
+    for project in move_target_projects(cx, project_id) {
+        let is_current = project.id == project_id;
+        let dot = project
+            .color
+            .as_deref()
+            .and_then(parse_hex_color)
+            .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+        let name = SharedString::from(project.name.clone());
+        let issue_id = issue_id.to_string();
+        let target_id = project.id.clone();
+        menu = menu.item(
+            PopupMenuItem::element(move |_, cx| {
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
+                    .child(
+                        div()
+                            .text_color(cx.theme().popover_foreground)
+                            .child(name.clone()),
+                    )
+            })
+            .checked(is_current)
+            .disabled(is_current)
+            .on_click(move |_, _, cx| {
+                spawn_issue_move(cx, issue_id.clone(), target_id.clone());
+            }),
+        );
+    }
+    menu
+}
+
+/// §4.1 un-gated `issues.move` on a background thread (EXP-57): the issue
+/// re-homes (and renumbers, EXP-42 → ABC-17) on the Electric echo.
+pub(crate) fn spawn_issue_move(cx: &mut App, issue_id: String, project_id: String) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] issues.move skipped: no signed-in account");
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::issues::issues_move(&trpc, &issue_id, &project_id) {
+                log::warn!("[ui] issues.move({issue_id} -> {project_id}) failed: {err}");
+            }
+        })
+        .detach();
+}
+
 /// §4.1 un-gated `issues.delete` on a background thread (the row vanishes on
-/// the Electric echo, web parity).
-fn spawn_issue_delete(cx: &mut App, issue_id: String) {
+/// the Electric echo, web parity). `pub(crate)` — the detail's actions menu
+/// (EXP-59) shares this with the row context menu's confirm submenu.
+pub(crate) fn spawn_issue_delete(cx: &mut App, issue_id: String) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.delete skipped: no signed-in account");
         return;
