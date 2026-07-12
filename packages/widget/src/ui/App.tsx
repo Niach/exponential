@@ -36,6 +36,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // recropping is possible right up to submit.
   const [crop, setCrop] = useState<NormalizedRect | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
+  // A flatten (image decode + canvas re-encode) can take a second on slow
+  // devices. Submitting during that window must never send the pristine base
+  // screenshot — it may contain content the reporter deliberately cropped
+  // away — so the in-flight promise is kept for submit to await and the
+  // boolean disables the Send button meanwhile.
+  const [flattening, setFlattening] = useState(false)
+  const pendingFlattenRef = useRef<Promise<Blob | null> | null>(null)
   // Re-render when identify()/setCustomData() land after mount.
   const [, bumpVersion] = useState(0)
   const phaseRef = useRef(phase)
@@ -62,6 +69,10 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     })
     setShapes([])
     setCrop(null)
+    // Any flatten still encoding belongs to the replaced screenshot; submit
+    // must not await (or use) its result.
+    pendingFlattenRef.current = null
+    setFlattening(false)
   }, [])
 
   const capture = useCallback(async (): Promise<boolean> => {
@@ -110,6 +121,22 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     }
   }, [state, open, close])
 
+  // The loader resolves the remote config in parallel with this bundle; when
+  // the panel wins that race it renders from a null config. Re-render once
+  // the config lands so gates like emailRequired (and remote accent/label)
+  // reflect the board's real settings. The loader's own `.then` (registered
+  // at init, before this bundle could load) has already written state.config
+  // by the time this continuation runs.
+  useEffect(() => {
+    let cancelled = false
+    void state.configPromise.then(() => {
+      if (!cancelled) bumpVersion((version) => version + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [state])
+
   const retake = useCallback(() => {
     // Close the panel, recapture without it, reopen.
     setPhase({ kind: `capturing` })
@@ -139,7 +166,15 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       })
       const currentBase = baseRef.current
       if (!currentBase || (next.length === 0 && !nextCrop)) return
-      const blob = await flattenAnnotations(currentBase.blob, next, nextCrop)
+      const pending = flattenAnnotations(currentBase.blob, next, nextCrop)
+      pendingFlattenRef.current = pending
+      setFlattening(true)
+      const blob = await pending
+      // A retake/remove or a newer save may have superseded this flatten.
+      if (pendingFlattenRef.current === pending) {
+        pendingFlattenRef.current = null
+        setFlattening(false)
+      }
       // The shot may have been retaken/removed while encoding.
       if (baseRef.current !== currentBase) return
       if (blob) {
@@ -157,12 +192,21 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const submit = useCallback(
     async (form: { title: string; description: string; email: string }) => {
       setPhase({ kind: `submitting` })
+      // A flatten can still be encoding here (the disabled Send button can
+      // race a stale render): await it and send ITS result — even a null
+      // encode failure. During the pending window this closure's `screenshot`
+      // is the pristine base, so falling back to it would leak content the
+      // reporter cropped away; sending no screenshot fails closed.
+      const pendingFlatten = pendingFlattenRef.current
+      const screenshotBlob = pendingFlatten
+        ? await pendingFlatten
+        : (screenshot?.blob ?? null)
       const result = await submitFeedback({
         state,
         title: form.title,
         description: form.description,
         email: form.email || state.identity.email || null,
-        screenshot: screenshot?.blob ?? null,
+        screenshot: screenshotBlob,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
@@ -252,6 +296,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           successUrl={phase.kind === `success` ? phase.url : null}
           position={position}
           screenshot={screenshot}
+          flattening={flattening}
           captureFailed={captureFailed}
           identityEmail={state.identity.email ?? null}
           emailRequired={state.config?.form?.emailRequired === true}

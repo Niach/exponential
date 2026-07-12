@@ -179,6 +179,14 @@ export async function createWidgetSubmission(args: {
     throw new WidgetRequestError(400, `Invalid submission fields`)
   }
 
+  // The panel's required-email gate is advisory only — it vanishes when the
+  // config fetch loses the race with the first open (or fails), and raw POSTs
+  // never see it. Enforce the board owner's policy here so every report on a
+  // required-email board stays contactable via the resolution email.
+  if (config.formConfig?.emailRequired === true && !fields.data.email) {
+    throw new WidgetRequestError(400, `Email is required`)
+  }
+
   const customData = parseJsonField(
     formData.get(`customData`),
     8 * 1024,
