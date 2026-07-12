@@ -37,15 +37,15 @@ import kotlinx.coroutines.flow.transformLatest
 //     per workspace of the account, and appends whatever the local filter
 //     missed. Server errors degrade silently to local-only — typing is never
 //     blocked on the network.
-// The empty-query state embeds the "Assigned to you" list instead (the old
-// My Issues tab's content).
+// The empty-query state shows a search hint (assigned issues live on the
+// "My Work" tab since EXP-58).
 
 /** Results under one project header, most recently updated project first. */
 data class SearchResultGroup(val project: ProjectEntity, val issues: List<IssueEntity>)
 
 data class SearchState(
     // The debounced query the current groups were computed for; blank means
-    // "show the assigned-to-you state".
+    // "show the idle search hint".
     val query: String = "",
     val groups: List<SearchResultGroup> = emptyList(),
 )
