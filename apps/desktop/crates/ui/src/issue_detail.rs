@@ -557,9 +557,9 @@ impl IssueDetailView {
     // -- header pieces -----------------------------------------------------------
 
     /// The detail's slim action header. The breadcrumb trail lives in the
-    /// TOP BAR now (project picker › identifier › title) — this row keeps
-    /// only the identifier anchor left and the actions right, so there is a
-    /// single breadcrumb in the app.
+    /// TOP BAR now (project picker › identifier › title) and the center tab
+    /// already shows the identifier — this row keeps only the actions,
+    /// right-aligned (EXP-65 follow-up: the identifier here was redundant).
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
@@ -578,14 +578,7 @@ impl IssueDetailView {
             .border_b_1()
             .border_color(cx.theme().border);
 
-        row = row
-            .child(
-                div()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .whitespace_nowrap()
-                    .child(SharedString::from(issue.identifier.clone())),
-            )
-            .child(div().flex_1().min_w_0());
+        row = row.child(div().flex_1().min_w_0());
 
         // Right cluster: the EXP-48 "N / total" prev/next switcher (hidden
         // when the issue isn't in the active list's filtered ordering), then

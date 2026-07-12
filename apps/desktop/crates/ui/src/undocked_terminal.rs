@@ -201,7 +201,7 @@ impl Render for UndockedTerminalWindow {
                 Button::new("reattach-terminal-tab")
                     .ghost()
                     .xsmall()
-                    .label("Reattach")
+                    .icon(crate::icons::ExpIcon::ExternalLinkIn)
                     .tooltip("Move back into the terminal dock")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.reattach(window, cx);

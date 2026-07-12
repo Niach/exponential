@@ -352,7 +352,7 @@ impl Render for UndockedScreenWindow {
                 Button::new("reattach-screen")
                     .ghost()
                     .xsmall()
-                    .label("Reattach")
+                    .icon(crate::icons::ExpIcon::ExternalLinkIn)
                     .tooltip("Move back into the main window")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.reattach(window, cx);
