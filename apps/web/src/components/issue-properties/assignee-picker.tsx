@@ -106,7 +106,8 @@ export function AssigneePicker({
               {users.map((user) => (
                 <CommandItem
                   key={user.id}
-                  value={user.name}
+                  value={user.id}
+                  keywords={[user.name]}
                   onSelect={() => {
                     onSelect(user.id)
                     setOpen(false)

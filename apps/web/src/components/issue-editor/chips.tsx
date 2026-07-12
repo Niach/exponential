@@ -42,6 +42,7 @@ export interface IssueEditorChipsProps {
   endTime: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
+  disableStatus?: boolean
   disabled?: boolean
   moderationDisabled?: boolean
   chipRowExtras?: ReactNode
@@ -67,6 +68,7 @@ export function IssueEditorChips({
   endTime,
   hideAssignee,
   hideDueDateChip,
+  disableStatus,
   disabled,
   moderationDisabled,
   chipRowExtras,
@@ -83,7 +85,7 @@ export function IssueEditorChips({
     <>
       <OptionDropdownMenu
         value={status}
-        disabled={moderationDisabled}
+        disabled={moderationDisabled || disableStatus}
         options={creatableStatuses}
         onSelect={onStatusChange}
         mobileTitle="Status"
@@ -92,7 +94,7 @@ export function IssueEditorChips({
             variant="ghost"
             size="xs"
             className="text-muted-foreground shrink-0"
-            disabled={moderationDisabled}
+            disabled={moderationDisabled || disableStatus}
           >
             <StatusIcon status={selected.value} className="!h-3 !w-3" />
             {selected.label}

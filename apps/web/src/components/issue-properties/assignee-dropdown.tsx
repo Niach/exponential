@@ -75,7 +75,8 @@ export function AssigneeDropdown({
   const renderUser = (user: User) => (
     <CommandItem
       key={user.id}
-      value={user.name}
+      value={user.id}
+      keywords={[user.name]}
       onSelect={() => handleSelect(user.id)}
       className="flex items-center gap-2"
     >

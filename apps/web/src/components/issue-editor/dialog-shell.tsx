@@ -55,6 +55,7 @@ interface IssueEditorDialogShellProps {
   chipRowExtras?: ReactNode
   hideAssignee?: boolean
   hideDueDateChip?: boolean
+  disableStatus?: boolean
   imageUpload?: MarkdownEditorImageUploadConfig
   overflowMenuItems?: ReactNode
   onAssigneeChange: (userId: string | null) => void | Promise<void>
@@ -100,6 +101,7 @@ export function IssueEditorDialogShell({
   headerContent,
   hideAssignee,
   hideDueDateChip,
+  disableStatus,
   imageUpload,
   overflowMenuItems,
   onAssigneeChange,
@@ -206,6 +208,7 @@ export function IssueEditorDialogShell({
       endTime={endTime}
       hideAssignee={hideAssignee}
       hideDueDateChip={hideDueDateChip}
+      disableStatus={disableStatus}
       disabled={disabled}
       moderationDisabled={moderationDisabled}
       chipRowExtras={chipRowExtras}

@@ -11,10 +11,10 @@ interface TimeInputProps {
 
 /**
  * Compact HH:MM input. Lets the user type freely — "1337", "13:37",
- * "9:5" all become "13:37" / "09:05" on commit. Native <input type="time">
- * forces a segmented cursor and an OS-level picker that fights typed entry,
- * so we use a plain text field with a digit-only pattern and parse on
- * blur / Enter.
+ * "9:5" all become "13:37" / "09:05", and a bare "9" becomes "09:00" on
+ * commit. Native <input type="time"> forces a segmented cursor and an
+ * OS-level picker that fights typed entry, so we use a plain text field
+ * with a digit-only pattern and parse on blur / Enter.
  */
 export function TimeInput({
   value,
@@ -38,18 +38,41 @@ export function TimeInput({
       return
     }
 
-    const digits = trimmed.replace(/\D/g, ``)
-    if (digits.length < 3 || digits.length > 4) {
-      setDraft(value ? value.slice(0, 5) : ``)
-      return
+    const revert = () => setDraft(value ? value.slice(0, 5) : ``)
+
+    let hh: string
+    let mm: string
+    if (trimmed.includes(`:`)) {
+      // "9:5" → 09:05, "9:" → 09:00 — hours and minutes parse independently
+      // (1-2 digits each), so we never need three digits before the colon.
+      const [rawHours, rawMinutes = ``] = trimmed.split(`:`)
+      hh = rawHours.replace(/\D/g, ``)
+      const minutes = rawMinutes.replace(/\D/g, ``)
+      if (hh.length < 1 || hh.length > 2 || minutes.length > 2) {
+        revert()
+        return
+      }
+      mm = minutes || `0`
+    } else {
+      // Colon-less entry: "1337" → 13:37, bare "9" → 09:00.
+      const digits = trimmed.replace(/\D/g, ``)
+      if (digits.length < 1 || digits.length > 4) {
+        revert()
+        return
+      }
+      if (digits.length <= 2) {
+        hh = digits
+        mm = `0`
+      } else {
+        hh = digits.length === 3 ? digits.slice(0, 1) : digits.slice(0, 2)
+        mm = digits.slice(digits.length === 3 ? 1 : 2)
+      }
     }
 
-    const hh = digits.length === 3 ? digits.slice(0, 1) : digits.slice(0, 2)
-    const mm = digits.length === 3 ? digits.slice(1) : digits.slice(2)
     const h = Number(hh)
     const m = Number(mm)
     if (h > 23 || m > 59) {
-      setDraft(value ? value.slice(0, 5) : ``)
+      revert()
       return
     }
 

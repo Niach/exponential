@@ -136,7 +136,8 @@ export function LabelPicker({
                   return (
                     <CommandItem
                       key={label.id}
-                      value={label.name}
+                      value={label.id}
+                      keywords={[label.name]}
                       onSelect={() => onToggle(label.id)}
                       className="flex items-center gap-2"
                     >

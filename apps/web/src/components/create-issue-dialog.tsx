@@ -451,8 +451,9 @@ export function CreateIssueDialog({
         uploading: submitPhase === `uploading`,
         onFiles: handleImageFiles,
       }}
-      status={status}
+      status={recurrence ? `todo` : status}
       onStatusChange={setStatus}
+      disableStatus={recurrence !== null}
       priority={priority}
       onPriorityChange={setPriority}
       workspaceId={workspaceId}
