@@ -78,6 +78,8 @@ export async function sendToUser(
   }
 
   if (invalidTokens.length > 0) {
+    // FCM invalidates a token for the whole device, so delete every account's
+    // registration of it — not just the notified user's row.
     await db.delete(fcmTokens).where(inArray(fcmTokens.token, invalidTokens))
   }
 }

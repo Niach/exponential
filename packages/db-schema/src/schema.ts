@@ -563,15 +563,23 @@ export const attachments = pgTable(
   ]
 )
 
-export const fcmTokens = pgTable(`fcm_tokens`, {
-  id: uuidPk(),
-  userId: text(`user_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
-  token: text().notNull().unique(),
-  platform: varchar({ length: 20 }).notNull(),
-  ...timestamps,
-})
+// One row per (token, user): several accounts signed in on one device each
+// keep their own registration of the shared FCM device token, so pushes reach
+// every account instead of only the most recently registered one. Dead-token
+// cleanup deletes by token value across users (FCM invalidates per device).
+export const fcmTokens = pgTable(
+  `fcm_tokens`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    token: text().notNull(),
+    platform: varchar({ length: 20 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [unique().on(table.token, table.userId)]
+)
 
 // GitHub App installations (server-only, not synced). Mirrored from the setup
 // redirect, the OAuth claim callback, and installation webhooks; token
