@@ -135,6 +135,11 @@ impl Workspace {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();
                 });
+                // EXP-65: close this window's undocked terminal windows (their
+                // manager died with the dock panel), and ALL undocked windows
+                // once no workspace window remains — nothing left to reattach
+                // to, and non-macOS is about to quit.
+                crate::undock::on_workspace_released(window_id, cx);
                 // Non-macOS: the app quits when the last window closes.
                 // macOS keeps running (standard platform behavior; the dock
                 // icon / File ▸ New Window reopens a workspace).

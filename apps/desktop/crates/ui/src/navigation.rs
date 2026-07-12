@@ -39,7 +39,7 @@ use crate::actions::{
 /// `None` on [`Navigation::screen`] means "no tab active" — the center shows
 /// its empty state. Issue LISTS are not screens: they live in the sidebar
 /// tool windows (the rail's Inbox / My Issues / All Issues).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     /// Full-page issue detail (`routes/.../issues/$issueIdentifier`).
     IssueDetail { issue_id: String },
@@ -53,6 +53,39 @@ pub enum Screen {
     /// Read-only trunk file viewer (masterplan v4 §4.5); `path` is
     /// trunk-relative.
     FileViewer { path: String },
+}
+
+impl Screen {
+    /// Whether the screen can be undocked into its own native window
+    /// (EXP-65). Content screens only — Settings/Account are app-config
+    /// singletons with near-zero value as standalone windows.
+    pub(crate) fn undockable(&self) -> bool {
+        matches!(
+            self,
+            Screen::IssueDetail { .. } | Screen::FileViewer { .. } | Screen::SourceControl
+        )
+    }
+}
+
+/// Human title for a screen — the center tab label, and the undocked
+/// window's header/title (EXP-65). Issue titles join the synced identifier
+/// live; unknown ids degrade to a generic label.
+pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
+    match screen {
+        Screen::IssueDetail { issue_id } => Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(issue_id)
+            .map(|issue| gpui::SharedString::from(issue.identifier.clone()))
+            .unwrap_or_else(|| "Issue".into()),
+        Screen::FileViewer { path } => {
+            gpui::SharedString::from(path.rsplit('/').next().unwrap_or(path).to_string())
+        }
+        Screen::SourceControl => "Source Control".into(),
+        Screen::Settings => "Settings".into(),
+        Screen::Account => "Account".into(),
+    }
 }
 
 /// Per-window navigation state. Mutate through [`navigate`] /
@@ -147,6 +180,39 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
         .by_window
         .insert(window_id, nav.clone());
     nav
+}
+
+/// Registry lookup by raw `WindowId` (EXP-65 undock: the undocked window
+/// seeds its scope from the ORIGIN window's nav, which it only knows by id).
+pub(crate) fn nav_for_window_id(window_id: WindowId, cx: &App) -> Option<Entity<Navigation>> {
+    cx.try_global::<NavRegistry>()
+        .and_then(|registry| registry.by_window.get(&window_id).cloned())
+}
+
+/// Seed a fresh window's navigation from a source window (EXP-65 undock):
+/// copy the workspace/project scope and pin the given screen so every
+/// scope-resolving surface (`active_project_id` → git bar, `+` shell cwd,
+/// Source Control file scope) sees the same context the tab had when it was
+/// undocked. No-op scope copy when the source nav is already gone.
+pub(crate) fn seed_window_scope(
+    window: &Window,
+    cx: &mut App,
+    source: WindowId,
+    screen: Screen,
+) {
+    let scope = nav_for_window_id(source, cx).map(|nav| {
+        let nav = nav.read(cx);
+        (nav.workspace_id.clone(), nav.last_project_id.clone())
+    });
+    let nav = nav_for_window(window, cx);
+    nav.update(cx, |nav, cx| {
+        if let Some((workspace_id, last_project_id)) = scope {
+            nav.workspace_id = workspace_id;
+            nav.last_project_id = last_project_id;
+        }
+        nav.screen = Some(screen);
+        cx.notify();
+    });
 }
 
 /// Drop a closed window's entry (called from the `Workspace` release hook —

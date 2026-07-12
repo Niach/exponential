@@ -69,6 +69,8 @@ pub mod steer_wiring;
 mod terminal_dock;
 mod timeline;
 mod top_bar;
+mod undock;
+mod undocked_terminal;
 mod update;
 mod workspace;
 mod workspace_heal;
@@ -92,6 +94,9 @@ use gpui_component::dock::register_panel;
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     navigation::init(cx);
+    // EXP-65 multi-window undock: the observable registry the screens panel
+    // and terminal dock filter against.
+    undock::init(cx);
     // §4.5 seam: the issue-detail description edits through the real GFM
     // block editor (factory installed before any window can render a detail).
     description_editor::install(cx);
