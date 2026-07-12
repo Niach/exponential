@@ -258,16 +258,42 @@ impl Workspace {
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_center(center, window, cx);
 
-            if dock_area.bottom_dock().is_none() {
-                let terminal: Arc<dyn PanelView> =
-                    Arc::new(cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)));
-                // Chrome-less like the center (§8.8c): a single `DockItem::Panel`
-                // renders raw with no `TabPanel` wrapper, so there is no zoom
-                // control over the terminal — the panel's own tab strip is the
-                // only chrome, and the Dock toggle handles collapse.
-                let bottom = DockItem::panel(terminal);
-                // Collapsed by default — the Dock keeps a 29px toggle strip.
-                dock_area.set_bottom_dock(bottom, Some(TERMINAL_DOCK_HEIGHT), false, window, cx);
+            match dock_area.bottom_dock().cloned() {
+                None => {
+                    let terminal: Arc<dyn PanelView> =
+                        Arc::new(cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)));
+                    // Chrome-less like the center (§8.8c): a single `DockItem::Panel`
+                    // renders raw with no `TabPanel` wrapper, so there is no zoom
+                    // control over the terminal — the panel's own tab strip is the
+                    // only chrome, and the Dock toggle handles collapse.
+                    let bottom = DockItem::panel(terminal);
+                    // Collapsed by default — the Dock keeps a 29px toggle strip.
+                    dock_area.set_bottom_dock(
+                        bottom,
+                        Some(TERMINAL_DOCK_HEIGHT),
+                        false,
+                        window,
+                        cx,
+                    );
+                }
+                Some(dock) => {
+                    // A RESTORED bottom dock rehydrates `PanelInfo::Panel`
+                    // wrapped in a `TabPanel` (title row + zoom/menu chrome —
+                    // the same "growing the bar back" problem the center
+                    // solves by rebuilding fresh). Re-wrap the SAME restored
+                    // panel chrome-less; the dock's persisted open state and
+                    // height are untouched, and the restored shell tabs live
+                    // in the panel entity we keep.
+                    let restored = terminal_panel_view(dock.read(cx).panel(), cx)
+                        .unwrap_or_else(|| {
+                            Arc::new(
+                                cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)),
+                            )
+                        });
+                    dock.update(cx, |dock, cx| {
+                        dock.set_panel(DockItem::panel(restored), window, cx);
+                    });
+                }
             }
 
             dock_area.set_dock_collapsible(
@@ -514,6 +540,22 @@ impl Workspace {
         }
 
         Some(banner.into_any_element())
+    }
+}
+
+/// Find the restored [`TerminalDockPanel`] view inside a rehydrated bottom
+/// dock item (the registry re-created it with its persisted shell tabs —
+/// keep THAT entity, only strip the `TabPanel` wrapper around it).
+fn terminal_panel_view(item: &DockItem, cx: &App) -> Option<Arc<dyn PanelView>> {
+    let is_terminal =
+        |view: &Arc<dyn PanelView>| view.panel_name(cx) == crate::terminal_dock::PANEL_NAME;
+    match item {
+        DockItem::Panel { view, .. } => is_terminal(view).then(|| view.clone()),
+        DockItem::Tabs { items, .. } => items.iter().find(|view| is_terminal(view)).cloned(),
+        DockItem::Split { items, .. } => {
+            items.iter().find_map(|item| terminal_panel_view(item, cx))
+        }
+        _ => None,
     }
 }
 

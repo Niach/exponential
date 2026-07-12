@@ -447,6 +447,72 @@ pub fn remove_worktree(clone: &Path, worktree: &Path, branch: &str) -> Result<()
     Ok(())
 }
 
+/// Force-remove a worktree (uncommitted changes included) + prune — the
+/// destructive cleanup path behind explicit user intent (stale-lane delete,
+/// deleted-release cleanup). Branch deletion is the caller's decision.
+pub fn remove_worktree_forced(clone: &Path, worktree: &Path) -> Result<(), GitError> {
+    let worktree_str = worktree.to_string_lossy().into_owned();
+    run_git(
+        Some(clone),
+        &["worktree", "remove", "--force", &worktree_str],
+        None,
+        "git worktree remove --force",
+    )?;
+    let _ = run_git(Some(clone), &["worktree", "prune"], None, "git worktree prune");
+    Ok(())
+}
+
+/// Delete a local branch (`git branch -D`). The checked-out branch fails
+/// with git's own error — surfaced, never forced around.
+pub fn delete_branch(clone: &Path, branch: &str) -> Result<(), GitError> {
+    run_git(Some(clone), &["branch", "-D", branch], None, "git branch -D")?;
+    Ok(())
+}
+
+/// The worktree a branch is checked out in, if any — parsed from `git
+/// worktree list --porcelain`, never guessed from the path convention
+/// (release-run subagents create worktrees wherever they like). The MAIN
+/// worktree (the clone itself) is excluded: callers must never remove it.
+pub fn worktree_for_branch(clone: &Path, branch: &str) -> Option<std::path::PathBuf> {
+    let raw = run_git(
+        Some(clone),
+        &["worktree", "list", "--porcelain"],
+        None,
+        "git worktree list",
+    )
+    .ok()?;
+    parse_worktree_for_branch(&raw, branch)
+        .map(std::path::PathBuf::from)
+        .filter(|path| path != clone)
+}
+
+/// Parse `git worktree list --porcelain` for the worktree holding `branch`.
+pub fn parse_worktree_for_branch(raw: &str, branch: &str) -> Option<String> {
+    let wanted = format!("refs/heads/{branch}");
+    let mut current: Option<&str> = None;
+    for line in raw.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current = Some(path.trim());
+        } else if let Some(refname) = line.strip_prefix("branch ") {
+            if refname.trim() == wanted {
+                return current.map(str::to_string);
+            }
+        }
+    }
+    None
+}
+
+/// Delete a local branch AND the session worktree it lives in — FORCED
+/// (uncommitted changes in the worktree go with it; callers confirm first).
+/// The trunk clone is never touched: a branch checked out in the MAIN
+/// worktree just fails the `branch -D` with git's own error.
+pub fn delete_branch_and_worktree(clone: &Path, branch: &str) -> Result<(), GitError> {
+    if let Some(worktree) = worktree_for_branch(clone, branch) {
+        remove_worktree_forced(clone, &worktree)?;
+    }
+    delete_branch(clone, branch)
+}
+
 // ---------------------------------------------------------------------------
 // Config (the one-time identity prompt + any future key)
 // ---------------------------------------------------------------------------
@@ -970,6 +1036,68 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
         // A session-worktree branch cannot be checked out here.
         assert_eq!(branches[2].name, "exp/EXP-42");
         assert!(branches[2].worktree);
+    }
+
+    #[test]
+    fn parse_worktree_for_branch_finds_the_holding_worktree() {
+        let raw = "\
+worktree /repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /repo.worktrees/exp-EXP-42
+HEAD def456
+branch refs/heads/exp/EXP-42
+
+worktree /repo.worktrees/detached
+HEAD 0123456
+detached
+";
+        assert_eq!(
+            parse_worktree_for_branch(raw, "exp/EXP-42").as_deref(),
+            Some("/repo.worktrees/exp-EXP-42")
+        );
+        assert_eq!(parse_worktree_for_branch(raw, "main").as_deref(), Some("/repo"));
+        assert_eq!(parse_worktree_for_branch(raw, "missing"), None);
+        // A branch that PREFIXES another must not match its worktree.
+        assert_eq!(parse_worktree_for_branch(raw, "exp/EXP-4"), None);
+    }
+
+    #[test]
+    fn delete_branch_and_worktree_removes_a_dirty_session_worktree() {
+        let d = temp_dir("delete-branch");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "x");
+        commit_all(r, "init");
+        let wt_root = crate::git_worktree::worktrees_dir(r);
+        let wt = wt_root.join("exp-EXP-1");
+        run_git(
+            Some(r),
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "exp/EXP-1",
+                wt.to_str().unwrap(),
+            ],
+            None,
+            "git worktree add",
+        )
+        .unwrap();
+        // Dirty the worktree — forced cleanup must remove it anyway.
+        std::fs::write(wt.join("f.txt"), "dirty").unwrap();
+
+        delete_branch_and_worktree(r, "exp/EXP-1").unwrap();
+        assert!(!wt.exists());
+        assert!(branches(r).unwrap().iter().all(|b| b.name != "exp/EXP-1"));
+
+        // A branch with NO worktree deletes plainly; the checked-out branch
+        // refuses with git's own error.
+        run_git(Some(r), &["branch", "spare"], None, "git branch").unwrap();
+        delete_branch_and_worktree(r, "spare").unwrap();
+        assert!(delete_branch_and_worktree(r, "main").is_err());
+        std::fs::remove_dir_all(wt_root).ok();
     }
 
     #[test]

@@ -777,6 +777,15 @@ fn cleanup_worktree(
             Ok(()) => {
                 // Worktree gone → the tier flips (to PR/absent) on reload.
                 this.refresh(cx);
+                // …and the sidebar flow graph drops the lane immediately
+                // (local re-read of the window's git chrome, deferred).
+                crate::navigation::on_active_window(cx, |window, cx| {
+                    let git_bar = crate::sidebar::rail_shared_for_window(window, cx)
+                        .read(cx)
+                        .git_bar()
+                        .clone();
+                    git_bar.update(cx, |bar, cx| bar.reread_local(cx));
+                });
             }
             Err(message) => {
                 this.action_error = Some(message.into());

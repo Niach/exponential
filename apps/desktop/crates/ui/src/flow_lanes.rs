@@ -233,6 +233,62 @@ pub fn build_lanes(
     FlowModel { lanes, hidden }
 }
 
+/// Tree-connector geometry for one lane row — drives the graph gutter the
+/// Source Control flow section draws (continuous vertical rails + ├/└
+/// elbows, so the lanes read as an actual branch graph instead of an
+/// indented list).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneConnector {
+    /// Pass-through vertical rails for gutter columns `0..indent-1` (an
+    /// ancestor's subtree continues below this row).
+    pub rails: Vec<bool>,
+    /// The lane's own elbow in column `indent-1`: `Some(true)` = └ (last
+    /// sibling), `Some(false)` = ├. `None` for the root lane (indent 0).
+    pub elbow: Option<bool>,
+}
+
+/// Compute the connector gutter for the (possibly truncated) lane list.
+/// Pure companion of [`build_lanes`] — same flat ordering in, one connector
+/// per lane out.
+pub fn connectors(lanes: &[Lane]) -> Vec<LaneConnector> {
+    lanes
+        .iter()
+        .enumerate()
+        .map(|(ix, lane)| {
+            let indent = usize::from(lane.indent);
+            if indent == 0 {
+                return LaneConnector {
+                    rails: Vec::new(),
+                    elbow: None,
+                };
+            }
+            let rails = (0..indent - 1)
+                .map(|depth| has_following_sibling(lanes, ix, depth as u8))
+                .collect();
+            let last = !has_following_sibling(lanes, ix, (indent - 1) as u8);
+            LaneConnector {
+                rails,
+                elbow: Some(last),
+            }
+        })
+        .collect()
+}
+
+/// Whether the gutter column at `depth` continues below row `ix`: a later
+/// lane sits at `depth + 1` before that column's parent subtree closes (a
+/// lane at `indent <= depth`).
+fn has_following_sibling(lanes: &[Lane], ix: usize, depth: u8) -> bool {
+    for lane in &lanes[ix + 1..] {
+        if lane.indent <= depth {
+            return false;
+        }
+        if lane.indent == depth + 1 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Map a synced `pr_state` value onto the lane tone.
 fn pr_tone(pr_state: Option<&str>) -> PrTone {
     match pr_state {
@@ -386,6 +442,44 @@ mod tests {
         let expanded = build_lanes(&branches, "main", "exp/", &[], &[], true);
         assert_eq!(expanded.lanes.len(), 1 + 8);
         assert_eq!(expanded.hidden, 0);
+    }
+
+    #[test]
+    fn connectors_draw_rails_and_elbows_like_a_tree() {
+        let release_id = "1dc5fb4a-8923-471c-a940-53094cd33b76";
+        let rel_branch = release_branch_name(&release_slug("Release 4", release_id));
+        let branches = [
+            branch("main", true, false),
+            branch(&rel_branch, false, false),
+            branch("exp/EXP-7", false, false),
+            branch("exp/EXP-8", false, false),
+            branch("exp/EXP-9", false, false),
+        ];
+        let issues = [
+            issue("i7", "EXP-7", None, None, Some(release_id)),
+            issue("i8", "EXP-8", None, None, Some(release_id)),
+            issue("i9", "EXP-9", None, None, None),
+        ];
+        let releases = [release(release_id, "Release 4", None)];
+        let model = build_lanes(&branches, "main", "exp/", &issues, &releases, false);
+        // main(0) · release(1) · EXP-7(2) · EXP-8(2) · EXP-9 orphan(1)
+        let connectors = connectors(&model.lanes);
+        // Root: no gutter at all.
+        assert_eq!(connectors[0], LaneConnector { rails: vec![], elbow: None });
+        // Release: ├ (the orphan follows as a root-level sibling).
+        assert_eq!(connectors[1], LaneConnector { rails: vec![], elbow: Some(false) });
+        // EXP-7: rail through column 0 (orphan below), ├ in column 1 (EXP-8).
+        assert_eq!(
+            connectors[2],
+            LaneConnector { rails: vec![true], elbow: Some(false) }
+        );
+        // EXP-8: last child of the release → └, rail still passing through.
+        assert_eq!(
+            connectors[3],
+            LaneConnector { rails: vec![true], elbow: Some(true) }
+        );
+        // Orphan EXP-9: last root-level sibling → └.
+        assert_eq!(connectors[4], LaneConnector { rails: vec![], elbow: Some(true) });
     }
 
     #[test]
