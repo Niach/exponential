@@ -8,6 +8,7 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { Button } from "@/components/ui/button"
+import { readLastVisited } from "@/lib/last-visited"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/`)({
   component: WorkspaceIndexPage,
@@ -22,9 +23,20 @@ function WorkspaceIndexPage() {
 
   useEffect(() => {
     if (projects && projects.length > 0) {
+      // EXP-69: prefer this device's last-used project when it still exists
+      // in the workspace; a stale slug (project deleted/trashed) degrades to
+      // the first project, and that board visit rewrites the stored entry.
+      const last = readLastVisited()
+      const preferred =
+        last?.workspaceSlug === workspaceSlug && last.projectSlug
+          ? projects.find((project) => project.slug === last.projectSlug)
+          : undefined
       navigate({
         to: `/w/$workspaceSlug/projects/$projectSlug`,
-        params: { workspaceSlug, projectSlug: projects[0].slug },
+        params: {
+          workspaceSlug,
+          projectSlug: (preferred ?? projects[0]).slug,
+        },
         replace: true,
       })
     }

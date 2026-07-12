@@ -3,10 +3,12 @@ import {
   Outlet,
   notFound,
   redirect,
+  useParams,
 } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import { useEffect, useState } from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
+import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceMobileTopbar } from "@/components/workspace/mobile-topbar"
@@ -79,6 +81,17 @@ function WorkspaceLayout() {
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
   const [searchOpen, setSearchOpen] = useState(false)
+  // Child-route params (loose match): `projectSlug` is set while any
+  // project-scoped route (board, issue detail) is active.
+  const { projectSlug } = useParams({ strict: false })
+
+  // EXP-69: remember this device's last-used workspace/project so the root
+  // redirect can jump straight back on the next app entry. Members only —
+  // a read-only public-board visit is not "the user's workspace".
+  useEffect(() => {
+    if (publicView) return
+    rememberLastVisited(workspaceSlug, projectSlug)
+  }, [publicView, workspaceSlug, projectSlug])
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (mirrors the Cmd+B sidebar-toggle handler in
