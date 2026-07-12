@@ -15,6 +15,9 @@ export function Panel(props: {
   successUrl: string | null
   position: `bottom-right` | `bottom-left`
   screenshot: Screenshot | null
+  // The annotated screenshot is still being encoded; sending now would
+  // submit the un-annotated (uncropped) base image.
+  flattening: boolean
   captureFailed: boolean
   identityEmail: string | null
   emailRequired: boolean
@@ -71,7 +74,7 @@ export function Panel(props: {
 
   const submit = async (event: Event) => {
     event.preventDefault()
-    if (props.phase === `submitting`) return
+    if (props.phase === `submitting` || props.flattening) return
     setError(null)
     const trimmedTitle = title.trim()
     if (!trimmedTitle) {
@@ -250,9 +253,13 @@ export function Panel(props: {
           <button
             type="submit"
             className="exp-submit"
-            disabled={props.phase === `submitting`}
+            disabled={props.phase === `submitting` || props.flattening}
           >
-            {props.phase === `submitting` ? `Sending…` : `Send feedback`}
+            {props.phase === `submitting`
+              ? `Sending…`
+              : props.flattening
+                ? `Preparing screenshot…`
+                : `Send feedback`}
           </button>
         </div>
       </form>

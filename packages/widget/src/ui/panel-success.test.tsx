@@ -20,6 +20,7 @@ const renderSuccess = (args: {
       successUrl={args.url}
       position="bottom-right"
       screenshot={null}
+      flattening={false}
       captureFailed={false}
       identityEmail={null}
       emailRequired={false}
