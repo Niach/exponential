@@ -6,7 +6,7 @@ import { codingSessionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import { DiffView, FileDiffList, type PullFile } from "@/components/diff-view"
-import { SteerTerminal } from "@/components/steer-terminal"
+import { IssueSteerPanel } from "@/components/agent-session"
 
 // Issue "Changes" tab (masterplan §5.4 / §4.8 tiers 2–4). Web does no git ops
 // (L18); remote visibility is capability-tiered and resolves to whichever tier
@@ -97,7 +97,7 @@ export function IssueChangesTab({
 
   const steerViewer =
     currentUserId ? (
-      <SteerTerminal
+      <IssueSteerPanel
         issueId={issue.id}
         workspaceId={workspaceId}
         currentUserId={currentUserId}
