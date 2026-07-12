@@ -103,19 +103,25 @@ async function handleContact(request: Request): Promise<Response> {
   }
 
   const { contactIpLimiter, contactGlobalLimiter } = getContactLimiters()
+  // Per-IP bucket first, short-circuiting: a request already throttled by its
+  // own IP must not keep draining the shared global bucket — otherwise one
+  // hostile IP silences the contact form for everyone.
   const ipLimit = contactIpLimiter.tryTake(
     `ip:${clientIpFromRequest(request)}`
   )
-  const globalLimit = contactGlobalLimiter.tryTake(`global`)
-  if (!ipLimit.ok || !globalLimit.ok) {
-    const retryAfterSeconds = Math.max(
-      ipLimit.ok ? 0 : ipLimit.retryAfterSeconds,
-      globalLimit.ok ? 0 : globalLimit.retryAfterSeconds
-    )
+  if (!ipLimit.ok) {
     return jsonResponse(
       429,
       { error: `Too many messages, try again later` },
-      { ...cors, "Retry-After": String(retryAfterSeconds) }
+      { ...cors, "Retry-After": String(ipLimit.retryAfterSeconds) }
+    )
+  }
+  const globalLimit = contactGlobalLimiter.tryTake(`global`)
+  if (!globalLimit.ok) {
+    return jsonResponse(
+      429,
+      { error: `Too many messages, try again later` },
+      { ...cors, "Retry-After": String(globalLimit.retryAfterSeconds) }
     )
   }
 
