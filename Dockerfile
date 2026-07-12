@@ -30,6 +30,7 @@ COPY --from=builder /app/package.json .
 COPY --from=builder /app/bun.lock .
 COPY --from=builder /app/bunfig.toml .
 COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
+COPY --from=builder /app/apps/video/package.json apps/video/package.json
 COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.json
 COPY --from=builder /app/packages packages
