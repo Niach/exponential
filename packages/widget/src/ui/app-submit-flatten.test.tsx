@@ -118,6 +118,27 @@ describe(`submit while a flatten is encoding`, () => {
     expect(submitFeedback.mock.calls[0][0].screenshot).toBe(annotatedBlob)
   })
 
+  it(`sends no screenshot when the pending flatten fails to encode`, async () => {
+    let resolveFlatten: (blob: Blob | null) => void = () => undefined
+    flattenAnnotations.mockReturnValue(
+      new Promise<Blob | null>((resolve) => {
+        resolveFlatten = resolve
+      })
+    )
+
+    annotatorProps!.onSave([], cropRect)
+    const form = container.querySelector(`form`)!
+    form.dispatchEvent(new Event(`submit`, { bubbles: true, cancelable: true }))
+    await flush()
+
+    // Encode failure: falling back to the base would leak the cropped-away
+    // content the reporter never saw in the preview — fail closed instead.
+    resolveFlatten(null)
+    await flush()
+    expect(submitFeedback).toHaveBeenCalledTimes(1)
+    expect(submitFeedback.mock.calls[0][0].screenshot).toBe(null)
+  })
+
   it(`disables the Send button until the flatten settles`, async () => {
     let resolveFlatten: (blob: Blob | null) => void = () => undefined
     flattenAnnotations.mockReturnValue(

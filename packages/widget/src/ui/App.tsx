@@ -193,17 +193,20 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     async (form: { title: string; description: string; email: string }) => {
       setPhase({ kind: `submitting` })
       // A flatten can still be encoding here (the disabled Send button can
-      // race a stale render): await it and prefer its result, otherwise
-      // `screenshot` would resolve to the pristine base and leak content the
-      // reporter cropped away.
+      // race a stale render): await it and send ITS result — even a null
+      // encode failure. During the pending window this closure's `screenshot`
+      // is the pristine base, so falling back to it would leak content the
+      // reporter cropped away; sending no screenshot fails closed.
       const pendingFlatten = pendingFlattenRef.current
-      const flattened = pendingFlatten ? await pendingFlatten : null
+      const screenshotBlob = pendingFlatten
+        ? await pendingFlatten
+        : (screenshot?.blob ?? null)
       const result = await submitFeedback({
         state,
         title: form.title,
         description: form.description,
         email: form.email || state.identity.email || null,
-        screenshot: flattened ?? screenshot?.blob ?? null,
+        screenshot: screenshotBlob,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
