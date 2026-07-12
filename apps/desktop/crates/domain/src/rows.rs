@@ -78,6 +78,11 @@ pub struct Project {
     /// `off` / `badge` / `live` — raw wire value (contract-locked).
     #[serde(default)]
     pub public_show_coding: Option<String>,
+    /// Trash contract: protected projects (the bootstrap dogfood board) are
+    /// non-deletable/non-archivable/non-retypable — the server refuses, and
+    /// clients disable the affordances from this flag. `None` on legacy rows.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub is_protected: Option<bool>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]

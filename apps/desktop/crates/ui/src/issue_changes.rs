@@ -520,10 +520,19 @@ impl IssueChanges {
                 .dropdown_menu(move |mut menu, _, _| {
                     if let Some(repo) = repo.clone() {
                         // Update from main → a Claude task in the worktree (§4.9).
+                        // Blocked while a session runs: a second `claude` in the
+                        // same worktree would supersede the session transcript
+                        // the public-activity emitter tails.
                         let settings = settings.clone();
                         let identifier = identifier.clone();
                         let update_repo = repo.clone();
-                        menu = menu.item(
+                        let item = if running {
+                            PopupMenuItem::new(
+                                "Update from main — stop the running session first",
+                            )
+                            .icon(Icon::from(ExpIcon::Repeat))
+                            .disabled(true)
+                        } else {
                             PopupMenuItem::new("Update from main")
                                 .icon(Icon::from(ExpIcon::Repeat))
                                 .on_click(move |_, window, cx| {
@@ -534,8 +543,9 @@ impl IssueChanges {
                                         window,
                                         cx,
                                     );
-                                }),
-                        );
+                                })
+                        };
+                        menu = menu.item(item);
 
                         if show_cleanup {
                             let weak = weak.clone();
