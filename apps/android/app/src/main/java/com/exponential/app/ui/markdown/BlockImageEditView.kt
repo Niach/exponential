@@ -70,8 +70,13 @@ fun BlockImageEditView(
             }
             if (uploadState == EditorModel.ImageUploadState.Failed) {
                 // Re-runs the registered host upload for this row; the top-right
-                // X (below) is the remove affordance.
-                RetryBadge(Modifier.align(Alignment.Center)) {
+                // X (below) is the remove affordance. The badge shows WHY it
+                // failed (server 4xx text) — a bare "tap to retry" hid
+                // deterministic rejections (EXP-61).
+                RetryBadge(
+                    Modifier.align(Alignment.Center),
+                    error = model.uploadError(row.id),
+                ) {
                     scope.launch { model.retryUpload(row.id) }
                 }
             }
@@ -111,7 +116,7 @@ private fun UploadingBadge(modifier: Modifier) {
 }
 
 @Composable
-private fun RetryBadge(modifier: Modifier, onRetry: () -> Unit) {
+private fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -123,6 +128,15 @@ private fun RetryBadge(modifier: Modifier, onRetry: () -> Unit) {
             Icon(Icons.Filled.Refresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
         }
         Text("Upload failed — tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
+        if (error != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                error,
+                color = Color.White.copy(alpha = 0.55f),
+                style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.65f),
+                maxLines = 3,
+            )
+        }
     }
 }
 

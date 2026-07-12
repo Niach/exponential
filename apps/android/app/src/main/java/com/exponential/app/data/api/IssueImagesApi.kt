@@ -2,6 +2,7 @@ package com.exponential.app.data.api
 
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.header
@@ -43,6 +44,9 @@ class IssueImagesApi @Inject constructor(
             ?: throw TrpcException("No instance URL for account $accountId")
         val token = account.token
         val response = client.post("$baseUrl/api/issues/$issueId/images") {
+            // A multi-MB photo on a slow uplink can legitimately take longer
+            // than the client-wide 30s request budget.
+            timeout { requestTimeoutMillis = 120_000 }
             if (token != null) header("Authorization", "Bearer $token")
             setBody(
                 MultiPartFormDataContent(

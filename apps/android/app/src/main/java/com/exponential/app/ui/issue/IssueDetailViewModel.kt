@@ -607,11 +607,16 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
-    suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
-        val accountId = auth.activeAccountId.value ?: return@runCatching null
+    // Throws on upload failure (after logging) so the editor's per-row upload
+    // state can surface the server's actual rejection ("Unsupported image
+    // type", storage-limit, …) instead of an opaque retry badge (EXP-61).
+    // Local read failures stay a benign null.
+    suspend fun uploadImage(uri: android.net.Uri): String? {
+        val accountId = auth.activeAccountId.value ?: return null
         val resolver = appContext.contentResolver
-        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: return@runCatching null
+        val bytes = runCatching {
+            resolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull() ?: return null
         val contentType = resolver.getType(uri) ?: "image/jpeg"
         val filename = run {
             resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -619,8 +624,15 @@ class IssueDetailViewModel @Inject constructor(
                 if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
             } ?: uri.lastPathSegment ?: "image"
         }
-        issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
-    }.getOrNull()
+        try {
+            return issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (error: Throwable) {
+            android.util.Log.w("IssueDetailViewModel", "Image upload failed (type=$contentType, ${bytes.size} bytes)", error)
+            throw error
+        }
+    }
 
     // Middle Changes tier (masterplan §4.8): the exp/<IDENTIFIER> branch compared
     // against the repo default branch. Null when the branch was never pushed —

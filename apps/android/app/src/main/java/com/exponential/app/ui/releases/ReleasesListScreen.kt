@@ -87,7 +87,7 @@ data class ReleasesListState(
 class ReleasesListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
-    holder: DatabaseHolder,
+    private val holder: DatabaseHolder,
     private val releasesApi: ReleasesApi,
 ) : ViewModel() {
 
@@ -115,8 +115,12 @@ class ReleasesListViewModel @Inject constructor(
     val creating: StateFlow<Boolean> = _creating.asStateFlow()
 
     /**
-     * One-tap create: the server auto-names ("Release N") and returns the id;
-     * navigate immediately — the detail renders a loading state until sync.
+     * One-tap create: the server auto-names ("Release N") and returns the full
+     * row. Mirror it into local Room before navigating (the issues
+     * upsertCreatedLocally head-start, EXP-19/EXP-61) so the detail renders
+     * immediately instead of spinning until the Electric shape delivers it.
+     * Best-effort and idempotent (REPLACE) — Electric re-delivers the same row
+     * on its next poll.
      */
     fun createRelease(onCreated: (String) -> Unit) {
         if (!_creating.compareAndSet(expect = false, update = true)) return
@@ -124,7 +128,12 @@ class ReleasesListViewModel @Inject constructor(
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 runCatching { releasesApi.create(accountId, workspaceId) }
-                    .onSuccess { onCreated(it) }
+                    .onSuccess { created ->
+                        runCatching {
+                            holder.database(forAccountId = accountId).releaseDao().upsert(created)
+                        }
+                        onCreated(created.id)
+                    }
             } finally {
                 _creating.value = false
             }
