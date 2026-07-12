@@ -131,6 +131,9 @@ pub fn init(cx: &mut App) {
     // Terminal dock: panel registration (cold shell-tab restore, §6.13) +
     // the cmd-t/cmd-w/ctrl-tab keybindings scoped to the dock.
     terminal_dock::init(cx);
+    // EXP-71: shadow Root's window-wide tab/shift-tab focus-cycle bindings
+    // inside the terminal so they reach the PTY (shift+tab = Claude modes).
+    terminal::init(cx);
     register_panel(cx, debug_board::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
     });
