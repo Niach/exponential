@@ -156,6 +156,24 @@ pub fn worktree_path(clone: &Path, branch: &str) -> PathBuf {
     worktrees_dir(clone).join(sanitize_branch_for_path(branch))
 }
 
+/// `<clone>.cargo-target` — ONE cargo build cache shared by every coding
+/// session on this repo (EXP-76). The launcher exports it as
+/// `CARGO_TARGET_DIR` for the spawned `claude`, so per-issue worktrees stop
+/// paying a full cold build (measured 7-8.5GB *each* on this app) and reuse
+/// the previous sessions' compiled deps instead. Sibling of `.worktrees` —
+/// outside every checkout, and no sanitized branch name can collide with it
+/// (branch segments land under `.worktrees/`, never beside it). Trade-off:
+/// cargo locks a target dir per build, so two sessions building at the same
+/// moment serialize — warm-and-serialized beats cold-and-parallel for a tree
+/// this size, by a lot.
+pub fn shared_cargo_target_dir(clone: &Path) -> PathBuf {
+    let name = clone
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repo");
+    clone.with_file_name(format!("{name}.cargo-target"))
+}
+
 // ---- argv git operations ----
 
 /// If `<repos_root>/<owner>/<name>` is not a git repo, `git clone` it (via
@@ -291,6 +309,90 @@ pub fn ensure_local_excludes(clone: &Path, entries: &[&str]) -> std::io::Result<
     }
     content.push_str(&additions);
     std::fs::write(&exclude, content)
+}
+
+/// One registered worktree of a clone (`git worktree list --porcelain`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorktreeEntry {
+    pub path: PathBuf,
+    /// The checked-out branch (short name, e.g. `exp/EXP-42`); `None` when
+    /// detached or bare.
+    pub branch: Option<String>,
+}
+
+/// All registered worktrees of `clone`, the main working tree FIRST (git
+/// guarantees that ordering). Purely local, tokenless.
+pub fn list_worktrees(clone: &Path) -> Result<Vec<WorktreeEntry>, GitError> {
+    let output = run_git(
+        Some(clone),
+        &["worktree", "list", "--porcelain"],
+        None,
+        "git worktree list",
+    )?;
+    let mut entries = Vec::new();
+    let mut path: Option<PathBuf> = None;
+    let mut branch: Option<String> = None;
+    for line in output.lines().chain(std::iter::once("")) {
+        if line.is_empty() {
+            if let Some(path) = path.take() {
+                entries.push(WorktreeEntry { path, branch: branch.take() });
+            }
+            branch = None;
+        } else if let Some(rest) = line.strip_prefix("worktree ") {
+            path = Some(PathBuf::from(rest));
+        } else if let Some(rest) = line.strip_prefix("branch refs/heads/") {
+            branch = Some(rest.to_string());
+        }
+    }
+    Ok(entries)
+}
+
+/// Remove session worktrees whose branch's work has landed (EXP-76 disk
+/// hygiene): each removal reclaims the worktree's ignored build caches
+/// (node_modules, stray target/ dirs, …) that git never tracks but disk
+/// definitely pays for.
+///
+/// `prunable_branches` is caller-derived (the ui layer maps synced issues
+/// with `pr_state == merged` and no running session to their `branch`) — this
+/// function contributes the git-side safety only:
+/// * the MAIN working tree is never touched (first entry, plus a path check);
+/// * detached / unknown-branch worktrees are skipped;
+/// * removal is `git worktree remove` WITHOUT `--force`, so git refuses any
+///   worktree with modified or untracked files — ignored-only content (build
+///   caches) does not block it, which is exactly the split we want. A refusal
+///   just leaves that worktree for the user.
+///
+/// Local branches are deliberately left behind: a clean-but-unpushed commit
+/// survives on its branch even after the worktree is gone.
+///
+/// Returns the removed paths (empty on listing failure — pruning is
+/// best-effort by design).
+pub fn prune_merged_worktrees(clone: &Path, prunable_branches: &[String]) -> Vec<PathBuf> {
+    let Ok(entries) = list_worktrees(clone) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.iter().skip(1) {
+        if entry.path == clone {
+            continue;
+        }
+        let Some(branch) = &entry.branch else { continue };
+        if !prunable_branches.iter().any(|candidate| candidate == branch) {
+            continue;
+        }
+        let path = entry.path.to_string_lossy().into_owned();
+        if run_git(
+            Some(clone),
+            &["worktree", "remove", &path],
+            None,
+            &format!("git worktree remove ({branch})"),
+        )
+        .is_ok()
+        {
+            removed.push(entry.path.clone());
+        }
+    }
+    removed
 }
 
 fn branch_exists(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
@@ -612,6 +714,79 @@ mod tests {
         let listing = String::from_utf8_lossy(&status.stdout).into_owned();
         assert!(!listing.contains(".mcp.json"), "not ignored: {listing}");
         assert!(!listing.contains("PROMPT.md"), "not ignored: {listing}");
+    }
+
+    #[test]
+    fn shared_cargo_target_dir_sits_beside_the_worktrees_dir() {
+        let clone = PathBuf::from("/home/u/Exponential/repos/acme/web");
+        assert_eq!(
+            shared_cargo_target_dir(&clone),
+            PathBuf::from("/home/u/Exponential/repos/acme/web.cargo-target")
+        );
+    }
+
+    /// A clone with two session worktrees: `exp/EXP-1` (clean, plus an
+    /// IGNORED junk dir standing in for a build cache) and `exp/EXP-2`
+    /// (an untracked file — in-progress work).
+    fn seed_prune_fixture(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+        let origin = seed_origin(dir);
+        let clone = dir.join("clone");
+        git(dir, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let merged = create_worktree(&clone, "exp/EXP-1", "origin/main", &url).unwrap();
+        let dirty = create_worktree(&clone, "exp/EXP-2", "origin/main", &url).unwrap();
+        // Ignored build-cache stand-in: must NOT protect the worktree.
+        ensure_local_excludes(&clone, &["junk-cache/"]).unwrap();
+        fs::create_dir_all(merged.join("junk-cache")).unwrap();
+        fs::write(merged.join("junk-cache/blob.o"), "artifacts").unwrap();
+        // Untracked real work: MUST protect the worktree.
+        fs::write(dirty.join("wip.txt"), "not committed").unwrap();
+        (clone, merged, dirty)
+    }
+
+    #[test]
+    fn list_worktrees_reports_trunk_first_with_branches() {
+        let dir = temp_dir("list");
+        let (clone, merged, dirty) = seed_prune_fixture(&dir.0);
+        let entries = list_worktrees(&clone).unwrap();
+        assert_eq!(entries.len(), 3);
+        // canonicalize: git prints resolved paths (macOS /tmp → /private/tmp).
+        assert_eq!(entries[0].path, clone.canonicalize().unwrap());
+        assert_eq!(entries[0].branch.as_deref(), Some("main"));
+        let branches: Vec<_> = entries[1..].iter().map(|e| e.branch.clone()).collect();
+        assert!(branches.contains(&Some("exp/EXP-1".into())), "{branches:?}");
+        assert!(branches.contains(&Some("exp/EXP-2".into())), "{branches:?}");
+        assert!(entries.iter().any(|e| e.path == merged.canonicalize().unwrap()));
+        assert!(entries.iter().any(|e| e.path == dirty.canonicalize().unwrap()));
+    }
+
+    #[test]
+    fn prune_removes_clean_merged_worktrees_and_keeps_the_rest() {
+        let dir = temp_dir("prune");
+        let (clone, merged, dirty) = seed_prune_fixture(&dir.0);
+
+        // Canonicalize while the path still exists (git reports resolved
+        // paths; macOS /tmp is a symlink) — it is gone after the prune.
+        let merged_resolved = merged.canonicalize().unwrap();
+
+        // Both branches nominated; only the clean one may go. The trunk's own
+        // branch is nominated too and must survive regardless.
+        let removed = prune_merged_worktrees(
+            &clone,
+            &["exp/EXP-1".to_string(), "exp/EXP-2".to_string(), "main".to_string()],
+        );
+        assert_eq!(removed, vec![merged_resolved]);
+        assert!(!merged.exists(), "ignored junk must not protect a clean worktree");
+        assert!(dirty.exists(), "untracked work must protect a worktree");
+        assert!(clone.join("README.md").exists(), "trunk must never be pruned");
+
+        // The branch outlives its worktree (unpushed commits stay reachable).
+        assert!(branch_exists(&clone, "exp/EXP-1", &TokenUrl::new("acme/web", "ghs_dead")));
+
+        // Not nominated → untouched even when clean.
+        let removed = prune_merged_worktrees(&clone, &[]);
+        assert!(removed.is_empty());
+        assert!(dirty.exists());
     }
 
     #[test]

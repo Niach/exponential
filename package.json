@@ -49,6 +49,7 @@
     "run:desktop:mac": "bun run macapp:desktop && open \"apps/desktop/target/Exponential.app\"",
     "run:desktop:mac:staging": "bun run macapp:desktop:staging && open \"apps/desktop/target/Exponential (staging).app\"",
     "test:desktop": "cd apps/desktop && cargo test",
+    "clean:desktop": "cd apps/desktop && cargo clean",
 
     "android:build": "cd apps/android && ./gradlew :app:assembleProductionDebug",
     "android:build:staging": "cd apps/android && ./gradlew :app:assembleStagingDebug",
