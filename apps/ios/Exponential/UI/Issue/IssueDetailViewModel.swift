@@ -24,6 +24,11 @@ final class IssueDetailViewModel {
     /// Every synced release (all workspaces) — filtered to the issue's
     /// workspace by `workspaceReleases` for the single-select picker (EXP-56).
     var releases: [ReleaseEntity] = []
+    /// Every synced project (all workspaces) — filtered to the issue's
+    /// workspace by `moveTargetProjects` for the "Move to project" picker
+    /// (EXP-57). Trashed projects never reach the local store (the projects
+    /// shape filters `deleted_at IS NULL` server-side).
+    var projects: [ProjectEntity] = []
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -167,6 +172,14 @@ final class IssueDetailViewModel {
                 }
             }
 
+            // Workspace projects for the "Move to project" picker (EXP-57).
+            let projectObs = ValueObservation.tracking { db in try ProjectEntity.fetchAll(db) }
+            Task {
+                for try await projects in projectObs.values(in: pool) {
+                    self.projects = projects
+                }
+            }
+
             let issueLabelObs = ValueObservation.tracking { db in
                 try IssueLabelEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
             }
@@ -263,6 +276,30 @@ final class IssueDetailViewModel {
     var currentRelease: ReleaseEntity? {
         guard let releaseId = issue?.releaseId else { return nil }
         return releases.first { $0.id == releaseId }
+    }
+
+    /// Same-workspace projects the issue can move to (EXP-57): the current
+    /// project and archived boards are excluded; name-sorted. Empty on a
+    /// single-project workspace — the "Move to project" action hides then.
+    var moveTargetProjects: [ProjectEntity] {
+        guard let issue, let workspaceId = project?.workspaceId else { return [] }
+        return projects
+            .filter { $0.workspaceId == workspaceId && $0.id != issue.projectId && $0.archivedAt == nil }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Move the issue to another project in the same workspace (EXP-57). The
+    /// issue keeps its id — the detail view's by-id observation stays valid —
+    /// but the server renumbers it in the target project; the new
+    /// projectId/identifier arrive via Electric sync (standard mutation
+    /// pattern — no local optimistic write).
+    func moveToProject(_ projectId: String) async {
+        guard let issue, issue.projectId != projectId else { return }
+        do {
+            try await issuesApi.move(accountId: accountId, id: issue.id, projectId: projectId)
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     /// Single-select: move the issue into `releaseId`, or out with nil. The

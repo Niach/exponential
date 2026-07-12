@@ -18,7 +18,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
@@ -109,6 +111,8 @@ fun IssueDetailScreen(
     // EXP-56: the workspace's releases + this issue's current one.
     val workspaceReleases by viewModel.workspaceReleases.collectAsStateWithLifecycle()
     val currentRelease by viewModel.currentRelease.collectAsStateWithLifecycle()
+    // EXP-57: same-workspace projects the issue can move to.
+    val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val issue = state.issue
     var titleField by remember { mutableStateOf("") }
@@ -125,6 +129,9 @@ fun IssueDetailScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var duplicatePickerOpen by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
+    var movePickerOpen by remember { mutableStateOf(false) }
+    // The picked target project, pending the move confirmation (EXP-57).
+    var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.ProjectEntity?>(null) }
 
     LaunchedEffect(issue?.id) {
         if (issue != null) {
@@ -142,6 +149,15 @@ fun IssueDetailScreen(
         descriptionSaveError?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeDescriptionSaveError()
+        }
+    }
+
+    // Surface a failed move (EXP-57) — otherwise the issue silently stays put.
+    val moveError by viewModel.moveError.collectAsStateWithLifecycle()
+    LaunchedEffect(moveError) {
+        moveError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMoveError()
         }
     }
 
@@ -215,6 +231,19 @@ fun IssueDetailScreen(
                                             onClick = {
                                                 overflowOpen = false
                                                 viewModel.unmarkDuplicate()
+                                            },
+                                        )
+                                    }
+                                    // Move to another project in the same workspace
+                                    // (EXP-57) — hidden when this is the workspace's
+                                    // only project (web parity: 2+ projects).
+                                    if (moveTargets.isNotEmpty()) {
+                                        DropdownMenuItem(
+                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                            text = { Text("Move to project") },
+                                            onClick = {
+                                                overflowOpen = false
+                                                movePickerOpen = true
                                             },
                                         )
                                     }
@@ -591,6 +620,46 @@ fun IssueDetailScreen(
             candidates = duplicateCandidates,
             onPick = { viewModel.markDuplicate(it.id) },
             onDismiss = { duplicatePickerOpen = false },
+        )
+    }
+
+    // Move to project (EXP-57): pick a same-workspace target, then confirm —
+    // the move renumbers the issue (new identifier), so it's consequential.
+    if (movePickerOpen && issue != null && isModerator) {
+        IssuePickerSheet(
+            title = "Move to project",
+            items = moveTargets,
+            selected = null,
+            keyOf = { it.id },
+            labelOf = { it.name },
+            iconOf = { Icons.Filled.Folder },
+            onSelect = { moveTarget = it },
+            onDismiss = { movePickerOpen = false },
+        )
+    }
+
+    val pendingMoveTarget = moveTarget
+    if (pendingMoveTarget != null && issue != null) {
+        AlertDialog(
+            onDismissRequest = { moveTarget = null },
+            title = { Text("Move issue") },
+            text = {
+                Text(
+                    "Move ${issue.identifier} to \"${pendingMoveTarget.name}\"? " +
+                        "The issue will get a new identifier in that project.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    moveTarget = null
+                    viewModel.moveToProject(pendingMoveTarget.id)
+                }) {
+                    Text("Move")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { moveTarget = null }) { Text("Cancel") }
+            },
         )
     }
 

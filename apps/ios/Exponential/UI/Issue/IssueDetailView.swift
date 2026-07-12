@@ -18,6 +18,10 @@ struct IssueDetailView: View {
     @State private var showRecurrencePicker = false
     @State private var showDuplicatePicker = false
     @State private var showCreateLabel = false
+    @State private var showMoveProjectPicker = false
+    // The project picked in the move sheet, pending confirmation (EXP-57) —
+    // non-nil drives the "Move issue" alert.
+    @State private var moveTarget: ProjectEntity?
     @FocusState private var titleFocused: Bool
 
     // Shown while workspace membership is still syncing, so a signed-in viewer
@@ -485,6 +489,48 @@ struct IssueDetailView: View {
                     )
                     .presentationBackground(.ultraThinMaterial)
                 }
+                // Move to project (EXP-57): pick a same-workspace target, then
+                // confirm — the issue is renumbered in the target project, so
+                // the move deserves an explicit yes before it fires.
+                .sheet(isPresented: $showMoveProjectPicker) {
+                    PickerSheet(
+                        title: "Move to project",
+                        items: vm.moveTargetProjects,
+                        selectedID: issue.projectId,
+                        idFor: { $0.id },
+                        onSelect: { target in
+                            // Defer so this sheet finishes dismissing before
+                            // the confirmation alert presents (same trick as
+                            // the duplicate picker hand-off).
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                moveTarget = target
+                            }
+                        }
+                    ) { project in
+                        Label {
+                            Text(project.name)
+                        } icon: {
+                            Circle()
+                                .fill(Color(hex: project.color) ?? .gray)
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+                }
+                .alert(
+                    "Move issue",
+                    isPresented: Binding(
+                        get: { moveTarget != nil },
+                        set: { if !$0 { moveTarget = nil } }
+                    ),
+                    presenting: moveTarget
+                ) { target in
+                    Button("Move") {
+                        Task { await vm.moveToProject(target.id) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { target in
+                    Text("\(issue.identifier ?? "This issue") will move to \(target.name) and get a new identifier there.")
+                }
                 // Actions in the nav bar (parity with Android): share link +
                 // subscribe bell (always) + a moderator-only overflow menu.
                 .toolbar {
@@ -523,6 +569,15 @@ struct IssueDetailView: View {
                                         Task { await vm.unmarkDuplicate() }
                                     } label: {
                                         Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
+                                    }
+                                }
+                                // Move to another project in the same workspace
+                                // (EXP-57) — hidden when there's nowhere to go.
+                                if !vm.moveTargetProjects.isEmpty {
+                                    Button {
+                                        showMoveProjectPicker = true
+                                    } label: {
+                                        Label("Move to project", systemImage: "folder")
                                     }
                                 }
                                 Button("Delete issue", role: .destructive) {

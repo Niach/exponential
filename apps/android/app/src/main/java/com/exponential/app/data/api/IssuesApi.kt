@@ -51,6 +51,18 @@ data class UpdateIssueInput(
 @Serializable
 data class DeleteIssueInput(val id: String)
 
+/**
+ * `issues.move` (EXP-57): same-workspace project move. The server renumbers
+ * the issue in the target project (EXP-42 → ABC-17) and re-points the
+ * denormalized children; the response's extra keys (txId, projectSlug) are
+ * ignored by the shared Json.
+ */
+@Serializable
+data class MoveIssueInput(
+    val id: String,
+    @SerialName("projectId") val projectId: String,
+)
+
 @Serializable
 data class IssueResult(val issue: IssueEntity)
 
@@ -92,6 +104,19 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "issues.update",
             input = input,
             inputSerializer = UpdateIssueInput.serializer(),
+            outputSerializer = IssueResult.serializer(),
+        ).issue
+
+    /**
+     * Move an issue to another project in the SAME workspace (EXP-57). The
+     * returned entity already carries the new projectId + identifier.
+     */
+    suspend fun move(accountId: String, issueId: String, projectId: String): IssueEntity =
+        trpc.mutation(
+            accountId,
+            path = "issues.move",
+            input = MoveIssueInput(id = issueId, projectId = projectId),
+            inputSerializer = MoveIssueInput.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
 

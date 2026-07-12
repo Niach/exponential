@@ -308,6 +308,51 @@ class IssueDetailViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // ── Move to project (EXP-57) ──────────────────────────────────────────────
+
+    /**
+     * Same-workspace projects the issue can move to (the current project is
+     * excluded; observeAll already filters archived + trashed rows). Empty
+     * hides the "Move to project" action — mirrors the web submenu, which
+     * only renders with 2+ workspace projects.
+     */
+    val moveTargets: StateFlow<List<ProjectEntity>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        _project,
+    ) { projects, project ->
+        if (project == null) emptyList()
+        else projects.filter { it.workspaceId == project.workspaceId && it.id != project.id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Surfaced when a move fails (snackbar in the screen) — a silently
+    // dropped move would read as the issue "staying put" for no reason.
+    private val _moveError = MutableStateFlow<String?>(null)
+    val moveError: StateFlow<String?> = _moveError
+
+    fun consumeMoveError() {
+        _moveError.value = null
+    }
+
+    /**
+     * Move the issue to [projectId] via `issues.move` (EXP-57). The issue
+     * keeps its id (this screen observes by id, so it stays live) but gets a
+     * new projectId + identifier; the returned row is upserted locally so the
+     * identifier chip flips immediately — Electric re-delivers it idempotently.
+     */
+    fun moveToProject(projectId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { issuesApi.move(accountId, issueId, projectId) }
+                .onSuccess { moved ->
+                    runCatching { holder.database(forAccountId = accountId).issueDao().upsert(moved) }
+                }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _moveError.value = trpcErrorMessage(t, "The issue could not be moved")
+                }
+        }
+    }
+
     // ── Issue-reference pills (masterplan §5e) ────────────────────────────────
 
     /**

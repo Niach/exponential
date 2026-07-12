@@ -17,6 +17,7 @@ func eventVerb(_ type: String) -> String {
     case "pr_merged": return "merged the pull request"
     case "release_added": return "added this to a release"
     case "release_removed": return "removed this from a release"
+    case "project_moved": return "moved this to another project"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -54,7 +55,8 @@ func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],
     labels: [String: LabelEntity]?,
-    releases: [String: ReleaseEntity]? = nil
+    releases: [String: ReleaseEntity]? = nil,
+    projects: [String: ProjectEntity]? = nil
 ) -> String {
     switch event.type {
     case "status_changed":
@@ -93,6 +95,17 @@ func eventPhrase(
             return "removed this from release \(name)"
         }
         return "removed this from a release"
+    case "project_moved":
+        // EXP-57 — mirrors the web row: a deleted source project leaves no
+        // name behind, so fall back generically; the payload's fromIdentifier
+        // keeps the row useful either way.
+        let fromName = eventField(event.payload, "fromProjectId")
+            .flatMap { projects?[$0]?.name } ?? "another project"
+        let toName = eventField(event.payload, "toProjectId")
+            .flatMap { projects?[$0]?.name } ?? "this project"
+        let fromIdentifier = eventField(event.payload, "fromIdentifier")
+            .map { " (\($0))" } ?? ""
+        return "moved this from \(fromName)\(fromIdentifier) to \(toName)"
     default:
         return eventVerb(event.type)
     }

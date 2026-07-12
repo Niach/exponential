@@ -138,6 +138,20 @@ public struct DeleteIssueInput: Encodable, Sendable {
     }
 }
 
+/// Input for `issues.move` (EXP-57): move an issue to another project in the
+/// SAME workspace. The server renumbers the issue in the target project
+/// (Linear-style, EXP-42 → ABC-17) — the issue keeps its id but changes
+/// `projectId`/`number`/`identifier`, which Electric echoes back into GRDB.
+public struct MoveIssueInput: Encodable, Sendable {
+    public let id: String
+    public let projectId: String
+
+    public init(id: String, projectId: String) {
+        self.id = id
+        self.projectId = projectId
+    }
+}
+
 public struct IssueResult: Decodable, Sendable {
     public let issue: IssueResultData
 
@@ -233,6 +247,18 @@ public final class IssuesApi: Sendable {
 
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.delete", input: DeleteIssueInput(id: id))
+    }
+
+    /// Move the issue to another project in the same workspace (EXP-57). The
+    /// response also carries the fresh identity (`issue` + target slug); only
+    /// the standard `{issue: {id}}` envelope is decoded — clients pick up the
+    /// new identifier/projectId from Electric sync like every other mutation.
+    public func move(accountId: String, id: String, projectId: String) async throws {
+        let _: IssueResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "issues.move",
+            input: MoveIssueInput(id: id, projectId: projectId)
+        )
     }
 
     /// The changed files for the issue's PR (one issue = one PR), for the diff

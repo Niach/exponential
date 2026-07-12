@@ -17,6 +17,7 @@ struct CommentThreadView: View {
     @State private var users: [String: UserEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var releases: [String: ReleaseEntity] = [:]
+    @State private var projects: [String: ProjectEntity] = [:]
     @State private var composerEditor = IssueEditorModel()
     @State private var composerHasText = false
     @State private var submitting = false
@@ -270,6 +271,16 @@ struct CommentThreadView: View {
                 }
             }
 
+            // Project names for project_moved events (EXP-57).
+            let projectObs = ValueObservation.tracking { db in
+                try ProjectEntity.fetchAll(db)
+            }
+            Task {
+                for try await rows in projectObs.values(in: pool) {
+                    self.projects = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            }
+
             let eventObs = ValueObservation.tracking { db in
                 try IssueEventEntity
                     .filter(Column("issue_id") == issue.id)
@@ -293,7 +304,7 @@ struct CommentThreadView: View {
             Circle()
                 .fill(.white.opacity(TextOpacity.tertiary))
                 .frame(width: 6, height: 6)
-            Text("\(who) \(eventPhrase(event, users: users, labels: labels, releases: releases))")
+            Text("\(who) \(eventPhrase(event, users: users, labels: labels, releases: releases, projects: projects))")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()
