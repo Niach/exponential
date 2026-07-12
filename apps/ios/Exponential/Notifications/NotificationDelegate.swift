@@ -45,7 +45,10 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
     ) {
         let userInfo = response.notification.request.content.userInfo
         if let issueId = userInfo["issueId"] as? String {
-            deepLinkBus.navigateToIssue(issueId)
+            // The payload's userId identifies which signed-in account the
+            // push was for; the navigator opens the issue under that account
+            // instead of whichever one is active.
+            deepLinkBus.navigateToIssue(issueId, userId: userInfo["userId"] as? String)
         }
         completionHandler()
     }

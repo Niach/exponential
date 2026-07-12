@@ -177,7 +177,8 @@ struct MainNavigator: View {
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
-                path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
+                let userId = deps.deepLinkBus.pendingIssueUserId
+                path.append(AppRoute.issue(accountId: issueAccountId(forUserId: userId), id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -196,8 +197,9 @@ struct MainNavigator: View {
         // The Issues tab already lands in the last-used project, so there is no
         // auto-push anymore — deep links are the only cold-launch navigation.
         .task {
+            let userId = deps.deepLinkBus.pendingIssueUserId
             if let issueId = deps.deepLinkBus.consume() {
-                path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
+                path.append(AppRoute.issue(accountId: issueAccountId(forUserId: userId), id: issueId))
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
@@ -494,6 +496,18 @@ struct MainNavigator: View {
     private func stopObserving() {
         for task in observationTasks { task.cancel() }
         observationTasks = []
+    }
+
+    // Pushes carry the recipient's server user id: on a multi-account device
+    // the tapped issue must open under the signed-in account that received
+    // it — the active account's database may not contain the issue at all.
+    // Plain URL links (no user id) keep the active-account behavior.
+    private func issueAccountId(forUserId userId: String?) -> String {
+        if let userId,
+           let match = deps.auth.accounts.first(where: { $0.userId == userId && $0.token != nil }) {
+            return match.id
+        }
+        return deps.auth.activeAccountId ?? ""
     }
 }
 
