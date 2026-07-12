@@ -487,16 +487,19 @@ impl IssueChanges {
                     })),
             );
         }
-        row = row.child(self.render_overflow_menu(issue, cx));
+        row = row.children(self.render_overflow_menu(issue, cx));
         row
     }
 
     /// The `⋯` overflow menu: Update from main / Clean up worktree (v4 §4.8).
+    /// `None` while no repo is resolved — every item needs one, and an empty
+    /// menu button is just confusing chrome (EXP-67).
     fn render_overflow_menu(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> Option<impl IntoElement> {
+        self.repo.as_ref()?;
         let repo = self.repo.clone();
         // Clean up appears once the PR is merged/closed (v4 §4.8).
         let pr_state = issue.pr_state.clone().unwrap_or_default();
@@ -509,45 +512,53 @@ impl IssueChanges {
         let identifier = issue.identifier.clone();
         let weak = cx.entity().downgrade();
 
-        Button::new("changes-overflow")
-            .ghost()
-            .xsmall()
-            .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
-            .dropdown_menu(move |mut menu, _, _| {
-                if let Some(repo) = repo.clone() {
-                    // Update from main → a Claude task in the worktree (§4.9).
-                    let settings = settings.clone();
-                    let identifier = identifier.clone();
-                    let update_repo = repo.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new("Update from main")
-                            .icon(Icon::from(ExpIcon::Repeat))
-                            .on_click(move |_, window, cx| {
-                                update_from_main(&settings, &update_repo, &identifier, window, cx);
-                            }),
-                    );
+        Some(
+            Button::new("changes-overflow")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
+                .dropdown_menu(move |mut menu, _, _| {
+                    if let Some(repo) = repo.clone() {
+                        // Update from main → a Claude task in the worktree (§4.9).
+                        let settings = settings.clone();
+                        let identifier = identifier.clone();
+                        let update_repo = repo.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new("Update from main")
+                                .icon(Icon::from(ExpIcon::Repeat))
+                                .on_click(move |_, window, cx| {
+                                    update_from_main(
+                                        &settings,
+                                        &update_repo,
+                                        &identifier,
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                        );
 
-                    if show_cleanup {
-                        let weak = weak.clone();
-                        let cleanup_repo = repo.clone();
-                        let item = if running {
-                            PopupMenuItem::new(
-                                "Clean up worktree — stop the running session first",
-                            )
-                            .icon(Icon::new(IconName::Delete))
-                            .disabled(true)
-                        } else {
-                            PopupMenuItem::new("Clean up worktree")
+                        if show_cleanup {
+                            let weak = weak.clone();
+                            let cleanup_repo = repo.clone();
+                            let item = if running {
+                                PopupMenuItem::new(
+                                    "Clean up worktree — stop the running session first",
+                                )
                                 .icon(Icon::new(IconName::Delete))
-                                .on_click(move |_, _, cx| {
-                                    cleanup_worktree(weak.clone(), cleanup_repo.clone(), cx);
-                                })
-                        };
-                        menu = menu.item(item);
+                                .disabled(true)
+                            } else {
+                                PopupMenuItem::new("Clean up worktree")
+                                    .icon(Icon::new(IconName::Delete))
+                                    .on_click(move |_, _, cx| {
+                                        cleanup_worktree(weak.clone(), cleanup_repo.clone(), cx);
+                                    })
+                            };
+                            menu = menu.item(item);
+                        }
                     }
-                }
-                menu
-            })
+                    menu
+                }),
+        )
     }
 
     // -- body ------------------------------------------------------------------
@@ -658,7 +669,12 @@ impl Render for IssueChanges {
             return base.into_any_element();
         };
 
-        let mut view = base.child(self.render_header(&issue, cx));
+        // The Absent tier renders only its empty state — a header with no
+        // branch, no stats, and no actions is just an empty bar (EXP-67).
+        let mut view = base;
+        if !matches!(self.tier, Tier::Absent) {
+            view = view.child(self.render_header(&issue, cx));
+        }
         if let Some(err) = self.action_error.clone() {
             view = view.child(
                 div()
