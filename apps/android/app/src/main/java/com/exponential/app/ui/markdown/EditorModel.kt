@@ -37,6 +37,12 @@ class EditorModel {
     val pendingImages = mutableStateMapOf<String, PendingImage>()
     val uploadStates = mutableStateMapOf<String, ImageUploadState>()
 
+    // Why the last upload for a row failed (server message like "Unsupported
+    // image type" or "Images must be 10 MB or smaller"). Shown on the Failed
+    // overlay — a bare "tap to retry" hid deterministic 4xx rejections and made
+    // failures undiagnosable (EXP-61).
+    val uploadErrors = mutableStateMapOf<String, String>()
+
     var focusedRowId by mutableStateOf<String?>(null)
         private set
 
@@ -80,12 +86,14 @@ class EditorModel {
 
     fun revision(id: String): Int = revisions[id] ?: 0
     fun uploadState(id: String): ImageUploadState = uploadStates[id] ?: ImageUploadState.Idle
+    fun uploadError(id: String): String? = uploadErrors[id]
 
     // -- Loading ----------------------------------------------------------------
 
     fun load(markdown: String) {
         pendingImages.clear()
         uploadStates.clear()
+        uploadErrors.clear()
         uploaders.clear()
         rows = EditorRows.fromBlocks(MarkdownParser.parse(markdown))
         bumpAll()
@@ -505,12 +513,16 @@ class EditorModel {
         if (rows.none { it.id == rowId }) return
         uploaders[rowId] = upload
         uploadStates[rowId] = ImageUploadState.Uploading
-        val newUrl = runCatching { upload() }.getOrNull()
+        uploadErrors.remove(rowId)
+        val newUrl = runCatching { upload() }
+            .onFailure { error -> uploadErrors[rowId] = error.message ?: "Upload failed" }
+            .getOrNull()
         val current = rows.firstOrNull { it.id == rowId } as? EditorRow.Image
         if (current == null) {
             // Row was deleted while the upload ran — drop all tracking.
             uploaders.remove(rowId)
             uploadStates.remove(rowId)
+            uploadErrors.remove(rowId)
             return
         }
         if (newUrl == null) {
@@ -525,6 +537,7 @@ class EditorModel {
         }
         uploaders.remove(rowId)
         uploadStates[rowId] = ImageUploadState.Idle
+        uploadErrors.remove(rowId)
         notifyEdit()
     }
 
@@ -540,6 +553,7 @@ class EditorModel {
         val img = rows[idx] as? EditorRow.Image ?: return
         dropPendingDraft(img)
         uploadStates.remove(img.id)
+        uploadErrors.remove(img.id)
         uploaders.remove(img.id)
 
         val prevIdx = idx - 1

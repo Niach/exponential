@@ -24,6 +24,13 @@ android {
     namespace = "com.exponential.app"
     compileSdk = 35
 
+    testOptions {
+        // JVM unit tests exercise classes that log via android.util.Log
+        // (ShapeClient error paths); return defaults instead of throwing
+        // "not mocked".
+        unitTests.isReturnDefaultValues = true
+    }
+
     defaultConfig {
         applicationId = "at.exponential"
         minSdk = 26
@@ -162,6 +169,7 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(libs.ktor.client.mock)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.espresso.core)
