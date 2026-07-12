@@ -1,0 +1,31 @@
+{
+  "name": "@exp/video",
+  "version": "0.1.0",
+  "description": "Remotion promo/demo videos for Exponential (renders MP4s from real app screenshots)",
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/cli": "4.0.484",
+    "@remotion/google-fonts": "4.0.484",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.484"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.484",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render WebUiDemo out/webui-demo.mp4",
+    "build": "remotion bundle",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}
