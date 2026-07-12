@@ -27,7 +27,7 @@ pub mod read_loop;
 pub mod session;
 pub mod tab;
 
-pub use element::{GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
+pub use element::{init, GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
 pub use emulator::{
     grid_size, screen_lines, Emulator, EmulatorSignal, EventProxy, GridSize, TermHandle,
 };

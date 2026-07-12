@@ -39,8 +39,9 @@ use gpui::{
     div, fill, outline, point, px, relative, App, BorderStyle, Bounds, ClipboardItem, Context,
     CursorStyle as GpuiCursorStyle, DispatchPhase, Element, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior,
-    Hsla, InputHandler, InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Hsla, InputHandler, InspectorElementId, InteractiveElement, IntoElement, KeyBinding,
+    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, NoAction,
+    ParentElement, Pixels,
     Point as PixelPoint, Render, ScrollWheelEvent, ShapedLine, SharedString, StrikethroughStyle,
     Style, Styled, Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window,
 };
@@ -58,6 +59,24 @@ const PAD_Y: f32 = 2.0;
 
 /// Cursor blink half-period (visible ↔ hidden).
 const BLINK_INTERVAL: Duration = Duration::from_millis(530);
+
+/// The terminal view's key context (EXP-71 shadowing target).
+const KEY_CONTEXT: &str = "Terminal";
+
+/// Shadow gpui-component `Root`'s window-wide `tab`/`shift-tab` focus-cycle
+/// bindings inside the terminal (EXP-71). gpui dispatches keymap bindings
+/// BEFORE `on_key_down` listeners, so without this a focused terminal never
+/// sees tab/shift+tab — Root's focus traversal ate them (shift+tab is how
+/// Claude cycles its modes). A `NoAction` binding in the deeper `Terminal`
+/// context halts the binding search entirely, letting the raw key event fall
+/// through to `handle_key_down` → `keys::to_esc_str` (`\t` / CSI Z). Must run
+/// once at bootstrap, after `gpui_component::init(cx)`.
+pub fn init(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("tab", NoAction, Some(KEY_CONTEXT)),
+        KeyBinding::new("shift-tab", NoAction, Some(KEY_CONTEXT)),
+    ]);
+}
 
 // ---------------------------------------------------------------------------
 // TerminalView — the gpui entity owning the session on the foreground
@@ -484,7 +503,7 @@ impl Render for TerminalView {
         let focused = self.focus_handle.is_focused(window);
         div()
             .id("terminal-view")
-            .key_context("Terminal")
+            .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .size_full()
             .bg(self.palette.background)
@@ -1491,6 +1510,64 @@ impl InputHandler for TerminalInputHandler {
 mod tests {
     use super::*;
     use alacritty_terminal::index::{Column, Line};
+    use gpui::{KeyContext, Keymap, Keystroke};
+
+    gpui::actions!(terminal_element_tests, [FakeRootTab, FakeRootTabPrev]);
+
+    /// EXP-71: [`init`]'s `NoAction` bindings in the deeper `Terminal` context
+    /// must shadow Root-level tab/shift-tab focus-traversal bindings, leaving
+    /// NO matched binding — so the raw key event falls through to
+    /// `handle_key_down` and reaches the PTY as `\t` / CSI Z.
+    #[test]
+    fn tab_bindings_shadow_root_focus_traversal() {
+        let root_bindings = vec![
+            KeyBinding::new("tab", FakeRootTab, Some("Root")),
+            KeyBinding::new("shift-tab", FakeRootTabPrev, Some("Root")),
+        ];
+        let stack = [
+            KeyContext::parse("Root").unwrap(),
+            KeyContext::parse(KEY_CONTEXT).unwrap(),
+        ];
+        let tab = [Keystroke::parse("tab").unwrap()];
+        let shift_tab = [Keystroke::parse("shift-tab").unwrap()];
+
+        // Without the shadow: Root's focus-cycle bindings match inside the
+        // terminal (the regression this fix addresses).
+        let unshadowed = Keymap::new(root_bindings.clone());
+        assert!(!unshadowed.bindings_for_input(&tab, &stack).0.is_empty());
+        assert!(!unshadowed.bindings_for_input(&shift_tab, &stack).0.is_empty());
+
+        // With init()'s shadow bindings: nothing matches, the event falls
+        // through to the key listener. ctrl-tab (dock tab-switch) untouched.
+        let mut keymap = Keymap::new(root_bindings);
+        keymap.add_bindings(vec![
+            KeyBinding::new("tab", NoAction, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-tab", NoAction, Some(KEY_CONTEXT)),
+        ]);
+        let (bindings, pending) = keymap.bindings_for_input(&shift_tab, &stack);
+        assert!(bindings.is_empty());
+        assert!(!pending);
+        let (bindings, pending) = keymap.bindings_for_input(&tab, &stack);
+        assert!(bindings.is_empty());
+        assert!(!pending);
+        let ctrl_tab = [Keystroke::parse("ctrl-tab").unwrap()];
+        let dock_stack = [KeyContext::parse("Root").unwrap()];
+        let mut with_dock = Keymap::new(vec![KeyBinding::new(
+            "ctrl-tab",
+            FakeRootTab,
+            Some("Root"),
+        )]);
+        with_dock.add_bindings(vec![
+            KeyBinding::new("tab", NoAction, Some(KEY_CONTEXT)),
+            KeyBinding::new("shift-tab", NoAction, Some(KEY_CONTEXT)),
+        ]);
+        assert!(
+            !with_dock
+                .bindings_for_input(&ctrl_tab, &dock_stack)
+                .0
+                .is_empty()
+        );
+    }
 
     fn spec(row: usize, col: usize, ch: char, fg: Hsla, bg: Option<Hsla>) -> CellSpec {
         CellSpec {
