@@ -1,15 +1,23 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { issueCollection } from "@/lib/collections"
 import {
   useWorkspaceProjects,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
+import { trpc } from "@/lib/trpc-client"
+import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { Issue, Project, Workspace } from "@/db/schema"
 
 export interface ReviewGroup {
   project: Project
   issues: Issue[]
+}
+
+export interface ExternalPullGroup {
+  repositoryId: string
+  fullName: string
+  pulls: OpenPull[]
 }
 
 // Cross-project review queue: every issue in the workspace with an open pull
@@ -41,6 +49,53 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
 
   const { userMap } = useWorkspaceUsers(workspace?.id)
 
+  // Open PRs with no issue link, fetched live from GitHub through the server
+  // (they have no synced row to live-query). Failures degrade to an empty
+  // list — the issue-linked queue still renders.
+  const [externalGroups, setExternalGroups] = useState<ExternalPullGroup[]>([])
+  const [externalLoading, setExternalLoading] = useState(false)
+  const workspaceId = workspace?.id
+  useEffect(() => {
+    if (!workspaceId) return
+    let cancelled = false
+    setExternalLoading(true)
+    trpc.repositories.openPulls
+      .query({ workspaceId })
+      .then((result) => {
+        if (cancelled) return
+        setExternalGroups(result.repos.filter((repo) => repo.pulls.length > 0))
+      })
+      .catch(() => {
+        if (!cancelled) setExternalGroups([])
+      })
+      .finally(() => {
+        if (!cancelled) setExternalLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  // External PRs have no Electric echo — a successful merge removes the row
+  // locally.
+  const removeExternalPull = useCallback(
+    (repositoryId: string, prNumber: number) => {
+      setExternalGroups((groups) =>
+        groups
+          .map((group) =>
+            group.repositoryId === repositoryId
+              ? {
+                  ...group,
+                  pulls: group.pulls.filter((pull) => pull.number !== prNumber),
+                }
+              : group
+          )
+          .filter((group) => group.pulls.length > 0)
+      )
+    },
+    []
+  )
+
   return useMemo(() => {
     const list = (issues ?? []) as Issue[]
     const byProject = new Map<string, Issue[]>()
@@ -65,13 +120,31 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
       groups.push({ project, issues: bucket })
     }
 
+    const externalCount = externalGroups.reduce(
+      (sum, group) => sum + group.pulls.length,
+      0
+    )
+
     return {
       groups,
-      count: list.length,
+      externalGroups,
+      count: list.length + externalCount,
       // A workspace with no projects skips the query and can never deliver a
-      // snapshot — treat it as ready-empty instead of loading forever.
+      // snapshot — treat it as ready-empty instead of loading forever. The
+      // external fetch has its own flag so the synced queue renders without
+      // waiting on GitHub.
       isLoading: !isReady && projects.length > 0,
+      externalLoading,
       userMap,
+      removeExternalPull,
     }
-  }, [issues, isReady, projects, userMap])
+  }, [
+    issues,
+    isReady,
+    projects,
+    userMap,
+    externalGroups,
+    externalLoading,
+    removeExternalPull,
+  ])
 }

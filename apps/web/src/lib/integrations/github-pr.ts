@@ -147,6 +147,58 @@ export async function fetchPullState(
   }
 }
 
+export interface OpenPull {
+  number: number
+  url: string
+  title: string
+  branch: string
+  baseBranch: string
+  draft: boolean
+  authorLogin: string | null
+  authorAvatarUrl: string | null
+  createdAt: string
+}
+
+// List a repository's open pull requests. The Reviews queue shows every open
+// PR of a workspace's repos — PRs opened outside the issue flow have no
+// issues row to sync from, so they must come straight from GitHub. Token
+// priority mirrors fetchPullFiles: App installation token, then the optional
+// GITHUB_TOKEN env, then unauthenticated (public repos only).
+export async function listOpenPulls(
+  repo: string,
+  token?: string | null
+): Promise<OpenPull[]> {
+  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
+    { headers }
+  )
+  if (!res.ok) {
+    throw new Error(`GitHub returned ${res.status} listing pulls for ${repo}`)
+  }
+  const data = (await res.json()) as Array<{
+    number: number
+    html_url: string
+    title: string
+    draft?: boolean
+    created_at: string
+    head?: { ref?: string }
+    base?: { ref?: string }
+    user?: { login?: string; avatar_url?: string }
+  }>
+  return data.map((pull) => ({
+    number: pull.number,
+    url: pull.html_url,
+    title: pull.title,
+    branch: pull.head?.ref ?? ``,
+    baseBranch: pull.base?.ref ?? ``,
+    draft: Boolean(pull.draft),
+    authorLogin: pull.user?.login ?? null,
+    authorAvatarUrl: pull.user?.avatar_url ?? null,
+    createdAt: pull.created_at,
+  }))
+}
+
 // Fetch a pull request's changed files from GitHub for the diff view.
 //
 // Token priority: a `token` passed in (the App installation token — covers

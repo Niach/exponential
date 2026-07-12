@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { issues, projects, repositories } from "@/db/schema"
@@ -17,6 +17,12 @@ import {
   resolveRepoInstallationToken,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
+import {
+  GitHubMergeError,
+  listOpenPulls,
+  mergePullRequest,
+  type OpenPull,
+} from "@/lib/integrations/github-pr"
 import {
   assertCanManageRepos,
   assertRepoInstallationAccess,
@@ -256,6 +262,42 @@ async function loadRepository(repositoryId: string) {
   return repo
 }
 
+// The Reviews queue's "everything else" source: open PRs listed live from
+// GitHub for every workspace repo. Short in-process cache so tab switches and
+// re-mounts don't hammer the GitHub API; busted by mergePull.
+const OPEN_PULLS_TTL_MS = 60_000
+interface CachedOpenPulls {
+  expiresAt: number
+  repos: Array<{ repositoryId: string; fullName: string; pulls: OpenPull[] }>
+}
+const openPullsCache = new Map<string, CachedOpenPulls>()
+
+// Resolve the App installation token for a repo row, honoring the same
+// link-gate as installationToken: a token is only used when the installation
+// serving the repo is still claimed by the repo's workspace. Returns null when
+// no gated token is available (callers may still read public repos
+// unauthenticated / via GITHUB_TOKEN).
+async function resolveGatedRepoToken(repo: {
+  workspaceId: string
+  fullName: string
+  installationId: number | null
+}): Promise<string | null> {
+  if (!githubAppConfigured()) return null
+  const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
+    fallbackInstallationId: repo.installationId,
+  })
+  if (!resolved) return null
+  if (
+    !(await isInstallationLinkedToWorkspace(
+      repo.workspaceId,
+      resolved.installationId
+    ))
+  ) {
+    return null
+  }
+  return resolved.token
+}
+
 export const repositoriesRouter = router({
   // Member-readable (moderator-only on public workspaces): the workspace's
   // repos + the projects each one backs (for the settings "in use by" chips
@@ -315,6 +357,144 @@ export const repositoriesRouter = router({
           .filter((p) => p.repositoryId === repo.id)
           .map((p) => ({ id: p.id, name: p.name, slug: p.slug })),
       }))
+    }),
+
+  // Member-readable: every open pull request across the workspace's repos
+  // that is NOT already linked to an issue (those rows render from the synced
+  // issues shape). Listed live from GitHub so PRs opened outside the issue
+  // flow — release PRs on other branches, manual PRs, external contributors —
+  // still land in the Reviews queue.
+  openPulls: authedProcedure
+    .input(z.object({ workspaceId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertRepoCapability(ctx.session.user.id, input.workspaceId)
+
+      const cached = openPullsCache.get(input.workspaceId)
+      if (cached && cached.expiresAt > Date.now()) {
+        return { repos: cached.repos }
+      }
+
+      const repos = await ctx.db
+        .select({
+          id: repositories.id,
+          fullName: repositories.fullName,
+          workspaceId: repositories.workspaceId,
+          installationId: repositories.installationId,
+        })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.workspaceId, input.workspaceId),
+            isNull(repositories.archivedAt)
+          )
+        )
+        .orderBy(asc(repositories.sortOrder), asc(repositories.fullName))
+
+      // PRs already linked to an issue are excluded by URL — the issue rows
+      // carry them (regardless of the row's possibly-drifted prState).
+      const linkedRows = await ctx.db
+        .select({ prUrl: issues.prUrl })
+        .from(issues)
+        .innerJoin(projects, eq(projects.id, issues.projectId))
+        .where(
+          and(
+            eq(projects.workspaceId, input.workspaceId),
+            isNotNull(issues.prUrl)
+          )
+        )
+      const linkedUrls = new Set(
+        linkedRows.map((row) => row.prUrl).filter(Boolean)
+      )
+
+      const results = await Promise.all(
+        repos.map(async (repo) => {
+          try {
+            const token = await resolveGatedRepoToken(repo)
+            const pulls = await listOpenPulls(repo.fullName, token)
+            return {
+              repositoryId: repo.id,
+              fullName: repo.fullName,
+              pulls: pulls.filter((pull) => !linkedUrls.has(pull.url)),
+            }
+          } catch {
+            // Unreachable repo (App access revoked, private repo without a
+            // token, GitHub hiccup) — the queue shows what it can.
+            return { repositoryId: repo.id, fullName: repo.fullName, pulls: [] }
+          }
+        })
+      )
+
+      openPullsCache.set(input.workspaceId, {
+        expiresAt: Date.now() + OPEN_PULLS_TTL_MS,
+        repos: results,
+      })
+      return { repos: results }
+    }),
+
+  // Member-gated squash-merge for a pull request WITHOUT an issue link (the
+  // issue-linked path is issues.mergePr, which also syncs the issue row).
+  // Same trust model as installationToken: the workspace's ownership of the
+  // repo row plus the installation link-gate authorizes the merge.
+  mergePull: authedProcedure
+    .input(
+      z.object({
+        repositoryId: z.string().uuid(),
+        prNumber: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
+      const repo = await loadRepository(input.repositoryId)
+      await assertRepoCapability(ctx.session.user.id, repo.workspaceId)
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const token = await resolveGatedRepoToken(repo)
+      if (!token) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (workspace settings → Repositories), then retry.`,
+        })
+      }
+
+      try {
+        await mergePullRequest({
+          repo: repo.fullName,
+          prNumber: input.prNumber,
+          token,
+        })
+      } catch (err) {
+        if (err instanceof GitHubMergeError) {
+          if (err.status === 405) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: err.message,
+            })
+          }
+          if (err.status === 409) {
+            throw new TRPCError({
+              code: `CONFLICT`,
+              message: `Head branch changed on GitHub — refresh and try again`,
+            })
+          }
+          if (err.status === 404) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Pull request not found on GitHub`,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `GitHub merge failed: ${err.message}`,
+          })
+        }
+        throw err
+      }
+
+      openPullsCache.delete(repo.workspaceId)
+      return { merged: true }
     }),
 
   // Owner/admin: register a repo reachable through one of the CALLER's GitHub
