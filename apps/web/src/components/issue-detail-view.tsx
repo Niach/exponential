@@ -215,9 +215,22 @@ export function IssueDetailView({
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
-  // Always holds a normalized value — the unsaved-edits check below compares
-  // normalized local text against it.
+  // Two baselines in two coordinate systems, both always normalized. The
+  // editor re-serializes whatever it parses, and markdown authored on other
+  // clients (native apps, MCP, the widget) need not round-trip
+  // byte-identically through TipTap — mixing the spaces made one applied
+  // non-canonical description look like unsaved local edits forever,
+  // deferring every later remote update and letting a mere focus+blur save
+  // stale re-serialized text over newer remote saves.
+  // - lastSavedDescriptionRef: EDITOR-serialized text at the last
+  //   apply/save/settle — compared against the editor's local text to detect
+  //   unsaved edits.
+  // - syncedDescriptionRef: RAW synced text this view has accounted for —
+  //   compared against the incoming value to detect new remote content.
   const lastSavedDescriptionRef = useRef(
+    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
+  )
+  const syncedDescriptionRef = useRef(
     normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
   )
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -263,9 +276,23 @@ export function IssueDetailView({
   const applyIncomingDescription = (nextDescription: string) => {
     setDescription(nextDescription)
     descriptionRef.current = nextDescription
-    lastSavedDescriptionRef.current =
+    syncedDescriptionRef.current =
       normalizeIssueDescriptionText(nextDescription)
     editorRef.current?.setMarkdown(nextDescription)
+    // Settle the local text and the unsaved-edits baseline from the editor's
+    // OWN serialization of what it just parsed (setMarkdown also re-enters
+    // onChange with it), never from the raw incoming string — the two need
+    // not match byte-for-byte. While the editor instance does not exist yet
+    // the raw value stands in for both, and the editor is then created from
+    // that same value, so the pair stays consistent either way.
+    const editorMarkdown = editorRef.current?.getMarkdown()
+    if (editorMarkdown != null) {
+      setDescription(editorMarkdown)
+      descriptionRef.current = editorMarkdown
+    }
+    lastSavedDescriptionRef.current = normalizeIssueDescriptionText(
+      descriptionRef.current
+    )
   }
 
   // Full reset when navigating to a different issue.
@@ -290,12 +317,13 @@ export function IssueDetailView({
   // bookkeeping; with unsaved local edits the replace is deferred to the next
   // blur instead of wiping the user's text and resetting the caret.
   useEffect(() => {
-    if (normalizedIncoming === lastSavedDescriptionRef.current) return
+    if (normalizedIncoming === syncedDescriptionRef.current) return
     const normalizedLocal = normalizeIssueDescriptionText(
       descriptionRef.current
     )
     if (normalizedIncoming === normalizedLocal) {
-      lastSavedDescriptionRef.current = normalizedIncoming
+      syncedDescriptionRef.current = normalizedIncoming
+      lastSavedDescriptionRef.current = normalizedLocal
       return
     }
     if (normalizedLocal !== lastSavedDescriptionRef.current) return
@@ -318,11 +346,18 @@ export function IssueDetailView({
       return
     }
     const saveTask = async () => {
+      const baselineAtSaveStart = lastSavedDescriptionRef.current
       await trpc.issues.update.mutate({
         id: issue.id,
         description: normalizedDescription ? normalizedDescription : null,
       })
-      lastSavedDescriptionRef.current = normalizedDescription
+      // A remote apply, an echo settle, or an issue switch may have moved the
+      // baselines while the mutate was in flight — rewinding them to this
+      // save would mark the newer editor content as unsaved local edits.
+      if (lastSavedDescriptionRef.current === baselineAtSaveStart) {
+        lastSavedDescriptionRef.current = normalizedDescription
+        syncedDescriptionRef.current = normalizedDescription
+      }
     }
     const queuedSave = saveQueueRef.current.then(saveTask, saveTask)
     saveQueueRef.current = queuedSave.catch(() => undefined)
@@ -349,10 +384,7 @@ export function IssueDetailView({
     // A remote change that arrived mid-edit was deferred by the sync effect;
     // when this blur had nothing of ours to write over it, show it now. After
     // a real save the Electric echo of our own write reconciles instead.
-    if (
-      !hadLocalEdits &&
-      normalizedIncoming !== lastSavedDescriptionRef.current
-    ) {
+    if (!hadLocalEdits && normalizedIncoming !== syncedDescriptionRef.current) {
       applyIncomingDescription(incomingDescription)
     }
   }

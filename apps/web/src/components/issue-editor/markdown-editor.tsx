@@ -65,7 +65,10 @@ export interface MarkdownEditorImageUploadConfig {
 export interface MarkdownEditorRef {
   focus: () => void
   setMarkdown: (md: string) => void
-  getMarkdown: () => string
+  // Null while the editor instance does not exist yet (creation is deferred
+  // by immediatelyRender: false) — an empty string would be
+  // indistinguishable from a legitimately empty document.
+  getMarkdown: () => string | null
   insertImage: (image: { alt?: string; src: string }) => void
 }
 
@@ -507,7 +510,7 @@ export const MarkdownEditor = forwardRef<
         editor?.commands.setContent(md)
       },
       getMarkdown: () => {
-        return getEditorMarkdown(editor)
+        return editor ? getEditorMarkdown(editor) : null
       },
       insertImage: ({ alt, src }) => {
         editor?.chain().focus().setImage({ alt, src }).run()
@@ -528,10 +531,14 @@ export const MarkdownEditor = forwardRef<
     // (e.g. comment bodies fed live from sync) have no local edits to
     // protect, so re-apply the markdown prop when it diverges; editable
     // instances own their document and sync explicitly via the ref.
+    // emitUpdate must stay off: setContent would otherwise re-enter onChange
+    // with the editor's re-serialization of the prop, and markdown authored
+    // on other clients need not round-trip byte-identically — a host tracking
+    // dirty state against the raw synced text would see phantom local edits.
     useEffect(() => {
       if (!editor || editable) return
       if (getEditorMarkdown(editor) === markdown) return
-      editor.commands.setContent(markdown)
+      editor.commands.setContent(markdown, { emitUpdate: false })
     }, [editor, editable, markdown])
 
     // Re-run the issue-ref/mention decorations when resolution data changes
