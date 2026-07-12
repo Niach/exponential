@@ -5,7 +5,7 @@ import type { AgentSessionRow } from "@/hooks/use-agents-data"
 import { DesktopDownloadCard } from "@/components/desktop-download-card"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
-import { SteerViewer, useSteerConfig } from "@/components/steer-terminal"
+import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
@@ -18,8 +18,8 @@ import { Button } from "@/components/ui/button"
 // Workspace Agents view: every desktop coding session in the workspace,
 // running first (live indicator + inline Watch/Steer via the steer relay),
 // then the recently ended ones. The list is pure client work over the synced
-// coding_sessions shape; watching reuses the SteerViewer transport from
-// steer-terminal.tsx (ticket minted by trpc.steer.mintTicket — membership and
+// coding_sessions shape; watching reuses the AgentSessionView renderer from
+// agent-session.tsx (ticket minted by trpc.steer.mintTicket — membership and
 // perm are enforced server-side at mint time, the UI only mirrors them).
 export const Route = createFileRoute(`/w/$workspaceSlug/agents/`)({
   beforeLoad: async ({ context }) => {
@@ -152,7 +152,7 @@ function AgentsPage() {
   const currentUserId = session?.user?.id
   // Steer tickets require workspace membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the Watch
-  // button renders (mirrors the SteerTerminal wrapper's gating).
+  // button renders (mirrors the IssueSteerPanel wrapper's gating).
   const canWatch = Boolean(
     currentUserId && isMember && steerConfig?.enabled
   )
@@ -231,7 +231,7 @@ function AgentsPage() {
                       canWatch &&
                       currentUserId && (
                         <div className="border-b border-border/30 px-3 pb-3">
-                          <SteerViewer
+                          <AgentSessionView
                             key={row.session.id}
                             session={row.session}
                             currentUserId={currentUserId}
