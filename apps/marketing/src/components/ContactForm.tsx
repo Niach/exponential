@@ -26,8 +26,11 @@ export function ContactForm() {
   const [company, setCompany] = useState(``)
   const [message, setMessage] = useState(``)
   /* Honeypot — real visitors never see or fill it; bots that do get
-     silently accepted-and-dropped server-side (same trick as the widget). */
-  const [website, setWebsite] = useState(``)
+     silently accepted-and-dropped server-side (same trick as the widget).
+     The field name is deliberately non-address-like so browser autofill
+     (which populates off-screen inputs and largely ignores autoComplete="off"
+     for profile fields like URL/website) can't fill it and lose a real lead. */
+  const [contactNonce, setContactNonce] = useState(``)
   const [state, setState] = useState<SubmitState>(`idle`)
   /* Pre-hydration guard — until React attaches handleSubmit, a native submit
      would GET-navigate and leak the field values into the URL. Both server
@@ -53,7 +56,7 @@ export function ContactForm() {
           email,
           company,
           message,
-          website,
+          contactNonce,
           source: `pricing-enterprise`,
         }),
       })
@@ -143,11 +146,11 @@ export function ContactForm() {
       <input
         className="contact-hp"
         type="text"
-        name="website"
-        value={website}
-        onChange={(e) => setWebsite(e.target.value)}
+        name="contact_nonce"
+        value={contactNonce}
+        onChange={(e) => setContactNonce(e.target.value)}
         tabIndex={-1}
-        autoComplete="off"
+        autoComplete="one-time-code"
         aria-hidden="true"
       />
       {state === `rateLimited` && (

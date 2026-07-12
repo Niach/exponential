@@ -32,8 +32,10 @@ const contactSchema = z.object({
   email: z.string().trim().email().max(320),
   company: z.string().trim().max(255).optional(),
   message: z.string().trim().min(1).max(5000),
-  // Honeypot — the real form never fills this hidden field.
-  website: z.string().max(1024).optional(),
+  // Honeypot — the real form never fills this hidden field. Named
+  // non-address-like so browser profile autofill can't populate it and
+  // silently sink a genuine lead.
+  contactNonce: z.string().max(1024).optional(),
   source: z.string().trim().max(100).optional(),
 })
 
@@ -125,8 +127,12 @@ async function handleContact(request: Request): Promise<Response> {
     )
   }
 
-  // Honeypot: pretend success so bots don't adapt; nothing is sent.
-  if (fields.data.website && fields.data.website.length > 0) {
+  // Honeypot: pretend success so bots don't adapt; nothing is sent. Warn so
+  // an autofill victim whose message vanished is at least diagnosable in logs.
+  if (fields.data.contactNonce && fields.data.contactNonce.length > 0) {
+    console.warn(
+      `contact form honeypot triggered — dropping submission (possible autofill)`
+    )
     return jsonResponse(201, { ok: true }, cors)
   }
 

@@ -196,20 +196,24 @@ export const workspaceMembers = pgTable(
   ]
 )
 
-export const workspaceInvites = pgTable(`workspace_invites`, {
-  id: uuidPk(),
-  workspaceId: uuid(`workspace_id`)
-    .notNull()
-    .references(() => workspaces.id, { onDelete: `cascade` }),
-  invitedById: text(`invited_by_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
-  role: workspaceMemberRoleEnum().notNull().default(`member`),
-  token: varchar({ length: 255 }).notNull().unique(),
-  acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
-  expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
-  ...timestamps,
-})
+export const workspaceInvites = pgTable(
+  `workspace_invites`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    invitedById: text(`invited_by_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    role: workspaceMemberRoleEnum().notNull().default(`member`),
+    token: varchar({ length: 255 }).notNull().unique(),
+    acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [index(`idx_workspace_invites_workspace`).on(table.workspaceId)]
+)
 
 export const projects = pgTable(
   `projects`,
@@ -358,16 +362,20 @@ export const issueNumberCounters = pgTable(`issue_number_counters`, {
   ...timestamps,
 })
 
-export const labels = pgTable(`labels`, {
-  id: uuidPk(),
-  workspaceId: uuid(`workspace_id`)
-    .notNull()
-    .references(() => workspaces.id, { onDelete: `cascade` }),
-  name: varchar({ length: 255 }).notNull(),
-  color: varchar({ length: 7 }).notNull().default(`#6366f1`),
-  sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-  ...timestamps,
-})
+export const labels = pgTable(
+  `labels`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    color: varchar({ length: 7 }).notNull().default(`#6366f1`),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [index(`idx_labels_workspace`).on(table.workspaceId)]
+)
 
 export const issueLabels = pgTable(
   `issue_labels`,
