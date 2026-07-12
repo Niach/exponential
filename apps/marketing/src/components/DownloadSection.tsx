@@ -100,7 +100,7 @@ export const PLATFORMS: Platform[] = [
     id: `windows`,
     name: `Windows`,
     logo: WindowsLogo,
-    requirement: `x86_64 · portable .zip`,
+    requirement: `x86_64 · portable .exe`,
     cta: `Download for Windows`,
     href: LINKS.downloads.windows,
   },

@@ -1151,12 +1151,28 @@ impl Render for CreateIssueDialogView {
             .child(header)
             .child(
                 // Borderless title (web text-lg font-medium px-5).
-                div().px_3().child(
-                    Input::new(&self.title)
-                        .appearance(false)
-                        .text_lg()
-                        .font_weight(FontWeight::MEDIUM),
-                ),
+                //
+                // TAB jumps straight into the description editor (EXP-68) —
+                // without this the single-line input propagates the `tab →
+                // IndentInline` binding and Root's fallback `tab → Tab`
+                // cycles focus through the description toolbar's formatting
+                // buttons first. Handling IndentInline here (the bubble
+                // reaches this wrapper right after the input propagates it)
+                // consumes the keystroke before Root's binding runs.
+                div()
+                    .px_3()
+                    .on_action(cx.listener(
+                        |this, _: &gpui_component::input::IndentInline, window, cx| {
+                            this.description
+                                .update(cx, |editor, cx| editor.focus(window, cx));
+                        },
+                    ))
+                    .child(
+                        Input::new(&self.title)
+                            .appearance(false)
+                            .text_lg()
+                            .font_weight(FontWeight::MEDIUM),
+                    ),
             )
             .child(
                 // Only this region scrolls; header/chips/footer

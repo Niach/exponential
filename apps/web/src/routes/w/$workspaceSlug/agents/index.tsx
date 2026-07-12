@@ -2,7 +2,6 @@ import { Fragment, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { Bot, MonitorPlay, X } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
-import { DesktopDownloadCard } from "@/components/desktop-download-card"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
 import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
@@ -11,8 +10,6 @@ import { useSession } from "@/hooks/use-session"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { displayUserName } from "@/lib/user-display"
-import { hasDismissedDesktopAppCard } from "@/lib/auth/app-user"
-import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 
 // Workspace Agents view: every desktop coding session in the workspace,
@@ -143,12 +140,6 @@ function AgentsPage() {
   // each viewer holds a live relay socket).
   const [watchSessionId, setWatchSessionId] = useState<string | null>(null)
 
-  // "Get the desktop app" card dismissal. The session flag keeps it hidden on
-  // later loads (session is fetched once); local state hides it immediately.
-  const [cardDismissedLocally, setCardDismissedLocally] = useState(false)
-  const cardDismissed =
-    cardDismissedLocally || hasDismissedDesktopAppCard(session?.user)
-
   const currentUserId = session?.user?.id
   // Steer tickets require workspace membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the Watch
@@ -189,17 +180,8 @@ function AgentsPage() {
         </h1>
       </div>
 
-      {!cardDismissed && (
-        <div className="mb-4">
-          <DesktopDownloadCard
-            onDismiss={() => {
-              setCardDismissedLocally(true)
-              void trpc.users.dismissDesktopAppCard.mutate()
-            }}
-          />
-        </div>
-      )}
-
+      {/* The old "Get the desktop app" card lived here — replaced by the
+          sidebar's DesktopDownloadButton (EXP-68). */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>

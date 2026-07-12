@@ -19,13 +19,12 @@ export const LINKS = {
     releases: `${REPO}/releases`,
   },
   downloads: {
-    // GitHub Releases `latest` assets — published by build-desktop.yml on desktop-v* tags.
-    // Asset names are fixed by the release pipeline (masterplan P4.d).
-    // macOS ships the ad-hoc-signed zip today; switch to
-    // Exponential-production.dmg once MACOS_CERT_P12 lands (the notarized
-    // .dmg replaces the .zip asset in the same release).
-    macos: `${REPO}/releases/latest/download/exp-desktop-production.zip`,
-    windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.zip`,
+    // GitHub Releases `latest` assets — published by build-desktop.yml on
+    // desktop-v* tags. Asset names are fixed by the release pipeline and
+    // shared with the desktop self-updater (EXP-68: exactly one asset per
+    // OS — notarized .dmg, raw .exe, raw .AppImage).
+    macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
+    windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.exe`,
     linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
     // Mobile ships as public betas until the store listings are approved.
     // iOS: TestFlight external beta; Android: Google Play open (beta) track.

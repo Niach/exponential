@@ -419,8 +419,11 @@ impl IssueListView {
             })
             .hover(|style| style.bg(cx.theme().colors.list_hover))
             // Row click: Cmd/Ctrl toggles the selection, Shift extends the
-            // range from the anchor, plain navigates to the detail and
-            // leaves selection mode (web `onIssueClick`).
+            // range from the anchor, plain navigates to the detail. The
+            // selection SURVIVES navigation (EXP-68): peeking into an issue
+            // while composing a release must not throw the picked set away —
+            // it clears on scope change (`set_query`), Escape, or the bulk
+            // bar's ✕.
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 // Modifier clicks drive selection only where bulk exists —
                 // on a bulk-less list they navigate like a plain click.
@@ -435,7 +438,6 @@ impl IssueListView {
                         return;
                     }
                 }
-                this.clear_selection(cx);
                 navigate(
                     window,
                     cx,

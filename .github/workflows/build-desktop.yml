@@ -96,35 +96,31 @@ jobs:
           EXP_DESKTOP_VERSION: ${{ steps.ver.outputs.version }}
         run: cargo build --release --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }}
 
-      # Linux → package a single-file AppImage.
+      # Linux → package a single-file AppImage. The raw `.AppImage` is the
+      # ONLY Linux asset (EXP-68 — no `.tar.gz` twin): it is both the
+      # marketing `releases/latest/download/<name>.AppImage` link and the
+      # asset the in-app self-updater expects (`updater::expected_asset_name`).
       - name: Package AppImage
         if: runner.os == 'Linux'
         run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
-      # Publish BOTH the raw AppImage (marketing's stable
-      # releases/latest/download/<name>.AppImage link) and a .tar.gz of it
-      # (preserves the +x bit a raw HTTP download strips — EXP-16).
       - name: Upload AppImage
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
-          path: |
-            apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
-            apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage.tar.gz
+          path: apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
           if-no-files-found: error
 
-      # Windows → zip the bare exe. The exponential:// protocol handler + single
-      # instance are self-registered at first launch (HKCU, no installer
-      # needed); a signed MSI/MSIX is future work. The raw `.exe` ships
-      # alongside the zip for the in-app self-updater (EXP-22): it swaps the
-      # running exe directly, so unzipping in-app would be wasted machinery
-      # (the zip stays — it's the marketing download link).
-      - name: Package Windows zip
+      # Windows → the raw `.exe`, the ONLY Windows asset (EXP-68 — the old
+      # `.zip` twin is gone). It is both the marketing download link and the
+      # asset the in-app self-updater (EXP-22) swaps the running exe with
+      # (`updater::expected_asset_name`). The exponential:// protocol handler +
+      # single instance are self-registered at first launch (HKCU, no
+      # installer needed); a signed MSI/MSIX is future work.
+      - name: Package Windows exe
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path apps/desktop/target/release/exp-desktop.exe `
-            -DestinationPath "apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip"
           Copy-Item apps/desktop/target/release/exp-desktop.exe `
             "apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.exe"
       - name: Upload Windows artifact
@@ -132,9 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
-          path: |
-            apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip
-            apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.exe
+          path: apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.exe
           if-no-files-found: error
 
       # macOS → assemble a proper .app bundle. The Info.plist declares the
@@ -250,7 +244,9 @@ jobs:
       - name: Download production artifacts
         uses: actions/download-artifact@v4
         with:
-          # Both production matrix legs (linux AppImage + macOS .dmg/.zip).
+          # All production matrix legs — exactly one asset per OS (EXP-68):
+          # linux .AppImage, windows .exe, macOS .dmg (or the ad-hoc .zip
+          # fallback while unsigned).
           pattern: exp-desktop-production-*
           path: dist
           merge-multiple: true

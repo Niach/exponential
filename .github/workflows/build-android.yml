@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Override the repo's 2G default — packaging release APKs + both Play
-      # bundles in one invocation exhausts that heap on CI runners.
+      # Override the repo's 2G default — packaging the release APK + Play
+      # bundle in one invocation exhausts that heap on CI runners.
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx6g -Dfile.encoding=UTF-8"
 
     steps:
@@ -72,11 +72,10 @@ jobs:
         working-directory: apps/android
         run: ./gradlew :app:testProductionDebugUnitTest --no-daemon
 
-      - name: Build debug APKs
-        working-directory: apps/android
-        run: ./gradlew :app:assembleDebug --no-daemon
-
-      - name: Build release APKs + Play bundles
+      # ONE production release APK + ONE production Play bundle (EXP-68) —
+      # the debug and staging artifacts are gone from releases (a staging
+      # build is a local `bun run android:build :staging` away when needed).
+      - name: Build release APK + Play bundle
         working-directory: apps/android
         # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,
         # otherwise unsigned (keeps CI green pre-keystore).
@@ -84,7 +83,7 @@ jobs:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease :app:bundleProductionRelease :app:bundleStagingRelease --no-daemon
+        run: ./gradlew :app:assembleProductionRelease :app:bundleProductionRelease --no-daemon
 
       - name: Collect artifacts
         env:
@@ -94,14 +93,10 @@ jobs:
           APK_DIR="apps/android/app/build/outputs/apk"
           AAB_DIR="apps/android/app/build/outputs/bundle"
           mkdir -p dist
-          cp "${APK_DIR}/production/debug/app-production-debug.apk" "dist/exponential-production-debug-${VERSION}.apk"
-          cp "${APK_DIR}/staging/debug/app-staging-debug.apk" "dist/exponential-staging-debug-${VERSION}.apk"
           # Release APKs are suffixed -unsigned when no signing config applies;
           # resolve by glob so this works signed or unsigned.
           cp $(ls ${APK_DIR}/production/release/app-production-release*.apk | head -n1) "dist/exponential-production-release-${VERSION}.apk"
-          cp $(ls ${APK_DIR}/staging/release/app-staging-release*.apk | head -n1) "dist/exponential-staging-release-${VERSION}.apk"
           cp "${AAB_DIR}/productionRelease/app-production-release.aab" "dist/exponential-production-release-${VERSION}.aab"
-          cp "${AAB_DIR}/stagingRelease/app-staging-release.aab" "dist/exponential-staging-release-${VERSION}.aab"
           (cd dist && sha256sum * > SHA256SUMS.txt)
 
       - name: Upload workflow artifacts
@@ -121,7 +116,6 @@ jobs:
           name: Android ${{ steps.version.outputs.VERSION }}
           body: |
             Built from ${{ github.sha }}.
-            Production = app.exponential.at; Staging = next.exponential.at (co-installable, applicationId `.staging`).
-            Debug APKs are debuggable. Release APKs + Play bundles (.aab) are signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the production `.aab` to the Play Console — see docs/release-android.md.
+            Production release APK + Play bundle (`.aab`), signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the `.aab` to the Play Console — see docs/release-android.md.
           files: |
             dist/*
