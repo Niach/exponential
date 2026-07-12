@@ -10,6 +10,9 @@ extension NSAttributedString.Key {
     public static let markdownCodeBlockLang = NSAttributedString.Key("exp.markdownCodeBlockLang")
     public static let markdownBlockquote = NSAttributedString.Key("exp.markdownBlockquote")
     public static let markdownInlineCode = NSAttributedString.Key("exp.markdownInlineCode")
+    // Marks a verbatim GFM pipe-table run: the serializer re-emits its lines
+    // joined by single newlines (a blank line would terminate the table).
+    public static let markdownTableBlock = NSAttributedString.Key("exp.markdownTableBlock")
     public static let markdownImageURL = NSAttributedString.Key("exp.markdownImageURL")
     public static let markdownImageAlt = NSAttributedString.Key("exp.markdownImageAlt")
     public static let markdownStrikethrough = NSAttributedString.Key("exp.markdownStrikethrough")

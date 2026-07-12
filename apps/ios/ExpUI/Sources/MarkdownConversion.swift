@@ -48,6 +48,7 @@ public enum MarkdownConversion {
 
         var markdown = ""
         var inCodeBlock = false
+        var inTableBlock = false
         var codeBlockLang: String?
 
         let paragraphs = splitIntoParagraphs(attrStr)
@@ -62,6 +63,7 @@ public enum MarkdownConversion {
             let attrs = attrStr.attributes(at: para.location, effectiveRange: nil)
 
             if let isCode = attrs[.markdownCodeBlock] as? Bool, isCode {
+                inTableBlock = false
                 if !inCodeBlock {
                     if i > 0 { markdown += "\n" }
                     codeBlockLang = attrs[.markdownCodeBlockLang] as? String
@@ -78,6 +80,17 @@ public enum MarkdownConversion {
                 inCodeBlock = false
                 codeBlockLang = nil
             }
+
+            if attrs[.markdownTableBlock] as? Bool == true {
+                // Verbatim pipe-table lines: consecutive rows must join with a
+                // SINGLE newline — the generic paragraph separator below would
+                // insert a blank line, which terminates a GFM table.
+                markdown += inTableBlock ? "\n" : (i > 0 ? "\n\n" : "")
+                inTableBlock = true
+                markdown += paraStr.string
+                continue
+            }
+            inTableBlock = false
 
             if i > 0 {
                 if let prevAttrs = i > 0 ? attrStr.attributes(at: paragraphs[i - 1].location, effectiveRange: nil) : nil,
@@ -463,9 +476,38 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
                 context.popStyle()
                 return
             }
+            if typeStr == "table" {
+                appendVerbatimTable(node, collector: collector, context: &context)
+                return
+            }
         }
         renderChildrenToBlocks(node, collector: collector, context: &context)
     }
+}
+
+// GFM tables are outside the editor's editable feature set, but they must
+// SURVIVE an iOS edit cycle: descending into table/table_row/table_cell nodes
+// (the default child walk) flattens rows into bare concatenated cell text, and
+// the next autosave then destroys the table for every client. Instead the
+// parsed table is serialized straight back to pipe-table source (the attached
+// table extension provides the commonmark renderer) and carried as one
+// verbatim monospace run that the save path re-emits line-for-line.
+private func appendVerbatimTable(_ node: UnsafeMutablePointer<cmark_node>, collector: BlockCollector, context: inout RenderContext) {
+    var source = ""
+    if let rendered = cmark_render_commonmark(node, CMARK_OPT_DEFAULT, 0) {
+        source = String(cString: rendered).trimmingCharacters(in: .whitespacesAndNewlines)
+        free(rendered)
+    }
+    guard !source.isEmpty else {
+        renderChildrenToBlocks(node, collector: collector, context: &context)
+        return
+    }
+    appendBlockSeparatorToCollector(collector: collector, context: &context)
+    var attrs = context.makeAttributes()
+    attrs[.font] = MarkdownStyle.monospaceFont
+    attrs[.markdownTableBlock] = true
+    collector.currentText.append(NSAttributedString(string: source, attributes: attrs))
+    context.needsBlockSeparator = true
 }
 
 private func renderChildrenToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collector: BlockCollector, context: inout RenderContext) {
