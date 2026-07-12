@@ -1,9 +1,13 @@
 //! In-app update check + self-update pipeline (masterplan v5 §11.2, EXP-22).
 //!
-//! On launch the app hits the GitHub Releases API once (daily-debounced,
-//! non-blocking, offline-safe) and — when the latest published `desktop-v*`
-//! release is newer than the compiled version — flips a global that the
-//! [`crate::workspace::Workspace`] shell renders as a dismissible banner.
+//! The app hits the GitHub Releases API at launch and then every
+//! [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when the
+//! latest published `desktop-v*` release is newer than the compiled version it
+//! flips a global that the [`crate::workspace::Workspace`] shell renders as a
+//! dismissible banner. The old launch-only, daily-debounced check meant a
+//! long-running IDE (or one sharing its stamp file with dev runs) effectively
+//! NEVER reported an update (EXP-68) — with near-daily releases the banner
+//! could stay silent forever.
 //!
 //! When the running install can self-update (see [`updater::capability`]) AND
 //! the release carries the asset this platform needs, the banner's button runs
@@ -24,7 +28,7 @@
 
 use std::{
     path::PathBuf,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use gpui::{App, AppContext as _, Entity, Global};
@@ -42,8 +46,10 @@ const RELEASES_PAGE: &str = "https://github.com/Niach/exponential/releases/lates
 /// also ships web `v*` and `android-v*` tags whose versions are unrelated, and
 /// `releases/latest` can point at any of them.
 const DESKTOP_TAG_PREFIX: &str = "desktop-v";
-/// Daily debounce (§11.2): one network check per 24h across launches.
-const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Re-check cadence while the app runs. One unauthenticated Releases-API call
+/// per interval (limit: 60/h/IP) — an IDE left open for days still learns
+/// about new releases, which the old launch-only check never did (EXP-68).
+const RECHECK_INTERVAL: Duration = Duration::from_secs(4 * 60 * 60);
 /// GitHub rejects API calls without a User-Agent.
 const USER_AGENT: &str = "exp-desktop-update-check";
 
@@ -133,9 +139,36 @@ impl UpdateState {
     }
 
     /// Dismiss the banner for the rest of this session (not persisted — a fresh
-    /// launch that still sees a newer release shows it again).
+    /// launch that still sees a newer release shows it again). A LATER release
+    /// found by the periodic re-check un-dismisses (see [`Self::offer`]).
     pub fn dismiss(&mut self) {
         self.dismissed = true;
+    }
+
+    /// Record a newer release found by the check loop. No-op while the
+    /// pipeline is running or already done — a re-check must never clobber an
+    /// in-flight download/install or a pending restart. A strictly newer
+    /// version than the one currently offered resets a session dismissal
+    /// (the user said no to THAT release, not to all future ones).
+    fn offer(&mut self, info: UpdateInfo, cx: &mut gpui::Context<Self>) {
+        if matches!(
+            self.phase,
+            UpdatePhase::Downloading { .. } | UpdatePhase::Installing | UpdatePhase::ReadyToRestart { .. }
+        ) {
+            return;
+        }
+        match &self.available {
+            Some(current) if current.version == info.version => {
+                // Same release re-confirmed — keep phase (a Failed banner
+                // keeps its retry affordance) and the dismissal.
+            }
+            _ => {
+                self.dismissed = false;
+                self.available = Some(info);
+                self.phase = UpdatePhase::Available;
+            }
+        }
+        cx.notify();
     }
 
     /// Get-or-create the global entity.
@@ -158,11 +191,13 @@ impl UpdateState {
 struct UpdateGlobal(Entity<UpdateState>);
 impl Global for UpdateGlobal {}
 
-/// Kick off the launch-time update check (call once from the app bootstrap,
-/// after the globals are installed). Non-blocking: the network hit runs on the
-/// background executor and only touches the foreground to flip the flag. Also
-/// sweeps the updater staging dir — leftovers only exist after a crash
-/// mid-pipeline.
+/// Kick off the update check loop (call once from the app bootstrap, after
+/// the globals are installed): check now, then re-check every
+/// [`RECHECK_INTERVAL`] for as long as the app runs. Non-blocking: the
+/// network hits run on the background executor and only touch the foreground
+/// to flip the flag; every failure (offline, rate-limited, malformed JSON) is
+/// silently retried next interval. Also sweeps the updater staging dir —
+/// leftovers only exist after a crash mid-pipeline.
 pub fn check_for_updates(cx: &mut App) {
     // Materialize the global up front so the shell's `global_ref` never has to
     // create it from an immutable render context.
@@ -177,30 +212,21 @@ pub fn check_for_updates(cx: &mut App) {
         .spawn(async move { updater::cleanup_staging() })
         .detach();
 
-    // Daily debounce: skip the network entirely if we checked recently.
-    if !due_for_check() {
-        return;
-    }
-
     cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { fetch_latest() })
-            .await;
+        loop {
+            let result = cx
+                .background_executor()
+                .spawn(async move { fetch_latest() })
+                .await;
 
-        // Only record the check on a real network response (Ok) so an offline
-        // launch retries next time instead of going quiet for a day.
-        if let Ok(maybe) = result {
-            record_check();
-            if let Some(info) = maybe {
-                let _ = cx.update(|cx| {
-                    model.update(cx, |state, cx| {
-                        state.available = Some(info);
-                        state.phase = UpdatePhase::Available;
-                        cx.notify();
-                    });
+            if let Ok(Some(info)) = result {
+                cx.update(|cx| {
+                    model.update(cx, |state, cx| state.offer(info, cx));
                 });
             }
+
+            // The task dies with the app executor — no shutdown bookkeeping.
+            cx.background_executor().timer(RECHECK_INTERVAL).await;
         }
     })
     .detach();
@@ -392,50 +418,6 @@ fn parse_semver(v: &str) -> (u64, u64, u64) {
         parts.next().unwrap_or(0),
         parts.next().unwrap_or(0),
     )
-}
-
-// ---- Daily-debounce stamp -------------------------------------------------
-
-/// Per-user file holding the epoch-seconds of the last successful check.
-fn stamp_path() -> Option<PathBuf> {
-    let dir = dirs::data_local_dir()?.join(if cfg!(target_os = "macos") {
-        "Exponential"
-    } else {
-        "exponential"
-    });
-    Some(dir.join("update-check.txt"))
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-/// True when we've never checked or the last check is older than the interval.
-fn due_for_check() -> bool {
-    let Some(path) = stamp_path() else {
-        return true;
-    };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return true;
-    };
-    let Ok(last) = text.trim().parse::<u64>() else {
-        return true;
-    };
-    now_secs().saturating_sub(last) >= CHECK_INTERVAL.as_secs()
-}
-
-/// Best-effort persist of "we checked just now".
-fn record_check() {
-    let Some(path) = stamp_path() else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, now_secs().to_string());
 }
 
 #[cfg(test)]

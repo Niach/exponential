@@ -138,8 +138,8 @@ pub fn expected_asset_name(strategy: &Strategy) -> String {
     }
 }
 
-/// Where downloads are staged: `<data_local>/exponential/updates`. Same
-/// per-user dir the update-check stamp lives in (incl. the macOS casing).
+/// Where downloads are staged: `<data_local>/exponential/updates` (the app's
+/// per-user data dir, incl. the macOS casing).
 pub fn staging_dir() -> Option<PathBuf> {
     let dir = dirs::data_local_dir()?.join(if cfg!(target_os = "macos") {
         "Exponential"
