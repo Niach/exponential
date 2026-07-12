@@ -46,11 +46,16 @@ use std::path::PathBuf;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
 
 use crate::coding_flow::CodingHub;
+use crate::icons::ExpIcon;
 use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// Stable serialization name for the panel registry (§3.3: never change it).
 pub const PANEL_NAME: &str = "TerminalDock";
+
+/// Per-tab hover group (EXP-65): reveals the undock button, mirroring the
+/// center tabs' `TAB_GROUP` idiom.
+const TAB_GROUP: &str = "terminal-tab";
 
 /// Keymap scope for the dock-local bindings — an ancestor of the focused
 /// terminal view in the dispatch path, so the chords work while typing in
@@ -242,6 +247,12 @@ impl TerminalDockPanel {
         let steer_subscription =
             crate::steer_wiring::observe_steer_presence(cx, |_, cx| cx.notify());
 
+        // EXP-65: undocked tabs are hidden from the strip — repaint when the
+        // undock registry changes (tab popped out / reattached).
+        if let Some(undock_state) = crate::undock::state(cx) {
+            cx.observe(&undock_state, |_, _, cx| cx.notify()).detach();
+        }
+
         Self {
             focus_handle: cx.focus_handle(),
             manager,
@@ -291,12 +302,97 @@ impl TerminalDockPanel {
     }
 
     /// Focus follows the active tab (§6.13 "each tab hosting the terminal
-    /// element focused").
+    /// element focused"). Undocked tabs render in their own window — never
+    /// steal this window's focus for them (EXP-65).
     fn focus_active_terminal(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if let Some(tab) = self.manager.read(cx).active_tab() {
+            if crate::undock::is_terminal_tab_undocked(tab.id, cx) {
+                return;
+            }
             let handle = tab.view.focus_handle(cx);
             window.focus(&handle, cx);
         }
+    }
+
+    /// Manager indices of the tabs the dock still shows (EXP-65: undocked
+    /// tabs render in their own windows and are hidden here).
+    fn visible_indices(&self, cx: &App) -> Vec<usize> {
+        self.manager
+            .read(cx)
+            .tabs()
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| !crate::undock::is_terminal_tab_undocked(tab.id, cx))
+            .map(|(ix, _)| ix)
+            .collect()
+    }
+
+    /// Ctrl-tab / ctrl-shift-tab step over VISIBLE tabs only (an undocked
+    /// tab must not flash through the dock while cycling).
+    fn activate_visible_step(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let visible = self.visible_indices(cx);
+        if visible.is_empty() {
+            return;
+        }
+        let current_pos = self
+            .manager
+            .read(cx)
+            .active_index()
+            .and_then(|active| visible.iter().position(|ix| *ix == active));
+        let next_pos = match current_pos {
+            Some(pos) if forward => (pos + 1) % visible.len(),
+            Some(pos) => (pos + visible.len() - 1) % visible.len(),
+            None => 0,
+        };
+        self.manager
+            .update(cx, |manager, cx| manager.activate(visible[next_pos], cx));
+        self.focus_active_terminal(window, cx);
+    }
+
+    /// Pop the tab out into its own native window (EXP-65). The tab stays in
+    /// the manager (exit hooks / stop button / persistence untouched) — the
+    /// registry hides it here and the new window renders its view. If it was
+    /// the active tab, activate the nearest still-visible neighbor first so
+    /// the dock never points at a hidden tab.
+    fn undock_tab(&mut self, id: TabId, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let neighbor = {
+            let manager = self.manager.read(cx);
+            if manager.active_tab().map(|tab| tab.id) == Some(id) {
+                let current = manager.active_index().unwrap_or(0);
+                let visible: Vec<usize> = manager
+                    .tabs()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, tab)| {
+                        tab.id != id && !crate::undock::is_terminal_tab_undocked(tab.id, cx)
+                    })
+                    .map(|(ix, _)| ix)
+                    .collect();
+                visible
+                    .iter()
+                    .copied()
+                    .find(|ix| *ix > current)
+                    .or_else(|| visible.last().copied())
+            } else {
+                None
+            }
+        };
+        if let Some(ix) = neighbor {
+            self.manager.update(cx, |manager, cx| manager.activate(ix, cx));
+        }
+        crate::undock::open_undocked_terminal_tab(
+            self.manager.clone(),
+            id,
+            window.window_handle(),
+            cx,
+        );
+        self.focus_active_terminal(window, cx);
+        cx.notify();
     }
 
     /// The `+` shell tab (v4 §4.6): cwd = the **trunk** clone root of this
@@ -379,8 +475,7 @@ impl TerminalDockPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.manager.update(cx, |manager, cx| manager.activate_next(cx));
-        self.focus_active_terminal(window, cx);
+        self.activate_visible_step(true, window, cx);
     }
 
     fn on_prev_tab(
@@ -389,33 +484,40 @@ impl TerminalDockPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.manager.update(cx, |manager, cx| manager.activate_prev(cx));
-        self.focus_active_terminal(window, cx);
+        self.activate_visible_step(false, window, cx);
     }
 
-    /// The session tab strip: one `Tab` per session (title + exit badge +
-    /// close button), the `+` right after the last tab, and the collapse
-    /// chevron at the far right (§6.13). Clicking the bar's empty space
-    /// collapses the dock — the whole strip is the toggle, mirroring the
-    /// collapsed strip's whole-bar expand (tab/button handlers stop
-    /// propagation so their clicks never fall through to the collapse).
+    /// The session tab strip: one `Tab` per VISIBLE session (title + exit
+    /// badge + hover-revealed undock + close button; EXP-65 undocked tabs
+    /// are hidden — they render in their own windows), the `+` right after
+    /// the last tab, and the collapse chevron at the far right (§6.13).
+    /// Clicking the bar's empty space collapses the dock — the whole strip is
+    /// the toggle, mirroring the collapsed strip's whole-bar expand
+    /// (tab/button handlers stop propagation so their clicks never fall
+    /// through to the collapse).
     fn render_tab_bar(
         &self,
         metas: &[TabMeta],
-        active_ix: usize,
+        selected_ix: usize,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        // Strip position → manager index (the strip skips undocked tabs).
+        let activate_map: Vec<usize> = metas.iter().map(|meta| meta.manager_ix).collect();
         let tab_bar = TabBar::new("terminal-tabs")
             .with_size(Size::Small) // compact density
-            .selected_index(active_ix)
-            .on_click(cx.listener(|this, ix: &usize, window, cx| {
+            .selected_index(selected_ix)
+            .on_click(cx.listener(move |this, ix: &usize, window, cx| {
                 cx.stop_propagation();
-                this.manager.update(cx, |manager, cx| manager.activate(*ix, cx));
+                let Some(manager_ix) = activate_map.get(*ix).copied() else {
+                    return;
+                };
+                this.manager
+                    .update(cx, |manager, cx| manager.activate(manager_ix, cx));
                 this.focus_active_terminal(window, cx);
             }))
             .children(metas.iter().enumerate().map(|(ix, meta)| {
                 let id = meta.id;
-                Tab::new().label(meta.title.clone()).suffix(
+                Tab::new().group(TAB_GROUP).label(meta.title.clone()).suffix(
                     h_flex()
                         .gap_1()
                         .pr_1()
@@ -436,6 +538,26 @@ impl TerminalDockPanel {
                                     .child(SharedString::from(code.to_string())),
                             )
                         })
+                        // Hover-revealed undock (EXP-65) — same treatment as
+                        // the center tabs; `invisible` keeps the layout slot.
+                        .child(
+                            div()
+                                .invisible()
+                                .group_hover(TAB_GROUP, |style| style.visible())
+                                .child(
+                                    Button::new(("undock-terminal-tab", ix))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(ExpIcon::ExternalLink)
+                                        .tooltip("Open in new window")
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, window, cx| {
+                                                cx.stop_propagation();
+                                                this.undock_tab(id, window, cx);
+                                            },
+                                        )),
+                                ),
+                        )
                         .child(
                             Button::new(("close-terminal-tab", ix))
                                 .ghost()
@@ -571,34 +693,54 @@ impl TerminalDockPanel {
             )
     }
 
-    /// The JetBrains "process finished" strip under a dead tab's final
-    /// scrollback (§7.5 exit-code strip; the tab stays open).
-    fn render_exit_strip(&self, code: i32, cx: &gpui::Context<Self>) -> impl IntoElement {
-        let color = if code == 0 {
-            cx.theme().success
-        } else {
-            cx.theme().danger
-        };
-        h_flex()
-            .gap_2()
-            .px_3()
-            .py_1()
+    /// EXP-65: every visible tab popped out into its own window — the dock
+    /// stays usable (the bar keeps the `+`), with a hint instead of a
+    /// terminal. Deliberately NOT the auto-spawn path: the manager isn't
+    /// empty, the tabs just live elsewhere.
+    fn render_undocked_hint(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
+        v_flex()
+            .flex_1()
+            .min_h_0()
             .items_center()
-            .border_t_1()
-            .border_color(cx.theme().border)
+            .justify_center()
+            .gap_1()
             .text_xs()
             .text_color(cx.theme().muted_foreground)
-            .child(div().size(px(6.)).rounded_full().bg(color))
-            .child(SharedString::from(format!(
-                "Process finished with exit code {code}"
-            )))
+            .child(Icon::new(IconName::SquareTerminal).small())
+            .child("All terminal tabs are open in separate windows.")
     }
+}
 
+/// The JetBrains "process finished" strip under a dead tab's final
+/// scrollback (§7.5 exit-code strip; the tab stays open). Free function so
+/// the EXP-65 undocked terminal window renders the identical strip.
+pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
+    let color = if code == 0 {
+        cx.theme().success
+    } else {
+        cx.theme().danger
+    };
+    h_flex()
+        .gap_2()
+        .px_3()
+        .py_1()
+        .items_center()
+        .border_t_1()
+        .border_color(cx.theme().border)
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(div().size(px(6.)).rounded_full().bg(color))
+        .child(SharedString::from(format!(
+            "Process finished with exit code {code}"
+        )))
 }
 
 /// Per-tab render snapshot (cloned out so the manager borrow ends before the
-/// listeners borrow `cx`).
+/// listeners borrow `cx`). One entry per VISIBLE tab — undocked tabs are
+/// filtered out, so `manager_ix` keeps the strip position → manager index
+/// mapping honest (EXP-65).
 struct TabMeta {
+    manager_ix: usize,
     id: TabId,
     title: SharedString,
     exit_code: Option<i32>,
@@ -683,9 +825,12 @@ impl Focusable for TerminalDockPanel {
 impl Render for TerminalDockPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Snapshot the strip so the manager borrow ends before listeners.
-        let (metas, active_ix, active_view, active_exit): (
+        // EXP-65: undocked tabs render in their own windows — the strip
+        // skips them, and the active view is only painted here when the
+        // active tab is NOT undocked (one window paints a view at a time).
+        let (metas, active_id, active_view, active_exit): (
             Vec<TabMeta>,
-            usize,
+            Option<TabId>,
             Option<Entity<TerminalView>>,
             Option<i32>,
         ) = {
@@ -693,27 +838,30 @@ impl Render for TerminalDockPanel {
             let metas = manager
                 .tabs()
                 .iter()
-                .map(|tab| TabMeta {
+                .enumerate()
+                .filter(|(_, tab)| !crate::undock::is_terminal_tab_undocked(tab.id, cx))
+                .map(|(manager_ix, tab)| TabMeta {
+                    manager_ix,
                     id: tab.id,
                     title: tab.title().clone(),
                     exit_code: tab.exit_code(),
                 })
                 .collect();
-            let active_ix = manager.active_index().unwrap_or(0);
-            let active = manager.active_tab();
+            let active = manager
+                .active_tab()
+                .filter(|tab| !crate::undock::is_terminal_tab_undocked(tab.id, cx));
             (
                 metas,
-                active_ix,
+                active.map(|tab| tab.id),
                 active.map(|tab| tab.view.clone()),
                 active.and_then(|tab| tab.exit_code()),
             )
         };
+        let tab_count = self.manager.read(cx).len();
 
         // §8.5: is a REMOTE viewer steering the active coding tab right now?
-        // (`metas[active_ix]` is the active tab — same order as `manager.tabs()`.)
-        let steer_banner = metas
-            .get(active_ix)
-            .and_then(|meta| crate::steer_wiring::remote_steerer_for_tab(meta.id, cx));
+        let steer_banner = active_id
+            .and_then(|id| crate::steer_wiring::remote_steerer_for_tab(id, cx));
 
         let root = v_flex()
             .id("terminal-dock")
@@ -733,6 +881,14 @@ impl Render for TerminalDockPanel {
         }
 
         let Some(active_view) = active_view else {
+            if tab_count > 0 {
+                // Tabs exist but none is visible/active here — every one is
+                // undocked (or the active tab just popped out mid-frame).
+                // Keep the bar (the `+` stays reachable) over a hint.
+                return root
+                    .child(self.render_tab_bar(&metas, 0, cx))
+                    .child(self.render_undocked_hint(cx));
+            }
             // An expanded, empty dock never shows an empty state — it spawns
             // a shell immediately (deferred out of render). Every expand path
             // funnels here, so a stray `set_open(true)` still gets a shell.
@@ -748,7 +904,10 @@ impl Render for TerminalDockPanel {
             return root;
         };
 
-        root.child(self.render_tab_bar(&metas, active_ix, cx))
+        let selected_ix = active_id
+            .and_then(|id| metas.iter().position(|meta| meta.id == id))
+            .unwrap_or(0);
+        root.child(self.render_tab_bar(&metas, selected_ix, cx))
             .when_some(steer_banner, |this, (session_id, steerer)| {
                 this.child(self.render_steer_banner(session_id, steerer, cx))
             })
@@ -756,7 +915,7 @@ impl Render for TerminalDockPanel {
             // element itself guards the 0-height collapsed case (§6.9).
             .child(div().flex_1().min_h_0().child(active_view))
             .when_some(active_exit, |this, code| {
-                this.child(self.render_exit_strip(code, cx))
+                this.child(exit_strip(code, cx))
             })
     }
 }

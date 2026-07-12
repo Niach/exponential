@@ -12,8 +12,9 @@
 //! drops all tabs (they are workspace-scoped).
 
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable, FontWeight,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -26,14 +27,50 @@ use gpui_component::{
 use sync::Store;
 
 use crate::actions::NewProject;
+use crate::icons::ExpIcon;
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
-    active_workspace_id, nav_for_window, resolved_screen, set_screen, shapes_ready, Navigation,
-    Screen,
+    active_workspace_id, nav_for_window, resolved_screen, screen_title, set_screen, shapes_ready,
+    Navigation, Screen,
 };
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
+
+/// Per-tab hover group (EXP-65): reveals the undock button. Reused per tab —
+/// gpui resolves `group_hover` against the innermost enclosing group (the
+/// same idiom as the issue list's `ROW_GROUP`).
+const TAB_GROUP: &str = "center-tab";
+
+/// Build a FRESH content view for `screen` (EXP-65 undocked windows). The
+/// panel's own shared single-instance views (re-pointed on tab switch) must
+/// never be moved to another window; a fresh construction also binds the
+/// view to the new window's per-window registries (rail, nav, resolver).
+pub(crate) fn build_screen_content(
+    screen: &Screen,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::AnyView {
+    match screen {
+        Screen::IssueDetail { issue_id } => {
+            let view = cx.new(|cx| IssueDetailView::new(window, cx));
+            let issue_id = issue_id.clone();
+            view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
+            view.into()
+        }
+        Screen::FileViewer { path } => {
+            let view = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
+            let path = path.clone();
+            view.update(cx, |viewer, cx| viewer.set_path(path, cx));
+            view.into()
+        }
+        Screen::SourceControl => cx
+            .new(|cx| crate::source_control::SourceControlView::new(window, cx))
+            .into(),
+        Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
+        Screen::Account => cx.new(|cx| crate::settings::AccountView::new(window, cx)).into(),
+    }
+}
 
 pub struct ScreensPanel {
     focus_handle: FocusHandle,
@@ -163,22 +200,15 @@ impl ScreensPanel {
         cx.notify();
     }
 
-    fn tab_title(&self, screen: &Screen, cx: &App) -> SharedString {
-        match screen {
-            Screen::IssueDetail { issue_id } => Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(issue_id)
-                .map(|issue| SharedString::from(issue.identifier.clone()))
-                .unwrap_or_else(|| "Issue".into()),
-            Screen::FileViewer { path } => {
-                SharedString::from(path.rsplit('/').next().unwrap_or(path).to_string())
-            }
-            Screen::SourceControl => "Source Control".into(),
-            Screen::Settings => "Settings".into(),
-            Screen::Account => "Account".into(),
-        }
+    /// Undock the tab at `ix` into its own native window (EXP-65): open (or
+    /// focus) the undocked window, then close the tab here — the screen now
+    /// lives in that window until reattached.
+    fn undock_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(screen) = self.tabs.get(ix).cloned() else {
+            return;
+        };
+        crate::undock::open_undocked_screen(screen, window.window_handle(), cx);
+        self.close_tab(ix, window, cx);
     }
 
     fn render_tab_bar(&self, active_ix: usize, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -192,17 +222,42 @@ impl ScreensPanel {
                 }
             }))
             .children(self.tabs.iter().enumerate().map(|(ix, screen)| {
-                Tab::new().label(self.tab_title(screen, cx)).suffix(
-                    h_flex().pr_1().child(
-                        Button::new(("close-center-tab", ix))
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Close)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.close_tab(ix, window, cx);
-                            })),
-                    ),
+                Tab::new().group(TAB_GROUP).label(screen_title(screen, cx)).suffix(
+                    h_flex()
+                        .pr_1()
+                        .gap_0p5()
+                        // Hover-revealed undock (EXP-65): `invisible` keeps
+                        // the layout slot so tabs don't jitter on hover.
+                        .when(screen.undockable(), |this| {
+                            this.child(
+                                div()
+                                    .invisible()
+                                    .group_hover(TAB_GROUP, |style| style.visible())
+                                    .child(
+                                        Button::new(("undock-center-tab", ix))
+                                            .ghost()
+                                            .xsmall()
+                                            .icon(ExpIcon::ExternalLink)
+                                            .tooltip("Open in new window")
+                                            .on_click(cx.listener(
+                                                move |this, _: &ClickEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    this.undock_tab(ix, window, cx);
+                                                },
+                                            )),
+                                    ),
+                            )
+                        })
+                        .child(
+                            Button::new(("close-center-tab", ix))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Close)
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.close_tab(ix, window, cx);
+                                })),
+                        ),
                 )
             }))
     }
