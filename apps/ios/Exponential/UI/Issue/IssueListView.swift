@@ -439,8 +439,9 @@ struct IssueListView: View {
 
     private func dueDateColor(_ dateString: String) -> Color {
         guard let date = AppDateFormatters.yyyyMMdd.date(from: dateString) else { return .white.opacity(TextOpacity.tertiary) }
-        if date < Date() { return DesignTokens.Semantic.red }
+        // Due-today must win over overdue: the date parses to local midnight, which is already past.
         if Calendar.current.isDateInToday(date) { return DesignTokens.Semantic.orange }
+        if date < Date() { return DesignTokens.Semantic.red }
         return .white.opacity(TextOpacity.tertiary)
     }
 }

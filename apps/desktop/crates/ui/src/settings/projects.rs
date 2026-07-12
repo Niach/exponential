@@ -15,7 +15,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     dialog::DialogButtonProps,
-    h_flex, v_flex, ActiveTheme as _, IconName, Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, IconName, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
@@ -122,6 +122,26 @@ impl Render for ProjectsPane {
                 let prefix: SharedString = project.prefix.clone().unwrap_or_default().into();
                 let project_id = project.id.clone();
                 let project_name = project.name.clone();
+                // Protected projects (the bootstrap dogfood board) are
+                // non-deletable — the server refuses, so grey out the
+                // affordance from the synced flag like the other clients.
+                let protected = project.is_protected.unwrap_or(false);
+                let delete_button = Button::new(row_id("project-delete", &project.id))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Delete);
+                let delete_button = if protected {
+                    delete_button.disabled(true)
+                } else {
+                    delete_button.on_click(cx.listener(move |_, _, window, cx| {
+                        Self::open_delete_dialog(
+                            project_id.clone(),
+                            project_name.clone(),
+                            window,
+                            cx,
+                        );
+                    }))
+                };
 
                 list = list.child(
                     h_flex()
@@ -156,20 +176,7 @@ impl Render for ProjectsPane {
                                 .text_color(cx.theme().muted_foreground)
                                 .child(prefix),
                         )
-                        .child(
-                            Button::new(row_id("project-delete", &project.id))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Delete)
-                                .on_click(cx.listener(move |_, _, window, cx| {
-                                    Self::open_delete_dialog(
-                                        project_id.clone(),
-                                        project_name.clone(),
-                                        window,
-                                        cx,
-                                    );
-                                })),
-                        ),
+                        .child(delete_button),
                 );
             }
             body = body.child(list);

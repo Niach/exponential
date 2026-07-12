@@ -26,7 +26,8 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry, Context,
-    ElementId, Entity, FontStyle, FontWeight, HighlightStyle, InteractiveElement as _,
+    ElementId, Entity, Focusable as _, FontStyle, FontWeight, HighlightStyle,
+    InteractiveElement as _,
     InteractiveText, IntoElement, ParentElement as _, Pixels, Render, SharedString,
     StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledImage as _, StyledText,
     Subscription, TextRun, UnderlineStyle, Window,
@@ -472,6 +473,15 @@ impl MarkdownEditor {
 
     pub fn is_uploading(&self) -> bool {
         self.uploads_in_flight > 0
+    }
+
+    /// Whether any text block currently owns keyboard focus (the user is
+    /// mid-edit).
+    pub fn is_focused(&self, window: &Window, cx: &App) -> bool {
+        self.blocks.iter().any(|block| match block {
+            EditorBlock::Text { input, .. } => input.read(cx).focus_handle(cx).is_focused(window),
+            _ => false,
+        })
     }
 
     /// Focus the last text block (append position).

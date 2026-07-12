@@ -98,6 +98,9 @@ pub trait DescriptionEditor {
     fn set_markdown(&self, markdown: &str, window: &mut Window, cx: &mut App);
     /// Current GFM source.
     fn markdown(&self, cx: &App) -> String;
+    /// Whether the editor currently owns keyboard focus (the user is
+    /// mid-edit) — remote echoes must not rebuild the buffer under them.
+    fn is_focused(&self, window: &Window, cx: &App) -> bool;
     /// The element to mount in the description slot.
     fn element(&self, window: &mut Window, cx: &mut App) -> gpui::AnyElement;
     /// Move keyboard focus into the editor (Tab from the title lands here —
@@ -378,14 +381,22 @@ impl IssueDetailView {
         }
 
         // Description: build the editor when the seam is filled, then forward
-        // echoes.
+        // echoes. Skipped while the editor owns focus (same rule as the
+        // title) — `last_saved_description` stays stale on purpose so the
+        // next non-focused sync still applies the remote text.
         self.ensure_editor(&issue, window, cx);
         let incoming = issue.description.clone().unwrap_or_default();
         let normalized = incoming.trim().to_string();
         if normalized != *self.last_saved_description.borrow() {
-            *self.last_saved_description.borrow_mut() = normalized;
-            if let Some(editor) = self.editor.clone() {
-                editor.set_markdown(&incoming, window, cx);
+            let focused = self
+                .editor
+                .as_ref()
+                .is_some_and(|editor| editor.is_focused(window, cx));
+            if !focused {
+                *self.last_saved_description.borrow_mut() = normalized;
+                if let Some(editor) = self.editor.clone() {
+                    editor.set_markdown(&incoming, window, cx);
+                }
             }
         }
     }

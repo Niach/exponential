@@ -150,6 +150,10 @@ impl DescriptionEditor for SeamEditor {
         self.current.borrow().clone()
     }
 
+    fn is_focused(&self, window: &Window, cx: &App) -> bool {
+        self.editor.read(cx).is_focused(window, cx)
+    }
+
     fn element(&self, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
         self.editor.clone().into_any_element()
     }
