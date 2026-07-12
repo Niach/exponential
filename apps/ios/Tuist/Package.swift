@@ -23,6 +23,10 @@ let package = Package(
         // Body metadata hard-crashed the iOS 27 runtime. Comments render via
         // the in-house block editor (read-only mode) instead.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        // cmark-gfm / cmark-gfm-extensions used to arrive transitively via
+        // swift-markdown-ui; the block editor's GFM parser links them directly,
+        // so declare the source package explicitly now that markdown-ui is gone.
+        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.7.1"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
     ]
 )

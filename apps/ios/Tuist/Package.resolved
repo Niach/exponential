@@ -1,5 +1,5 @@
 {
-  "originHash" : "614c130d51dbddd76e0a334be0b278c4d86ecb9b16692748a9697ce0884749a0",
+  "originHash" : "a2c0e31a306db630ae6f7584e61aa02264bbe3965cfec896868ab4df755771f0",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -125,6 +125,15 @@
       "state" : {
         "revision" : "540318ecedd63d883069ae7f1ed811a2df00b6ac",
         "version" : "2.4.0"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark",
+      "state" : {
+        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
+        "version" : "0.8.0"
       }
     },
     {
