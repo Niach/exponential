@@ -30,7 +30,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, Root, Sizable as _,
+    h_flex, ActiveTheme as _, Root, Sizable as _,
 };
 use terminal::{TabId, TerminalManager};
 
@@ -342,13 +342,6 @@ impl Render for UndockedScreenWindow {
             .border_color(cx.theme().border)
             .bg(cx.theme().title_bar)
             .child(
-                Icon::new(crate::icons::ExpIcon::ExternalLink)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(div().text_sm().child(title))
-            .child(div().flex_1())
-            .child(
                 Button::new("reattach-screen")
                     .ghost()
                     .xsmall()
@@ -357,7 +350,9 @@ impl Render for UndockedScreenWindow {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.reattach(window, cx);
                     })),
-            );
+            )
+            .child(div().text_sm().child(title))
+            .child(div().flex_1());
 
         // Root overlay layers — same composition rule as `Workspace::render`:
         // without them, `window.open_dialog` (issue delete confirm, image

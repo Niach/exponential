@@ -191,13 +191,6 @@ impl Render for UndockedTerminalWindow {
             .border_color(cx.theme().border)
             .bg(cx.theme().title_bar)
             .child(
-                Icon::new(IconName::SquareTerminal)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(div().text_sm().child(title))
-            .child(div().flex_1())
-            .child(
                 Button::new("reattach-terminal-tab")
                     .ghost()
                     .xsmall()
@@ -206,7 +199,9 @@ impl Render for UndockedTerminalWindow {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.reattach(window, cx);
                     })),
-            );
+            )
+            .child(div().text_sm().child(title))
+            .child(div().flex_1());
 
         // Root layers for parity with every other window (notifications).
         let sheet_layer = Root::render_sheet_layer(window, cx);
