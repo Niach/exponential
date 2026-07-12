@@ -30,7 +30,7 @@ use sync::Store;
 
 use crate::actions::{
     GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenProject, OpenSettings,
-    OpenSourceControl, SwitchBranch, SwitchWorkspace,
+    OpenSourceControl, SwitchBranch, SwitchWorkspace, SyncNow,
 };
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -418,6 +418,14 @@ pub fn init(cx: &mut App) {
             let shared = crate::sidebar::rail_shared_for_window(window, cx);
             let git_bar = shared.read(cx).git_bar().clone();
             git_bar.update(cx, |bar, cx| bar.checkout(branch, window, cx));
+        });
+    });
+    // Branch chip menu → manual freshness sync (fetch + ff-only catch-up).
+    cx.on_action(|_: &SyncNow, cx| {
+        on_active_window(cx, |window, cx| {
+            let shared = crate::sidebar::rail_shared_for_window(window, cx);
+            let git_bar = shared.read(cx).git_bar().clone();
+            git_bar.update(cx, |bar, cx| bar.refresh(cx));
         });
     });
     // The picker selects a project (scope) and brings up its issue list —

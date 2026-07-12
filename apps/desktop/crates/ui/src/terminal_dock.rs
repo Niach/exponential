@@ -394,17 +394,22 @@ impl TerminalDockPanel {
     }
 
     /// The session tab strip: one `Tab` per session (title + exit badge +
-    /// close button) and the `+` suffix (§6.13).
+    /// close button), the `+` right after the last tab, and the collapse
+    /// chevron at the far right (§6.13). Clicking the bar's empty space
+    /// collapses the dock — the whole strip is the toggle, mirroring the
+    /// collapsed strip's whole-bar expand (tab/button handlers stop
+    /// propagation so their clicks never fall through to the collapse).
     fn render_tab_bar(
         &self,
         metas: &[TabMeta],
         active_ix: usize,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        TabBar::new("terminal-tabs")
+        let tab_bar = TabBar::new("terminal-tabs")
             .with_size(Size::Small) // compact density
             .selected_index(active_ix)
             .on_click(cx.listener(|this, ix: &usize, window, cx| {
+                cx.stop_propagation();
                 this.manager.update(cx, |manager, cx| manager.activate(*ix, cx));
                 this.focus_active_terminal(window, cx);
             }))
@@ -444,31 +449,41 @@ impl TerminalDockPanel {
                         ),
                 )
             }))
-            .suffix(
-                h_flex()
-                    .px_1()
-                    .gap_0p5()
-                    .child(
-                        Button::new("new-terminal-tab")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Plus)
-                            .tooltip("New shell")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.new_shell_tab(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("collapse-terminal-dock")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::ChevronDown)
-                            .tooltip("Hide terminal")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.collapse_dock(window, cx);
-                            })),
-                    ),
+            // The `+` rides the slot right AFTER the last tab (JetBrains
+            // placement), not the far-right suffix.
+            .last_empty_space(
+                h_flex().px_0p5().child(
+                    Button::new("new-terminal-tab")
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Plus)
+                        .tooltip("New shell")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.new_shell_tab(window, cx);
+                        })),
+                ),
             )
+            .suffix(
+                h_flex().px_1().child(
+                    Button::new("collapse-terminal-dock")
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::ChevronDown)
+                        .tooltip("Hide terminal")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.collapse_dock(window, cx);
+                        })),
+                ),
+            );
+        div()
+            .id("terminal-tab-strip")
+            .w_full()
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.collapse_dock(window, cx);
+            }))
+            .child(tab_bar)
     }
 
     /// The collapsed-dock strip: the bottom dock keeps a 29px band

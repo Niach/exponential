@@ -794,10 +794,31 @@ impl IssueListView {
                 .disabled(busy)
                 .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
                     let mut menu = menu.scrollable(true).max_h(px(320.));
+                    // One-click new release (auto-named server-side) with the
+                    // selection added — the bulk bar must not force a detour
+                    // through the Releases screen.
+                    menu = menu.item(
+                        PopupMenuItem::new("New release")
+                            .icon(Icon::new(IconName::Plus))
+                            .on_click({
+                                let ids = ids.clone();
+                                let list = list.clone();
+                                let workspace_id = workspace_id.clone();
+                                move |_, _, cx| {
+                                    spawn_bulk_new_release(
+                                        list.clone(),
+                                        cx,
+                                        workspace_id.clone(),
+                                        ids.clone(),
+                                    );
+                                }
+                            }),
+                    );
                     let releases = queries::workspace_releases(cx, &workspace_id);
                     if releases.is_empty() {
-                        return menu.item(PopupMenuItem::label("No releases yet"));
+                        return menu;
                     }
+                    menu = menu.separator();
                     for release in releases {
                         let name = release
                             .name
@@ -810,17 +831,11 @@ impl IssueListView {
                             PopupMenuItem::new(SharedString::from(name))
                                 .icon(Icon::from(ExpIcon::Rocket))
                                 .on_click(move |_, _, cx| {
-                                    let release_id = release_id.clone();
-                                    spawn_bulk_op(
+                                    spawn_bulk_add_to_release(
                                         list.clone(),
                                         cx,
+                                        release_id.clone(),
                                         ids.clone(),
-                                        false,
-                                        "releases.addIssues",
-                                        move |trpc, chunk| {
-                                            api::releases::add_issues(trpc, &release_id, chunk)
-                                                .map(|_| ())
-                                        },
                                     );
                                 }),
                         );
@@ -970,6 +985,119 @@ fn spawn_bulk_op(
         });
     })
     .detach();
+}
+
+/// The bulk bar's "New release": ONE auto-named `releases.create`, then the
+/// selection added in [`BULK_CHUNK`]s — a single background task so the bar's
+/// busy gate covers the whole sequence. Selection stays alive (a property
+/// edit, not a delete), and success LANDS on the new release (Releases tool
+/// drill-down) — a bulk add with no visible destination reads as "nothing
+/// happened".
+fn spawn_bulk_new_release(
+    list: WeakEntity<IssueListView>,
+    cx: &mut App,
+    workspace_id: String,
+    ids: Vec<String>,
+) {
+    if ids.is_empty() {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] releases.create skipped: no signed-in account");
+        return;
+    };
+    let _ = list.update(cx, |this, cx| {
+        this.bulk_busy = true;
+        cx.notify();
+    });
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                let created = api::releases::create(&trpc, &workspace_id, None)?;
+                let release_id = created.release.id.clone();
+                for chunk in ids.chunks(BULK_CHUNK) {
+                    api::releases::add_issues(&trpc, &release_id, chunk)?;
+                }
+                Ok::<String, api::ApiError>(release_id)
+            })
+            .await;
+        let _ = list.update(cx, |this, cx| {
+            this.bulk_busy = false;
+            cx.notify();
+        });
+        match result {
+            Ok(release_id) => open_release_after(cx, release_id).await,
+            Err(err) => log::warn!("[ui] bulk new release failed: {err}"),
+        }
+    })
+    .detach();
+}
+
+/// The bulk bar's add-to-EXISTING-release: chunked `releases.addIssues`,
+/// then land on that release (see [`spawn_bulk_new_release`]).
+fn spawn_bulk_add_to_release(
+    list: WeakEntity<IssueListView>,
+    cx: &mut App,
+    release_id: String,
+    ids: Vec<String>,
+) {
+    if ids.is_empty() {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] releases.addIssues skipped: no signed-in account");
+        return;
+    };
+    let _ = list.update(cx, |this, cx| {
+        this.bulk_busy = true;
+        cx.notify();
+    });
+    cx.spawn(async move |cx| {
+        let target = release_id.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                for chunk in ids.chunks(BULK_CHUNK) {
+                    api::releases::add_issues(&trpc, &target, chunk)?;
+                }
+                Ok::<(), api::ApiError>(())
+            })
+            .await;
+        let _ = list.update(cx, |this, cx| {
+            this.bulk_busy = false;
+            cx.notify();
+        });
+        match result {
+            Ok(()) => open_release_after(cx, release_id).await,
+            Err(err) => log::warn!("[ui] releases.addIssues failed: {err}"),
+        }
+    })
+    .detach();
+}
+
+/// Foreground hop after a release bulk-add: open the Releases tool focused
+/// on the release, in the active window (deferred — safe from any context).
+/// Gated on the release row being SYNCED first — the Releases drill-down
+/// self-heals to the list while the row is missing, which would silently
+/// wipe a too-early selection (matters for the create path's echo).
+async fn open_release_after(cx: &mut gpui::AsyncApp, release_id: String) {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(60);
+    let releases = cx.update(|cx| Store::global(cx).collections().releases.clone());
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        let present = cx.update(|cx| releases.read(cx).get(&release_id).is_some());
+        if present || std::time::Instant::now() >= deadline {
+            break; // timed out ⇒ navigate anyway; the list still shows
+        }
+        cx.background_executor().timer(POLL).await;
+    }
+    cx.update(move |cx| {
+        crate::navigation::on_active_window(cx, move |window, cx| {
+            crate::sidebar::open_release(window, cx, release_id);
+        });
+    });
 }
 
 impl Render for IssueListView {

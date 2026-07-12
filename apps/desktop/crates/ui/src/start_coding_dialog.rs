@@ -796,6 +796,9 @@ impl StartCodingDialogView {
                 h_flex()
                     .gap_3()
                     .w_full()
+                    // Top-align: a column growing a hint line must not push
+                    // its sibling's label off the shared baseline.
+                    .items_start()
                     .child(Self::labeled_field(
                         "Model",
                         Select::new(&self.model).small().into_any_element(),
@@ -948,6 +951,10 @@ impl StartCodingDialogView {
         let main_row = h_flex()
             .gap_3()
             .w_full()
+            // Top-align (h_flex centers): the Effort column grows an
+            // "ultracode sets effort" hint line, which would otherwise sink
+            // the Model label below the shared baseline.
+            .items_start()
             .child(Self::labeled_field(
                 "Model",
                 Select::new(&self.model).small().into_any_element(),
@@ -975,6 +982,7 @@ impl StartCodingDialogView {
             h_flex()
                 .gap_3()
                 .w_full()
+                .items_start()
                 .child(Self::labeled_field(
                     "Subagent model",
                     Select::new(subagent_model).small().into_any_element(),

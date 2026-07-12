@@ -38,6 +38,7 @@ mod file_viewer;
 mod filter_bar;
 mod filter_popover;
 mod flow_lanes;
+mod flow_view;
 mod git_bar;
 mod github_connect;
 mod icons;

@@ -49,6 +49,10 @@ actions!(
         /// Open the Source Control tool + changes screen (branch chip menu,
         /// commit button).
         OpenSourceControl,
+        /// Branch chip menu: manual freshness sync of the active project's
+        /// trunk (fetch + ff-only catch-up) — the compact bar has no standing
+        /// "Up to date" button.
+        SyncNow,
         /// Issue detail (EXP-48): swap to the NEXT issue in the active
         /// list's filtered ordering (`j`, scoped to the detail's key
         /// context).

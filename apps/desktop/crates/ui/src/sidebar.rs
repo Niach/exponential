@@ -110,6 +110,12 @@ pub(crate) struct RailShared {
     /// branch row selects it WITHOUT checking out (`None` = the checked-out
     /// branch, working tree included).
     view_branch: Option<String>,
+    /// The Releases tool window's drill-down (EXP-56): the selected release's
+    /// id, `None` = the list. Lives HERE (not on the panel) so outside flows
+    /// — the bulk bar's add-to-release — can land the user on the release.
+    /// Self-heals to the list when the row leaves the collection (delete
+    /// echo) or the workspace switches.
+    release_selected: Option<String>,
 }
 
 impl RailShared {
@@ -138,6 +144,20 @@ impl RailShared {
     pub(crate) fn issue_boards(&self) -> [&Entity<BoardView>; 2] {
         [&self.board_all, &self.board_my]
     }
+}
+
+/// Open the Releases tool focused on `release_id` — the landing hop for
+/// flows that put issues into a release from elsewhere (bulk bar), so the
+/// action visibly goes somewhere instead of silently mutating rows.
+pub(crate) fn open_release(window: &mut Window, cx: &mut App, release_id: String) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.release_selected.as_deref() != Some(release_id.as_str()) {
+            shared.release_selected = Some(release_id);
+            cx.notify();
+        }
+    });
+    activate_tool(window, cx, ToolWindow::Releases);
 }
 
 /// Point the Source Control screen at `branch`'s history (no checkout);
@@ -183,6 +203,7 @@ pub(crate) fn rail_shared_for_window(
         board_all,
         board_my,
         view_branch: None,
+        release_selected: None,
     });
     cx.default_global::<RailRegistry>()
         .by_window
@@ -588,6 +609,9 @@ pub struct SidebarPanel {
     /// The "My Issues" tool window — same board pinned to assignee == me
     /// (also shared via [`RailShared`]).
     board_my: Entity<BoardView>,
+    /// The Source Control tool window's branch-flow graph (replaced the flat
+    /// branch list — [`crate::flow_view`]).
+    flow: Entity<crate::flow_view::FlowView>,
     /// Two-click merge confirm: the armed row's issue id. Any other click or
     /// ~5s of inactivity disarms.
     review_arm: Option<String>,
@@ -600,10 +624,6 @@ pub struct SidebarPanel {
     /// The last merge failure, `(issue_id, message)` — a caption under the
     /// row, cleared on the next attempt.
     review_error: Option<(String, String)>,
-    /// The Releases tool window's drill-down (EXP-56): the selected release's
-    /// id, `None` = the list. Self-heals to the list when the row leaves the
-    /// collection (delete echo) or the workspace switches.
-    release_selected: Option<String>,
     /// Double-click guard for the one-click "+" create (the button also
     /// renders loading while true).
     release_creating: bool,
@@ -639,6 +659,7 @@ impl SidebarPanel {
         let board_all = shared.read(cx).board_all.clone();
         let board_my = shared.read(cx).board_my.clone();
         let release_list = cx.new(IssueListView::new);
+        let flow = cx.new(|cx| crate::flow_view::FlowView::new(window, cx));
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let subscriptions = vec![
@@ -673,9 +694,9 @@ impl SidebarPanel {
             review_arm_seq: 0,
             review_merging: HashSet::new(),
             review_error: None,
-            release_selected: None,
             release_creating: false,
             release_list,
+            flow,
             _subscriptions: subscriptions,
         }
     }
@@ -1289,7 +1310,8 @@ impl SidebarPanel {
         // Drill-down: a selected release renders the detail; a deleted or
         // workspace-foreign selection self-heals back to the list (this is
         // where the delete echo lands).
-        let selected = self.release_selected.as_deref().and_then(|id| {
+        let selection = self.shared.read(cx).release_selected.clone();
+        let selected = selection.as_deref().and_then(|id| {
             Store::global(cx)
                 .collections()
                 .releases
@@ -1304,7 +1326,12 @@ impl SidebarPanel {
         if let Some(release) = selected {
             return self.render_release_detail(&release, cx);
         }
-        self.release_selected = None;
+        if selection.is_some() {
+            // Heal without notify — this runs mid-render; the list below is
+            // already what a cleared selection shows.
+            self.shared
+                .update(cx, |shared, _| shared.release_selected = None);
+        }
 
         let releases = workspace_id
             .as_deref()
@@ -1392,8 +1419,10 @@ impl SidebarPanel {
             .hover(|this| this.bg(accent.opacity(0.3)))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.release_selected = Some(click_id.clone());
-                cx.notify();
+                this.shared.update(cx, |shared, cx| {
+                    shared.release_selected = Some(click_id.clone());
+                    cx.notify();
+                });
             }))
             .child(
                 h_flex()
@@ -1467,7 +1496,10 @@ impl SidebarPanel {
                     }
                     let _ = this.update_in(window, |this, _window, cx| {
                         this.release_creating = false;
-                        this.release_selected = Some(release_id);
+                        this.shared.update(cx, |shared, cx| {
+                            shared.release_selected = Some(release_id);
+                            cx.notify();
+                        });
                         cx.notify();
                     });
                 }
@@ -1503,7 +1535,7 @@ impl SidebarPanel {
         let shipped = release.shipped_at.is_some();
 
         let ship_id = release.id.clone();
-        let delete_id = release.id.clone();
+        let delete_release = release.clone();
         let add_issues_id = release.id.clone();
         // EXP-56 coding launcher: Stop while THIS process runs the release's
         // orchestrator (kill the tab child — the exit hook ends the row and
@@ -1558,8 +1590,10 @@ impl SidebarPanel {
                     .icon(Icon::new(IconName::ChevronLeft))
                     .tooltip("All releases")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.release_selected = None;
-                        cx.notify();
+                        this.shared.update(cx, |shared, cx| {
+                            shared.release_selected = None;
+                            cx.notify();
+                        });
                     })),
             )
             .child(
@@ -1584,37 +1618,39 @@ impl SidebarPanel {
             )
             .child(coding_control)
             .child(
-                Button::new("release-ship")
-                    .outline()
-                    .xsmall()
-                    .label(if shipped { "Unship" } else { "Mark shipped" })
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        spawn_release_mark_shipped(cx, ship_id.clone(), !shipped);
-                    })),
-            )
-            .child(
                 Button::new("release-actions")
                     .ghost()
                     .xsmall()
                     .icon(Icon::new(IconName::Ellipsis))
                     .dropdown_menu(move |menu, window, cx| {
-                        // Delete → nested confirm (the issue-row pattern).
-                        // Member issues are unbundled server-side, never
-                        // deleted; the detail self-heals to the list when the
-                        // delete echo removes the row.
-                        let release_id = delete_id.clone();
-                        menu.submenu_with_icon(
+                        // Ship/unship (symmetric + reversible — no confirm),
+                        // then Delete → nested confirm (the issue-row
+                        // pattern). Member issues are unbundled server-side,
+                        // never deleted; the detail self-heals to the list
+                        // when the delete echo removes the row. Local run
+                        // leftovers (integration worktree + branch) go too.
+                        let release = delete_release.clone();
+                        let ship_id = ship_id.clone();
+                        menu.item(
+                            PopupMenuItem::new(if shipped { "Unship" } else { "Mark shipped" })
+                                .icon(Icon::new(IconName::CircleCheck))
+                                .on_click(move |_, _, cx| {
+                                    spawn_release_mark_shipped(cx, ship_id.clone(), !shipped);
+                                }),
+                        )
+                        .separator()
+                        .submenu_with_icon(
                             Some(Icon::new(IconName::Delete)),
                             "Delete release",
                             window,
                             cx,
                             move |menu, _, _| {
-                                let release_id = release_id.clone();
+                                let release = release.clone();
                                 menu.item(
                                     PopupMenuItem::new("Confirm delete")
                                         .icon(Icon::new(IconName::Delete))
-                                        .on_click(move |_, _, cx| {
-                                            spawn_release_delete(cx, release_id.clone());
+                                        .on_click(move |_, window, cx| {
+                                            spawn_release_delete(window, cx, &release);
                                         }),
                                 )
                             },
@@ -1745,14 +1781,6 @@ impl SidebarPanel {
     /// the one dirty-switch dialog surface).
     fn render_source_control_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let git_bar = self.shared.read(cx).git_bar.clone();
-        // Copied (Hsla/Pixels are Copy) so no theme borrow outlives the
-        // `&mut cx` calls below.
-        let radius = cx.theme().radius;
-        let fg = cx.theme().foreground;
-        let muted = cx.theme().muted_foreground;
-        let accent = cx.theme().accent;
-
-        let refresh_bar = git_bar.clone();
         let header = self
             .tool_header(Icon::from(ExpIcon::GitMerge), "Source Control", cx)
             .child(
@@ -1762,117 +1790,26 @@ impl SidebarPanel {
                     .icon(Icon::from(ExpIcon::Repeat))
                     .tooltip("Refresh")
                     .on_click(move |_, _, cx| {
-                        refresh_bar.update(cx, |bar, cx| bar.refresh(cx));
+                        git_bar.update(cx, |bar, cx| bar.refresh(cx));
                     }),
             );
 
-        let branches: Vec<(String, bool, bool)> = git_bar
-            .read(cx)
-            .branches()
-            .iter()
-            .map(|b| (b.name.clone(), b.current, b.worktree))
-            .collect();
-        let ready = git_bar.read(cx).branches_ready();
-        let view_branch = self.shared.read(cx).view_branch.clone();
-
-        let body: gpui::AnyElement = if branches.is_empty() && !ready {
-            self.list_skeleton(cx)
-        } else if branches.is_empty() {
-            self.list_note("No local branches yet.", cx)
-        } else {
-            let rows: Vec<gpui::AnyElement> = branches
-                .into_iter()
-                .map(|(name, current, worktree)| {
-                    // Clicking VIEWS the branch's history in the changes
-                    // screen — never a checkout (that's the top-bar chip).
-                    let viewing = match &view_branch {
-                        Some(viewed) => *viewed == name,
-                        None => current,
-                    };
-                    let click_name = name.clone();
-                    h_flex()
-                        .id(SharedString::from(format!("branch-{name}")))
-                        .w_full()
-                        .items_center()
-                        .gap_1p5()
-                        .px_2()
-                        .py_1()
-                        .rounded(radius)
-                        .when(viewing, |this| this.bg(accent.opacity(0.4)))
-                        .when(!viewing, |this| {
-                            this.hover(|style| style.bg(accent.opacity(0.25)))
-                        })
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            set_view_branch(
-                                window,
-                                cx,
-                                if current { None } else { Some(click_name.clone()) },
-                            );
-                            navigate(window, cx, Screen::SourceControl);
-                        }))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(if current { fg } else { muted })
-                                .child("\u{2387}"), // ⎇
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_xs()
-                                .truncate()
-                                .when(current, |this| this.font_weight(FontWeight::MEDIUM))
-                                .text_color(fg)
-                                .child(SharedString::from(name.clone())),
-                        )
-                        .when(worktree, |this| {
-                            this.child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child("worktree"),
-                            )
-                        })
-                        .when(current, |this| {
-                            this.child(Icon::from(ExpIcon::Check).xsmall().text_color(muted))
-                        })
-                        .into_any_element()
-                })
-                .collect();
-            div()
-                .id("branches-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(
-                    v_flex()
-                        .p_1()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .px_2()
-                                .pt_1()
-                                .pb_0p5()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(muted)
-                                .child("Branches"),
-                        )
-                        .children(rows),
-                )
-                .into_any_element()
-        };
-
+        // The branch-flow graph replaced the flat branch list — one surface
+        // for "what hangs off what", with view-on-click and hover-delete
+        // ([`crate::flow_view`]).
         v_flex()
             .flex_1()
             .min_h_0()
             .min_w_0()
             .child(header)
-            .child(body)
+            .child(
+                div()
+                    .id("flow-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(self.flow.clone()),
+            )
             .into_any_element()
     }
 }
@@ -1949,19 +1886,92 @@ fn spawn_release_mark_shipped(cx: &mut App, release_id: String, shipped: bool) {
 }
 
 /// §4.1 un-gated `releases.delete` on a background thread — the row vanishes
-/// on the Electric echo and the detail self-heals back to the list.
-fn spawn_release_delete(cx: &mut App, release_id: String) {
+/// on the Electric echo and the detail self-heals back to the list. After a
+/// successful server delete, the run's LOCAL leftovers go too (best-effort):
+/// the `exp/rel-<slug>` integration worktree (forced — an abandoned run's
+/// uncommitted state goes with the release) and its local branch. The trunk
+/// clone is resolved NOW on the foreground (shared window resolver); no
+/// resolvable trunk just skips the cleanup.
+fn spawn_release_delete(
+    window: &mut Window,
+    cx: &mut App,
+    release: &domain::rows::Release,
+) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] releases.delete skipped: no signed-in account");
         return;
     };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::releases::delete(&trpc, &release_id) {
-                log::warn!("[ui] releases.delete({release_id}) failed: {err}");
+    let release_id = release.id.clone();
+    let branch =
+        coding::release_branch_name(&coding::release_slug(&release_name(release), &release_id));
+    let clone = release.workspace_id.as_deref().and_then(|workspace_id| {
+        let resolver = crate::repo_resolver::repo_resolver_for_window(window, cx);
+        let first_project = Store::global(cx)
+            .collections()
+            .projects_in_workspace(workspace_id, cx)
+            .first()
+            .map(|project| project.id.clone());
+        match resolver
+            .read(cx)
+            .lookup_workspace_trunk(first_project.as_deref())
+        {
+            crate::repo_resolver::RepoLookup::Found(repo) => {
+                let repos_root = coding_flow::CodingHub::global(cx)
+                    .read(cx)
+                    .settings
+                    .repos_root_path();
+                Some(coding::clone_path(&repos_root, &repo.full_name))
             }
-        })
-        .detach();
+            _ => None,
+        }
+    });
+    cx.spawn(async move |cx| {
+        let cleaned = cx
+            .background_executor()
+            .spawn(async move {
+                if let Err(err) = api::releases::delete(&trpc, &release_id) {
+                    log::warn!("[ui] releases.delete({release_id}) failed: {err}");
+                    return false;
+                }
+                let Some(clone) = clone.filter(|clone| clone.join(".git").exists()) else {
+                    return false;
+                };
+                // Quietly absent is the COMMON case (release never coded here).
+                let exists = coding::scm::branches(&clone)
+                    .map(|branches| branches.iter().any(|info| info.name == branch))
+                    .unwrap_or(false);
+                if !exists {
+                    return false;
+                }
+                match coding::scm::delete_branch_and_worktree(&clone, &branch) {
+                    Ok(()) => {
+                        log::info!("[ui] releases.delete: cleaned up local {branch}");
+                        true
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[ui] releases.delete: local cleanup of {branch} failed: {err}"
+                        );
+                        false
+                    }
+                }
+            })
+            .await;
+        if cleaned {
+            // The lane's branch + worktree just left the disk — update the
+            // window's git chrome / sidebar flow graph immediately.
+            cx.update(|cx| {
+                crate::navigation::on_active_window(cx, |window, cx| {
+                    let git_bar = rail_shared_for_window(window, cx)
+                        .read(cx)
+                        .git_bar()
+                        .clone();
+                    git_bar.update(cx, |bar, cx| bar.reread_local(cx));
+                });
+            });
+        }
+    })
+    .detach();
 }
 
 impl Render for SidebarPanel {

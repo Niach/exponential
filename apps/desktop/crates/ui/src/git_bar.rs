@@ -1,9 +1,11 @@
 //! The git cluster — trunk git chrome on the board screen's top-right
-//! toolbar: branch chip (dropdown switches branches; dirty dot), Commit entry,
-//! sync status (spinner / amber conflict chip / op error + Retry / sticky
-//! `⚠ sync failed` badge), `↓behind ↑ahead` counts, ONE context-sensitive
-//! action (Publish / Get latest / Push / Sync / Up to date), and a muted
-//! "synced Xm ago" stamp. Always trunk-only: everything derives from the
+//! toolbar, deliberately compact: branch chip (dropdown switches branches +
+//! "Check for updates"; dirty dot; synced-ago in the tooltip), Commit entry,
+//! sync status (spinner / amber conflict chip / op error + Retry / sticky ⚠
+//! badge), and the `↓behind ↑ahead` counts AS the one context-sensitive
+//! action (`↓N` fast-forwards, `↑N` pushes, `↓N ↑M` rebase+pushes, Publish
+//! for an unpublished branch; clean+in-sync renders nothing). Always
+//! trunk-only: everything derives from the
 //! active project's trunk clone on disk ([`coding::TrunkState`], re-read
 //! after every op), so the chrome survives restarts and out-of-band fixes.
 //!
@@ -39,8 +41,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, px, App, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -240,6 +242,24 @@ impl GitBar {
         &self.branches
     }
 
+    /// The resolved trunk clone root on disk (`None` while unresolved or on
+    /// a repo-less project) — the sidebar flow view's git-op target.
+    pub(crate) fn clone_dir(&self) -> Option<PathBuf> {
+        self.repo
+            .as_ref()
+            .filter(|repo| repo.clone_exists)
+            .map(|repo| repo.clone.clone())
+    }
+
+    /// The server-reported default branch (`None` when the server omitted
+    /// it — never fabricated as `main`).
+    pub(crate) fn default_branch(&self) -> Option<String> {
+        self.repo
+            .as_ref()
+            .and_then(|repo| repo.default_branch.clone())
+            .filter(|name| !name.is_empty())
+    }
+
     /// Whether a branch read has happened yet (`false` = show a skeleton, not
     /// a false "no branches").
     pub(crate) fn branches_ready(&self) -> bool {
@@ -249,6 +269,48 @@ impl GitBar {
     /// Freshness fetch + trunk/branch re-read (the sidebar's refresh button).
     pub(crate) fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         self.start_sync(SyncMode::Fetch, cx);
+    }
+
+    /// Local-only re-read of trunk state + branch list (no fetch, no token)
+    /// — the cheap nudge after some OTHER surface mutates the repo on disk
+    /// (a session launch created a worktree, the Changes tab cleaned one
+    /// up…). The sidebar flow graph observes the bar, so its lanes update
+    /// immediately instead of waiting for the next auto-sync tick. No-op
+    /// mid-sync: that op's trailing read supersedes it anyway.
+    pub(crate) fn reread_local(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.syncing {
+            return;
+        }
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        if !repo.clone_exists {
+            return;
+        }
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let clone = repo.clone.clone();
+            let (trunk, branches) = cx
+                .background_executor()
+                .spawn(async move {
+                    (
+                        trunk_state::read(&clone).ok(),
+                        scm::branches(&clone).unwrap_or_default(),
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                if let Some(trunk) = trunk {
+                    this.trunk = trunk;
+                }
+                this.branches = branches;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Debounced background sync trigger (timer tick + window focus): no-op
@@ -373,34 +435,33 @@ impl GitBar {
         cx: &mut gpui::Context<Self>,
     ) {
         let bar = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _window, cx| {
+        // Alert dialog, not a plain dialog: only AlertDialog renders the
+        // button_props footer — a plain Dialog shows title/body and NO
+        // ok/cancel buttons.
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
             let bar = bar.clone();
             let target_for_ok = target.clone();
-            dialog
-                .w(px(416.))
+            alert
+                .confirm()
+                // Dismissable like any dialog: overlay click, Esc, and the ✕
+                // all cancel (AlertDialog's default locks all three off).
+                .overlay_closable(true)
+                .close_button(true)
+                .width(px(416.))
                 .title(SharedString::from(format!("Switch to {target}?")))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(
-                            "Your local changes would be overwritten by switching. \
-                             Stash them and switch? The stash can be restored from \
-                             Source Control.",
-                        ),
+                .description(
+                    "Your local changes would be overwritten by switching. \
+                     Stash them and switch? The stash can be restored from \
+                     Source Control.",
                 )
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Stash changes & switch")
-                        .show_cancel(true)
-                        .on_ok(move |_, _, cx| {
-                            if let Some(bar) = bar.upgrade() {
-                                let target = target_for_ok.clone();
-                                bar.update(cx, |bar, cx| bar.stash_and_switch(target, cx));
-                            }
-                            true
-                        }),
-                )
+                .button_props(DialogButtonProps::default().ok_text("Stash changes & switch"))
+                .on_ok(move |_, _, cx| {
+                    if let Some(bar) = bar.upgrade() {
+                        let target = target_for_ok.clone();
+                        bar.update(cx, |bar, cx| bar.stash_and_switch(target, cx));
+                    }
+                    true
+                })
         });
     }
 
@@ -721,8 +782,10 @@ impl GitBar {
 
     /// The branch chip: `⎇ <branch>` (+ `●` while the tree is dirty) — a
     /// dropdown that SWITCHES branches (checkout on the trunk clone) plus the
-    /// entry to the changes view. Falls back to the default branch label
-    /// until the on-disk status is read.
+    /// entry to the changes view and a manual "Check for updates". Falls back
+    /// to the default branch label until the on-disk status is read. The
+    /// "synced Xm ago" stamp lives in the tooltip (compact bar — it earns no
+    /// standing width of its own).
     fn render_branch_chip(&self, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let branch = if !self.trunk.branch.is_empty() {
             self.trunk.branch.clone()
@@ -737,6 +800,15 @@ impl GitBar {
         } else {
             format!("\u{2387} {branch}")
         };
+        let mut tooltip = if self.trunk.dirty {
+            "Switch branch (uncommitted changes)".to_string()
+        } else {
+            "Switch branch".to_string()
+        };
+        if let Some(last) = self.last_synced {
+            let (_, synced) = synced_ago_labels(last.elapsed());
+            tooltip = format!("{tooltip} — {synced}");
+        }
         // Snapshot for the lazy menu builder (menus must not read `self`).
         // Branches living in session worktrees are excluded — git refuses a
         // second checkout, so offering them would only ever error.
@@ -750,11 +822,7 @@ impl GitBar {
             .ghost()
             .xsmall()
             .label(SharedString::from(label))
-            .tooltip(if self.trunk.dirty {
-                "Switch branch (uncommitted changes)"
-            } else {
-                "Switch branch"
-            })
+            .tooltip(SharedString::from(tooltip))
             .dropdown_menu(move |menu, _window, _cx| {
                 // Branch lists grow with the repo — cap + scroll (EXP-46a).
                 // Flat items only (no submenus).
@@ -768,11 +836,13 @@ impl GitBar {
                         }),
                     );
                 }
-                menu.separator().menu_with_icon(
-                    "Open changes view",
-                    Icon::from(ExpIcon::GitMerge),
-                    Box::new(crate::actions::OpenSourceControl),
-                )
+                menu.separator()
+                    .menu_with_icon(
+                        "Open changes view",
+                        Icon::from(ExpIcon::GitMerge),
+                        Box::new(crate::actions::OpenSourceControl),
+                    )
+                    .menu("Check for updates", Box::new(crate::actions::SyncNow))
             })
     }
 
@@ -796,11 +866,12 @@ impl GitBar {
             }))
     }
 
-    /// The middle segment: sync spinner + clone %, OR the op error + Retry,
-    /// OR the amber `⚠ N conflicts` chip, OR [sticky `⚠ sync failed` badge +]
-    /// the `↓behind ↑ahead` counts.
+    /// The middle segment: sync spinner (+ clone % while cloning), OR the op
+    /// error + Retry, OR the amber `⚠ N conflicts` chip, OR the sticky
+    /// background-sync-failed badge. The behind/ahead counts are NOT here —
+    /// they render as the context ACTION chip (click ↓N to pull it).
     fn render_status(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().gap_2().items_center();
+        let mut row = h_flex().gap_1().items_center();
 
         // Repo-resolution problem takes over the whole segment.
         if let Some(error) = &self.repo_error {
@@ -812,27 +883,24 @@ impl GitBar {
             );
         }
 
-        // Sync spinner + clone progress %.
+        // Sync spinner — bare while syncing (the op is obvious from the chip
+        // it replaces); cloning keeps its % label, that one is long-running.
         if self.syncing {
-            let label: SharedString = match self.clone_progress {
-                Some(percent) => {
-                    let name = self
-                        .repo
-                        .as_ref()
-                        .map(|repo| short_name(&repo.full_name))
-                        .unwrap_or_default();
-                    format!("Cloning {name}… {percent}%").into()
-                }
-                None => "Syncing…".into(),
-            };
-            return row
-                .child(Spinner::new().xsmall().color(cx.theme().muted_foreground))
-                .child(
+            row = row.child(Spinner::new().xsmall().color(cx.theme().muted_foreground));
+            if let Some(percent) = self.clone_progress {
+                let name = self
+                    .repo
+                    .as_ref()
+                    .map(|repo| short_name(&repo.full_name))
+                    .unwrap_or_default();
+                row = row.child(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(label),
+                        .child(SharedString::from(format!("Cloning {name}… {percent}%"))),
                 );
+            }
+            return row;
         }
 
         // A user-op error (clone/fetch/push/checkout — error + Retry).
@@ -889,47 +957,30 @@ impl GitBar {
             );
         }
 
-        // Sticky background-sync failure: ONE amber badge, cleared on the
-        // next success; click retries immediately.
+        // Sticky background-sync failure: ONE amber ⚠, cleared on the next
+        // success; the detail lives in the tooltip, click retries.
         if let Some(detail) = &self.auto_sync_error {
             row = row.child(
                 Button::new("git-sync-failed")
                     .ghost()
                     .xsmall()
-                    .label("\u{26A0} sync failed")
+                    .icon(Icon::from(ExpIcon::TriangleAlert))
                     .text_color(cx.theme().warning)
-                    .tooltip(detail.clone())
+                    .tooltip(SharedString::from(format!("Background sync failed: {detail}")))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         this.start_sync(SyncMode::AutoSync, cx);
                     })),
             );
         }
-
-        // Behind / ahead counts — only the non-zero side(s); a clean,
-        // in-sync trunk shows neither.
-        if self.trunk.behind > 0 {
-            row = row.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!("\u{2193}{}", self.trunk.behind))),
-            );
-        }
-        if self.trunk.ahead > 0 {
-            row = row.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!("\u{2191}{}", self.trunk.ahead))),
-            );
-        }
         row
     }
 
-    /// ONE context-sensitive action for the checked-out branch: Publish (no
-    /// upstream) / Get latest (behind-only) / Push (ahead-only) / Sync
-    /// (diverged: rebase + push) / ghost "Up to date" (re-fetch).
+    /// ONE context-sensitive action for the checked-out branch, worn by the
+    /// counts themselves — the number IS the button: `↓N` fast-forwards,
+    /// `↑N` pushes, `↓N ↑M` syncs (rebase + push), and an unpublished branch
+    /// gets the labeled Publish. A clean, in-sync trunk renders NOTHING
+    /// (auto-sync owns freshness; manual re-check lives in the branch menu).
     fn render_context_action(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let clone_exists = self.repo.as_ref().is_some_and(|repo| repo.clone_exists);
         if !clone_exists
@@ -940,87 +991,59 @@ impl GitBar {
         {
             return None;
         }
-        let (id, label, tooltip, mode, primary): (
-            &'static str,
-            SharedString,
-            SharedString,
-            SyncMode,
-            bool,
-        ) = if !self.trunk.has_upstream {
-            (
-                "git-publish",
-                "Publish".into(),
-                format!("Publish {} to origin", self.trunk.branch).into(),
-                SyncMode::Publish,
-                true,
-            )
-        } else if self.trunk.behind > 0 && self.trunk.ahead == 0 {
-            // Rare: auto-ff usually beat it; shows when the tree is dirty.
-            (
-                "git-get-latest",
-                "Get latest".into(),
-                format!("Fast-forward to origin/{}", self.trunk.branch).into(),
-                SyncMode::GetLatest,
-                false,
-            )
-        } else if self.trunk.ahead > 0 && self.trunk.behind == 0 {
-            (
-                "git-push",
-                "Push".into(),
-                format!("Push {} to origin", self.trunk.branch).into(),
-                SyncMode::Push,
-                false,
-            )
-        } else if self.trunk.ahead > 0 && self.trunk.behind > 0 {
-            (
-                "git-sync",
-                "Sync".into(),
-                format!("Rebase onto origin/{}, then push", self.trunk.branch).into(),
-                SyncMode::Push,
-                false,
-            )
-        } else {
-            (
-                "git-up-to-date",
-                "Up to date".into(),
-                "Check origin for changes".into(),
-                SyncMode::Fetch,
-                false,
-            )
-        };
-        let mut button = Button::new(id).xsmall().label(label).tooltip(tooltip);
-        if primary {
-            button = button.primary();
-        } else {
-            button = button.ghost();
+        if !self.trunk.has_upstream {
+            return Some(
+                Button::new("git-publish")
+                    .primary()
+                    .xsmall()
+                    .label("Publish")
+                    .tooltip(SharedString::from(format!(
+                        "Publish {} to origin",
+                        self.trunk.branch
+                    )))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.start_sync(SyncMode::Publish, cx);
+                    }))
+                    .into_any_element(),
+            );
         }
+        let (behind, ahead) = (self.trunk.behind, self.trunk.ahead);
+        let (id, label, tooltip, mode): (&'static str, String, String, SyncMode) =
+            match (behind > 0, ahead > 0) {
+                // Rare: auto-ff usually beat it; shows when the tree is dirty.
+                (true, false) => (
+                    "git-get-latest",
+                    format!("\u{2193}{behind}"),
+                    format!("Fast-forward to origin/{}", self.trunk.branch),
+                    SyncMode::GetLatest,
+                ),
+                (false, true) => (
+                    "git-push",
+                    format!("\u{2191}{ahead}"),
+                    format!("Push {} to origin", self.trunk.branch),
+                    SyncMode::Push,
+                ),
+                (true, true) => (
+                    "git-sync",
+                    format!("\u{2193}{behind} \u{2191}{ahead}"),
+                    format!("Rebase onto origin/{}, then push", self.trunk.branch),
+                    SyncMode::Push,
+                ),
+                (false, false) => return None,
+            };
         Some(
-            button
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .label(SharedString::from(label))
+                .text_color(cx.theme().muted_foreground)
+                .tooltip(SharedString::from(tooltip))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
                     this.start_sync(mode, cx);
                 }))
                 .into_any_element(),
-        )
-    }
-
-    /// The muted "synced Xm ago" stamp (refreshed by the timer's notify
-    /// cadence).
-    fn render_synced_ago(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
-        let last = self.last_synced?;
-        if self.syncing {
-            return None;
-        }
-        let (short, tooltip) = synced_ago_labels(last.elapsed());
-        Some(
-            div()
-                .id("git-synced-ago")
-                .text_xs()
-                .text_color(cx.theme().muted_foreground.opacity(0.7))
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-                })
-                .child(short),
         )
     }
 }
@@ -1037,19 +1060,16 @@ impl Render for GitBar {
         }
 
         // Compact horizontal cluster for the board's top-right toolbar:
-        // branch chip · Commit · status (+badges +counts) · context action ·
-        // synced-ago.
+        // branch chip · Commit · status (spinner/errors/conflict/badge) ·
+        // count-chip action. In-sync + clean = just the chip and the ✓.
         let mut row = h_flex()
-            .gap_2()
+            .gap_1()
             .items_center()
             .child(self.render_branch_chip(cx))
             .child(self.render_commit_button(cx))
             .child(self.render_status(cx));
         if let Some(action) = self.render_context_action(cx) {
             row = row.child(action);
-        }
-        if let Some(synced) = self.render_synced_ago(cx) {
-            row = row.child(synced);
         }
         row.into_any_element()
     }
