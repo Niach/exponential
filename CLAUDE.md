@@ -94,6 +94,7 @@ bun run build:desktop:staging      # cargo build --release -p app --features sta
 bun run appimage:desktop           # build + package a Linux AppImage (production)
 bun run appimage:desktop:staging   # build + package a Linux AppImage (staging)
 bun run test:desktop               # cargo test (apps/desktop workspace)
+bun run clean:desktop              # cargo clean (EXP-76: run on zed/gpui rev bumps — cargo never GCs stranded artifacts)
 
 bun run --filter @exp/domain-contract generate   # Regenerate iOS + Android + desktop enum constants
 bun run --filter @exp/design-tokens generate     # Regenerate Android + iOS + desktop theme tokens

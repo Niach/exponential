@@ -13,3 +13,12 @@
 # LSMinimumSystemVersion (assets/packaging/Info.plist) is the real install gate.
 # If a per-binary min-version is ever needed, pass `--target aarch64-apple-darwin`
 # so the flag hits only the app, not the host proc-macros.
+
+# EXP-76 (pending toolchain): `[resolver] feature-unification = "workspace"`
+# is the real fix for variant churn — without it, differently-selected cargo
+# invocations (`-p app`, workspace `cargo test`, per-crate tests) can each
+# unify features differently, and cargo keeps a full parallel copy of the
+# affected dep tree per variant (3-7 ~134MB libgpui copies were measured in
+# single target dirs). On our pinned 1.96.0 the key is still nightly-gated
+# (cargo warns "ignoring ... without -Zfeature-unification" on EVERY command),
+# so it must stay off; add it the moment a toolchain bump stabilizes it.

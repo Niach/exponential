@@ -348,7 +348,68 @@ impl GitBar {
         if self.repo_tasks_alive(window, cx) {
             return;
         }
-        self.start_sync(SyncMode::AutoSync, cx);
+        let prune = self.prunable_worktree_branches(window, cx);
+        self.start_sync_with_prune(SyncMode::AutoSync, prune, cx);
+    }
+
+    /// Branches whose session worktrees are safe to prune (EXP-76 disk
+    /// hygiene, piggybacked on the auto-sync pass): synced issues of THIS
+    /// repo's projects whose PR has merged, minus any issue with a running
+    /// coding session (synced — covers every device) and minus worktrees
+    /// hosting a live terminal tab in this window. The prune itself
+    /// ([`git_worktree::prune_merged_worktrees`]) additionally refuses any
+    /// worktree with modified or untracked files, so a tab in another window
+    /// can at worst block on a clean tree it was merely cd'ed into.
+    fn prunable_worktree_branches(&self, window: &Window, cx: &App) -> Vec<String> {
+        let Some(repo) = &self.repo else {
+            return Vec::new();
+        };
+        if !repo.clone_exists {
+            return Vec::new();
+        }
+        let collections = Store::global(cx).collections().clone();
+        let projects = collections.projects.read(cx);
+        let repo_projects: Vec<&str> = projects
+            .iter()
+            .filter(|project| {
+                project.repository_id.as_deref() == Some(repo.repository_id.as_str())
+            })
+            .map(|project| project.id.as_str())
+            .collect();
+        let sessions = collections.coding_sessions.read(cx);
+        let running_issues: Vec<&str> = sessions
+            .iter()
+            .filter(|session| {
+                session.status.as_deref()
+                    == Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+            })
+            .filter_map(|session| session.issue_id.as_deref())
+            .collect();
+        let issues = collections.issues.read(cx);
+        let mut branches: Vec<String> = issues
+            .iter()
+            .filter(|issue| repo_projects.contains(&issue.project_id.as_str()))
+            .filter(|issue| issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED))
+            .filter(|issue| !running_issues.contains(&issue.id.as_str()))
+            .filter_map(|issue| issue.branch.clone())
+            .collect();
+        if branches.is_empty() {
+            return branches;
+        }
+        if let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) {
+            let busy: Vec<PathBuf> = manager
+                .read(cx)
+                .tabs()
+                .iter()
+                .filter(|tab| tab.is_running())
+                .filter_map(|tab| tab.cwd.clone())
+                .collect();
+            branches.retain(|branch| {
+                let worktree = git_worktree::worktree_path(&repo.clone, branch);
+                !busy.iter().any(|cwd| cwd.starts_with(&worktree))
+            });
+        }
+        branches
     }
 
     /// Whether a live Claude TASK tab (conflict fix, run-config authoring…)
@@ -674,6 +735,18 @@ impl GitBar {
     /// channel drained here. No-op while another op is in flight (one trunk
     /// op at a time) or off a resolved repo.
     fn start_sync(&mut self, mode: SyncMode, cx: &mut gpui::Context<Self>) {
+        self.start_sync_with_prune(mode, Vec::new(), cx);
+    }
+
+    /// [`start_sync`] with the auto-sync pass's worktree-prune nominations
+    /// (empty for every user-triggered op — pruning rides ONLY the background
+    /// pass, whose trigger has the Window needed for the live-tab check).
+    fn start_sync_with_prune(
+        &mut self,
+        mode: SyncMode,
+        prune_branches: Vec<String>,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if self.syncing {
             return;
         }
@@ -716,7 +789,7 @@ impl GitBar {
         // Background worker — token + git op + trunk read (argv-only git).
         cx.background_executor()
             .spawn(async move {
-                run_sync_worker(mode, &trpc, &repo, &tx);
+                run_sync_worker(mode, &trpc, &repo, &prune_branches, &tx);
             })
             .detach();
     }
@@ -1132,6 +1205,7 @@ fn run_sync_worker(
     mode: SyncMode,
     trpc: &api::TrpcClient,
     repo: &RepoInfo,
+    prune_branches: &[String],
     tx: &flume::Sender<SyncMsg>,
 ) {
     // Token via the cache (re-mints only near expiry; never persisted/logged;
@@ -1175,6 +1249,13 @@ fn run_sync_worker(
         SyncMode::AutoSync => {
             let outcome = clone_manager::auto_sync(clone, &url).map_err(|err| err.to_string());
             let _ = tx.send(SyncMsg::AutoSyncDone(outcome));
+            // EXP-76: reclaim merged sessions' worktrees (their ignored build
+            // caches are the disk cost). Nominations were computed on the
+            // foreground; the removal is quiet and best-effort — git itself
+            // refuses any worktree with modified or untracked files.
+            if !prune_branches.is_empty() {
+                let _ = git_worktree::prune_merged_worktrees(clone, prune_branches);
+            }
         }
         SyncMode::GetLatest | SyncMode::Push | SyncMode::Publish => {
             // The C fix: read the CHECKED-OUT branch fresh from disk — the

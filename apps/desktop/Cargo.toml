@@ -29,7 +29,13 @@ gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d
 # NB: gpui-component's own workspace carries a `[patch.crates-io]` for psm/stacker —
 # that patch is WASM-only tooling and is NOT needed here (confirmed by building this
 # workspace without it); cargo does not apply a git dependency's patch sections anyway.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
+# `tree-sitter-languages` (the §7.8 diff-view grammar pack) is declared HERE,
+# not on the ui crate: gpui-component reaches the graph through two paths (ui,
+# and theme via terminal), and a feature requested by only one of them makes
+# per-crate selections (`cargo test -p coding` etc.) resolve a SECOND,
+# featureless gpui-component — a full duplicate ~126MB rlib per target dir
+# (EXP-76). One workspace-level feature set ⇒ one build variant everywhere.
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c", features = ["tree-sitter-languages"] }
 # Ships the 99 SVG icons gpui-component's `IconName` enum is generated from —
 # already a regular dependency of gpui-component itself (its build.rs publishes
 # the icons dir for the icon_named! macro), so this adds no new tree weight.
@@ -68,22 +74,36 @@ sha2 = "0.10"
 # transitively (portable-pty, gpui) at this exact major.
 libc = "0.2"
 
+# Debuginfo is the bulk of a debug tree on this dependency set (EXP-76: ~8GB
+# per fresh build, most of it dep debuginfo plus the ~7k .o files macOS's
+# split-debuginfo=unpacked keeps around as its containers). Workspace crates
+# keep line tables (readable backtraces); dependencies build with none — gpui
+# internals are not stepped through here, and full var-info debugging of a dep
+# is a one-off `cargo clean -p` away.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # Dev-profile opt-level overrides for the heavy layout/render/text crates
 # (masterplan-v3 §3.7 — adopted from gpui-component's own workspace, which does
-# exactly this; without them dev-profile layout is painfully slow).
+# exactly this; without them dev-profile layout is painfully slow). Each entry
+# repeats `debug = false` because a named override shadows the `"*"` table —
+# per-key fallback from a named entry to `"*"` is not something to rely on.
 [profile.dev.package]
-gpui = { opt-level = 3 }
-gpui_platform = { opt-level = 3 }
-gpui_macros = { opt-level = 3 }
-taffy = { opt-level = 3 }
-resvg = { opt-level = 3 }
-rustybuzz = { opt-level = 3 }
-ttf-parser = { opt-level = 3 }
-smol = { opt-level = 3 }
-tree-sitter = { opt-level = 3 }
-ropey = { opt-level = 3 }
-sum_tree = { opt-level = 3 }
+gpui = { opt-level = 3, debug = false }
+gpui_platform = { opt-level = 3, debug = false }
+gpui_macros = { opt-level = 3, debug = false }
+taffy = { opt-level = 3, debug = false }
+resvg = { opt-level = 3, debug = false }
+rustybuzz = { opt-level = 3, debug = false }
+ttf-parser = { opt-level = 3, debug = false }
+smol = { opt-level = 3, debug = false }
+tree-sitter = { opt-level = 3, debug = false }
+ropey = { opt-level = 3, debug = false }
+sum_tree = { opt-level = 3, debug = false }
 # The remainder of gpui-component's own dev list (same rationale, same source).
-lsp-types = { opt-level = 3 }
-markdown = { opt-level = 3 }
-xml5ever = { opt-level = 3 }
+lsp-types = { opt-level = 3, debug = false }
+markdown = { opt-level = 3, debug = false }
+xml5ever = { opt-level = 3, debug = false }

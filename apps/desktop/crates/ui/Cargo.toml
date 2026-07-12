@@ -23,10 +23,11 @@ steer = { path = "../steer" }
 # publisher UI events).
 flume = { workspace = true }
 gpui.workspace = true
-# §7.8 diff view: `tree-sitter-languages` bundles the Tree-sitter grammars the
-# `highlighter` resolves by name (diff + common languages). Additive — other
-# gpui-component consumers in the workspace are unaffected.
-gpui-component = { workspace = true, features = ["tree-sitter-languages"] }
+# §7.8 diff view: the `highlighter` resolves Tree-sitter grammars by name —
+# the `tree-sitter-languages` feature that bundles them is declared on the
+# WORKSPACE dependency (EXP-76: a feature requested here alone made per-crate
+# selections build a second, featureless gpui-component variant).
+gpui-component.workspace = true
 # Same ropey the pinned gpui-component uses (its `SyntaxHighlighter::update`
 # takes `&ropey::Rope`; two ropey majors in the tree would not unify).
 ropey = "2.0.0-beta.1"

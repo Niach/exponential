@@ -40,7 +40,7 @@ use crate::argv::{issue_args, release_args, IssueLaunchOptions};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base, set_token_remote,
-    worktree_path, GitError, TokenUrl,
+    shared_cargo_target_dir, worktree_path, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
 use crate::prompt::{deliver_prompt, deliver_prompt_file, render_prompt};
@@ -519,7 +519,19 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     };
     let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
         .args(args)
-        .cwd(&worktree);
+        .cwd(&worktree)
+        // EXP-76 disk hygiene, both inherited by every cargo the session runs:
+        // one shared build cache for ALL of this repo's session worktrees
+        // (instead of a full cold tree per worktree — concurrent builds
+        // serialize on cargo's lock, which warm caches more than repay), and
+        // no incremental caches (session builds are few-shot; the per-worktree
+        // incremental dirs were ~1GB of pure waste each). Inert for non-Rust
+        // repos.
+        .env(
+            "CARGO_TARGET_DIR",
+            shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
+        )
+        .env("CARGO_INCREMENTAL", "0");
 
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
