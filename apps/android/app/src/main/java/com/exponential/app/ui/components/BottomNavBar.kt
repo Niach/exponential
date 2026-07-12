@@ -35,8 +35,9 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the five top-level
-// destinations (Issues, Search, Agents — with a green live dot — Inbox — with
-// an unread dot — and Releases) plus a detached circular compose button on the right.
+// destinations (Issues, Search, Agents — with a green live dot — My Work — the
+// merged Inbox + My Issues personal tab, with an unread dot — and Releases)
+// plus a detached circular compose button on the right.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
@@ -58,7 +59,7 @@ fun BottomNavBar(
     releasesActive: Boolean,
     searchActive: Boolean,
     agentsActive: Boolean,
-    inboxActive: Boolean,
+    personalActive: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
     showsCompose: Boolean,
@@ -66,7 +67,7 @@ fun BottomNavBar(
     onReleases: () -> Unit,
     onSearch: () -> Unit,
     onAgents: () -> Unit,
-    onInbox: () -> Unit,
+    onPersonal: () -> Unit,
     onCompose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -107,10 +108,10 @@ fun BottomNavBar(
             )
             TabItem(
                 icon = Icons.Filled.Inbox,
-                contentDescription = "Inbox",
-                active = inboxActive,
+                contentDescription = "My Work",
+                active = personalActive,
                 showDot = unreadCount > 0,
-                onClick = onInbox,
+                onClick = onPersonal,
             )
             TabItem(
                 icon = Icons.Filled.RocketLaunch,
