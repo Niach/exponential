@@ -22,6 +22,9 @@ struct AgentSessionView: View {
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
+    private static let feedCoordSpace = "feed-scroll"
+    /// Within this many points of the bottom still counts as pinned.
+    private static let followSlack: CGFloat = 32
 
     var body: some View {
         ZStack {
@@ -156,6 +159,14 @@ struct AgentSessionView: View {
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
     /// top of the screen) with follow-scroll: pinned to the bottom until the
     /// user scrolls up, then a "Jump to latest ↓" pill re-pins.
+    ///
+    /// Follow state is derived from scroll GEOMETRY (an equality-guarded
+    /// preference off the content frame) and the pin is an explicit scrollTo —
+    /// NOT from onAppear/onDisappear of a lazy sentinel and NOT from
+    /// defaultScrollAnchor(.bottom). Both of those make layout depend on state
+    /// the layout itself mutates (lazy realization ⇄ body invalidation,
+    /// anchored re-scroll ⇄ lazy sizing), and once the feed outgrew the
+    /// viewport that cycle wedged the main thread for good (EXP-70).
     private func feedList(_ model: AgentSessionModel) -> some View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
@@ -164,19 +175,36 @@ struct AgentSessionView: View {
                         ForEach(model.feed) { item in
                             feedRow(item)
                         }
-                        // Follow sentinel: visible ⇔ pinned to the bottom.
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
-                            .onAppear { atBottom = true }
-                            .onDisappear { atBottom = false }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(minHeight: geo.size.height, alignment: .bottom)
+                    .background(
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: FeedBottomOverflowKey.self,
+                                value: content.frame(in: .named(Self.feedCoordSpace)).maxY
+                                    - geo.size.height
+                            )
+                        }
+                    )
                 }
-                .defaultScrollAnchor(.bottom)
+                .coordinateSpace(name: Self.feedCoordSpace)
+                .onPreferenceChange(FeedBottomOverflowKey.self) { [atBottom = $atBottom] overflow in
+                    // Points of content extending below the viewport; ≤ slack
+                    // counts as pinned. Only the flip writes state.
+                    let pinned = overflow <= Self.followSlack
+                    if atBottom.wrappedValue != pinned {
+                        atBottom.wrappedValue = pinned
+                    }
+                }
+                .onAppear {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
                 .onChange(of: model.feed.count) { _, _ in
                     if atBottom {
                         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
@@ -451,20 +479,27 @@ private struct StatusDot: View {
         Circle()
             .fill(color)
             .frame(width: 8, height: 8)
-            .opacity(connecting && pulsing ? 0.35 : 1)
-            .onAppear { startPulseIfNeeded() }
-            .onChange(of: connecting) { _, _ in startPulseIfNeeded() }
+            .opacity(pulsing ? 0.35 : 1)
+            // Value-bound so the repeat dies with the flag — an open-ended
+            // withAnimation(.repeatForever) here kept driving the render loop
+            // after the phase moved on (EXP-70).
+            .animation(
+                pulsing ? .easeInOut(duration: 0.65).repeatForever(autoreverses: true) : nil,
+                value: pulsing
+            )
+            .onAppear { pulsing = connecting && !reduceMotion }
+            .onChange(of: connecting) { _, now in pulsing = now && !reduceMotion }
     }
+}
 
-    private func startPulseIfNeeded() {
-        guard connecting, !reduceMotion else {
-            pulsing = false
-            return
-        }
-        pulsing = false
-        withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
-            pulsing = true
-        }
+// MARK: - Follow-scroll geometry
+
+/// Points of feed content extending below the visible viewport — 0 when the
+/// feed is pinned to the bottom, negative while bouncing past it.
+private struct FeedBottomOverflowKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
