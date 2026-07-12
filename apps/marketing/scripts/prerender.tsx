@@ -133,7 +133,7 @@ function prerenderPage(page: PageSeo): void {
   }
 
   const body = renderToString(<Component />)
-  html = html.replace(MARKER, `<div id="root">${body}</div>`)
+  html = html.replace(MARKER, () => `<div id="root">${body}</div>`)
 
   const headClose = `</head>`
   if (!html.includes(headClose)) {
@@ -142,7 +142,10 @@ function prerenderPage(page: PageSeo): void {
   const withStrippedHead = html.replace(/<head>([\s\S]*?)<\/head>/i, (_m, head) => {
     return `<head>${stripExistingSeo(head)}</head>`
   })
-  html = withStrippedHead.replace(headClose, `${metaBlock(page)}\n  ${headClose}`)
+  html = withStrippedHead.replace(
+    headClose,
+    () => `${metaBlock(page)}\n  ${headClose}`,
+  )
 
   writeFileSync(htmlPath, html)
   console.log(`prerendered ${page.path} → ${page.htmlFile} (${body.length} bytes body)`)
