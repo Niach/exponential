@@ -1,11 +1,14 @@
 //! Account → Notifications: email-notification prefs (masterplan-v3 §4.2).
 //!
 //! Web parity: `routes/_authenticated/account/notifications.tsx` — a master
-//! email `Switch`, the six per-type rows (labels + hints verbatim), and the
-//! delivery cadence select (`off` = Immediately / `daily` = Daily digest,
-//! the server's `digestValues`). `user_notification_prefs` is server-only —
-//! read + written via `notifications.emailPrefs` / `updateEmailPrefs`, never
-//! synced.
+//! email `Switch`, the seven per-type rows (labels + hints verbatim), and
+//! the delivery cadence select. Email is PUSH-FIRST (EXP-69 parity with the
+//! web's digest system): nothing is emailed per-event — notifications still
+//! unread ~1h after the push are bundled into one digest email, so the
+//! server's `digestValues` are `off` = Hourly digest / `daily` = Daily
+//! digest (`lib/notification-email-policy.ts`). `user_notification_prefs` is
+//! server-only — read + written via `notifications.emailPrefs` /
+//! `updateEmailPrefs`, never synced.
 //!
 //! Update semantics mirror the web exactly: optimistic local state + a
 //! fire-and-forget mutation carrying only the changed field; when the email
@@ -29,8 +32,9 @@ use gpui_component::{
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
 use domain::contract::{
     NOTIFICATION_TYPE_ISSUE_ASSIGNED, NOTIFICATION_TYPE_ISSUE_COMMENT,
-    NOTIFICATION_TYPE_ISSUE_MENTION, NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED,
-    NOTIFICATION_TYPE_PR_MERGED, NOTIFICATION_TYPE_PR_OPENED,
+    NOTIFICATION_TYPE_ISSUE_CREATED, NOTIFICATION_TYPE_ISSUE_MENTION,
+    NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED, NOTIFICATION_TYPE_PR_MERGED,
+    NOTIFICATION_TYPE_PR_OPENED,
 };
 
 use crate::queries;
@@ -38,7 +42,12 @@ use crate::queries;
 use super::{card, error_notice, spawn_trpc};
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
-const TYPE_ROWS: [(&str, &str, &str); 6] = [
+const TYPE_ROWS: [(&str, &str, &str); 7] = [
+    (
+        NOTIFICATION_TYPE_ISSUE_CREATED,
+        "New feedback",
+        "A new issue is filed in your workspace via the feedback widget.",
+    ),
     (
         NOTIFICATION_TYPE_ISSUE_ASSIGNED,
         "Assigned to you",
@@ -71,7 +80,9 @@ const TYPE_ROWS: [(&str, &str, &str); 6] = [
     ),
 ];
 
-/// Server `digestValues` (`lib/notification-email-policy.ts`).
+/// Server `digestValues` (`lib/notification-email-policy.ts`): `off` is the
+/// default HOURLY digest of still-unread notifications, `daily` batches at
+/// most one digest email per day. There is no per-event email anymore.
 const DIGEST_OFF: &str = "off";
 const DIGEST_DAILY: &str = "daily";
 
@@ -237,8 +248,9 @@ impl Render for NotificationsPrefsPane {
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
-                                    "Emails deep-link straight to the issue, so nothing gets \
-                                     lost while you're away.",
+                                    "Email is the catch-up channel: notifications still unread \
+                                     an hour after the push are bundled into one digest email, \
+                                     with deep links straight to each issue.",
                                 ),
                         ),
                 )
@@ -340,7 +352,7 @@ impl Render for NotificationsPrefsPane {
                 let digest_label: SharedString = if digest == DIGEST_DAILY {
                     "Daily digest".into()
                 } else {
-                    "Immediately".into()
+                    "Hourly digest".into()
                 };
                 body = body.child(
                     h_flex()
@@ -359,8 +371,8 @@ impl Render for NotificationsPrefsPane {
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
                                         .child(
-                                            "Send each email immediately, or hold them for a \
-                                             daily digest.",
+                                            "How often unread notifications are bundled into \
+                                             one email.",
                                         ),
                                 ),
                         )
@@ -376,7 +388,7 @@ impl Render for NotificationsPrefsPane {
                                     let current = digest.clone();
                                     move |mut menu, _, _| {
                                         for (value, label) in [
-                                            (DIGEST_OFF, "Immediately"),
+                                            (DIGEST_OFF, "Hourly digest"),
                                             (DIGEST_DAILY, "Daily digest"),
                                         ] {
                                             let entity = entity.clone();

@@ -5,6 +5,12 @@
 //! Right: the run widget (config select + play/stop) and the trunk git
 //! cluster (branch chip, sync status, Commit, Pull/Push).
 //!
+//! EXP-69: the picker doubles as the workspace switcher — it lists EVERY
+//! project across ALL the user's workspaces (grouped under small workspace
+//! headers once there is more than one), and picking a project from another
+//! workspace switches workspace + project in one action. The old footer
+//! account-menu workspace list is gone.
+//!
 //! The issue detail keeps its own richer breadcrumb row (project › identifier
 //! › live title + Start coding) — the top bar shows no crumb for it.
 
@@ -18,7 +24,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use crate::actions::{NewProject, OpenProject};
+use crate::actions::{NewProject, OpenProject, SwitchWorkspace};
 use crate::git_bar::GitBar;
 use crate::navigation::{active_project_id, active_workspace_id, nav_for_window, Navigation};
 use crate::properties_panel::parse_hex_color;
@@ -27,6 +33,15 @@ use crate::sidebar::rail_shared_for_window;
 
 /// Top-bar height (the terminal strip / rail metrics live in their modules).
 pub(crate) const TOP_BAR_H: f32 = 38.;
+
+/// One workspace's slice of the merged picker menu (EXP-69) — a captured
+/// snapshot, cheap clones only (menus render lazily in the overlay).
+struct PickerGroup {
+    workspace_id: String,
+    workspace_name: String,
+    /// `(project_id, project_name, is_active)` rows, board sort order.
+    projects: Vec<(String, String, bool)>,
+}
 
 /// The header view owned by the `Workspace` shell.
 pub struct TopBar {
@@ -66,8 +81,14 @@ impl TopBar {
         }
     }
 
-    /// The project picker: the active project as the label, the workspace's
-    /// projects (check on the active one) + "New project…" in the dropdown.
+    /// The project picker (EXP-69 merged with the workspace switcher): the
+    /// active project as the label; the dropdown lists ALL projects across
+    /// ALL workspaces, grouped under small workspace headers (flat with a
+    /// plain "Projects" label while there is only one workspace), plus
+    /// "New project…". Picking a project from another workspace switches
+    /// workspace + project in one action (the `OpenProject` handler
+    /// re-scopes); a project-less workspace gets a "Switch to workspace"
+    /// entry so it stays reachable.
     fn render_project_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let store = Store::global(cx);
         if !store.collections().projects.read(cx).is_ready() {
@@ -104,15 +125,31 @@ impl TopBar {
         let is_feedback = active.map(|p| p.is_feedback()).unwrap_or(false);
 
         // Captured snapshot for the menu builder (menus render lazily in the
-        // overlay; they must not read `self`).
-        let picker: Vec<(String, String, bool)> = projects
-            .iter()
-            .map(|p| {
-                (
-                    p.id.clone(),
-                    p.name.clone(),
-                    Some(p.id.as_str()) == active_id.as_deref(),
-                )
+        // overlay; they must not read `self`): one group per workspace
+        // (name-sorted, web picker order), each with its projects as
+        // `(id, name, is_active)` rows.
+        let groups: Vec<PickerGroup> = store
+            .collections()
+            .workspaces_sorted(cx)
+            .into_iter()
+            .map(|workspace| {
+                let projects: Vec<(String, String, bool)> = store
+                    .collections()
+                    .projects_in_workspace(&workspace.id, cx)
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.id.clone(),
+                            p.name.clone(),
+                            Some(p.id.as_str()) == active_id.as_deref(),
+                        )
+                    })
+                    .collect();
+                PickerGroup {
+                    workspace_id: workspace.id,
+                    workspace_name: workspace.name,
+                    projects,
+                }
             })
             .collect();
 
@@ -167,17 +204,41 @@ impl TopBar {
                             .text_color(cx.theme().muted_foreground),
                     )
                     .dropdown_menu(move |menu, _window, _cx| {
-                        // Project lists grow with the workspace — cap + scroll
-                        // (EXP-46a). Flat items only (no submenus).
-                        let mut menu = menu.scrollable(true).max_h(px(320.)).label("Projects");
-                        for (id, name, active) in &picker {
-                            menu = menu.menu_with_check(
-                                SharedString::from(name.clone()),
-                                *active,
-                                Box::new(OpenProject {
-                                    project_id: id.clone(),
-                                }),
-                            );
+                        // Project lists grow with the account's workspaces —
+                        // cap + scroll (EXP-46a). Flat items only (no
+                        // submenus): workspace grouping is small label
+                        // headers, shown once there is more than one
+                        // workspace.
+                        let mut menu = menu.scrollable(true).max_h(px(320.));
+                        let show_headers = groups.len() > 1;
+                        if !show_headers {
+                            menu = menu.label("Projects");
+                        }
+                        for group in &groups {
+                            if show_headers {
+                                menu =
+                                    menu.label(SharedString::from(group.workspace_name.clone()));
+                            }
+                            if group.projects.is_empty() && show_headers {
+                                // Keep project-less workspaces reachable now
+                                // that the footer workspace switcher is gone.
+                                menu = menu.menu(
+                                    "Switch to workspace",
+                                    Box::new(SwitchWorkspace {
+                                        workspace_id: group.workspace_id.clone(),
+                                    }),
+                                );
+                                continue;
+                            }
+                            for (id, name, active) in &group.projects {
+                                menu = menu.menu_with_check(
+                                    SharedString::from(name.clone()),
+                                    *active,
+                                    Box::new(OpenProject {
+                                        project_id: id.clone(),
+                                    }),
+                                );
+                            }
                         }
                         menu.separator()
                             .menu_with_icon("New project…", IconName::Plus, Box::new(NewProject))

@@ -9,11 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{div, App, Global, ParentElement as _, Styled as _};
-use gpui_component::{
-    button::ButtonVariant, dialog::DialogButtonProps, notification::Notification, ActiveTheme as _,
-    WindowExt as _,
-};
+use gpui::{App, Global};
 use sync::{SessionPhase, Store};
 
 /// Process-wide auth handles. Cheap to clone (Arcs + a path).
@@ -99,68 +95,6 @@ pub fn sign_out_active(cx: &mut App) {
 
     auth.auth.sign_out(&account_id);
     store.sign_out(&account_id, cx);
-}
-
-/// "Delete account…" (footer account menu, App Store 5.1.1(v) analog):
-/// destructive confirm dialog, then `users.deleteAccount`. On success the
-/// local teardown reuses [`sign_out_active`] — the server session is already
-/// gone, so its server-side revocation is a harmless best-effort no-op.
-pub fn confirm_delete_account(cx: &mut App) {
-    crate::navigation::on_active_window(cx, |window, cx| {
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Delete your account?")
-                .content(|content, _, cx| {
-                    content.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "This permanently deletes your account, including your \
-                                 personal workspaces, issues, and comments. This cannot \
-                                 be undone.",
-                            ),
-                    )
-                })
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Delete account")
-                        .ok_variant(ButtonVariant::Danger)
-                        .show_cancel(true)
-                        .on_ok(|_, _, cx| {
-                            delete_account(cx);
-                            true
-                        }),
-                )
-        });
-    });
-}
-
-/// The confirmed deletion: `users.deleteAccount` on a background thread
-/// (blocking tRPC, §3.5), then sign-out on success or a notification on
-/// failure.
-fn delete_account(cx: &mut App) {
-    let Some(trpc) = crate::queries::trpc_client(cx) else {
-        return;
-    };
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::users::delete_account(&trpc) })
-            .await;
-        cx.update(|cx| match result {
-            Ok(()) => sign_out_active(cx),
-            Err(err) => {
-                crate::navigation::on_active_window(cx, move |window, cx| {
-                    window.push_notification(
-                        Notification::error(format!("Could not delete the account: {err}")),
-                        cx,
-                    );
-                });
-            }
-        });
-    })
-    .detach();
 }
 
 /// The startup session bootstrap (app-shell wiring):

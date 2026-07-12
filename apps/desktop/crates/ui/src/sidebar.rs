@@ -13,7 +13,8 @@
 //!   project's color. One tool is ALWAYS active — re-clicking never
 //!   unselects. Bottom: terminal-dock toggle, settings gear, and the
 //!   **account button as the very bottom element** — its dropdown holds the
-//!   workspace switcher (deliberately tucked away) and account actions.
+//!   account-level actions only (EXP-69: workspace switching moved into the
+//!   top bar's merged project picker).
 //! - [`SidebarPanel`] — the tool-window column right of the rail (a resizable
 //!   pane INSIDE the dock-area center, so the bottom terminal dock runs
 //!   beneath it): the active tool window's content. Issue tools are mini
@@ -45,9 +46,7 @@ use sync::Store;
 
 use domain::board::format_short_date;
 
-use crate::actions::{
-    CreateWorkspace, DeleteAccount, OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
-};
+use crate::actions::{CreateWorkspace, OpenSettings, SendFeedback, SignOut};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::git_bar::GitBar;
@@ -353,38 +352,14 @@ impl RailView {
     }
 
     /// The account button — ALWAYS the rail's very bottom element. Its
-    /// dropdown holds the tucked-away workspace switcher plus the
-    /// account-level actions.
+    /// dropdown holds the account-level actions (EXP-69: workspace switching
+    /// lives in the top bar's merged project picker now, and account
+    /// deletion is web/mobile-only).
     fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let who: SharedString = crate::queries::active_account(cx)
             .map(|account| SharedString::from(account.email.clone()))
             .unwrap_or_else(|| "Not signed in".into());
         let label = who.clone();
-
-        let active_ws = active_workspace_id(&self.nav, cx);
-        let show_chrome = active_ws
-            .as_deref()
-            .map(|id| crate::settings::show_workspace_chrome(cx, id))
-            .unwrap_or(true);
-        // Workspace switcher snapshot (menus render lazily in the overlay;
-        // they must not read `self`). Hidden entirely in §4.8 solo mode.
-        let workspaces: Vec<(String, String, bool)> = if show_chrome {
-            Store::global(cx)
-                .collections()
-                .workspaces_sorted(cx)
-                .iter()
-                .map(|w| {
-                    (
-                        w.id.clone(),
-                        w.name.clone(),
-                        Some(w.id.as_str()) == active_ws.as_deref(),
-                    )
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let solo = !show_chrome;
 
         Button::new("rail-account")
             .ghost()
@@ -392,48 +367,17 @@ impl RailView {
             .icon(IconName::CircleUser)
             .tooltip(who)
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
-                // The workspace switcher grows with the account's workspaces —
-                // cap + scroll (EXP-46a). Flat items only: submenus are
-                // unsupported inside scrollable menus at the pinned rev.
-                let mut menu = menu
-                    .scrollable(true)
-                    .max_h(px(320.))
-                    .label(label.clone())
+                menu.label(label.clone())
                     .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
                     .menu_with_icon(
                         "Notifications",
                         IconName::Bell,
                         Box::new(crate::actions::OpenAccount),
                     )
-                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback));
-                if solo {
-                    // §4.8 solo rule: no workspace concept in the chrome —
-                    // only the account-level "New workspace" affordance.
-                    menu = menu.menu_with_icon(
-                        "New workspace",
-                        IconName::Plus,
-                        Box::new(CreateWorkspace),
-                    );
-                } else {
-                    menu = menu.separator().label("Workspaces");
-                    for (id, name, active) in &workspaces {
-                        menu = menu.menu_with_check(
-                            SharedString::from(name.clone()),
-                            *active,
-                            Box::new(SwitchWorkspace {
-                                workspace_id: id.clone(),
-                            }),
-                        );
-                    }
-                    menu = menu.menu_with_icon(
-                        "Create workspace…",
-                        IconName::Plus,
-                        Box::new(CreateWorkspace),
-                    );
-                }
-                menu.separator()
+                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback))
+                    .menu_with_icon("New workspace", IconName::Plus, Box::new(CreateWorkspace))
+                    .separator()
                     .menu("Sign out", Box::new(SignOut))
-                    .menu("Delete account…", Box::new(DeleteAccount))
             })
     }
 
