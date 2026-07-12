@@ -1,8 +1,9 @@
 //! Typed `releases.*` tRPC helpers (EXP-56 — the Releases surfaces). Shapes
 //! verified against `apps/web/src/lib/trpc/releases.ts`:
 //!
-//! - `releases.create({workspaceId, name?})` → `{txId, release}` — name
-//!   absent ⇒ the server auto-names sequentially ("Release N")
+//! - `releases.create({workspaceId, name?, issueIds?})` → `{txId, release}`
+//!   — name absent ⇒ the server auto-names sequentially ("Release N");
+//!   issueIds (EXP-62, 1–200) attach in the same server transaction
 //! - `releases.markShipped({id, shipped})` → `{txId}` — manual ship/unship
 //!   (the GitHub webhook also auto-ships when the linked release PR merges)
 //! - `releases.delete({id})` → `{txId}` — hard delete; `issues.release_id`
@@ -53,13 +54,18 @@ pub struct ReleasesAddIssuesOutput {
     pub tx_id: Option<i64>,
 }
 
-/// `releases.create` — mutation. `None` name is the one-click instant-create
-/// path: the key is omitted and the server auto-names the release
-/// ("Release N"). Blocking; background executor only (§3.5).
+/// `releases.create` — mutation. `None` name ⇒ the key is omitted and the
+/// server auto-names the release ("Release N"). `issue_ids` is the
+/// creation-time bundle (EXP-62): attached in the SAME server transaction
+/// (addIssues semantics, incl. timeline events). The server caps it at 200
+/// per call — callers chunk any overflow through [`add_issues`]. Empty ⇒
+/// the key is omitted entirely (the pre-EXP-62 wire shape). Blocking;
+/// background executor only (§3.5).
 pub fn create(
     trpc: &TrpcClient,
     workspace_id: &str,
     name: Option<&str>,
+    issue_ids: &[String],
 ) -> Result<ReleasesCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -67,8 +73,17 @@ pub fn create(
         workspace_id: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        issue_ids: Option<&'a [String]>,
     }
-    trpc.mutation("releases.create", &Input { workspace_id, name })
+    trpc.mutation(
+        "releases.create",
+        &Input {
+            workspace_id,
+            name,
+            issue_ids: (!issue_ids.is_empty()).then_some(issue_ids),
+        },
+    )
 }
 
 /// `releases.markShipped` — mutation (ship with `true`, unship with `false`).
@@ -154,13 +169,31 @@ mod tests {
             200,
             r#"{"result":{"data":{"txId":41,"release":{"id":"rel-1","workspaceId":"ws-1","name":"v1.0","description":null,"targetDate":null,"shippedAt":null}}}}"#,
         );
-        let output = create(&client(&base), "ws-1", Some("v1.0")).unwrap();
+        let output = create(&client(&base), "ws-1", Some("v1.0"), &[]).unwrap();
         assert_eq!(output.release.id, "rel-1");
         assert_eq!(output.release.name.as_deref(), Some("v1.0"));
         assert_eq!(output.tx_id, Some(41));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/releases.create HTTP/1.1"));
+        // Empty issue_ids ⇒ no issueIds key (the pre-EXP-62 wire shape).
         assert!(request.ends_with(r#"{"workspaceId":"ws-1","name":"v1.0"}"#));
+    }
+
+    #[test]
+    fn create_carries_the_creation_time_issue_ids() {
+        // EXP-62: the creation-time bundle rides the create call itself and
+        // the server attaches it in the same transaction.
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"txId":42,"release":{"id":"rel-2","workspaceId":"ws-1","name":"v2.0"}}}}"#,
+        );
+        let ids = vec!["issue-1".to_string(), "issue-2".to_string()];
+        let output = create(&client(&base), "ws-1", Some("v2.0"), &ids).unwrap();
+        assert_eq!(output.release.id, "rel-2");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"workspaceId":"ws-1","name":"v2.0","issueIds":["issue-1","issue-2"]}"#
+        ));
     }
 
     #[test]
@@ -171,7 +204,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"txId":1,"release":{"id":"rel-1","workspaceId":"ws-1","name":"Release 4"}}}}"#,
         );
-        let output = create(&client(&base), "ws-1", None).unwrap();
+        let output = create(&client(&base), "ws-1", None, &[]).unwrap();
         assert_eq!(output.release.name.as_deref(), Some("Release 4"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"workspaceId":"ws-1"}"#));

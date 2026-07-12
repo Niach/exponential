@@ -56,6 +56,7 @@ mod oauth;
 mod properties_panel;
 mod queries;
 mod release_add_issues_dialog;
+mod release_create_dialog;
 mod repo_resolver;
 mod run_bar;
 mod screens;
