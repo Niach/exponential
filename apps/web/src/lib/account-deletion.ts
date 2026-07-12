@@ -156,11 +156,12 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
 
   // GitHub repo grants this user proved: a grant row means "workspace W may
   // see/connect this repo because user U proved user-scoped GitHub access",
-  // so the entitlement must die with the user. The FK is `set null` and the
-  // OAuth re-auth REPLACE (github/callback.ts) deletes only rows keyed by the
-  // granting user's id — rows orphaned to NULL here would be unreachable by
-  // any cleanup path yet keep entitling the workspace forever (assertRepoGrant
-  // matches on workspace+installation+repo alone).
+  // so the entitlement must die with the user (assertRepoGrant matches on
+  // workspace+installation+repo alone — an ownerless row would keep entitling
+  // the workspace forever). The FK cascades on user delete as the schema-level
+  // backstop; this explicit delete makes the revocation part of the guard
+  // transaction itself rather than a side effect of whichever statement later
+  // removes the users row.
   await tx
     .delete(githubInstallationRepoGrants)
     .where(eq(githubInstallationRepoGrants.grantedByUserId, userId))
