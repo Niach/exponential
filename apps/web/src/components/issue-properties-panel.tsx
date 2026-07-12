@@ -16,6 +16,7 @@ import { priorities, PriorityIcon } from "@/components/issue-properties/priority
 import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
+import { ProjectPicker } from "@/components/issue-properties/project-picker"
 import { ReleasePicker } from "@/components/issue-properties/release-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -55,6 +56,11 @@ export interface IssuePropertiesPanelProps {
   projectName: string
   projectColor: string
   projectPrefix: string
+  // Move-to-project control (EXP-57). Optional: when projectId +
+  // onProjectChange are provided the read-only project chip becomes a picker
+  // (detail view); surfaces without a move affordance simply omit them.
+  projectId?: string
+  onProjectChange?: (projectId: string) => void | Promise<void>
   disabled?: boolean
   restrictModeration?: boolean
 }
@@ -365,14 +371,22 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     />
   )
 
-  const projectChip = (
-    <ProjectChip
-      projectColor={props.projectColor}
-      projectPrefix={props.projectPrefix}
-      projectName={props.projectName}
-      layout={layout}
-    />
-  )
+  const projectChip =
+    props.projectId && props.onProjectChange ? (
+      <ProjectPicker
+        disabled={moderationDisabled}
+        workspaceId={workspaceId}
+        selectedProjectId={props.projectId}
+        onSelect={props.onProjectChange}
+      />
+    ) : (
+      <ProjectChip
+        projectColor={props.projectColor}
+        projectPrefix={props.projectPrefix}
+        projectName={props.projectName}
+        layout={layout}
+      />
+    )
 
   if (layout === `sidebar`) {
     return (

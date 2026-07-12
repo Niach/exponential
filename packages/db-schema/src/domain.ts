@@ -118,6 +118,7 @@ export const issueEventTypeValues = [
   `pr_merged`,
   `release_added`,
   `release_removed`,
+  `project_moved`,
 ] as const
 
 export type IssueStatus = (typeof issueStatusValues)[number]

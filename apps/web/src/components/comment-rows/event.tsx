@@ -1,12 +1,13 @@
 import {
   CircleDot,
+  FolderInput,
   GitMerge,
   GitPullRequest,
   Rocket,
   Tag,
   UserPlus,
 } from "lucide-react"
-import type { IssueEvent, Label, Release, User } from "@/db/schema"
+import type { IssueEvent, Label, Project, Release, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 
 function statusLabel(s: string): string {
@@ -19,11 +20,13 @@ export function EventRow({
   userMap,
   labelMap,
   releaseMap,
+  projectMap,
 }: {
   event: IssueEvent
   userMap: Map<string, User>
   labelMap: Map<string, Label>
   releaseMap?: Map<string, Release>
+  projectMap?: Map<string, Project>
 }) {
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
@@ -100,6 +103,33 @@ export function EventRow({
             : `removed this from release`}{` `}
           <span className="font-medium text-foreground">
             {release?.name ?? `a release`}
+          </span>
+        </>
+      )
+      break
+    }
+    case `project_moved`: {
+      Icon = FolderInput
+      // A deleted source project leaves no name behind — fall back
+      // generically (the payload's from/toIdentifier keeps the row useful).
+      const fromProject = payload.fromProjectId
+        ? projectMap?.get(String(payload.fromProjectId))
+        : undefined
+      const toProject = payload.toProjectId
+        ? projectMap?.get(String(payload.toProjectId))
+        : undefined
+      const fromIdentifier = payload.fromIdentifier
+        ? String(payload.fromIdentifier)
+        : null
+      text = (
+        <>
+          moved this from{` `}
+          <span className="font-medium text-foreground">
+            {fromProject?.name ?? `another project`}
+          </span>
+          {fromIdentifier ? ` (${fromIdentifier})` : ``} to{` `}
+          <span className="font-medium text-foreground">
+            {toProject?.name ?? `this project`}
           </span>
         </>
       )

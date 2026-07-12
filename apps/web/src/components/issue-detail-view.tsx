@@ -522,6 +522,24 @@ export function IssueDetailView({
       projectName={project.name}
       projectColor={project.color}
       projectPrefix={project.prefix}
+      projectId={issue.projectId}
+      onProjectChange={async (projectId) => {
+        if (readOnly) return
+        // EXP-57: the server renumbers the issue in the target project, so
+        // both the project slug AND the identifier change — await the issues
+        // txId, then hop to the issue's new canonical URL.
+        const { txId, issue: moved, projectSlug } =
+          await trpc.issues.move.mutate({ id: issue.id, projectId })
+        await issueCollection.utils.awaitTxId(txId)
+        void navigate({
+          to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+          params: {
+            workspaceSlug,
+            projectSlug,
+            issueIdentifier: moved.identifier,
+          },
+        })
+      }}
       disabled={readOnly}
       restrictModeration={restrictModeration}
     />
