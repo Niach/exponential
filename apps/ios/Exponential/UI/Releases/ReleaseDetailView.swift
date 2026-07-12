@@ -55,6 +55,23 @@ struct ReleaseDetailView: View {
                                 .listRowInsets(EdgeInsets(top: 24, leading: 16, bottom: 8, trailing: 16))
                         }
                     } else {
+                        // 'Issues N' section header fronting the
+                        // status-grouped list (EXP-62 redesign).
+                        Section {
+                            HStack(spacing: 6) {
+                                Text("Issues")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                Text("\(issues.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                Spacer()
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 2, trailing: 16))
+                        }
+
                         // Status-grouped issues — the same grouping/order the
                         // project board list uses (IssueStatus.displayOrder,
                         // empty groups hidden).
@@ -174,55 +191,92 @@ struct ReleaseDetailView: View {
 
     // MARK: - Header
 
+    /// Header card (EXP-62 redesign): badge + title with state/target chips,
+    /// description, then a labeled progress block and the PR chip — a clear
+    /// hierarchy instead of loose stacked rows (Android/desktop parity).
     @ViewBuilder
     private func headerCard(_ release: ReleaseEntity) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(release.name)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                ReleaseStatePill(release: release, isComplete: progress.isComplete)
-                Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(DesignTokens.Semantic.green.opacity(0.12))
+                    Image(systemName: "shippingbox")
+                        .font(.body)
+                        .foregroundStyle(DesignTokens.Semantic.green)
+                }
+                .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(release.name)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    HStack(spacing: 8) {
+                        ReleaseStatePill(release: release, isComplete: progress.isComplete)
+                        if let targetDate = release.targetDate {
+                            metaChip(icon: "calendar", text: "Target \(formatReleaseTargetDate(targetDate))")
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
             }
 
             if let description = release.description, !description.isEmpty {
                 Text(description)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.top, 12)
             }
 
-            HStack(spacing: 10) {
-                if let targetDate = release.targetDate {
-                    HStack(spacing: 4) {
-                        Image(systemName: "calendar")
-                            .font(.caption2)
-                        Text("Target \(formatReleaseTargetDate(targetDate))")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                prPill(release)
+            HStack {
+                Text("Progress")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer()
-            }
-
-            HStack(spacing: 8) {
-                ProgressView(value: progress.fraction)
-                    .progressViewStyle(.linear)
-                    .tint(DesignTokens.Semantic.green)
                 Text(progressText(progress))
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.top, 14)
+
+            ProgressView(value: progress.fraction)
+                .progressViewStyle(.linear)
+                .tint(DesignTokens.Semantic.green)
+                .padding(.top, 6)
+
+            if release.prUrl != nil {
+                prPill(release)
+                    .padding(.top, 12)
             }
 
             if let error {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.top, 8)
             }
         }
-        .padding(14)
+        .padding(16)
         .glassSection()
+    }
+
+    /// Small glass meta chip: optional icon + label (target date etc.).
+    @ViewBuilder
+    private func metaChip(icon: String?, text: String) -> some View {
+        HStack(spacing: 4) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .glassButton()
     }
 
     /// The release PR (integration branch → default), linking out to GitHub
@@ -378,38 +432,17 @@ struct ReleaseDetailView: View {
         }
     }
 
-    /// Candidates for the add-issues sheet: every non-archived workspace issue
-    /// whose status isn't done/cancelled/duplicate and that isn't already in
-    /// THIS release (other-release issues stay offered — the server records
-    /// both timeline sides). Archived issues are excluded to match Android's
-    /// DAO query AND this view's own rendering (issuesForStatus hides them —
-    /// adding one would look like a silent no-op). One-shot read — the sheet
-    /// is transient.
+    /// Candidates for the add-issues sheet: the shared loader over this
+    /// release's workspace, excluding issues already in THIS release
+    /// (other-release issues stay offered — the server records both timeline
+    /// sides). One-shot read — the sheet is transient.
     private func addCandidates() async -> [IssueEntity] {
-        guard let release, let pool = try? deps.db.pool(forAccountId: accountId) else { return [] }
-        let workspaceId = release.workspaceId
-        let releaseId = releaseId
-        let excludedStatuses: Set<String> = [
-            IssueStatus.done.rawValue,
-            IssueStatus.cancelled.rawValue,
-            IssueStatus.duplicate.rawValue,
-        ]
-        let result: [IssueEntity]? = try? await pool.read { db in
-            let workspaceProjectIds = try ProjectEntity
-                .filter(Column("workspace_id") == workspaceId)
-                .fetchAll(db)
-                .map(\.id)
-            return try IssueEntity
-                .filter(workspaceProjectIds.contains(Column("project_id")))
-                .fetchAll(db)
-                .filter {
-                    !excludedStatuses.contains($0.status)
-                        && $0.releaseId != releaseId
-                        && $0.archivedAt == nil
-                }
-                .sorted { $0.updatedAt > $1.updatedAt }
-        }
-        return result ?? []
+        guard let release else { return [] }
+        return await loadAddableReleaseIssues(
+            pool: try? deps.db.pool(forAccountId: accountId),
+            workspaceId: release.workspaceId,
+            excludingReleaseId: releaseId
+        )
     }
 
     // MARK: - Observation

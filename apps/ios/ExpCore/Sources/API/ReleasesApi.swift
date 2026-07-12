@@ -4,12 +4,20 @@ import Foundation
 // create, ship/unship, delete, and issue membership — reads come entirely from
 // the synced `releases` shape.
 
-/// Name is server-generated (sequential `Release N`) — creation is one tap.
+/// Both `name` and `issueIds` are optional on the wire: the synthesized
+/// Encodable uses `encodeIfPresent` for optionals, so nil keys are dropped
+/// and a plain create still sends the pre-EXP-62 shape. `name` absent ⇒ the
+/// server auto-names sequentially (`Release N`); `issueIds` (EXP-62, max 200
+/// per call) attach in the SAME server transaction as the insert.
 public struct CreateReleaseInput: Encodable, Sendable {
     public let workspaceId: String
+    public let name: String?
+    public let issueIds: [String]?
 
-    public init(workspaceId: String) {
+    public init(workspaceId: String, name: String? = nil, issueIds: [String]? = nil) {
         self.workspaceId = workspaceId
+        self.name = name
+        self.issueIds = issueIds
     }
 }
 
@@ -78,14 +86,34 @@ public final class ReleasesApi: Sendable {
         self.trpc = trpc
     }
 
-    /// Create an auto-named release and return its id so the caller can wait
-    /// for the synced row and navigate straight to the detail.
-    public func create(accountId: String, workspaceId: String) async throws -> String {
+    /// Create a release WITH its creation-time issue bundle (EXP-62): the
+    /// server attaches `issueIds` in the same transaction as the insert. A
+    /// blank/absent name lets the server auto-name sequentially
+    /// (`Release N`). The server caps issueIds at 200 per call — the first
+    /// 200 ride create itself, any overflow chunks through `addIssues`.
+    /// Returns the new release's id so the caller can wait for the synced
+    /// row and navigate straight to the detail.
+    public func create(
+        accountId: String,
+        workspaceId: String,
+        name: String? = nil,
+        issueIds: [String] = []
+    ) async throws -> String {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let first = Array(issueIds.prefix(200))
         let out: CreateReleaseOutput = try await trpc.mutation(
             accountId: accountId,
             path: "releases.create",
-            input: CreateReleaseInput(workspaceId: workspaceId)
+            input: CreateReleaseInput(
+                workspaceId: workspaceId,
+                name: (trimmedName?.isEmpty ?? true) ? nil : trimmedName,
+                issueIds: first.isEmpty ? nil : first
+            )
         )
+        let rest = Array(issueIds.dropFirst(200))
+        if !rest.isEmpty {
+            try await addIssues(accountId: accountId, releaseId: out.release.id, issueIds: rest)
+        }
         return out.release.id
     }
 

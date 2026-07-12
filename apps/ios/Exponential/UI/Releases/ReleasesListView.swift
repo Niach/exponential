@@ -10,7 +10,7 @@ import GRDB
 /// showing the current project's workspace.
 struct ReleasesListView: View {
     let workspaceId: String
-    /// Pushes the release detail after a one-tap create (AppNavigator owns
+    /// Pushes the release detail after a successful create (AppNavigator owns
     /// the path).
     let onOpenRelease: (String) -> Void
 
@@ -18,8 +18,7 @@ struct ReleasesListView: View {
     @Environment(\.accountId) private var accountId
     @State private var releases: [ReleaseEntity] = []
     @State private var issuesByRelease: [String: [IssueEntity]] = [:]
-    @State private var creating = false
-    @State private var error: String?
+    @State private var showCreate = false
     @State private var observationTasks: [Task<Void, Never>] = []
 
     private var sortedReleases: [ReleaseEntity] {
@@ -35,11 +34,6 @@ struct ReleasesListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        if let error {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
                         ForEach(sortedReleases, id: \.id) { release in
                             releaseRow(release)
                         }
@@ -56,7 +50,7 @@ struct ReleasesListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    Task { await createRelease() }
+                    showCreate = true
                 } label: {
                     Image(systemName: "plus")
                         .font(.body)
@@ -64,9 +58,17 @@ struct ReleasesListView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
                 }
-                .disabled(creating)
                 .accessibilityLabel("New release")
             }
+        }
+        .sheet(isPresented: $showCreate) {
+            CreateReleaseSheet(
+                loadCandidates: { await addCandidates() },
+                onCreate: { name, issueIds in
+                    await createRelease(name: name, issueIds: issueIds)
+                }
+            )
+            .presentationBackground(.ultraThinMaterial)
         }
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
@@ -135,7 +137,7 @@ struct ReleasesListView: View {
                 .multilineTextAlignment(.center)
 
             Button {
-                Task { await createRelease() }
+                showCreate = true
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
@@ -149,29 +151,46 @@ struct ReleasesListView: View {
                 .glassButton()
             }
             .buttonStyle(.plain)
-            .disabled(creating)
         }
         .padding(.horizontal, 40)
     }
 
     // MARK: - Mutations
 
-    /// One-tap create: the server auto-names (`Release N`) and returns the id.
-    /// Poll GRDB for the Electric-synced row so the pushed detail doesn't
-    /// flash its "Release not found" branch, then navigate REGARDLESS — the
-    /// detail shows its loading state until sync lands.
-    private func createRelease() async {
-        guard !creating else { return }
-        creating = true
-        defer { creating = false }
+    /// Create WITH the creation-time issue bundle (EXP-62): the sheet picks
+    /// the issues BEFORE the release exists and the server attaches them in
+    /// the same transaction. A nil name lets the server auto-name
+    /// (`Release N`). Poll GRDB for the Electric-synced row so the pushed
+    /// detail doesn't flash its "Release not found" branch, then navigate
+    /// REGARDLESS — the detail shows its loading state until sync lands.
+    /// Returns an error message on failure (the sheet renders it inline and
+    /// stays open), nil on success.
+    private func createRelease(name: String?, issueIds: [String]) async -> String? {
+        guard !issueIds.isEmpty else { return nil }
         do {
-            let id = try await deps.releasesApi.create(accountId: accountId, workspaceId: workspaceId)
-            error = nil
+            let id = try await deps.releasesApi.create(
+                accountId: accountId,
+                workspaceId: workspaceId,
+                name: name,
+                issueIds: issueIds
+            )
             await waitForSyncedRelease(id: id)
+            showCreate = false
             onOpenRelease(id)
+            return nil
         } catch {
-            self.error = error.localizedDescription
+            return error.localizedDescription
         }
+    }
+
+    /// Candidates for the creation sheet's issue picker: the workspace's
+    /// still-actionable issues (no release exists yet, so nothing to exclude).
+    private func addCandidates() async -> [IssueEntity] {
+        await loadAddableReleaseIssues(
+            pool: try? deps.db.pool(forAccountId: accountId),
+            workspaceId: workspaceId,
+            excludingReleaseId: nil
+        )
     }
 
     private func waitForSyncedRelease(id: String) async {
