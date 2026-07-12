@@ -575,6 +575,13 @@ internal fun IssueRow(
                 formatDueDate(issue.dueDate),
                 style = MaterialTheme.typography.labelSmall,
                 color = dueDateColor(issue.dueDate),
+                // The date pill must never wrap ("Tomorrow" used to break onto
+                // a second line when a long title squeezed the row, EXP-58):
+                // softWrap=false lays it out at its intrinsic single-line
+                // width — the weighted title, measured last, absorbs the
+                // squeeze instead.
+                maxLines = 1,
+                softWrap = false,
             )
         }
         if (assignee != null) {
