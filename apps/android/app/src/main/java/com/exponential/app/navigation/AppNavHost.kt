@@ -29,11 +29,11 @@ import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.feedback.FeedbackBoardScreen
-import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
+import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
@@ -55,8 +55,8 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Releases · Search · Agents · Inbox + compose FAB) overlaid on
- * the top-level routes. Replaces the inline graph + `MainScaffold` drawer
+ * pill (Issues · Search · Agents · My Work · Releases + compose FAB) overlaid
+ * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
 @Composable
@@ -231,7 +231,7 @@ private fun AuthenticatedNav(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "releases/{workspaceId}", "search", "agents", "inbox", "project/{projectId}")
+        currentRoute in setOf("home", "releases/{workspaceId}", "search", "agents", "personal", "project/{projectId}")
     // The single add-issue affordance: the FAB shows while a project is in
     // view — the Issues tab root (its resolved current project) or a pushed
     // project route — so it always targets the project on screen.
@@ -293,10 +293,13 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
-        composable("inbox") {
-            InboxScreen(
+        composable("personal") {
+            // "My Work" — Inbox + My Issues merged into one project-independent
+            // personal tab (EXP-58). Notification taps never land here directly
+            // (pushes deep-link straight to issue/{id}), so renaming the old
+            // "inbox" route is safe.
+            PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onBack = { navController.popBackStack() },
             )
         }
         composable("settings") {
@@ -354,12 +357,12 @@ private fun AuthenticatedNav(
             WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("share-compose") {
-            // Single-screen share composer (iOS ShareComposeView parity): the
-            // prefilled create form with an inline project selector at the
-            // bottom. The pending share lives in the WorkspaceSelection
-            // singleton (not route state) so backing out and re-entering
-            // re-fills the form; it's consumed exactly once — on a successful
-            // create or an explicit discard.
+            // Single-screen share composer: the prefilled create form with the
+            // "Share to" destination selector on top (EXP-60). The pending
+            // share lives in the WorkspaceSelection singleton (not route
+            // state) so backing out and re-entering re-fills the form; it's
+            // consumed exactly once — on a successful create or an explicit
+            // discard.
             val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
@@ -440,7 +443,7 @@ private fun AuthenticatedNav(
             releasesActive = currentRoute == "releases/{workspaceId}",
             searchActive = currentRoute == "search",
             agentsActive = currentRoute == "agents",
-            inboxActive = currentRoute == "inbox",
+            personalActive = currentRoute == "personal",
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             showsCompose = composeProjectId != null,
@@ -471,9 +474,9 @@ private fun AuthenticatedNav(
                     }
                 }
             },
-            onInbox = {
-                if (currentRoute != "inbox") {
-                    navController.navigate("inbox") {
+            onPersonal = {
+                if (currentRoute != "personal") {
+                    navController.navigate("personal") {
                         launchSingleTop = true
                         popUpTo("home")
                     }

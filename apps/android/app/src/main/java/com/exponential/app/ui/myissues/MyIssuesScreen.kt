@@ -39,10 +39,10 @@ import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * "Assigned to you" (the old My Issues tab, masterplan §5a): a cross-project
- * list of everything assigned to me on the active account, grouped by status.
- * A fixed built-in view — no filters, no saved views. Lives on as the Search
- * tab's empty-query state; embedded there rather than routed to.
+ * "My Issues" (masterplan §5a): a cross-project list of everything assigned
+ * to me on the active account, grouped by status. A fixed built-in view — no
+ * filters, no saved views. Lives on as the My Issues segment of the "My Work"
+ * tab (PersonalScreen, EXP-58); embedded there rather than routed to.
  */
 @Composable
 fun MyIssuesListContent(

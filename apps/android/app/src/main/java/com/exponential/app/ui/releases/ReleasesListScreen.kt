@@ -34,6 +34,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +49,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ReleasesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -109,30 +113,50 @@ class ReleasesListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReleasesListState())
 
+    // Candidates for the creation sheet's issue picker (EXP-62): the
+    // workspace's still-actionable issues. The DAO query keys off "not in
+    // THIS release" — an empty-string id matches no row, so it degrades to
+    // "every addable workspace issue".
+    val addableIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAddableForRelease(workspaceId, "") }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // In-flight guard: a double-tap must not create two releases (iOS parity —
-    // both entry buttons disable while true).
+    // the sheet's Create button disables while true).
     private val _creating = MutableStateFlow(false)
     val creating: StateFlow<Boolean> = _creating.asStateFlow()
 
+    // Surfaced inside the creation sheet — a rejected create (offline, server
+    // validation) must never fail silently now that the flow takes user input.
+    private val _createError = MutableStateFlow<String?>(null)
+    val createError: StateFlow<String?> = _createError.asStateFlow()
+
     /**
-     * One-tap create: the server auto-names ("Release N") and returns the full
-     * row. Mirror it into local Room before navigating (the issues
-     * upsertCreatedLocally head-start, EXP-19/EXP-61) so the detail renders
-     * immediately instead of spinning until the Electric shape delivers it.
-     * Best-effort and idempotent (REPLACE) — Electric re-delivers the same row
-     * on its next poll.
+     * Create WITH the creation-time issue bundle (EXP-62): the sheet picks
+     * the issues BEFORE the release exists and the server attaches them in
+     * the same transaction. A null name lets the server auto-name
+     * ("Release N"). Mirror the returned row into local Room before
+     * navigating (the issues upsertCreatedLocally head-start, EXP-19/EXP-61)
+     * so the detail renders immediately instead of spinning until the
+     * Electric shape delivers it. Best-effort and idempotent (REPLACE) —
+     * Electric re-delivers the same row on its next poll.
      */
-    fun createRelease(onCreated: (String) -> Unit) {
+    fun createRelease(name: String?, issueIds: List<String>, onCreated: (String) -> Unit) {
+        if (issueIds.isEmpty()) return
         if (!_creating.compareAndSet(expect = false, update = true)) return
+        _createError.value = null
         viewModelScope.launch {
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
-                runCatching { releasesApi.create(accountId, workspaceId) }
+                runCatching { releasesApi.create(accountId, workspaceId, name, issueIds) }
                     .onSuccess { created ->
                         runCatching {
                             holder.database(forAccountId = accountId).releaseDao().upsert(created)
                         }
                         onCreated(created.id)
+                    }
+                    .onFailure {
+                        _createError.value = trpcErrorMessage(it, "Couldn't create the release")
                     }
             } finally {
                 _creating.value = false
@@ -150,6 +174,9 @@ fun ReleasesListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val createError by viewModel.createError.collectAsStateWithLifecycle()
+    val addableIssues by viewModel.addableIssues.collectAsStateWithLifecycle()
+    var createOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -162,10 +189,7 @@ fun ReleasesListScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.createRelease(onOpenRelease) },
-                        enabled = !creating,
-                    ) {
+                    IconButton(onClick = { createOpen = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "New release")
                     }
                 },
@@ -179,10 +203,7 @@ fun ReleasesListScreen(
                     message = "No releases yet. Bundle issues into a release to track what ships together and when.",
                     icon = Icons.Filled.RocketLaunch,
                     action = {
-                        Button(
-                            onClick = { viewModel.createRelease(onOpenRelease) },
-                            enabled = !creating,
-                        ) { Text("New release") }
+                        Button(onClick = { createOpen = true }) { Text("New release") }
                     },
                 )
             } else {
@@ -204,6 +225,20 @@ fun ReleasesListScreen(
         }
     }
 
+    if (createOpen) {
+        CreateReleaseSheet(
+            candidates = addableIssues,
+            creating = creating,
+            error = createError,
+            onConfirm = { name, issueIds ->
+                viewModel.createRelease(name, issueIds) { releaseId ->
+                    createOpen = false
+                    onOpenRelease(releaseId)
+                }
+            },
+            onDismiss = { if (!creating) createOpen = false },
+        )
+    }
 }
 
 @Composable

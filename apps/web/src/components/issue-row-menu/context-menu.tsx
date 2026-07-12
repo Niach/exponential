@@ -1,5 +1,5 @@
 import { type ReactNode } from "react"
-import type { Issue, Label, Release, User } from "@/db/schema"
+import type { Issue, Label, Project, Release, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
@@ -27,6 +27,7 @@ import {
   AssigneeSubmenu,
   LabelsSubmenu,
   PrioritySubmenu,
+  ProjectSubmenu,
   ReleaseSubmenu,
   StatusSubmenu,
 } from "./submenus"
@@ -40,6 +41,9 @@ interface IssueRowContextMenuProps {
   // Workspace releases (sorted) for the add-to-release submenu; undefined
   // hides the submenu (caller has no workspace scope).
   releases?: Release[]
+  // Workspace projects (sorted) for the move-to-project submenu (EXP-57);
+  // undefined hides the submenu (caller has no workspace scope).
+  projects?: Project[]
   userMap: Map<string, User>
   users: User[]
 }
@@ -53,6 +57,7 @@ export function IssueRowContextMenu({
   labels,
   onOpenIssue,
   releases,
+  projects,
   userMap,
   users,
 }: IssueRowContextMenuProps) {
@@ -116,6 +121,14 @@ export function IssueRowContextMenu({
     await trpc.releases.setIssueRelease.mutate({
       issueId: issue.id,
       releaseId,
+    })
+  }
+
+  const moveToProject = async (projectId: string) => {
+    if (projectId === issue.projectId) return
+    await trpc.issues.move.mutate({
+      id: issue.id,
+      projectId,
     })
   }
 
@@ -236,6 +249,15 @@ export function IssueRowContextMenu({
               releases={releases}
               topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
               onSelect={(releaseId) => void setRelease(releaseId)}
+            />
+          )}
+
+          {projects && projects.length > 1 && (
+            <ProjectSubmenu
+              projectId={issue.projectId}
+              projects={projects}
+              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
+              onSelect={(projectId) => void moveToProject(projectId)}
             />
           )}
 

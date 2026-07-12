@@ -3,8 +3,12 @@ import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   attachments,
+  codingSessions,
+  comments,
+  issueEvents,
   issues,
   issueLabels,
+  issueSubscribers,
   labels,
   projects,
   type Issue,
@@ -671,6 +675,169 @@ export const issuesRouter = router({
       }
 
       return { issue }
+    }),
+
+  // Move an issue to another project in the SAME workspace (EXP-57, web-only
+  // UI for now). The issue is renumbered in the target project (Linear-style:
+  // EXP-42 → ABC-17): the generate_issue_number trigger is INSERT-only, so the
+  // next number is allocated here the same way the trigger does it (read the
+  // target's current max, then upsert the monotonic issue_number_counters row
+  // — the ON CONFLICT row lock serializes concurrent allocations and the
+  // GREATEST clamp heals a stale/missing counter row). The denormalized child
+  // project_id columns (their populate triggers are also INSERT-only) are
+  // re-pointed in the same transaction so member + anonymous shape scoping
+  // stays truthful. PR/branch linkage (pr_url/pr_number/branch) survives
+  // untouched; labels and releases are workspace-scoped, so they survive too.
+  move: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        projectId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const issueContext = await assertIssueAccess(
+        ctx.session.user.id,
+        input.id,
+        `write`
+      )
+
+      if (issueContext.projectId === input.projectId) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Issue is already in this project`,
+        })
+      }
+
+      // 404s trashed targets — an issue must never move into the trash.
+      const targetProject = await getProjectWorkspaceId(input.projectId)
+      if (targetProject.workspaceId !== issueContext.workspaceId) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Issues can only move within their workspace`,
+        })
+      }
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+
+        // FOR UPDATE serializes concurrent moves of the same issue AND pairs
+        // with the FOR KEY SHARE read in populate_issue_child_project_id so a
+        // child row inserted mid-move can never commit with the old
+        // project_id (see 0001_triggers.sql §7).
+        const [current] = await tx
+          .select({
+            identifier: issues.identifier,
+            projectId: issues.projectId,
+          })
+          .from(issues)
+          .where(eq(issues.id, input.id))
+          .limit(1)
+          .for(`update`)
+        if (!current) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+        // Re-validate under the lock: a concurrent move that already landed
+        // the issue here must not renumber it a second time (and would record
+        // a project_moved event with a stale from-side).
+        if (current.projectId === input.projectId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Issue is already in this project`,
+          })
+        }
+
+        const [target] = await tx
+          .select({
+            prefix: projects.prefix,
+            slug: projects.slug,
+          })
+          .from(projects)
+          .where(eq(projects.id, input.projectId))
+          .limit(1)
+        if (!target) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Project not found`,
+          })
+        }
+
+        // Allocate the target project's next number exactly like
+        // generate_issue_number (0001_triggers.sql).
+        const maxResult = await tx.execute(
+          sql`SELECT COALESCE(MAX(number), 0) AS current_max FROM issues WHERE project_id = ${input.projectId}`
+        )
+        const currentMax = Number(
+          (maxResult.rows[0] as { current_max: number | string }).current_max
+        )
+        const counterResult = await tx.execute(sql`
+          INSERT INTO issue_number_counters AS c (project_id, counter)
+          VALUES (${input.projectId}, ${currentMax} + 1)
+          ON CONFLICT (project_id) DO UPDATE
+            SET counter = GREATEST(c.counter, ${currentMax}) + 1
+          RETURNING counter
+        `)
+        const nextNumber = Number(
+          (counterResult.rows[0] as { counter: number | string }).counter
+        )
+        const nextIdentifier = `${target.prefix}-${nextNumber}`
+
+        const [moved] = await tx
+          .update(issues)
+          .set({
+            projectId: input.projectId,
+            number: nextNumber,
+            identifier: nextIdentifier,
+          })
+          .where(eq(issues.id, input.id))
+          .returning()
+        if (!moved) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+
+        // Re-point the trigger-denormalized project_id on every issue-child
+        // table (the populate triggers are INSERT-only). workspace_id is
+        // unchanged — moves never cross workspaces.
+        await tx
+          .update(comments)
+          .set({ projectId: input.projectId })
+          .where(eq(comments.issueId, input.id))
+        await tx
+          .update(attachments)
+          .set({ projectId: input.projectId })
+          .where(eq(attachments.issueId, input.id))
+        await tx
+          .update(issueEvents)
+          .set({ projectId: input.projectId })
+          .where(eq(issueEvents.issueId, input.id))
+        await tx
+          .update(issueSubscribers)
+          .set({ projectId: input.projectId })
+          .where(eq(issueSubscribers.issueId, input.id))
+        await tx
+          .update(issueLabels)
+          .set({ projectId: input.projectId })
+          .where(eq(issueLabels.issueId, input.id))
+        await tx
+          .update(codingSessions)
+          .set({ projectId: input.projectId })
+          .where(eq(codingSessions.issueId, input.id))
+
+        await recordIssueEvent(tx, {
+          issueId: input.id,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `project_moved`,
+          payload: {
+            fromProjectId: current.projectId,
+            toProjectId: input.projectId,
+            fromIdentifier: current.identifier,
+            toIdentifier: nextIdentifier,
+          },
+        })
+
+        return { txId, issue: moved, projectSlug: target.slug }
+      })
     }),
 
   // Bulk property write for the multi-select action bar (status / priority /

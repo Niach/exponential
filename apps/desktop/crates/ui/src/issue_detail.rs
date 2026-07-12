@@ -280,6 +280,11 @@ impl IssueDetailView {
         // swap (its blur won't fire until `issue_id` already points at the
         // new issue — saving there would write onto the wrong row).
         self.save_title(cx);
+        // Same for a pending description edit (EXP-68): the editor's
+        // save-on-blur never fires when the view is re-pointed (tab switch)
+        // — the focused input just vanishes from the tree — so the text was
+        // silently dropped with the editor below.
+        self.flush_description(cx);
         self.issue_id = Some(issue_id.clone());
         self.editor = None;
         self.editor_issue = None;
@@ -425,6 +430,37 @@ impl IssueDetailView {
     }
 
     // -- mutations --------------------------------------------------------------
+
+    /// Flush a pending (un-blurred) description edit to the server (EXP-68).
+    ///
+    /// The editor saves on blur, but tab/view switches tear the editor's
+    /// element out of the tree without a blur ever firing — the keystrokes
+    /// only live in the seam's markdown mirror. Every path that re-points or
+    /// hides this view (issue switch, Details↔Changes, center-tab close /
+    /// undock, workspace switch) routes through here first. Same normalize +
+    /// dedupe as the editor's `on_save` hook, so a clean editor is a no-op.
+    pub(crate) fn flush_description(&self, cx: &mut App) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        // The edit belongs to the issue the EDITOR was built for — during
+        // `set_issue` the view already points at the incoming issue.
+        let Some(issue_id) = self.editor_issue.clone() else {
+            return;
+        };
+        let normalized = editor.markdown(cx).trim().to_string();
+        if normalized == *self.last_saved_description.borrow() {
+            return;
+        }
+        *self.last_saved_description.borrow_mut() = normalized.clone();
+        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
+        input.description = if normalized.is_empty() {
+            api::Patch::Null
+        } else {
+            api::Patch::Set(normalized)
+        };
+        spawn_issue_update(cx, input);
+    }
 
     /// Web `handleTitleBlur`: trimmed, non-empty, changed → `issues.update`.
     fn save_title(&mut self, cx: &mut gpui::Context<Self>) {
@@ -905,6 +941,9 @@ impl IssueDetailView {
         if self.tab == tab {
             return;
         }
+        // Details → Changes unmounts the description editor without a blur —
+        // write a pending edit through before the swap (EXP-68).
+        self.flush_description(cx);
         self.tab = tab;
         self.changes
             .update(cx, |changes, cx| changes.set_visible(tab == DetailTab::Changes, cx));

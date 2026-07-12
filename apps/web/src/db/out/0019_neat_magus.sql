@@ -1,0 +1,1 @@
+ALTER TYPE "public"."issue_event_type" ADD VALUE 'project_moved';

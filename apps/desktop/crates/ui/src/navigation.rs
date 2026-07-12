@@ -539,6 +539,24 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &OpenProject, cx| {
         let project_id = action.project_id.clone();
         on_active_window(cx, move |window, cx| {
+            // EXP-69 merged picker: a project picked from ANOTHER workspace
+            // switches the window's workspace first (same reset semantics as
+            // the old footer switcher — screen + back stack cleared), then
+            // scopes to the picked project. One action, one gesture.
+            let nav = nav_for_window(window, cx);
+            let project_workspace = Store::global(cx)
+                .collections()
+                .projects
+                .read(cx)
+                .get(&project_id)
+                .map(|project| project.workspace_id.clone());
+            if let Some(project_workspace) = project_workspace {
+                if active_workspace_id(&nav, cx).as_deref()
+                    != Some(project_workspace.as_str())
+                {
+                    switch_workspace(window, cx, project_workspace);
+                }
+            }
             set_active_project(window, cx, project_id);
             crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::AllIssues);
         });

@@ -43,9 +43,6 @@ actions!(
         JoinWorkspace,
         /// Footer account dropdown: sign out (Phase 2 auth).
         SignOut,
-        /// Footer account dropdown: permanently delete the account (App
-        /// Store 5.1.1(v) analog) — the handler confirms before mutating.
-        DeleteAccount,
         /// Open the Source Control tool + changes screen (branch chip menu,
         /// commit button).
         OpenSourceControl,
@@ -84,7 +81,9 @@ pub struct OpenIssue {
     pub issue_id: String,
 }
 
-/// Workspace picker: switch the window's active workspace.
+/// Switch the window's active workspace. Dispatched from the top bar's
+/// merged project picker (EXP-69) for project-less workspaces; workspaces
+/// with projects switch implicitly via [`OpenProject`].
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
 #[action(namespace = exp, no_json)]
 pub struct SwitchWorkspace {

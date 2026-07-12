@@ -191,12 +191,22 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(480.), px(320.))),
         kind: WindowKind::Normal,
+        // Match the workspace window's Wayland app_id / X11 WM_CLASS so
+        // undocked windows also pick up the `.desktop` taskbar icon (EXP-68).
+        app_id: Some(CHANNEL_APP_ID.to_string()),
         // Linux: server-side decorations, same rationale as the main window.
         #[cfg(target_os = "linux")]
         window_decorations: Some(gpui::WindowDecorations::Server),
         ..Default::default()
     }
 }
+
+// Duplicates `app::channel::APP_ID` (ui cannot depend on the app crate) via
+// the same compile-time channel feature — the CLOUD_INSTANCE precedent.
+#[cfg(not(feature = "staging"))]
+const CHANNEL_APP_ID: &str = "at.exponential";
+#[cfg(feature = "staging")]
+const CHANNEL_APP_ID: &str = "at.exponential.staging";
 
 /// Activate an already-open undocked window (dedupe path), deferred out of
 /// the caller's window update.
@@ -280,6 +290,16 @@ impl UndockedScreenWindow {
 
         let window_id = window.window_handle().window_id();
         cx.on_release(move |this, cx| {
+            // Reattach/close unmounts this window's own issue detail without
+            // a blur — flush a pending description edit first (EXP-68), the
+            // same contract as ScreensPanel's tab-close/workspace-switch.
+            if let Ok(detail) = this
+                .content
+                .clone()
+                .downcast::<crate::issue_detail::IssueDetailView>()
+            {
+                detail.update(cx, |detail, cx| detail.flush_description(cx));
+            }
             unregister_screen(&this.screen, cx);
             // The content views lazily created this window's registries
             // (nav / repo resolver / rail) — mirror the Workspace teardown.

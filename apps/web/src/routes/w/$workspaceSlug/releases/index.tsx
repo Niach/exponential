@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { CalendarDays, Plus, Rocket } from "lucide-react"
-import type { Issue, Release } from "@/db/schema"
+import type { Issue, Release, Workspace } from "@/db/schema"
 import { issueCollection, releaseCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { compareReleases, releaseProgress } from "@/lib/releases"
@@ -12,14 +12,28 @@ import {
   useWorkspaceProjects,
 } from "@/hooks/use-workspace-data"
 import { EmptyState } from "@/components/empty-state"
+import {
+  ReleaseIssuePicker,
+  releaseCandidateIssues,
+} from "@/components/release-issue-picker"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 
 // Workspace Releases list (EXP-56): every release in the workspace, unshipped
 // first (by target date), then shipped (most recent first) — the shared
 // compareReleases contract. Progress is pure client work over the already-
 // synced issues shape (issues.release_id), matching the sidebar badge.
+// Creation (EXP-62) goes through a dialog that picks the issues UP FRONT —
+// an empty release is useless, so Create stays disabled until ≥1 is picked.
 export const Route = createFileRoute(`/w/$workspaceSlug/releases/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
@@ -106,6 +120,153 @@ function ReleaseRow({
   )
 }
 
+// Release creation dialog (EXP-62): name + the shared multi-select issue
+// picker. The release only comes into existence WITH its issues — one
+// `releases.create` call attaches them in the same transaction, and the
+// Create button stays disabled until at least one issue is picked.
+function CreateReleaseDialog({
+  open,
+  onOpenChange,
+  workspace,
+  projectIds,
+  releaseNameById,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  workspace: Workspace
+  projectIds: string[]
+  releaseNameById: Map<string, string>
+  onCreated: (releaseId: string) => void
+}) {
+  const [name, setName] = useState(``)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [submitting, setSubmitting] = useState(false)
+
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      open && projectIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.projectId, projectIds))
+        : undefined,
+    [open, projectIds.join(`,`)]
+  )
+
+  const candidates = useMemo(
+    () => releaseCandidateIssues((issueRows ?? []) as Issue[]),
+    [issueRows]
+  )
+
+  const handleOpenChange = (next: boolean) => {
+    onOpenChange(next)
+    if (!next) {
+      setName(``)
+      setSelectedIds(new Set())
+    }
+  }
+
+  const toggle = (issueId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(issueId)) {
+        next.delete(issueId)
+      } else {
+        next.add(issueId)
+      }
+      return next
+    })
+  }
+
+  const handleCreate = async () => {
+    if (selectedIds.size === 0 || submitting) return
+    setSubmitting(true)
+    try {
+      const trimmed = name.trim()
+      // The server caps issueIds at 200 per call — the first chunk rides
+      // create, overflow goes through addIssues (mirrors the desktop
+      // dialog's chunking so an oversized selection never fails wholesale).
+      const ids = [...selectedIds]
+      const CHUNK = 200
+      const { txId, release } = await trpc.releases.create.mutate({
+        workspaceId: workspace.id,
+        // Blank name ⇒ the server auto-names sequentially ("Release N").
+        ...(trimmed ? { name: trimmed } : {}),
+        issueIds: ids.slice(0, CHUNK),
+      })
+      let lastIssuesTxId = txId
+      for (let i = CHUNK; i < ids.length; i += CHUNK) {
+        const chunkResult = await trpc.releases.addIssues.mutate({
+          releaseId: release.id,
+          issueIds: ids.slice(i, i + CHUNK),
+        })
+        lastIssuesTxId = chunkResult.txId
+      }
+      // The create transaction wrote the release row AND the first chunk's
+      // issue moves; the last chunk's txId gates the remaining issue moves —
+      // awaiting both lands the detail fully populated.
+      await Promise.all([
+        releaseCollection.utils.awaitTxId(txId),
+        issueCollection.utils.awaitTxId(lastIssuesTxId),
+      ])
+      handleOpenChange(false)
+      onCreated(release.id)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="flex max-h-[70vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="border-b border-border/50 px-4 py-3">
+          <DialogTitle className="text-sm">New release</DialogTitle>
+        </DialogHeader>
+        <div className="border-b border-border/50 px-4 py-1.5">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Release name (optional)"
+            autoFocus
+            className="border-none px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            data-testid="create-release-name"
+          />
+        </div>
+        <ReleaseIssuePicker
+          candidates={candidates}
+          selectedIds={selectedIds}
+          onToggle={toggle}
+          releaseNameById={releaseNameById}
+        />
+        <DialogFooter className="border-t border-border/50 px-4 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenChange(false)}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void handleCreate()}
+            disabled={selectedIds.size === 0 || submitting}
+            data-testid="create-release-submit"
+          >
+            {submitting
+              ? `Creating…`
+              : selectedIds.size === 0
+                ? `Create release`
+                : selectedIds.size === 1
+                  ? `Create with 1 issue`
+                  : `Create with ${selectedIds.size} issues`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ReleasesPage() {
   const { workspaceSlug } = Route.useParams()
   const navigate = useNavigate()
@@ -115,7 +276,7 @@ function ReleasesPage() {
     () => projects.map((project) => project.id),
     [projects]
   )
-  const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const { data: releaseRows, isReady: releasesReady } = useLiveQuery(
     (query) =>
@@ -145,6 +306,12 @@ function ReleasesPage() {
     [releaseRows]
   )
 
+  // For the creation picker's "lives in another release" badges.
+  const releaseNameById = useMemo(
+    () => new Map(releases.map((release) => [release.id, release.name])),
+    [releases]
+  )
+
   const issuesByRelease = useMemo(() => {
     const map = new Map<string, Issue[]>()
     for (const issue of (issueRows ?? []) as Issue[]) {
@@ -163,23 +330,6 @@ function ReleasesPage() {
     })
   }
 
-  // One-click create: the server auto-names sequentially ("Release N"); the
-  // detail page is where naming/dates happen (inline). Await the txId so the
-  // navigation lands on a synced row, never a not-found flash.
-  const handleCreate = async () => {
-    if (!workspace || creating) return
-    setCreating(true)
-    try {
-      const { txId, release } = await trpc.releases.create.mutate({
-        workspaceId: workspace.id,
-      })
-      await releaseCollection.utils.awaitTxId(txId)
-      openRelease(release.id)
-    } finally {
-      setCreating(false)
-    }
-  }
-
   if (!workspace) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
@@ -196,11 +346,7 @@ function ReleasesPage() {
             </span>
           )}
         </h1>
-        <Button
-          size="sm"
-          onClick={() => void handleCreate()}
-          disabled={creating}
-        >
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="size-4" />
           New release
         </Button>
@@ -215,11 +361,7 @@ function ReleasesPage() {
             title="No releases yet"
             description="Bundle issues into a release to track what ships together and when."
           >
-            <Button
-              size="sm"
-              onClick={() => void handleCreate()}
-              disabled={creating}
-            >
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-1.5 size-4" />
               New release
             </Button>
@@ -237,6 +379,15 @@ function ReleasesPage() {
           </div>
         )}
       </div>
+
+      <CreateReleaseDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        workspace={workspace}
+        projectIds={projectIds}
+        releaseNameById={releaseNameById}
+        onCreated={openRelease}
+      />
     </div>
   )
 }

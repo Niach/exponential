@@ -61,6 +61,9 @@ fi
 # --- .desktop -------------------------------------------------------------
 # Exec is a bare `exp-desktop` here (AppImage metadata); at runtime the app
 # self-registers a host .desktop pointing at $APPIMAGE for exponential:// callbacks.
+# StartupWMClass matches the window's Wayland app_id / X11 WM_CLASS (the app
+# sets both to APP_ID) so taskbars associate the running window with this
+# entry and show its icon (EXP-68).
 DESKTOP="$APPDIR/usr/share/applications/${APP_ID}.desktop"
 cat > "$DESKTOP" <<EOF
 [Desktop Entry]
@@ -72,7 +75,7 @@ Icon=${APP_ID}
 Terminal=false
 Categories=Development;ProjectManagement;
 MimeType=x-scheme-handler/exponential;
-StartupWMClass=exp-desktop
+StartupWMClass=${APP_ID}
 EOF
 
 # --- linuxdeploy ----------------------------------------------------------
@@ -96,15 +99,10 @@ rm -f "$OUTPUT"
   --icon-file "$ICON_PNG" \
   --output appimage
 
-# The AppImage must be executable — and a browser/HTTP download of the raw
-# asset from a GitHub Release strips the +x bit. Ship a `.tar.gz` alongside the
-# raw `.AppImage` (EXP-16): tar preserves file mode, so `tar xzf …` yields a
-# ready-to-run AppImage with no manual `chmod +x`. The raw asset stays published
-# too, so existing `releases/latest/download/<name>.AppImage` links keep working.
+# The raw `.AppImage` is the ONLY Linux release asset (EXP-68 — the old
+# `.tar.gz` twin is gone). A browser download strips the +x bit, so first-time
+# installs need one `chmod +x`; after that the in-app self-updater (EXP-22)
+# swaps the file in place with the mode preserved.
 chmod +x "$OUTPUT"
-TARBALL="${OUTPUT}.tar.gz"
-rm -f "$TARBALL"
-tar -czf "$TARBALL" -C "$(dirname "$OUTPUT")" "$(basename "$OUTPUT")"
 
 echo "built: $OUTPUT"
-echo "built: $TARBALL"

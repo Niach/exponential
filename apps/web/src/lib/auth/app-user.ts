@@ -31,8 +31,3 @@ export function isAgentUser(user: MaybeAppUser): boolean {
 export function hasCompletedOnboarding(user: MaybeAppUser): boolean {
   return user?.onboardingCompletedAt != null
 }
-
-/** Whether the user has dismissed the "Get the desktop app" card. */
-export function hasDismissedDesktopAppCard(user: MaybeAppUser): boolean {
-  return user?.desktopAppCardDismissedAt != null
-}

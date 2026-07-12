@@ -23,10 +23,9 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewWindow, cx| crate::windows::open_workspace_window(cx));
     // Phase-2 session wiring: the sidebar footer's Sign out flips the §5
     // state machine (pipeline stop + token delete + route to login).
+    // (Account DELETION is deliberately web/mobile-only — EXP-69 removed the
+    // desktop flow.)
     cx.on_action(|_: &ui::SignOut, cx| ui::sign_out_active(cx));
-    // App Store 5.1.1(v) analog: "Delete account…" in the same dropdown —
-    // the handler confirms before calling `users.deleteAccount`.
-    cx.on_action(|_: &ui::DeleteAccount, cx| ui::confirm_delete_account(cx));
 
     #[cfg(target_os = "macos")]
     cx.bind_keys([

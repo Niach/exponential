@@ -40,17 +40,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.issue.IssueRow
-import com.exponential.app.ui.myissues.MyIssuesListContent
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * The Search tab: cross-project client-side search over identifier + title
- * (local synced data). An empty query shows "Assigned to you" — the old
- * My Issues tab's content, embedded.
+ * The Search tab: a pure cross-project search — instant local matching over
+ * identifier + title, augmented by the server's full-text search. Assigned
+ * issues no longer live here (EXP-58): they moved to the "My Work" tab
+ * (PersonalScreen) alongside the inbox.
  */
 @Composable
 fun SearchScreen(
@@ -82,13 +82,10 @@ fun SearchScreen(
             )
 
             when {
-                state.query.isEmpty() -> {
-                    SectionHeader(
-                        title = "Assigned to you",
-                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
-                    )
-                    MyIssuesListContent(onOpenIssue = onOpenIssue)
-                }
+                state.query.isEmpty() -> EmptyState(
+                    message = "Search issues across all your projects.\nMatches identifiers, titles, and full text.",
+                    icon = Icons.Filled.Search,
+                )
                 state.groups.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxWidth().padding(top = 64.dp),

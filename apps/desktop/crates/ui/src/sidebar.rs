@@ -13,7 +13,8 @@
 //!   project's color. One tool is ALWAYS active — re-clicking never
 //!   unselects. Bottom: terminal-dock toggle, settings gear, and the
 //!   **account button as the very bottom element** — its dropdown holds the
-//!   workspace switcher (deliberately tucked away) and account actions.
+//!   account-level actions only (EXP-69: workspace switching moved into the
+//!   top bar's merged project picker).
 //! - [`SidebarPanel`] — the tool-window column right of the rail (a resizable
 //!   pane INSIDE the dock-area center, so the bottom terminal dock runs
 //!   beneath it): the active tool window's content. Issue tools are mini
@@ -29,9 +30,9 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FontWeight,
-    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
+    div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -45,9 +46,7 @@ use sync::Store;
 
 use domain::board::format_short_date;
 
-use crate::actions::{
-    CreateWorkspace, DeleteAccount, OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
-};
+use crate::actions::{CreateWorkspace, OpenSettings, SendFeedback, SignOut};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::git_bar::GitBar;
@@ -353,38 +352,14 @@ impl RailView {
     }
 
     /// The account button — ALWAYS the rail's very bottom element. Its
-    /// dropdown holds the tucked-away workspace switcher plus the
-    /// account-level actions.
+    /// dropdown holds the account-level actions (EXP-69: workspace switching
+    /// lives in the top bar's merged project picker now, and account
+    /// deletion is web/mobile-only).
     fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let who: SharedString = crate::queries::active_account(cx)
             .map(|account| SharedString::from(account.email.clone()))
             .unwrap_or_else(|| "Not signed in".into());
         let label = who.clone();
-
-        let active_ws = active_workspace_id(&self.nav, cx);
-        let show_chrome = active_ws
-            .as_deref()
-            .map(|id| crate::settings::show_workspace_chrome(cx, id))
-            .unwrap_or(true);
-        // Workspace switcher snapshot (menus render lazily in the overlay;
-        // they must not read `self`). Hidden entirely in §4.8 solo mode.
-        let workspaces: Vec<(String, String, bool)> = if show_chrome {
-            Store::global(cx)
-                .collections()
-                .workspaces_sorted(cx)
-                .iter()
-                .map(|w| {
-                    (
-                        w.id.clone(),
-                        w.name.clone(),
-                        Some(w.id.as_str()) == active_ws.as_deref(),
-                    )
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let solo = !show_chrome;
 
         Button::new("rail-account")
             .ghost()
@@ -392,48 +367,17 @@ impl RailView {
             .icon(IconName::CircleUser)
             .tooltip(who)
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
-                // The workspace switcher grows with the account's workspaces —
-                // cap + scroll (EXP-46a). Flat items only: submenus are
-                // unsupported inside scrollable menus at the pinned rev.
-                let mut menu = menu
-                    .scrollable(true)
-                    .max_h(px(320.))
-                    .label(label.clone())
+                menu.label(label.clone())
                     .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
                     .menu_with_icon(
                         "Notifications",
                         IconName::Bell,
                         Box::new(crate::actions::OpenAccount),
                     )
-                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback));
-                if solo {
-                    // §4.8 solo rule: no workspace concept in the chrome —
-                    // only the account-level "New workspace" affordance.
-                    menu = menu.menu_with_icon(
-                        "New workspace",
-                        IconName::Plus,
-                        Box::new(CreateWorkspace),
-                    );
-                } else {
-                    menu = menu.separator().label("Workspaces");
-                    for (id, name, active) in &workspaces {
-                        menu = menu.menu_with_check(
-                            SharedString::from(name.clone()),
-                            *active,
-                            Box::new(SwitchWorkspace {
-                                workspace_id: id.clone(),
-                            }),
-                        );
-                    }
-                    menu = menu.menu_with_icon(
-                        "Create workspace…",
-                        IconName::Plus,
-                        Box::new(CreateWorkspace),
-                    );
-                }
-                menu.separator()
+                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback))
+                    .menu_with_icon("New workspace", IconName::Plus, Box::new(CreateWorkspace))
+                    .separator()
                     .menu("Sign out", Box::new(SignOut))
-                    .menu("Delete account…", Box::new(DeleteAccount))
             })
     }
 
@@ -627,9 +571,6 @@ pub struct SidebarPanel {
     /// The last merge failure, `(issue_id, message)` — a caption under the
     /// row, cleared on the next attempt.
     review_error: Option<(String, String)>,
-    /// Double-click guard for the one-click "+" create (the button also
-    /// renders loading while true).
-    release_creating: bool,
     /// The release detail's status-grouped issue list (the shared board core,
     /// pinned to `IssueQuery::Release`).
     release_list: Entity<IssueListView>,
@@ -697,7 +638,6 @@ impl SidebarPanel {
             review_arm_seq: 0,
             review_merging: HashSet::new(),
             review_error: None,
-            release_creating: false,
             release_list,
             flow,
             flow_scroll: ScrollHandle::new(),
@@ -1346,8 +1286,6 @@ impl SidebarPanel {
                     .xsmall()
                     .icon(Icon::new(IconName::Plus))
                     .tooltip("New release")
-                    .loading(self.release_creating)
-                    .disabled(self.release_creating)
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.create_release(window, cx);
                     })),
@@ -1457,67 +1395,22 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// One-click instant create (the release rework's decision 1): fire
-    /// `releases.create` with NO name — the server auto-names sequentially
-    /// ("Release N") — gate on the Electric echo, then land on the new
-    /// release's detail (the natural place to add issues). Rename stays an
-    /// inline edit on web; the desktop shows the synced name.
+    /// Open the release CREATION dialog (EXP-62): the release only comes
+    /// into existence WITH its issues — name + multi-select picker, Create
+    /// disabled until ≥1 issue is checked. The dialog lands on the new
+    /// release's detail after the Electric echo.
     fn create_release(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.release_creating {
-            return; // double-click guard
-        }
         let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
             return;
         };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("[ui] releases.create skipped: no signed-in account");
-            return;
-        };
-        self.release_creating = true;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::releases::create(&trpc, &workspace_id, None) })
-                .await;
-
-            match result {
-                Ok(output) => {
-                    // Gate on the echo so the detail renders from the synced
-                    // row the moment it opens (§4.1).
-                    let release_id = output.release.id.clone();
-                    let releases = window
-                        .update(|_, cx| Store::global(cx).collections().releases.clone())
-                        .ok();
-                    if let Some(releases) = releases {
-                        queries::await_row_visible(&releases, &release_id, window).await;
-                    }
-                    let _ = this.update_in(window, |this, _window, cx| {
-                        this.release_creating = false;
-                        this.shared.update(cx, |shared, cx| {
-                            shared.release_selected = Some(release_id);
-                            cx.notify();
-                        });
-                        cx.notify();
-                    });
-                }
-                Err(err) => {
-                    log::warn!("[ui] releases.create failed: {err}");
-                    let _ = this.update_in(window, |this, _window, cx| {
-                        this.release_creating = false;
-                        cx.notify();
-                    });
-                }
-            }
-        })
-        .detach();
+        crate::release_create_dialog::open(window, cx, workspace_id, Vec::new());
     }
 
     /// The in-panel release detail: back + name header with the add-issues
     /// picker, the ship/unship action and a delete behind a nested confirm
-    /// (destructive actions confirm first on native); an info line
-    /// (shipped/target date, progress, the release PR pill when set); then
+    /// (destructive actions confirm first on native); a summary block
+    /// (title + description teaser, shipped/target date, the release PR pill
+    /// when set, and a progress bar — EXP-62 polish); then
     /// the release's issues grouped by status via the shared
     /// [`IssueListView`] — rows open the issue detail in the center pane, and
     /// the row context menu carries "Remove from release".
@@ -1602,7 +1495,7 @@ impl SidebarPanel {
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
                     .truncate()
-                    .child(name),
+                    .child(name.clone()),
             )
             .child(
                 Button::new("release-add-issues")
@@ -1657,30 +1550,35 @@ impl SidebarPanel {
                     }),
             );
 
-        // Info line: shipped/target date · progress · the release PR pill.
+        // Summary block (EXP-62 polish): title + description teaser, a meta
+        // chip row (shipped/target date · coding · the release PR), and a
+        // real progress bar with the "N of M done" label — clearer hierarchy
+        // than the old single wrapped info line.
+        let fg = cx.theme().foreground;
         let progress = queries::release_progress(&queries::release_issues(cx, &release.id));
-        let mut info = h_flex()
-            .flex_shrink_0()
+        let fraction = if progress.denominator > 0 {
+            (progress.done as f32 / progress.denominator as f32).clamp(0., 1.)
+        } else {
+            0.
+        };
+
+        let mut meta = h_flex()
             .w_full()
-            .px_3()
-            .py_1p5()
             .gap_2()
             .items_center()
             .flex_wrap()
             .text_xs()
-            .text_color(muted)
-            .border_b_1()
-            .border_color(border);
+            .text_color(muted);
         if shipped {
-            info = info.child(shipped_pill(green));
+            meta = meta.child(shipped_pill(green));
             if let Some(shipped_at) = release.shipped_at.as_deref() {
-                info = info.child(SharedString::from(format!(
+                meta = meta.child(SharedString::from(format!(
                     "Shipped {}",
                     format_short_date(shipped_at)
                 )));
             }
         } else if let Some(target) = release.target_date.as_deref() {
-            info = info.child(
+            meta = meta.child(
                 h_flex()
                     .gap_1()
                     .items_center()
@@ -1691,14 +1589,11 @@ impl SidebarPanel {
                     ))),
             );
         }
-        info = info.child(SharedString::from(
-            progress.label().unwrap_or_else(|| "No issues".to_string()),
-        ));
         // The SYNCED cross-device "coding" badge (EXP-56 P10) — skipped while
         // OUR session runs (the header already shows Stop; the Electric echo
         // would double it).
         if !locally_coding && release_coding_now(cx, &release.id) {
-            info = info.child(coding_pill(green));
+            meta = meta.child(coding_pill(green));
         }
         if let Some(pr_url) = release.pr_url.clone() {
             let state = release
@@ -1715,7 +1610,7 @@ impl SidebarPanel {
             } else {
                 (ExpIcon::GitPullRequest, green)
             };
-            info = info.child(
+            meta = meta.child(
                 Button::new("release-pr")
                     .outline()
                     .xsmall()
@@ -1729,6 +1624,84 @@ impl SidebarPanel {
             );
         }
 
+        // Description: first non-empty line, truncated — a teaser, not a
+        // markdown renderer (the web detail is the editing surface).
+        let description_line: Option<SharedString> = release
+            .description
+            .as_deref()
+            .and_then(|description| {
+                description
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+            })
+            .map(|line| SharedString::from(line.to_string()));
+
+        let summary = v_flex()
+            .flex_shrink_0()
+            .w_full()
+            .px_3()
+            .pt_2()
+            .pb_2p5()
+            .gap_1p5()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(ExpIcon::Rocket)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(if shipped { green } else { muted }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
+                            .text_color(fg)
+                            .child(name),
+                    ),
+            )
+            .when_some(description_line, |this, line| {
+                this.child(div().text_xs().text_color(muted).truncate().child(line))
+            })
+            .child(meta)
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .h(px(4.))
+                            .rounded_full()
+                            .bg(muted.opacity(0.2))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(relative(fraction))
+                                    .rounded_full()
+                                    .bg(green),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(
+                                progress.label().unwrap_or_else(|| "No issues".to_string()),
+                            )),
+                    ),
+            );
+
         // The bundled issues, grouped by status (shared board core).
         let release_id = release.id.clone();
         self.release_list.update(cx, |list, cx| {
@@ -1740,7 +1713,7 @@ impl SidebarPanel {
             .min_h_0()
             .min_w_0()
             .child(header)
-            .child(info)
+            .child(summary)
             .child(div().flex_1().min_h_0().child(self.release_list.clone()))
             .into_any_element()
     }

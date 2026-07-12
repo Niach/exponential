@@ -1,6 +1,11 @@
-import { Flag, ListTodo, Rocket, Tag, UserRound, X } from "lucide-react"
-import type { Issue, Label, Release, User } from "@/db/schema"
-import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
+import { FolderInput, Rocket, Tag, UserRound, X } from "lucide-react"
+import type { Issue, Label, Project, Release, User } from "@/db/schema"
+import {
+  getIssuePriorityConfig,
+  getIssueStatusConfig,
+  issuePriorityOptions,
+  issueStatusOptions,
+} from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -25,17 +30,18 @@ export function StatusSubmenu({
   topLevelValueClass,
   onSelect,
 }: StatusSubmenuProps) {
-  const statusLabel =
-    issueStatusOptions.find((option) => option.value === status)?.label ??
-    `Status`
+  // Trigger mirrors the row's status icon: the CURRENT status, not a generic
+  // glyph (EXP-59).
+  const statusConfig = getIssueStatusConfig(status)
+  const StatusIcon = statusConfig.icon
 
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <ListTodo className="size-4" />
+        <StatusIcon className={`size-4 ${statusConfig.color}`} />
         Status
         <ContextMenuShortcut className={topLevelValueClass}>
-          {statusLabel}
+          {statusConfig.label}
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
@@ -78,7 +84,22 @@ export function AssigneeSubmenu({
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <UserRound className="size-4" />
+        {/* Current assignee's avatar; person placeholder when unassigned (EXP-59). */}
+        {selectedAssignee ? (
+          <Avatar className="size-4">
+            {selectedAssignee.image && (
+              <AvatarImage
+                src={selectedAssignee.image}
+                alt={selectedAssignee.name}
+              />
+            )}
+            <AvatarFallback className="text-[0.5rem]">
+              {getInitials(selectedAssignee.name)}
+            </AvatarFallback>
+          </Avatar>
+        ) : (
+          <UserRound className="size-4" />
+        )}
         Assignee
         <ContextMenuShortcut className={topLevelValueClass}>
           {selectedAssignee?.name ?? `Unassigned`}
@@ -134,17 +155,18 @@ export function PrioritySubmenu({
   topLevelValueClass,
   onSelect,
 }: PrioritySubmenuProps) {
-  const priorityLabel =
-    issuePriorityOptions.find((option) => option.value === priority)?.label ??
-    `Priority`
+  // Trigger mirrors the row's priority icon: the CURRENT priority, not a
+  // generic glyph (EXP-59).
+  const priorityConfig = getIssuePriorityConfig(priority)
+  const PriorityIcon = priorityConfig.icon
 
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <Flag className="size-4" />
+        <PriorityIcon className={`size-4 ${priorityConfig.color}`} />
         Priority
         <ContextMenuShortcut className={topLevelValueClass}>
-          {priorityLabel}
+          {priorityConfig.label}
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
@@ -220,6 +242,69 @@ export function ReleaseSubmenu({
               >
                 <Rocket className="size-4 text-muted-foreground" />
                 <span className="truncate">{release.name}</span>
+              </ContextMenuRadioItem>
+            ))
+          )}
+        </ContextMenuRadioGroup>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  )
+}
+
+interface ProjectSubmenuProps {
+  projectId: Issue[`projectId`]
+  // Workspace projects (sorted by name, trashed excluded upstream by the
+  // projects shape). Kept a plain prop (no live query here) so this stays
+  // presentational like its siblings.
+  projects: Project[]
+  topLevelValueClass: string
+  onSelect: (projectId: string) => void
+}
+
+// EXP-57: move the issue to another project in the same workspace. The issue
+// is renumbered in the target project (EXP-42 → ABC-17) server-side.
+export function ProjectSubmenu({
+  projectId,
+  projects,
+  topLevelValueClass,
+  onSelect,
+}: ProjectSubmenuProps) {
+  const currentName = projects.find(
+    (project) => project.id === projectId
+  )?.name
+
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <FolderInput className="size-4" />
+        Move to project
+        <ContextMenuShortcut className={topLevelValueClass}>
+          {currentName ?? `Project`}
+        </ContextMenuShortcut>
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-[15rem]">
+        <ContextMenuRadioGroup value={projectId}>
+          {projects.length === 0 ? (
+            <ContextMenuItem disabled inset>
+              No projects yet
+            </ContextMenuItem>
+          ) : (
+            projects.map((project) => (
+              <ContextMenuRadioItem
+                key={project.id}
+                value={project.id}
+                disabled={project.id === projectId}
+                onSelect={() => {
+                  if (project.id !== projectId) {
+                    onSelect(project.id)
+                  }
+                }}
+              >
+                <div
+                  className="size-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: project.color }}
+                />
+                <span className="truncate">{project.name}</span>
               </ContextMenuRadioItem>
             ))
           )}

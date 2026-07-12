@@ -2,24 +2,21 @@ import { Fragment, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { Bot, MonitorPlay, X } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
-import { DesktopDownloadCard } from "@/components/desktop-download-card"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
-import { SteerViewer, useSteerConfig } from "@/components/steer-terminal"
+import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { displayUserName } from "@/lib/user-display"
-import { hasDismissedDesktopAppCard } from "@/lib/auth/app-user"
-import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 
 // Workspace Agents view: every desktop coding session in the workspace,
 // running first (live indicator + inline Watch/Steer via the steer relay),
 // then the recently ended ones. The list is pure client work over the synced
-// coding_sessions shape; watching reuses the SteerViewer transport from
-// steer-terminal.tsx (ticket minted by trpc.steer.mintTicket — membership and
+// coding_sessions shape; watching reuses the AgentSessionView renderer from
+// agent-session.tsx (ticket minted by trpc.steer.mintTicket — membership and
 // perm are enforced server-side at mint time, the UI only mirrors them).
 export const Route = createFileRoute(`/w/$workspaceSlug/agents/`)({
   beforeLoad: async ({ context }) => {
@@ -143,16 +140,10 @@ function AgentsPage() {
   // each viewer holds a live relay socket).
   const [watchSessionId, setWatchSessionId] = useState<string | null>(null)
 
-  // "Get the desktop app" card dismissal. The session flag keeps it hidden on
-  // later loads (session is fetched once); local state hides it immediately.
-  const [cardDismissedLocally, setCardDismissedLocally] = useState(false)
-  const cardDismissed =
-    cardDismissedLocally || hasDismissedDesktopAppCard(session?.user)
-
   const currentUserId = session?.user?.id
   // Steer tickets require workspace membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the Watch
-  // button renders (mirrors the SteerTerminal wrapper's gating).
+  // button renders (mirrors the IssueSteerPanel wrapper's gating).
   const canWatch = Boolean(
     currentUserId && isMember && steerConfig?.enabled
   )
@@ -189,17 +180,8 @@ function AgentsPage() {
         </h1>
       </div>
 
-      {!cardDismissed && (
-        <div className="mb-4">
-          <DesktopDownloadCard
-            onDismiss={() => {
-              setCardDismissedLocally(true)
-              void trpc.users.dismissDesktopAppCard.mutate()
-            }}
-          />
-        </div>
-      )}
-
+      {/* The old "Get the desktop app" card lived here — replaced by the
+          sidebar's DesktopDownloadButton (EXP-68). */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>
@@ -231,7 +213,7 @@ function AgentsPage() {
                       canWatch &&
                       currentUserId && (
                         <div className="border-b border-border/30 px-3 pb-3">
-                          <SteerViewer
+                          <AgentSessionView
                             key={row.session.id}
                             session={row.session}
                             currentUserId={currentUserId}

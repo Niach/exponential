@@ -56,6 +56,7 @@ mod oauth;
 mod properties_panel;
 mod queries;
 mod release_add_issues_dialog;
+mod release_create_dialog;
 mod repo_resolver;
 mod run_bar;
 mod screens;
@@ -81,9 +82,7 @@ pub use icons::ExpIcon;
 pub use navigation::{navigate, Screen};
 pub use oauth::handle_open_urls;
 pub use update::check_for_updates;
-pub use session::{
-    bootstrap as bootstrap_session, confirm_delete_account, sign_out_active, AuthContext,
-};
+pub use session::{bootstrap as bootstrap_session, sign_out_active, AuthContext};
 pub use workspace::Workspace;
 
 use gpui::{App, AppContext as _};

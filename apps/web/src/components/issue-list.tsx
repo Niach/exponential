@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, Label, Release, User } from "@/db/schema"
-import { releaseCollection } from "@/lib/collections"
+import type { Issue, Label, Project, Release, User } from "@/db/schema"
+import { projectCollection, releaseCollection } from "@/lib/collections"
 import { compareReleases } from "@/lib/releases"
 import { StatusDropdown, getStatusConfig } from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
@@ -122,6 +122,28 @@ export function IssueList({
         ? [...((releaseRows ?? []) as Release[])].sort(compareReleases)
         : undefined,
     [releaseRows, bulkWorkspaceId]
+  )
+
+  // Workspace projects feed the context menu's move-to-project submenu
+  // (EXP-57). Trashed projects never reach the client (the projects shape
+  // filters them server-side).
+  const { data: projectRows } = useLiveQuery(
+    (query) =>
+      bulkWorkspaceId
+        ? query
+            .from({ projects: projectCollection })
+            .where(({ projects }) => eq(projects.workspaceId, bulkWorkspaceId))
+        : undefined,
+    [bulkWorkspaceId]
+  )
+  const workspaceProjects = useMemo(
+    () =>
+      bulkWorkspaceId
+        ? [...((projectRows ?? []) as Project[])].sort((left, right) =>
+            left.name.localeCompare(right.name)
+          )
+        : undefined,
+    [projectRows, bulkWorkspaceId]
   )
 
   // The range/select-all universe: filtered rows in render order, minus
@@ -374,6 +396,7 @@ export function IssueList({
                     users={users}
                     userMap={userMap}
                     releases={workspaceReleases}
+                    projects={workspaceProjects}
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div

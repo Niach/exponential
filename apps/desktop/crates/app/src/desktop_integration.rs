@@ -52,6 +52,32 @@ fn desktop_file_name() -> String {
     format!("{APP_ID}.desktop")
 }
 
+/// The white-on-transparent logo (the variant that reads on the dark shelves
+/// desktop Linux defaults to), embedded so the RUNNING app can install it as
+/// its hicolor icon — the AppImage's bundled icon lives inside the squashfs
+/// where no icon theme can see it (EXP-68).
+const ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.svg");
+
+/// Install the app icon into the user hicolor theme
+/// (`~/.local/share/icons/hicolor/scalable/apps/<APP_ID>.svg`) so the
+/// `.desktop`'s `Icon={APP_ID}` resolves. Idempotent; best-effort.
+fn ensure_icon_installed() {
+    let Some(data_dir) = dirs::data_dir() else {
+        return;
+    };
+    let icon_dir = data_dir.join("icons/hicolor/scalable/apps");
+    let icon_path = icon_dir.join(format!("{APP_ID}.svg"));
+    let current = std::fs::read(&icon_path).ok();
+    if current.as_deref() == Some(ICON_SVG) {
+        return;
+    }
+    if let Err(err) = std::fs::create_dir_all(&icon_dir)
+        .and_then(|()| std::fs::write(&icon_path, ICON_SVG))
+    {
+        eprintln!("[exp-desktop] icon install failed: {err:#}");
+    }
+}
+
 /// Install the `.desktop` handler and make it the default `exponential://`
 /// handler.
 pub fn ensure_scheme_registered() {
@@ -59,20 +85,31 @@ pub fn ensure_scheme_registered() {
     let Some(apps_dir) = applications_dir() else {
         return;
     };
+    ensure_icon_installed();
     let desktop_path = apps_dir.join(desktop_file_name());
 
+    // Taskbar icon association (EXP-68): the window's Wayland app_id / X11
+    // WM_CLASS is `APP_ID` (set in `windows::open_workspace_window`), so the
+    // compositor matches it against THIS file two ways — the desktop-file id
+    // (`<APP_ID>.desktop`) and `StartupWMClass` — and pulls `Icon=` from it.
+    // Packaged runs (AppImage) list a real launcher entry; bare dev binaries
+    // stay `NoDisplay=true` so a `target/debug` path never lingers in app
+    // grids (the icon/WM_CLASS matching works for NoDisplay entries too).
+    let packaged = std::env::var_os("APPIMAGE").is_some();
     let contents = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name={APP_NAME}\n\
          Comment=Exponential desktop IDE\n\
          Exec={exec} %U\n\
+         Icon={APP_ID}\n\
          Terminal=false\n\
-         NoDisplay=true\n\
+         {no_display}\
          Categories=Development;\n\
          MimeType={scheme_entry};\n\
-         StartupWMClass=exp-desktop\n",
+         StartupWMClass={APP_ID}\n",
         exec = exec.display(),
+        no_display = if packaged { "" } else { "NoDisplay=true\n" },
         scheme_entry = scheme_entry(),
     );
 

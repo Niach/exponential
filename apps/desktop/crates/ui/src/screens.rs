@@ -153,6 +153,10 @@ impl ScreensPanel {
         let replaced = crate::navigation::take_replaced_screen(&self.nav, cx);
         let workspace = active_workspace_id(&self.nav, cx);
         if workspace != self.tabs_workspace {
+            // Dropping the tabs tears the issue detail down without a blur —
+            // flush a pending description edit first (EXP-68).
+            self.issue_detail
+                .update(cx, |detail, cx| detail.flush_description(cx));
             self.tabs_workspace = workspace;
             self.tabs.clear();
         }
@@ -195,6 +199,13 @@ impl ScreensPanel {
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if ix >= self.tabs.len() {
             return;
+        }
+        // Closing (or undocking) the active issue tab unmounts the detail's
+        // description editor without a blur — flush the pending edit so it
+        // is written before teardown (EXP-68).
+        if matches!(self.tabs[ix], Screen::IssueDetail { .. }) {
+            self.issue_detail
+                .update(cx, |detail, cx| detail.flush_description(cx));
         }
         let closed = self.tabs.remove(ix);
         let active = resolved_screen(&self.nav, cx);

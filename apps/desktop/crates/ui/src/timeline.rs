@@ -568,6 +568,17 @@ fn event_phrase(
                 .unwrap_or_else(|| "a release".to_string());
             Some((ExpIcon::Rocket, format!("{verb} {target}"), None))
         }
+        "project_moved" => {
+            // EXP-57: the payload is self-contained — the retired and new
+            // identifiers tell the story without a project-name lookup.
+            let phrase = match (payload_str("fromIdentifier"), payload_str("toIdentifier")) {
+                (Some(from), Some(to)) => {
+                    format!("moved this to another project ({from} → {to})")
+                }
+                _ => "moved this to another project".to_string(),
+            };
+            Some((ExpIcon::SquareKanban, phrase, None))
+        }
         "pr_opened" => {
             let url = payload_str("prUrl");
             let phrase = match payload_str("prNumber") {
