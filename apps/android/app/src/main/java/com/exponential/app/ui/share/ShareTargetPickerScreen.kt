@@ -28,7 +28,8 @@ data class ShareTargetState(
  * Data source for the single-screen share composer (`share-compose`): the
  * active account's workspaces → projects, with the most recently opened project
  * surfaced as the default. Consumed by [com.exponential.app.ui.issue.CreateIssueScreen]
- * in share mode, which renders the project selector inline at the bottom.
+ * in share mode, which renders the "Share to" destination selector at the top
+ * of the form (EXP-60), backed by [ShareProjectPickerSheet].
  */
 @HiltViewModel
 class ShareTargetPickerViewModel @Inject constructor(

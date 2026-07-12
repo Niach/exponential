@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
@@ -78,6 +77,8 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.SharePrefill
+import com.exponential.app.ui.share.ShareProjectPickerSheet
+import com.exponential.app.ui.share.ShareProjectSelector
 import com.exponential.app.ui.share.WorkspaceProjects
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -98,10 +99,10 @@ fun CreateIssueScreen(
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
     // Share mode (system "Share into Exponential"): the screen has no project
-    // route arg, so it renders an inline project selector at the bottom and
-    // re-points the ViewModel to the picked project. [shareGroups] are the
-    // account's workspaces→projects, [shareRecentProjectId] the last-used
-    // default.
+    // route arg, so it renders a "Share to" destination selector at the TOP of
+    // the form (EXP-60) and re-points the ViewModel to the picked project.
+    // [shareGroups] are the account's workspaces→projects,
+    // [shareRecentProjectId] the last-used default.
     shareMode: Boolean = false,
     shareGroups: List<WorkspaceProjects> = emptyList(),
     shareRecentProjectId: String? = null,
@@ -154,6 +155,7 @@ fun CreateIssueScreen(
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelSheetOpen by remember { mutableStateOf(false) }
+    var projectSheetOpen by remember { mutableStateOf(false) }
 
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
@@ -272,6 +274,19 @@ fun CreateIssueScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Destination first (EXP-60): in share mode the target project
+                // leads the form — a compact "Share to" card that opens the
+                // grouped picker sheet. Picking a project re-scopes the
+                // ViewModel (labels/permissions) and the create target.
+                if (shareMode) {
+                    ShareProjectSelector(
+                        groups = shareGroups,
+                        selectedProjectId = selectedProjectId,
+                        loading = shareGroupsLoading,
+                        onClick = { projectSheetOpen = true },
+                    )
+                }
+
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -438,88 +453,6 @@ fun CreateIssueScreen(
                     }
                 }
 
-                // Project selector — share mode only, rendered LAST (iOS
-                // ShareComposeView parity). Picking a project re-scopes the
-                // ViewModel (labels/permissions) and the create target.
-                if (shareMode) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                        Text(
-                            "Project",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        if (shareGroups.isEmpty()) {
-                            // No shareable projects (deleted ShareTargetPicker
-                            // empty-state parity; iOS ShareComposeView shows an
-                            // equivalent message for projects.isEmpty) — without
-                            // this the share is a silent dead end: an editable
-                            // form whose Create button can never enable.
-                            if (!shareGroupsLoading) {
-                                Text(
-                                    "Open Exponential to create your first project, then try sharing again.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .glassSection()
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                )
-                            }
-                        } else {
-                            Column(modifier = Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-                                var first = true
-                                shareGroups.forEach { group ->
-                                    group.projects.forEach { project ->
-                                        if (!first) MetaDivider()
-                                        first = false
-                                        val selected = project.id == selectedProjectId
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    if (project.id != selectedProjectId) {
-                                                        selectedProjectId = project.id
-                                                        viewModel.setProject(project.id)
-                                                    }
-                                                }
-                                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        ) {
-                                            Box(modifier = Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
-                                            Spacer(Modifier.width(10.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    project.name,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                                Text(
-                                                    group.workspace.name,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            }
-                                            if (selected) {
-                                                Icon(
-                                                    Icons.Filled.Check,
-                                                    contentDescription = "Selected",
-                                                    modifier = Modifier.size(18.dp),
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 if (state.error != null) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -539,6 +472,20 @@ fun CreateIssueScreen(
             }
         }
     }
+    }
+
+    if (projectSheetOpen && shareMode) {
+        ShareProjectPickerSheet(
+            groups = shareGroups,
+            selectedProjectId = selectedProjectId,
+            onSelect = { id ->
+                if (id != selectedProjectId) {
+                    selectedProjectId = id
+                    viewModel.setProject(id)
+                }
+            },
+            onDismiss = { projectSheetOpen = false },
+        )
     }
 
     if (statusMenuOpen && isModerator) {
