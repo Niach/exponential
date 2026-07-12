@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json
+COPY apps/video/package.json apps/video/package.json
 COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
