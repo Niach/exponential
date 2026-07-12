@@ -1,14 +1,17 @@
-# Packaging template (masterplan-v3 §3.7 / §12): shipped inside the Linux
-# AppImage/.deb at release time, NOT loaded at runtime. The
+# Packaging template (masterplan-v3 §3.7 / §12): shipped inside a future
+# Linux .deb at release time, NOT loaded at runtime. The
 # x-scheme-handler/exponential MimeType is what routes exponential:// OAuth
 # callbacks / invite deep links into on_open_urls (§3.6) on Linux desktops.
+# Icon/StartupWMClass match the production APP_ID (`at.exponential`) — the
+# window's Wayland app_id / X11 WM_CLASS — so taskbars associate the running
+# window with this entry and show its icon (EXP-68).
 [Desktop Entry]
 Type=Application
 Name=Exponential
 Comment=Real-time issue tracker and coding IDE
 Exec=exp-desktop %U
-Icon=exponential
+Icon=at.exponential
 Terminal=false
 Categories=Development;ProjectManagement;
 MimeType=x-scheme-handler/exponential;
-StartupWMClass=exp-desktop
+StartupWMClass=at.exponential

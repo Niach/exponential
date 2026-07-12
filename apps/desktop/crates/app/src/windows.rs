@@ -36,6 +36,14 @@ pub fn open_workspace_window(cx: &mut App) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(min_size),
             kind: WindowKind::Normal,
+            // Associate the window with our `.desktop` entry so Linux
+            // taskbars/docks show the app icon (EXP-68). gpui maps this to
+            // the Wayland toplevel `app_id` and the X11 `WM_CLASS`; without
+            // it the X11 window has NO WM_CLASS at all and neither protocol
+            // can match the window to `<APP_ID>.desktop` (the file
+            // `desktop_integration` installs, whose `Icon=` carries the
+            // taskbar icon). No-op on macOS/Windows (gpui ignores it there).
+            app_id: Some(crate::channel::APP_ID.to_string()),
             // Linux: let the compositor draw the native (server-side) titlebar
             // and window controls — parity with the macOS native titlebar. SSD
             // wants an opaque window (no CSD shadow/border to composite), so we
