@@ -63,6 +63,11 @@ use crate::{attachments_row, comments};
 /// `track_focus` + `on_action`, bindings scoped via [`init`]).
 const KEY_CONTEXT: &str = "IssueDetail";
 
+/// The Details body's centered content width (web `max-w-3xl` parity) —
+/// shared with the timeline, whose full-bleed divider re-centers its content
+/// to this same column.
+pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
+
 /// Register the EXP-48 J/K switcher bindings (call once from `ui::init`).
 ///
 /// The predicate guards bare-letter keys against every editable surface that
@@ -591,20 +596,38 @@ impl IssueDetailView {
 
     // -- header pieces -----------------------------------------------------------
 
-    /// The detail's slim action header. The breadcrumb trail lives in the
-    /// TOP BAR now (project picker › identifier › title) and the center tab
-    /// already shows the identifier — this row keeps only the actions,
-    /// right-aligned (EXP-65 follow-up: the identifier here was redundant).
+    /// The detail's ONE header row (EXP-67 — the former separate tab strip
+    /// merged in to save vertical space): the §4.8 Details · Changes segments
+    /// on the left, the actions right-aligned. The breadcrumb trail lives in
+    /// the TOP BAR (project picker › identifier › title) and the center tab
+    /// already shows the identifier (EXP-65 follow-up: the identifier here
+    /// was redundant).
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
+            let active = this.tab == tab;
+            Button::new(match tab {
+                DetailTab::Details => "issue-tab-details",
+                DetailTab::Changes => "issue-tab-changes",
+            })
+            .ghost()
+            .xsmall()
+            .label(label)
+            .text_color(if active {
+                cx.theme().foreground
+            } else {
+                cx.theme().muted_foreground
+            })
+        };
+
         let mut row = h_flex()
             .w_full()
             .px_4()
-            .py_2()
+            .py_1p5()
             .gap_1p5()
             .items_center()
             .min_w_0()
@@ -612,6 +635,21 @@ impl IssueDetailView {
             .text_color(cx.theme().muted_foreground)
             .border_b_1()
             .border_color(cx.theme().border);
+
+        // Left: the Details · Changes segments (selecting Changes makes the
+        // tab visible — it fetches on focus; Details hides it, stopping its
+        // poll).
+        row = row
+            .child(
+                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
+                )),
+            )
+            .child(
+                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
+                )),
+            );
 
         row = row.child(div().flex_1().min_w_0());
 
@@ -838,7 +876,7 @@ impl IssueDetailView {
 
         let mut column = v_flex()
             .w_full()
-            .max_w(px(768.))
+            .max_w(px(DETAIL_COLUMN_W))
             .mx_auto()
             .child(title)
             .child(self.render_description(issue, window, cx));
@@ -846,47 +884,14 @@ impl IssueDetailView {
         if let Some(rail) = attachments_row::attachments_row(&issue.id, cx) {
             column = column.child(rail);
         }
-        column.child(self.timeline.clone())
-    }
-
-    /// §4.8 segmented header — Details (the body) · Changes (the diff tab).
-    /// Selecting Changes makes the tab visible (it fetches on focus); selecting
-    /// Details hides it (stops its poll).
-    fn render_tabs(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
-            let active = this.tab == tab;
-            Button::new(match tab {
-                DetailTab::Details => "issue-tab-details",
-                DetailTab::Changes => "issue-tab-changes",
-            })
-            .ghost()
-            .xsmall()
-            .label(label)
-            .text_color(if active {
-                cx.theme().foreground
-            } else {
-                cx.theme().muted_foreground
-            })
-        };
-
-        h_flex()
+        // The timeline sits OUTSIDE the centered column: its top border runs
+        // full-bleed across the detail body (EXP-67 — one line splitting the
+        // description+images section from the comment section); the
+        // timeline's own content re-centers to the same column width.
+        v_flex()
             .w_full()
-            .px_4()
-            .py_1()
-            .gap_1()
-            .items_center()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
-                )),
-            )
-            .child(
-                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
-                )),
-            )
+            .child(column)
+            .child(self.timeline.clone())
     }
 
     /// Flip to the Changes tab (EXP-67: PR rows / flow lanes land here — the
@@ -954,13 +959,14 @@ impl Render for IssueDetailView {
                 .into_any_element();
         };
 
+        // ONE header row (tabs + actions merged, EXP-67) — the standalone
+        // tab strip is gone.
         let mut view = base.child(self.render_breadcrumb(&issue, window, cx));
         if let Some(duplicate_of_id) = issue.duplicate_of_id.clone() {
             if let Some(banner) = self.render_duplicate_banner(&duplicate_of_id, cx) {
                 view = view.child(banner);
             }
         }
-        view = view.child(self.render_tabs(cx));
 
         // §4.8: Changes is a full-width single diff surface (no properties
         // panel); Details keeps the two-pane body + properties panel.
