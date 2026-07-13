@@ -34,8 +34,10 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
@@ -59,6 +61,12 @@ private const val IDLE_RELEASE_MS = 60_000L
 /** Redial cadence while the desktop's publisher socket is still starting. */
 private const val STARTING_RETRY_MS = 3_000L
 
+/** Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while to
+ *  hit the transcript, but an unmatched echo must not swallow an identical
+ *  message sent much later. */
+private const val ECHO_CAP = 8
+private const val ECHO_TTL_MS = 300_000L
+
 @Serializable
 data class PresenceViewer(
     val userId: String,
@@ -66,12 +74,40 @@ data class PresenceViewer(
     val perm: String = "view",
 )
 
+/** One answer choice of a [AgentFeedItem.Question] — `key` is the raw
+ *  keystroke that selects it in the desktop TUI picker (mapped desktop-side). */
+data class QuestionOption(val label: String, val key: String)
+
 /** One rendered feed entry. Diffs never enter the feed — see [AgentSessionViewModel.latestDiff]. */
 sealed interface AgentFeedItem {
     val id: Long
 
     data class Narration(override val id: Long, val text: String) : AgentFeedItem
     data class Tool(override val id: Long, val name: String, val detail: String?) : AgentFeedItem
+
+    /** A human turn (EXP-78): the initial prompt or a steered message. */
+    data class UserMessage(override val id: Long, val text: String) : AgentFeedItem
+
+    /** An interactive question (AskUserQuestion / plan approval, EXP-78). */
+    data class Question(
+        override val id: Long,
+        val text: String,
+        val options: List<QuestionOption>,
+        val multiSelect: Boolean,
+    ) : AgentFeedItem
+}
+
+/**
+ * Ids of the TRAILING consecutive run of [AgentFeedItem.Question] items — the
+ * only ones still answerable (any later event means the desktop TUI moved on).
+ */
+fun trailingQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
+    val ids = mutableSetOf<Long>()
+    for (item in feed.asReversed()) {
+        if (item !is AgentFeedItem.Question) break
+        ids.add(item.id)
+    }
+    return ids
 }
 
 sealed interface AgentPhase {
@@ -137,6 +173,10 @@ class AgentSessionViewModel @Inject constructor(
     val latestDiff: StateFlow<String?> = _latestDiff
 
     private var nextEventId = 0L
+
+    /** Locally-echoed sent messages awaiting their transcript-derived
+     *  `user_message` event (EXP-78 dedupe): text → sent-at millis. */
+    private val recentEchoes = ArrayDeque<Pair<String, Long>>()
     private var ws: DefaultClientWebSocketSession? = null
     private var connectJob: Job? = null
     private var idleReleaseJob: Job? = null
@@ -214,6 +254,9 @@ class AgentSessionViewModel @Inject constructor(
             _feed.value = emptyList()
             _latestDiff.value = null
             nextEventId = 0L
+            // After a reconnect the replayed transcript event is the ONLY copy
+            // of a sent message — it must render, so no stale echo may swallow it.
+            recentEchoes.clear()
             socket.send(Frame.Text("""{"t":"join","channel":"activity"}"""))
             // NOT Live yet — the relay may answer the join with no_such_session
             // (desktop still starting). The phase flips to Live on the first
@@ -338,7 +381,41 @@ class AgentSessionViewModel @Inject constructor(
                 _latestDiff.value = (event["diff"] as? JsonPrimitive)?.contentOrNull
                     ?.takeIf { it.isNotBlank() }
             }
+            "user_message" -> {
+                val text = (event["text"] as? JsonPrimitive)?.contentOrNull ?: return
+                if (text.isBlank()) return
+                // A message this client just sent was already echoed locally —
+                // skip its transcript-derived twin (EXP-78).
+                if (consumeEcho(text)) return
+                append(AgentFeedItem.UserMessage(nextEventId++, text))
+            }
+            "question" -> {
+                val text = (event["text"] as? JsonPrimitive)?.contentOrNull ?: return
+                if (text.isBlank()) return
+                val options = runCatching {
+                    event["options"]!!.jsonArray.mapNotNull { raw ->
+                        val o = raw.jsonObject
+                        val label = (o["label"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+                        val key = (o["key"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+                        QuestionOption(label, key)
+                    }
+                }.getOrDefault(emptyList())
+                if (options.isEmpty()) return
+                val multiSelect = (event["multiSelect"] as? JsonPrimitive)?.booleanOrNull == true
+                append(AgentFeedItem.Question(nextEventId++, text, options, multiSelect))
+            }
         }
+    }
+
+    /** Whether an incoming `user_message` matches a recent local echo —
+     *  consumes the matched entry (and evicts expired ones); true = skip it. */
+    private fun consumeEcho(text: String): Boolean {
+        val now = System.currentTimeMillis()
+        recentEchoes.removeAll { now - it.second > ECHO_TTL_MS }
+        val needle = text.trim()
+        val match = recentEchoes.firstOrNull { it.first == needle } ?: return false
+        recentEchoes.remove(match)
+        return true
     }
 
     private fun append(item: AgentFeedItem) {
@@ -362,6 +439,11 @@ class AgentSessionViewModel @Inject constructor(
     fun sendMessage(text: String) {
         if (text.isEmpty() || _perm.value != "steer") return
         val socket = ws ?: return
+        // Local echo (EXP-78): show the sent message immediately; its
+        // transcript-derived `user_message` event is deduped via the FIFO.
+        recentEchoes.addLast(text.trim() to System.currentTimeMillis())
+        while (recentEchoes.size > ECHO_CAP) recentEchoes.removeFirst()
+        append(AgentFeedItem.UserMessage(nextEventId++, text))
         viewModelScope.launch {
             runCatching {
                 socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
@@ -380,6 +462,36 @@ class AgentSessionViewModel @Inject constructor(
             scheduleIdleRelease()
         }
     }
+
+    /**
+     * Answer an interactive question (EXP-78): steal-claim + raw keystrokes —
+     * the desktop passes single-byte frames to the PTY unwrapped, so the TUI
+     * sees keypresses, not a paste. Verified against the real picker: a digit
+     * SELECTS but does not submit, so single-select answers pass
+     * `submit = true` to follow up with a separate `\r` (multi-select taps
+     * toggle with the digit alone; [sendSubmit] sends the Enter).
+     */
+    fun sendAnswer(key: String, submit: Boolean = false) {
+        if (key.isEmpty() || _perm.value != "steer") return
+        val socket = ws ?: return
+        viewModelScope.launch {
+            runCatching {
+                socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
+                val frame = buildJsonObject {
+                    put("t", "input")
+                    put("data", key)
+                }
+                socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
+                if (submit && key != "\r") {
+                    socket.send(Frame.Text("""{"t":"input","data":"\r"}"""))
+                }
+            }
+            scheduleIdleRelease()
+        }
+    }
+
+    /** Submit a multi-select question (Enter). */
+    fun sendSubmit() = sendAnswer("\r")
 
     /** Auto-release the claim after 60s of no sends (timer resets per send). */
     private fun scheduleIdleRelease() {

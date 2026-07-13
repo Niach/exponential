@@ -1,22 +1,29 @@
-//! The PUBLIC live-coding activity emitter (masterplan §P7).
+//! The live-coding activity emitter (masterplan §P7 + EXP-78).
 //!
-//! When a coding session runs on a `feedback` project with
-//! `publicShowCoding == 'live'` (and the user hasn't opted the session private),
-//! the app publishes a **stripped, redacted** activity stream over the EXISTING
-//! steer publisher socket — never the raw PTY. Three event kinds reach public
-//! viewers (relay `activityEventSchema`):
+//! The app publishes a **stripped, redacted** activity stream over the
+//! EXISTING steer publisher socket — never the raw PTY. Event kinds (relay
+//! `activityEventSchema`):
 //!
 //! * **narration** — assistant prose (`text` content blocks in the Claude Code
 //!   session transcript);
 //! * **tool** — a tool-call headline: the tool name plus a single primary
 //!   argument (a file path / pattern, or a Bash `description` — NEVER the raw
 //!   command string, NEVER a tool result);
-//! * **diff** — a debounced `git diff` snapshot of the worktree.
+//! * **diff** — a debounced `git diff` snapshot of the worktree;
+//! * **user_message** — a HUMAN turn (the initial prompt or a steered
+//!   message; `origin.kind == "human"` entries only) — MEMBER-ONLY: the relay
+//!   never fans it to anonymous public viewers (EXP-78);
+//! * **question** — an interactive prompt the session is blocked on (an
+//!   `AskUserQuestion` question or the `ExitPlanMode` plan-approval picker),
+//!   with the raw TUI keystroke per option so steering clients can answer —
+//!   MEMBER-ONLY like `user_message`.
 //!
 //! Everything published passes through [`Redactor`] first: exact-match masking
 //! of the launcher-created secrets (the JIT GitHub installation token embedded
 //! in the worktree remote, the `expu_` personal key in `.mcp.json`) plus
-//! gitleaks-style patterns. Steering input and tool results are never read.
+//! gitleaks-style patterns. Tool results are never read; injected system
+//! content (`isMeta`, task notifications, `<system-reminder>` blocks) is never
+//! published.
 //!
 //! The emitter runs on a dedicated OS thread (poll-based, blocking file/git
 //! I/O) — it never touches gpui or the steer tokio runtime. It publishes via a
@@ -35,7 +42,7 @@ use std::time::{Duration, Instant, SystemTime};
 use regex::Regex;
 use serde_json::Value;
 
-use crate::frames::ActivityEvent;
+use crate::frames::{ActivityEvent, QuestionOption};
 use crate::publisher::ActivitySender;
 
 /// The mask token substituted for every redacted secret.
@@ -51,6 +58,11 @@ pub const NARRATION_MAX: usize = 16 * 1024;
 pub const TOOL_NAME_MAX: usize = 128;
 pub const TOOL_DETAIL_MAX: usize = 1024;
 pub const DIFF_MAX: usize = 512 * 1024;
+/// Question text shares the narration budget (an ExitPlanMode plan rides it).
+pub const QUESTION_TEXT_MAX: usize = NARRATION_MAX;
+pub const OPTION_LABEL_MAX: usize = 256;
+/// Relay-enforced option-count cap; also the range of digit keys we can map.
+const QUESTION_OPTIONS_MAX: usize = 9;
 
 /// Minimum gap between worktree diff snapshots (only emitted when changed).
 const DIFF_INTERVAL: Duration = Duration::from_secs(3);
@@ -181,11 +193,14 @@ fn mcp_expu_key(worktree: &Path) -> Option<String> {
 // Transcript parsing
 // ---------------------------------------------------------------------------
 
-/// Parse one Claude Code transcript JSONL line into public activity events.
-/// Only `assistant` entries produce output — `text` blocks become narration,
-/// `tool_use` blocks become tool headlines. `user` entries (which carry
-/// steering input and tool RESULTS) are skipped entirely. Every string is
-/// redacted and truncated to the relay caps.
+/// Parse one Claude Code transcript JSONL line into activity events.
+/// `assistant` entries: `text` blocks become narration, `tool_use` blocks
+/// become tool headlines — except `AskUserQuestion`/`ExitPlanMode`, which
+/// become interactive `question` events (EXP-78). `user` entries become
+/// `user_message` events ONLY when they are genuine human turns
+/// (`origin.kind == "human"` — the initial prompt and steered messages);
+/// tool RESULTS and injected system content are never published. Every string
+/// is redacted and truncated to the relay caps.
 pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEvent> {
     let line = line.trim();
     if line.is_empty() {
@@ -194,10 +209,15 @@ pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEve
     let Ok(entry) = serde_json::from_str::<Value>(line) else {
         return Vec::new();
     };
-    // Only assistant turns are public; skip user/system/summary/etc. entries.
-    if entry.get("type").and_then(Value::as_str) != Some("assistant") {
-        return Vec::new();
+    match entry.get("type").and_then(Value::as_str) {
+        Some("assistant") => parse_assistant_entry(&entry, redactor),
+        Some("user") => parse_user_entry(&entry, redactor).into_iter().collect(),
+        // system/summary/etc. → never published.
+        _ => Vec::new(),
     }
+}
+
+fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEvent> {
     let Some(content) = entry
         .get("message")
         .and_then(|m| m.get("content"))
@@ -222,6 +242,18 @@ pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEve
                     .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or("tool");
+                // Interactive prompts become answerable question events; a
+                // malformed input falls through to the generic tool headline.
+                if name == "AskUserQuestion" {
+                    if let Some(questions) = parse_ask_user_question(block.get("input"), redactor)
+                    {
+                        events.extend(questions);
+                        continue;
+                    }
+                } else if name == "ExitPlanMode" {
+                    events.push(parse_exit_plan_mode(block.get("input"), redactor));
+                    continue;
+                }
                 let detail = tool_detail(name, block.get("input"))
                     .map(|d| truncate(&redactor.redact(&d), TOOL_DETAIL_MAX));
                 events.push(ActivityEvent::Tool {
@@ -234,6 +266,117 @@ pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEve
         }
     }
     events
+}
+
+/// A genuine human turn → one `user_message` event (EXP-78). Requires
+/// `origin.kind == "human"` (verified transcript marker for typed/steered
+/// messages and the argv-seeded initial prompt); everything injected —
+/// task notifications, `isMeta` skill bodies, compaction summaries,
+/// `<system-reminder>` blocks — fails the gate or the block filter. Fails
+/// CLOSED: if a future claude version drops `origin`, user messages silently
+/// stop appearing rather than risking a leak of injected content.
+fn parse_user_entry(entry: &Value, redactor: &Redactor) -> Option<ActivityEvent> {
+    let origin_kind = entry
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str);
+    if origin_kind != Some("human") {
+        return None;
+    }
+    if entry.get("isMeta").and_then(Value::as_bool) == Some(true)
+        || entry.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
+    {
+        return None;
+    }
+    let content = entry.get("message").and_then(|m| m.get("content"))?;
+    let text = match content {
+        // The argv-seeded initial prompt lands as a plain string.
+        Value::String(s) => s.clone(),
+        Value::Array(blocks) => {
+            let parts: Vec<&str> = blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .filter(|t| !t.trim_start().starts_with("<system-reminder>"))
+                .collect();
+            parts.join("\n\n")
+        }
+        _ => return None,
+    };
+    let redacted = truncate(&redactor.redact(&text), NARRATION_MAX);
+    if redacted.trim().is_empty() {
+        return None;
+    }
+    Some(ActivityEvent::UserMessage { text: redacted })
+}
+
+/// `AskUserQuestion` input → one `question` event per entry of
+/// `input.questions[]`, options mapped positionally to the TUI's digit keys
+/// (`1`..`9`). `None` when the input doesn't match the expected shape (the
+/// caller falls back to a generic tool headline).
+fn parse_ask_user_question(
+    input: Option<&Value>,
+    redactor: &Redactor,
+) -> Option<Vec<ActivityEvent>> {
+    let questions = input?.get("questions")?.as_array()?;
+    let mut events = Vec::new();
+    for question in questions {
+        let text = question.get("question").and_then(Value::as_str)?;
+        let options: Vec<QuestionOption> = question
+            .get("options")?
+            .as_array()?
+            .iter()
+            .filter_map(|o| o.get("label").and_then(Value::as_str))
+            .take(QUESTION_OPTIONS_MAX)
+            .enumerate()
+            .map(|(i, label)| QuestionOption {
+                label: truncate(&redactor.redact(label), OPTION_LABEL_MAX),
+                key: (i + 1).to_string(),
+            })
+            .collect();
+        if options.is_empty() {
+            return None;
+        }
+        let multi_select =
+            matches!(question.get("multiSelect"), Some(Value::Bool(true))).then_some(true);
+        events.push(ActivityEvent::Question {
+            text: truncate(&redactor.redact(text), QUESTION_TEXT_MAX),
+            options,
+            multi_select,
+        });
+    }
+    (!events.is_empty()).then_some(events)
+}
+
+/// `ExitPlanMode` → a plan-approval `question` (text = the plan markdown when
+/// present). The option keys mirror the `claude` TUI plan picker ("1. Yes,
+/// and auto-accept edits / 2. Yes, and manually approve edits / 3. No, keep
+/// planning") — the mapping lives HERE so a picker change in a future claude
+/// version is fixed centrally, not per client.
+fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityEvent {
+    let plan = input
+        .and_then(|i| i.get("plan"))
+        .and_then(Value::as_str)
+        .map(|p| truncate(&redactor.redact(p), QUESTION_TEXT_MAX))
+        .filter(|p| !p.trim().is_empty());
+    ActivityEvent::Question {
+        text: plan.unwrap_or_else(|| "Plan ready for approval.".to_string()),
+        options: vec![
+            QuestionOption {
+                label: "Approve — auto-accept edits".to_string(),
+                key: "1".to_string(),
+            },
+            QuestionOption {
+                label: "Approve — manually approve edits".to_string(),
+                key: "2".to_string(),
+            },
+            QuestionOption {
+                label: "No, keep planning".to_string(),
+                key: "3".to_string(),
+            },
+        ],
+        multi_select: None,
+    }
 }
 
 /// The single primary argument shown for a tool call — a file path or search
@@ -582,6 +725,9 @@ mod tests {
 
     #[test]
     fn user_and_tool_result_entries_are_skipped() {
+        // No `origin.kind == "human"` marker ⇒ not a genuine human turn (this
+        // is the shape of a tool-result delivery) — nothing is published, and
+        // the tool_result content in particular never leaks.
         let redactor = Redactor::new(vec![]);
         let user = serde_json::json!({
             "type": "user",
@@ -592,6 +738,240 @@ mod tests {
         })
         .to_string();
         assert!(parse_transcript_line(&user, &redactor).is_empty());
+    }
+
+    #[test]
+    fn human_user_string_content_becomes_user_message() {
+        // The argv-seeded initial prompt: origin.kind == "human", content is a
+        // plain string.
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "promptSource": "typed",
+            "message": { "role": "user", "content": "Fix the login bug in EXP-42." }
+        })
+        .to_string();
+        assert_eq!(
+            parse_transcript_line(&line, &redactor),
+            vec![ActivityEvent::UserMessage {
+                text: "Fix the login bug in EXP-42.".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn human_user_array_content_joins_text_blocks_and_skips_system_reminders() {
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "message": { "content": [
+                { "type": "text", "text": "<system-reminder>injected context</system-reminder>" },
+                { "type": "text", "text": "please add tests" },
+                { "type": "tool_result", "content": "secret file contents" },
+                { "type": "text", "text": "and update the docs" },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            parse_transcript_line(&line, &redactor),
+            vec![ActivityEvent::UserMessage {
+                text: "please add tests\n\nand update the docs".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn task_notification_and_meta_user_entries_are_skipped() {
+        let redactor = Redactor::new(vec![]);
+        let task_notification = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "task-notification" },
+            "promptSource": "system",
+            "message": { "content": "<task-notification>agent done</task-notification>" }
+        })
+        .to_string();
+        assert!(parse_transcript_line(&task_notification, &redactor).is_empty());
+
+        let meta = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "isMeta": true,
+            "message": { "content": "skill body dump" }
+        })
+        .to_string();
+        assert!(parse_transcript_line(&meta, &redactor).is_empty());
+
+        let compact = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "isCompactSummary": true,
+            "message": { "content": "summary of prior context" }
+        })
+        .to_string();
+        assert!(parse_transcript_line(&compact, &redactor).is_empty());
+    }
+
+    #[test]
+    fn user_message_is_redacted_and_truncated() {
+        let redactor = Redactor::new(vec![]);
+        let big = format!(
+            "use key expu_abcdefghijklmnop0123456789 {}",
+            "x".repeat(NARRATION_MAX + 500)
+        );
+        let line = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "human" },
+            "message": { "content": big }
+        })
+        .to_string();
+        match &parse_transcript_line(&line, &redactor)[..] {
+            [ActivityEvent::UserMessage { text }] => {
+                assert!(!text.contains("expu_abcdef"), "expu key leaked: {text}");
+                assert!(text.len() <= NARRATION_MAX);
+            }
+            other => panic!("expected one user_message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ask_user_question_maps_options_to_digit_keys() {
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "AskUserQuestion", "input": { "questions": [
+                    { "question": "Which auth method?", "header": "Auth", "multiSelect": false,
+                      "options": [
+                        { "label": "OAuth", "description": "..." },
+                        { "label": "JWT", "description": "..." },
+                        { "label": "Session", "description": "..." },
+                      ] },
+                    { "question": "Which features?", "header": "Features", "multiSelect": true,
+                      "options": [
+                        { "label": "Push", "description": "..." },
+                        { "label": "Email", "description": "..." },
+                      ] },
+                ] } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            parse_transcript_line(&line, &redactor),
+            vec![
+                ActivityEvent::Question {
+                    text: "Which auth method?".into(),
+                    options: vec![
+                        QuestionOption { label: "OAuth".into(), key: "1".into() },
+                        QuestionOption { label: "JWT".into(), key: "2".into() },
+                        QuestionOption { label: "Session".into(), key: "3".into() },
+                    ],
+                    multi_select: None,
+                },
+                ActivityEvent::Question {
+                    text: "Which features?".into(),
+                    options: vec![
+                        QuestionOption { label: "Push".into(), key: "1".into() },
+                        QuestionOption { label: "Email".into(), key: "2".into() },
+                    ],
+                    multi_select: Some(true),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn exit_plan_mode_emits_plan_approval_question() {
+        let redactor = Redactor::new(vec![]);
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        match &parse_transcript_line(&line, &redactor)[..] {
+            [ActivityEvent::Question { text, options, multi_select }] => {
+                assert_eq!(text, "## Plan\n1. Do the thing");
+                assert_eq!(
+                    options.iter().map(|o| o.key.as_str()).collect::<Vec<_>>(),
+                    vec!["1", "2", "3"]
+                );
+                assert_eq!(*multi_select, None);
+            }
+            other => panic!("expected one question, got {other:?}"),
+        }
+
+        // Plan absent (file-based plans) → fixed headline, same options.
+        let bare = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "ExitPlanMode", "input": {} },
+            ]}
+        })
+        .to_string();
+        match &parse_transcript_line(&bare, &redactor)[..] {
+            [ActivityEvent::Question { text, options, .. }] => {
+                assert_eq!(text, "Plan ready for approval.");
+                assert_eq!(options.len(), 3);
+            }
+            other => panic!("expected one question, got {other:?}"),
+        }
+
+        // Oversized plan is truncated to the relay cap.
+        let big = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "ExitPlanMode",
+                  "input": { "plan": "p".repeat(QUESTION_TEXT_MAX + 500) } },
+            ]}
+        })
+        .to_string();
+        match &parse_transcript_line(&big, &redactor)[..] {
+            [ActivityEvent::Question { text, .. }] => {
+                assert_eq!(text.len(), QUESTION_TEXT_MAX);
+            }
+            other => panic!("expected one question, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_ask_user_question_falls_back_to_tool_event() {
+        let redactor = Redactor::new(vec![]);
+        // No questions array → generic tool headline, never a broken question.
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "AskUserQuestion", "input": {} },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            parse_transcript_line(&line, &redactor),
+            vec![ActivityEvent::Tool {
+                name: "AskUserQuestion".into(),
+                detail: None
+            }]
+        );
+
+        // A question with an empty options list is malformed too.
+        let empty_options = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "AskUserQuestion",
+                  "input": { "questions": [ { "question": "Pick one", "options": [] } ] } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            parse_transcript_line(&empty_options, &redactor),
+            vec![ActivityEvent::Tool {
+                name: "AskUserQuestion".into(),
+                detail: None
+            }]
+        );
     }
 
     #[test]
