@@ -1,0 +1,1 @@
+Workspace deletion from settings (owners), steering chat now shows your own messages, fixed mobile menu order, plus reliability fixes.

@@ -1,5 +1,5 @@
-• More reliable notifications when you're signed into more than one account
-• Notification taps now open the account the notification was meant for
-• Editing descriptions and comments no longer drops your latest changes
-• Tables in descriptions and comments survive editing intact
+• Workspace owners can now delete a workspace from settings
+• Steering chat now shows your own messages
+• Fixed menu ordering in mobile navigation
+• My Issues list margins now match the rest of the app
 • Stability and reliability fixes

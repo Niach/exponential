@@ -71,8 +71,8 @@ let shareExtensionSources: SourceFilesList = [
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.12.0"
-let appBuildVersion = "31"
+let appMarketingVersion = "0.13.0"
+let appBuildVersion = "32"
 
 let shareExtensionInfoPlist: [String: Plist.Value] = [
     // Must match the parent app's version (CFBundleVersion mismatch trips
