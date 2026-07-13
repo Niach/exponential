@@ -43,6 +43,29 @@ struct ReleaseStatePill: View {
     }
 }
 
+/// "PR #N" (outline emerald) while the release PR is OPEN — the list row's
+/// awaiting-review signal (EXP-73). Mobile has no Reviews surface, so this is
+/// its only list-level release-PR indicator; mirrors the web/desktop release
+/// rows. Nothing once merged/closed (the Shipped pill takes over).
+struct ReleaseOpenPrPill: View {
+    let release: ReleaseEntity
+
+    var body: some View {
+        if release.prState == DomainContract.prStateOpen {
+            Text(release.prNumber.map { "PR #\($0)" } ?? "PR")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(DesignTokens.Semantic.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .overlay(
+                    Capsule().strokeBorder(
+                        DesignTokens.Semantic.green.opacity(0.4), lineWidth: 1
+                    )
+                )
+        }
+    }
+}
+
 /// "N of M done" — denominator excludes cancelled + duplicate (§10.2).
 func progressText(_ progress: ReleaseProgress) -> String {
     progress.total == 0

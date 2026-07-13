@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { CalendarDays, Plus, Rocket } from "lucide-react"
+import { CalendarDays, GitPullRequest, Plus, Rocket } from "lucide-react"
 import type { Issue, Release, Workspace } from "@/db/schema"
 import { issueCollection, releaseCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -97,6 +97,19 @@ function ReleaseRow({
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-medium">{release.name}</span>
           <ReleaseStatePill release={release} isComplete={progress.isComplete} />
+          {release.prState === `open` && (
+            // Open release PR awaiting review (EXP-73) — same signal as the
+            // Reviews queue, surfaced on the row for every client (the
+            // mobile apps have no Reviews surface). Cross-client contract
+            // like ReleaseStatePill.
+            <Badge
+              variant="outline"
+              className="shrink-0 border-emerald-500/40 text-emerald-500"
+            >
+              <GitPullRequest className="size-3" />
+              {release.prNumber != null ? `PR #${release.prNumber}` : `PR`}
+            </Badge>
+          )}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           {release.targetDate && (

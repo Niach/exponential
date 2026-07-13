@@ -1861,7 +1861,11 @@ impl SidebarPanel {
                             .child(name),
                     )
                     .when(coding, |this| this.child(coding_pill(green)))
-                    .when(shipped, |this| this.child(shipped_pill(green))),
+                    .when(shipped, |this| this.child(shipped_pill(green)))
+                    .when(
+                        release.pr_state.as_deref() == Some("open"),
+                        |this| this.child(pr_open_pill(green, release.pr_number)),
+                    ),
             )
             .child(
                 div()
@@ -2306,6 +2310,27 @@ fn shipped_pill(green: Hsla) -> gpui::AnyElement {
         .text_xs()
         .text_color(green)
         .child("Shipped")
+        .into_any_element()
+}
+
+/// The green "PR #N" pill on Releases list rows while the release PR is OPEN
+/// (EXP-73) — the awaiting-review signal, mirrored on the web/iOS/Android
+/// release rows (mobile has no Reviews surface, so the row is its only
+/// list-level release-PR indicator).
+fn pr_open_pill(green: Hsla, pr_number: Option<i64>) -> gpui::AnyElement {
+    let label = match pr_number {
+        Some(number) => format!("PR #{number}"),
+        None => "PR".to_string(),
+    };
+    div()
+        .flex_shrink_0()
+        .px_1p5()
+        .rounded_full()
+        .border_1()
+        .border_color(green.opacity(0.4))
+        .text_xs()
+        .text_color(green)
+        .child(SharedString::from(label))
         .into_any_element()
 }
 

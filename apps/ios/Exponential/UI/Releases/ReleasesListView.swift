@@ -90,6 +90,7 @@ struct ReleasesListView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     ReleaseStatePill(release: release, isComplete: progress.isComplete)
+                    ReleaseOpenPrPill(release: release)
                     Spacer()
                 }
 
