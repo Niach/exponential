@@ -13,6 +13,7 @@ import { randomBytes } from "crypto"
 import { isUserAdmin } from "@/lib/admin"
 import {
   createPersonalWorkspace,
+  findOtherPersonalMembership,
   findPersonalMembership,
 } from "@/lib/auth/personal-workspace"
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
@@ -183,6 +184,22 @@ export const workspacesRouter = router({
       // the cascade never touches S3, so without this the blobs orphan.
       let storageKeys: string[] = []
       const result = await ctx.db.transaction(async (tx) => {
+        // EXP-82: never delete the user's LAST personal workspace — the
+        // EXP-43 ensureDefault self-heal would recreate it on the next home
+        // load with a fresh id/slug, which reads as data corruption. Checked
+        // in-tx so two concurrent deletes can't both slip past a stale
+        // pre-check.
+        const remaining = await findOtherPersonalMembership(
+          tx,
+          ctx.session.user.id,
+          input.workspaceId
+        )
+        if (!remaining) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `You can't delete your only workspace.`,
+          })
+        }
         const txId = await generateTxId(tx)
         storageKeys = (
           await tx

@@ -77,6 +77,13 @@ struct IssuesHomeView: View {
             )
             .presentationBackground(.ultraThinMaterial)
         }
+        // Android-parity self-heal (EXP-82): Android's home bootstrap calls
+        // workspaces.ensureDefault on every appearance, so an account that
+        // ends up workspace-less (legacy signup, or an owner deleted a shared
+        // workspace out from under us) heals itself. Deleting your LAST
+        // workspace is server-refused, so this can never resurrect a
+        // deliberately deleted one.
+        .task { await healDefaultWorkspace() }
     }
 
     // MARK: - Switcher control
@@ -177,23 +184,36 @@ struct IssuesHomeView: View {
         guard !preparingCreate, let accountId = deps.auth.activeAccountId else { return }
         preparingCreate = true
         defer { preparingCreate = false }
-        if let workspace = try? await deps.workspacesApi.ensureDefault(accountId: accountId) {
-            // If the workspace isn't in the local synced set, ensureDefault
-            // just CREATED it — the membership change rotates every shape's
-            // server-derived where clause, and the in-flight live long-polls
-            // would keep the OLD scope for up to ~60s, so the project created
-            // next would "show up nowhere". Relaunch the pipeline so the fresh
-            // scope syncs in seconds (EXP-46; same drain-lag gap as EXP-43).
-            var alreadySynced = false
-            if let pool = try? deps.db.pool(forAccountId: accountId) {
-                alreadySynced = (try? await pool.read { db in
-                    try WorkspaceEntity.fetchOne(db, key: workspace.id) != nil
-                }) ?? false
-            }
-            if !alreadySynced {
-                await deps.syncManager.restartPipeline(accountId: accountId)
-            }
+        if let workspace = await resolveDefaultWorkspace(accountId: accountId) {
             createTarget = CreateTarget(accountId: accountId, workspaceId: workspace.id)
         }
+    }
+
+    private func healDefaultWorkspace() async {
+        guard let accountId = deps.auth.activeAccountId else { return }
+        _ = await resolveDefaultWorkspace(accountId: accountId)
+    }
+
+    /// Resolve (creating if needed) the account's default workspace.
+    private func resolveDefaultWorkspace(accountId: String) async -> WorkspaceResult? {
+        guard let workspace = try? await deps.workspacesApi.ensureDefault(accountId: accountId) else {
+            return nil
+        }
+        // If the workspace isn't in the local synced set, ensureDefault
+        // just CREATED it — the membership change rotates every shape's
+        // server-derived where clause, and the in-flight live long-polls
+        // would keep the OLD scope for up to ~60s, so anything created
+        // next would "show up nowhere". Relaunch the pipeline so the fresh
+        // scope syncs in seconds (EXP-46; same drain-lag gap as EXP-43).
+        var alreadySynced = false
+        if let pool = try? deps.db.pool(forAccountId: accountId) {
+            alreadySynced = (try? await pool.read { db in
+                try WorkspaceEntity.fetchOne(db, key: workspace.id) != nil
+            }) ?? false
+        }
+        if !alreadySynced {
+            await deps.syncManager.restartPipeline(accountId: accountId)
+        }
+        return workspace
     }
 }
