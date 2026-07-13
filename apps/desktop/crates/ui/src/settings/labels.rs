@@ -295,11 +295,12 @@ impl LabelsPane {
                     }),
             );
 
-        // Borderless name input (web `border-none shadow-none`).
+        // Borderless name input (web `border-none shadow-none`). `flex_1`
+        // goes ON the Input (upstream input_story pattern): its root sizes
+        // itself with a percent width, which collapses to content width
+        // inside a flex-basis-0 wrapper div — cutting the name to ~1 char.
         if let Some(input) = self.name_inputs.get(&label.id) {
-            row = row.child(div().flex_1().min_w_0().child(
-                Input::new(input).small().appearance(false),
-            ));
+            row = row.child(Input::new(input).small().appearance(false).flex_1().min_w_0());
         } else {
             row = row.child(
                 div()
