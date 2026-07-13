@@ -2,9 +2,9 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the five
-/// top-level destinations (Issues, Search, Agents — with a running-session
-/// dot — My Work — with an unread dot — and Releases) plus a detached
-/// circular compose button on the right. Attached via
+/// top-level destinations (Issues, My Work — with an unread dot — Releases,
+/// Agents — with a running-session dot — and Search; order per EXP-81) plus
+/// a detached circular compose button on the right. Attached via
 /// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
 /// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
 /// (EXP-36). MainNavigator hides it on detail screens.
@@ -36,19 +36,8 @@ struct MobileTabBar: View {
             HStack(spacing: 4) {
                 tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
-                tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
-                    .accessibilityIdentifier("tab-search")
-                tab(
-                    glyph: .asset("tab-robot"),
-                    label: "Agents",
-                    active: agentsActive,
-                    badge: agentsRunning,
-                    badgeColor: DesignTokens.Semantic.green,
-                    action: onAgents
-                )
-                .accessibilityIdentifier("tab-agents")
                 // EXP-58: the Inbox tab became My Work (Inbox + My Issues
-                // merged) — same slot, same glyph, same unread dot.
+                // merged) — same glyph, same unread dot.
                 tab(
                     glyph: .system("tray"),
                     label: "My Work",
@@ -60,6 +49,17 @@ struct MobileTabBar: View {
                 .accessibilityIdentifier("tab-mywork")
                 tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
                     .accessibilityIdentifier("tab-releases")
+                tab(
+                    glyph: .asset("tab-robot"),
+                    label: "Agents",
+                    active: agentsActive,
+                    badge: agentsRunning,
+                    badgeColor: DesignTokens.Semantic.green,
+                    action: onAgents
+                )
+                .accessibilityIdentifier("tab-agents")
+                tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
+                    .accessibilityIdentifier("tab-search")
             }
             .padding(5)
             .background(.ultraThinMaterial, in: Capsule())
