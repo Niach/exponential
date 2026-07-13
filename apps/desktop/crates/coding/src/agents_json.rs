@@ -55,7 +55,7 @@ pub fn build_agents_json(
             AgentDef {
                 description: format!("Implement {}: {}", issue.identifier, issue.title),
                 prompt: format!(
-                    "You are the subagent for {id}. Work ONLY inside the worktree at \
+                    "Please act as the subagent for {id}. Work ONLY inside the worktree at \
 {worktree} (branch {branch}) — never the main working directory, never another issue's \
 worktree or branch. Read the 'Per-subagent contract' and the '### {id}:' section of \
 PROMPT.md at the root of the MAIN working directory for the full issue context, then \

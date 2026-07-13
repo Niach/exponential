@@ -27,7 +27,7 @@ pub const PROMPT_FILE: &str = "PROMPT.md";
 /// when the rendered prompt itself is too big to ride argv (input written to
 /// the PTY before the TUI enters raw mode is swallowed, so the prompt must
 /// never ride stdin).
-pub const SEED_LINE: &str = "Read PROMPT.md in this directory, then follow it.";
+pub const SEED_LINE: &str = "Please read PROMPT.md in this directory, then follow it.";
 
 /// Windows CreateProcess caps the whole command line at 32,767 chars —
 /// keep ~4KB headroom for program path + flags.
@@ -90,8 +90,8 @@ pub fn deliver_prompt_file(
 pub fn render_prompt(identifier: &str, title: &str, description: Option<&str>) -> String {
     let body = issue_body(description);
     format!(
-        "You are working on **{identifier}: {title}** in this repository. Read the issue \
-context below. Implement the change, then commit and push your branch and open a pull \
+        "Please read the issue context below and work on **{identifier}: {title}** in this \
+repository. Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
 with `exponential_issues_update_status` (`in_progress` when you start, `done` when the \
 PR is open). Do not use `gh`.
@@ -126,8 +126,8 @@ mod tests {
     use super::*;
 
     /// The §7.1 step-5 template — exact bytes for a described issue.
-    const EXPECTED: &str = "You are working on **EXP-42: Fix login flicker** in this repository. Read the issue \
-context below. Implement the change, then commit and push your branch and open a pull \
+    const EXPECTED: &str = "Please read the issue context below and work on **EXP-42: Fix login flicker** in this \
+repository. Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
 with `exponential_issues_update_status` (`in_progress` when you start, `done` when the \
 PR is open). Do not use `gh`.
@@ -195,7 +195,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn seed_line_matches_the_spec() {
-        assert_eq!(SEED_LINE, "Read PROMPT.md in this directory, then follow it.");
+        assert_eq!(SEED_LINE, "Please read PROMPT.md in this directory, then follow it.");
     }
 
     /// A small prompt goes Direct — no `PROMPT.md` on disk, and a STALE copy

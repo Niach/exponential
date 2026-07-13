@@ -75,7 +75,7 @@ pub fn render_release_prompt(args: &ReleasePromptArgs<'_>) -> String {
     let issue_count = issues.len();
 
     format!(
-        "You are the RELEASE ORCHESTRATOR for **{release_name}** in this repository. \
+        "Please act as the RELEASE ORCHESTRATOR for **{release_name}** in this repository. \
 Implement each of the {issue_count} issues below by delegating ONE subagent per issue, run \
 independent issues in parallel, and integrate every result into the pushed release \
 integration branch `{integration_branch}`.

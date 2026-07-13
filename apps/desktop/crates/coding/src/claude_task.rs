@@ -101,8 +101,8 @@ pub fn fix_conflicts_prompt(branch: &str, files: &[String]) -> String {
         files.join(", ")
     };
     format!(
-        "A `git pull --rebase` on `{branch}` stopped on conflicts in {file_list}. \
-Resolve them preserving both sides' intent, run `git rebase --continue` (or \
+        "Please resolve a rebase conflict: a `git pull --rebase` on `{branch}` stopped on \
+conflicts in {file_list}. Resolve them preserving both sides' intent, run `git rebase --continue` (or \
 `git merge --continue`), verify the project still builds, and do NOT push."
     )
 }
@@ -113,7 +113,7 @@ Resolve them preserving both sides' intent, run `git rebase --continue` (or \
 /// push with `--force-with-lease`.
 pub fn resolve_pr_prompt(default_branch: &str) -> String {
     format!(
-        "Rebase this branch onto `origin/{default_branch}`, resolve any conflicts, \
+        "Please rebase this branch onto `origin/{default_branch}`, resolve any conflicts, \
 verify the build, then push with `--force-with-lease`."
     )
 }
@@ -126,7 +126,7 @@ verify the build, then push with `--force-with-lease`."
 /// reads the repo and calls the MCP tools.
 pub fn create_run_configs_prompt(project_id: &str) -> String {
     format!(
-        "Inspect this repository — its README, package.json, Cargo.toml, Makefile, \
+        "Please inspect this repository — its README, package.json, Cargo.toml, Makefile, \
 justfile, docker-compose, and scripts — to learn how it is developed, built, run, \
 tested, and linted. Then create a small set of useful run configurations for the \
 Exponential project with id `{project_id}` using the `exponential_run_configs_create` \
@@ -233,8 +233,8 @@ mod tests {
         let prompt = fix_conflicts_prompt("main", &["src/app.rs".into(), "Cargo.lock".into()]);
         assert_eq!(
             prompt,
-            "A `git pull --rebase` on `main` stopped on conflicts in src/app.rs, Cargo.lock. \
-Resolve them preserving both sides' intent, run `git rebase --continue` (or \
+            "Please resolve a rebase conflict: a `git pull --rebase` on `main` stopped on \
+conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent, run `git rebase --continue` (or \
 `git merge --continue`), verify the project still builds, and do NOT push."
         );
         // The trunk conflict prompt must never instruct a push (the human
@@ -269,7 +269,7 @@ Resolve them preserving both sides' intent, run `git rebase --continue` (or \
         let prompt = resolve_pr_prompt("main");
         assert_eq!(
             prompt,
-            "Rebase this branch onto `origin/main`, resolve any conflicts, \
+            "Please rebase this branch onto `origin/main`, resolve any conflicts, \
 verify the build, then push with `--force-with-lease`."
         );
         // The worktree prompt DOES push (Claude owns its branch — v4 §4.9 row 2).
