@@ -45,3 +45,14 @@ dirs.workspace = true
 # CFString / CFBundle handles the LaunchServices FFI needs.
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
+
+# Linux/BSD: stamp `_NET_WM_ICON` on our X11 windows (EXP-79) — the taskbar
+# icon for the first launch after an install/update, before the desktop shell
+# has indexed the just-written `.desktop`/hicolor files. Both crates are
+# already in the tree at these exact versions via gpui itself (x11rb through
+# gpui_linux's X11 backend, resvg as gpui's SVG renderer), so this adds no new
+# weight; resvg mirrors gpui's version and needs no features (the logo is pure
+# paths — feature unification with gpui's set picks the rest up anyway).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+x11rb = "0.13"
+resvg = { version = "0.45", default-features = false }

@@ -246,12 +246,14 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "resvg",
  "rust-embed",
  "steer",
  "sync",
  "terminal",
  "theme",
  "ui",
+ "x11rb",
 ]
 
 [[package]]

@@ -20,6 +20,13 @@ const CASCADE_STEP: f32 = 24.;
 pub fn open_workspace_window(cx: &mut App) {
     let ordinal = WINDOW_ORDINAL.fetch_add(1, Ordering::SeqCst);
 
+    // X11 taskbar-icon fallback (EXP-79): stamp _NET_WM_ICON on the window
+    // once it maps — the `.desktop` Icon= association (set up below via
+    // app_id) only renders after the shell re-indexes its desktop files,
+    // which a first launch always loses the race against.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    crate::x11_window_icon::install();
+
     // §3.6 default bounds; min size floors the §3.9 zero-size guard.
     let default_size = size(px(1280.), px(820.));
     let min_size = size(px(760.), px(480.));
