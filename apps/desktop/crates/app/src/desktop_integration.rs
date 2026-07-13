@@ -55,8 +55,9 @@ fn desktop_file_name() -> String {
 /// The white-on-transparent logo (the variant that reads on the dark shelves
 /// desktop Linux defaults to), embedded so the RUNNING app can install it as
 /// its hicolor icon — the AppImage's bundled icon lives inside the squashfs
-/// where no icon theme can see it (EXP-68).
-const ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.svg");
+/// where no icon theme can see it (EXP-68). Shared with `x11_window_icon`,
+/// which rasterizes the same bytes into `_NET_WM_ICON` (EXP-79).
+pub(crate) const ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.svg");
 
 /// Install the app icon into the user hicolor theme
 /// (`~/.local/share/icons/hicolor/scalable/apps/<APP_ID>.svg`) so the
@@ -65,7 +66,9 @@ fn ensure_icon_installed() {
     let Some(data_dir) = dirs::data_dir() else {
         return;
     };
-    let icon_dir = data_dir.join("icons/hicolor/scalable/apps");
+    let icons_dir = data_dir.join("icons");
+    let theme_dir = icons_dir.join("hicolor");
+    let icon_dir = theme_dir.join("scalable/apps");
     let icon_path = icon_dir.join(format!("{APP_ID}.svg"));
     let current = std::fs::read(&icon_path).ok();
     if current.as_deref() == Some(ICON_SVG) {
@@ -75,7 +78,16 @@ fn ensure_icon_installed() {
         .and_then(|()| std::fs::write(&icon_path, ICON_SVG))
     {
         eprintln!("[exp-desktop] icon install failed: {err:#}");
+        return;
     }
+    // Bump the mtime of the theme ROOT (and the unthemed fallback dir):
+    // GtkIconTheme decides "did anything change?" by stat()ing only those two
+    // levels, never the `scalable/apps` leaf the file landed in — without
+    // this, every already-running GTK process (the desktop shell included)
+    // keeps resolving from its stale scan and the taskbar shows the generic
+    // gear until something else happens to touch the theme (EXP-79). This is
+    // what `xdg-icon-resource install` does too.
+    let _ = Command::new("touch").arg(&theme_dir).arg(&icons_dir).status();
 }
 
 /// Install the `.desktop` handler and make it the default `exponential://`

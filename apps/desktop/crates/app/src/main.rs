@@ -24,6 +24,8 @@ mod menus;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod single_instance;
 mod windows;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod x11_window_icon;
 #[cfg(target_os = "windows")]
 mod windows_integration;
 
