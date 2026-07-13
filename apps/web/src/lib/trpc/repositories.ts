@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, projects, repositories } from "@/db/schema"
+import { issues, projects, releases, repositories } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -32,11 +32,6 @@ import {
 // assertCanManageRepos moved to integrations.ts (both routers need it and the
 // import direction only works that way) — re-exported for existing callers.
 export { assertCanManageRepos }
-
-// GitHub installation tokens last ~1h; we hand back a conservative 55-minute
-// horizon so the desktop launcher refreshes before the real expiry. (The
-// storage-free App path doesn't expose the precise API expiry to callers.)
-const INSTALLATION_TOKEN_TTL_MS = 55 * 60 * 1000
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
 export const BRANCH_PREFIX_DEFAULT = `exp/`
@@ -402,8 +397,20 @@ export const repositoriesRouter = router({
             isNotNull(issues.prUrl)
           )
         )
+      // Release PRs are excluded the same way (EXP-73) — the Reviews surfaces
+      // render them as first-class release rows from the synced releases
+      // shape, so the anonymous external bucket must not double-list them.
+      const releaseRows = await ctx.db
+        .select({ prUrl: releases.prUrl })
+        .from(releases)
+        .where(
+          and(
+            eq(releases.workspaceId, input.workspaceId),
+            isNotNull(releases.prUrl)
+          )
+        )
       const linkedUrls = new Set(
-        linkedRows.map((row) => row.prUrl).filter(Boolean)
+        [...linkedRows, ...releaseRows].map((row) => row.prUrl).filter(Boolean)
       )
 
       const results = await Promise.all(
@@ -609,9 +616,10 @@ export const repositoriesRouter = router({
       })
     }),
 
-  // Session-gated JIT push token for the native launcher's token-embedded git
-  // remote. Never persisted — minted per session and expires. Replaces the
-  // deleted companion.repoToken.
+  // Session-gated JIT push token for the native launcher's ambient git
+  // credentials (repo-local credential helper — EXP-73; the token no longer
+  // rides the remote URL). Never persisted server-side — minted per session
+  // and expires. Replaces the deleted companion.repoToken.
   installationToken: authedProcedure
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -697,7 +705,11 @@ export const repositoriesRouter = router({
         token,
         fullName: repo.fullName,
         defaultBranch: liveDefaultBranch ?? repo.defaultBranch,
-        expiresAt: new Date(Date.now() + INSTALLATION_TOKEN_TTL_MS),
+        // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
+        // a synthetic now+55min here once labeled a nearly-dead cached token
+        // "fresh", and every desktop freshness check trusted the fiction. The
+        // desktop schedules its credential refresh from this value.
+        expiresAt: new Date(resolved.expiresAt),
       }
     }),
 })

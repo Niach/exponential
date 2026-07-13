@@ -15,11 +15,13 @@
 //! `exp/EXP-42`.
 //!
 //! **Redaction rule (§7.1 step 2):** the JIT installation token rides in the
-//! remote URL (`https://x-access-token:<token>@github.com/<full>.git`) and in
-//! git's own error output (git echoes the remote URL on clone/fetch
-//! failures). [`TokenUrl`]'s `Debug`/`Display` are redacted, and every
-//! captured stdout/stderr is scrubbed of the raw token *and* the raw URL
-//! before it can reach a [`GitError`] — no code path formats the secret.
+//! initial clone's argv (`https://x-access-token:<token>@github.com/…`) and in
+//! the clone's credential file ([`crate::git_credentials`] — EXP-73: `origin`
+//! itself stays at the BARE URL), and git can echo either on failure (error
+//! output, GIT_TRACE, helper stderr). [`TokenUrl`]'s `Debug`/`Display` are
+//! redacted, and every captured stdout/stderr is scrubbed of the raw token
+//! *and* the raw URL before it can reach a [`GitError`] — no code path
+//! formats the secret.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -51,6 +53,25 @@ impl TokenUrl {
     /// The loggable form: `https://x-access-token:***@github.com/<full>.git`.
     pub fn redacted(&self) -> String {
         format!("https://x-access-token:***@github.com/{}.git", self.full_name)
+    }
+
+    /// The tokenless remote URL — what `origin` is set to (EXP-73: the token
+    /// never rides the remote; ambient auth is [`crate::git_credentials`]).
+    pub fn bare(&self) -> String {
+        format!("https://github.com/{}.git", self.full_name)
+    }
+
+    /// The `owner/name` this token is scoped to.
+    pub fn full_name(&self) -> &str {
+        &self.full_name
+    }
+
+    /// The git-credential protocol answer for this token — exactly what the
+    /// repo-local helper emits on `get` (values are raw in the protocol;
+    /// installation tokens never contain newlines). Crate-private: only
+    /// [`crate::git_credentials`] writes it.
+    pub(crate) fn credential_file_contents(&self) -> String {
+        format!("username=x-access-token\npassword={}\n", self.token)
     }
 
     /// Scrub the raw token and raw URL out of arbitrary text (git error
@@ -201,20 +222,6 @@ pub fn ensure_clone(
         &format!("git clone {full_name}"),
     )?;
     Ok(clone)
-}
-
-/// `git remote set-url origin <token-url>` — **re-run on EVERY launch**
-/// (§7.1): the worktree outlives the ~55-min token, so the previously
-/// embedded token is dead on relaunch. Remotes are repo-level config shared
-/// by every worktree, so setting it on the clone covers them all.
-pub fn set_token_remote(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    run_git(
-        Some(repo),
-        &["remote", "set-url", "origin", &url.raw()],
-        Some(url),
-        "git remote set-url origin",
-    )?;
-    Ok(())
 }
 
 /// Best-effort `git fetch origin <default_branch>` so `origin/<branch>` is
@@ -790,25 +797,13 @@ mod tests {
     }
 
     #[test]
-    fn set_token_remote_reset_covers_worktrees_via_shared_config() {
-        let dir = temp_dir("remote");
-        let origin = seed_origin(&dir.0);
-        let repos_root = dir.0.join("repos");
-        let clone = clone_path(&repos_root, "acme/web");
-        fs::create_dir_all(clone.parent().unwrap()).unwrap();
-        git(
-            &dir.0,
-            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+    fn token_url_bare_and_credential_forms() {
+        let url = TokenUrl::new("acme/web", "ghs_secret123");
+        assert_eq!(url.bare(), "https://github.com/acme/web.git");
+        assert_eq!(url.full_name(), "acme/web");
+        assert_eq!(
+            url.credential_file_contents(),
+            "username=x-access-token\npassword=ghs_secret123\n"
         );
-
-        let url = TokenUrl::new("acme/web", "ghs_fresh456");
-        set_token_remote(&clone, &url).unwrap();
-
-        let remote = Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(&clone)
-            .output()
-            .unwrap();
-        assert_eq!(String::from_utf8_lossy(&remote.stdout).trim(), url.raw());
     }
 }

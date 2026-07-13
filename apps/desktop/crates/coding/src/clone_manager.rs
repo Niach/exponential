@@ -1,9 +1,8 @@
 //! Trunk clone lifecycle: auto-clone on project open, background auto-sync,
 //! and push/publish — all against the **trunk** clone
 //! (`<repos_root>/<owner>/<name>`), reusing [`crate::git_worktree`]'s
-//! `clone_path` / `set_token_remote` / [`TokenUrl`] redaction. This module is
-//! the ONE transport layer — every network git op on the trunk routes through
-//! here.
+//! `clone_path` / [`TokenUrl`] redaction. This module is the ONE transport
+//! layer — every network git op on the trunk routes through here.
 //!
 //! Contract:
 //! * **Auto-clone on project open** when `<clone>/.git` is missing: mint a JIT
@@ -21,10 +20,12 @@
 //!   returns a [`AutoSyncOutcome`] Skipped variant — auto-sync structurally
 //!   cannot checkout, rebase, or touch `<clone>.worktrees/`.
 //! * **Token re-mint**: the ~55-min installation token is disposable. The
-//!   caller checks [`token_needs_remint`] (via `crate::token_cache`) before
-//!   each network op and passes a fresh [`TokenUrl`]; the network wrappers
-//!   here always [`set_token_remote`] first so the freshly minted token is
-//!   installed before git touches the remote.
+//!   caller obtains working ambient auth before each network op
+//!   ([`crate::git_credentials::ensure_repo_auth`] — cached-or-fresh mint +
+//!   downgrade-guarded credential install); the wrappers here are pure
+//!   transport over that ambient auth (EXP-73: they no longer rewrite
+//!   `remote.origin.url`, which is how a stale cached token used to clobber
+//!   a fresh one mid-run).
 //! * **Ahead/behind** = `git rev-list --left-right --count <branch>...origin/<branch>`
 //!   after a fetch — no network for the counts themselves ([`ahead_behind`]).
 //! * **Push** = fetch → auto-rebase if behind → push, always targeting the
@@ -46,7 +47,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::git_worktree::{clone_path, run_git, set_token_remote, GitError, TokenUrl};
+use crate::git_credentials;
+use crate::git_worktree::{clone_path, run_git, GitError, TokenUrl};
 use crate::trunk_state;
 
 /// Background auto-sync cadence: the GitBar's timer runs [`auto_sync`] this
@@ -101,9 +103,20 @@ pub fn should_fetch(last: Instant) -> bool {
 /// `repositories.installationToken`; `now` is injected so the decision is pure
 /// and testable.
 pub fn token_needs_remint(expires_at: Option<&str>, now: SystemTime) -> bool {
+    token_needs_remint_with_margin(expires_at, now, TOKEN_REMINT_MARGIN)
+}
+
+/// [`token_needs_remint`] with an explicit margin — the mid-session refresher
+/// demands a longer remaining life ([`crate::token_refresh::REFRESH_LEAD`])
+/// than a one-shot network op does.
+pub fn token_needs_remint_with_margin(
+    expires_at: Option<&str>,
+    now: SystemTime,
+    margin: Duration,
+) -> bool {
     match expires_at.and_then(parse_iso8601_utc) {
         Some(expiry) => match expiry.duration_since(now) {
-            Ok(remaining) => remaining < TOKEN_REMINT_MARGIN,
+            Ok(remaining) => remaining < margin,
             Err(_) => true, // now >= expiry → already expired
         },
         None => true, // unknown/unparseable expiry → re-mint to be safe
@@ -114,8 +127,10 @@ pub fn token_needs_remint(expires_at: Option<&str>, now: SystemTime) -> bool {
 /// without fractional seconds) into a [`SystemTime`]. `None` on any deviation
 /// from that shape — callers treat `None` as "re-mint" (fail safe). Pure: no
 /// external time crate (chrono is not a desktop dependency), uses Howard
-/// Hinnant's `days_from_civil`.
-fn parse_iso8601_utc(raw: &str) -> Option<SystemTime> {
+/// Hinnant's `days_from_civil`. Crate-visible: [`crate::git_credentials`]'s
+/// no-downgrade guard and [`crate::token_refresh`]'s scheduling compare the
+/// same server timestamps.
+pub(crate) fn parse_iso8601_utc(raw: &str) -> Option<SystemTime> {
     let raw = raw.trim();
     let (date, time_part) = raw.split_once('T')?;
     // Tolerate a trailing `Z` and drop any fractional seconds.
@@ -197,11 +212,17 @@ pub fn ensure(
     repos_root: &Path,
     full_name: &str,
     url: &TokenUrl,
+    expires_at: Option<&str>,
     on_event: CloneProgress<'_>,
 ) -> Result<PathBuf, GitError> {
     let clone = clone_path(repos_root, full_name);
     if clone.join(".git").exists() {
-        on_event(CloneEvent::Done); // reuse — §7.1 idempotent relaunch
+        // Reuse — §7.1 idempotent relaunch. Best-effort ambient-auth install
+        // (EXP-73): heals a pre-existing token-embedded origin at project
+        // open; a failure here must not fail the reuse (the next network op
+        // installs auth itself).
+        let _ = git_credentials::ensure(&clone, url, expires_at);
+        on_event(CloneEvent::Done);
         return Ok(clone);
     }
 
@@ -221,6 +242,14 @@ pub fn ensure(
     let clone_str = clone.to_string_lossy().into_owned();
     match run_clone_streaming(url, &clone_str, full_name, &mut *on_event) {
         Ok(()) => {
+            // Ambient auth right after the clone exists (the credential file
+            // needs `.git` on disk; the clone itself still rides the token
+            // URL in argv) — the follow-up fetch already exercises it, and
+            // `origin` is reset to the bare URL here (EXP-73).
+            if let Err(err) = git_credentials::ensure(&clone, url, expires_at) {
+                on_event(CloneEvent::Failed(err.detail.clone()));
+                return Err(err);
+            }
             // §4.1: clone, then a fetch. A fresh clone is already up to date,
             // so this is best-effort — a transient fetch failure must not fail
             // the clone (the trunk is on disk and usable).
@@ -235,11 +264,11 @@ pub fn ensure(
     }
 }
 
-/// `git fetch origin` against the trunk clone (freshness). Re-sets the token
-/// remote first (v4 §4.1: the caller may have re-minted; the ~55-min token is
-/// disposable).
+/// `git fetch origin` against the trunk clone (freshness). Pure transport:
+/// auth is the clone's ambient credential helper, installed by the caller
+/// via [`git_credentials::ensure_repo_auth`] (EXP-73 — no more per-op
+/// `remote set-url`). `url` remains for error scrubbing only.
 pub fn fetch(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
-    set_token_remote(clone, url)?;
     run_git(Some(clone), &["fetch", "origin"], Some(url), "git fetch origin")?;
     Ok(())
 }
@@ -266,11 +295,10 @@ pub fn push(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> 
     Ok(())
 }
 
-/// Publish an unpublished branch: re-set the token remote + `git push -u
-/// origin <branch>` (creates the upstream the git bar's counts and
-/// [`auto_sync`] need).
+/// Publish an unpublished branch: `git push -u origin <branch>` (creates the
+/// upstream the git bar's counts and [`auto_sync`] need). Pure transport over
+/// ambient auth, like [`fetch`].
 pub fn publish(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
-    set_token_remote(clone, url)?;
     run_git(Some(clone), &["push", "-u", "origin", branch], Some(url), "git push -u")?;
     Ok(())
 }
@@ -646,10 +674,10 @@ mod tests {
 
     // ---- transport against a local bare origin (hermetic, no network) ----
     //
-    // The public wrappers re-set origin to the token URL first, so the
-    // fixture installs a `url.<bare>.insteadOf <token-url>` rewrite: git
-    // resolves the unroutable token remote back to the local bare repo, and
-    // the EXACT production code path (set_token_remote → fetch/push) runs.
+    // EXP-73: the wrappers are pure transport over whatever `origin` is
+    // configured (ambient credential-helper auth in production), so the
+    // fixture's plain local-bare origin exercises the exact production argv.
+    // `dummy_url` survives purely as the scrub input.
 
     fn dummy_url() -> TokenUrl {
         TokenUrl::new("acme/web", "ghs_dead")
@@ -685,15 +713,6 @@ mod tests {
         commit_all(&work, "base");
         git(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
         git(&work, &["push", "--quiet", "-u", "origin", "main"]);
-        // The insteadOf rewrite that makes the token URL resolve locally.
-        git(
-            &work,
-            &[
-                "config",
-                &format!("url.{}.insteadOf", bare.to_str().unwrap()),
-                &dummy_url().raw(),
-            ],
-        );
 
         let consumer = d.join("consumer");
         git(d, &["clone", "--quiet", bare.to_str().unwrap(), consumer.to_str().unwrap()]);

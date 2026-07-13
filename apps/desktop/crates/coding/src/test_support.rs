@@ -91,10 +91,11 @@ pub(crate) fn canned_server(responses: Vec<(u16, String)>) -> String {
 }
 
 /// A fake §7.1-step-3 provider: hands back a pre-made temp worktree and
-/// records the (full_name, default_branch, branch) it was asked for.
+/// records the (full_name, default_branch, branch, expires_at) it was asked
+/// for.
 pub(crate) struct FakeWorktrees {
     pub worktree: PathBuf,
-    pub seen: std::sync::Mutex<Vec<(String, String, String)>>,
+    pub seen: std::sync::Mutex<Vec<(String, String, String, Option<String>)>>,
 }
 
 impl WorktreeProvider for FakeWorktrees {
@@ -105,11 +106,13 @@ impl WorktreeProvider for FakeWorktrees {
         default_branch: &str,
         branch: &str,
         _url: &TokenUrl,
+        expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError> {
         self.seen.lock().unwrap().push((
             full_name.to_string(),
             default_branch.to_string(),
             branch.to_string(),
+            expires_at.map(str::to_string),
         ));
         Ok(self.worktree.clone())
     }

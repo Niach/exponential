@@ -73,10 +73,16 @@ function InboxUnreadBadge() {
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
 }
 
-// Open-PR count across the workspace's projects, for the Reviews entry. Pure
-// client-side counting over the already-synced issues shape (prState is on
-// every issue row).
-function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
+// Open-PR count across the workspace's projects — issue-linked PRs plus open
+// RELEASE PRs (EXP-73), matching the Reviews page's synced-row count. Pure
+// client-side counting over the already-synced issues + releases shapes.
+function ReviewsCountBadge({
+  projects,
+  workspaceId,
+}: {
+  projects: Project[] | undefined
+  workspaceId?: string
+}) {
   const projectIds = useMemo(
     () => (projects ?? []).map((project) => project.id),
     [projects]
@@ -95,7 +101,21 @@ function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
         : undefined,
     [projectIds.join(`,`)]
   )
-  const count = data?.length ?? 0
+  const { data: releasePulls } = useLiveQuery(
+    (query) =>
+      workspaceId
+        ? query
+            .from({ releases: releaseCollection })
+            .where(({ releases }) =>
+              and(
+                eq(releases.workspaceId, workspaceId),
+                eq(releases.prState, `open`)
+              )
+            )
+        : undefined,
+    [workspaceId]
+  )
+  const count = (data?.length ?? 0) + (releasePulls?.length ?? 0)
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
@@ -322,7 +342,10 @@ export function WorkspaceSidebar({
                           <span>Reviews</span>
                         </Link>
                       </SidebarMenuButton>
-                      <ReviewsCountBadge projects={projects} />
+                      <ReviewsCountBadge
+                        projects={projects}
+                        workspaceId={workspace?.id}
+                      />
                     </SidebarMenuItem>
                   )}
                   {isAuthed && (

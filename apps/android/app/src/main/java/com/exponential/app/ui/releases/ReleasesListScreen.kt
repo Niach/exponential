@@ -56,6 +56,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.ReleaseEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.releaseComparator
 import com.exponential.app.domain.releaseProgress
 import com.exponential.app.domain.releaseProgressText
@@ -274,6 +275,17 @@ private fun ReleaseRow(
                 )
                 Spacer(Modifier.width(8.dp))
                 ReleaseStatePill(release = release, isComplete = progress.isComplete)
+                if (release.prState == DomainContract.prStateOpen) {
+                    // Open release PR awaiting review (EXP-73) — mobile's only
+                    // list-level PR signal (no Reviews surface here); mirrors
+                    // the web/desktop release rows.
+                    Spacer(Modifier.width(6.dp))
+                    Pill(
+                        text = release.prNumber?.let { "PR #$it" } ?: "PR",
+                        color = DesignTokens.Semantic.Green,
+                        filled = false,
+                    )
+                }
             }
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

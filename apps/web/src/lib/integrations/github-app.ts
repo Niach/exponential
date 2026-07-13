@@ -139,6 +139,13 @@ export async function installationIdForRepo(
 // token must never be served from, or poison, the wide slot.
 const tokenCache = new Map<string, { token: string; expiresAt: number }>()
 
+// Serve-from-cache margin against the REAL GitHub expiry. 10 minutes, not a
+// token's-almost-dead 60s: the desktop embeds these tokens as ambient git
+// credentials and schedules its refresh 8 min before the expiry we report
+// (EXP-73) — the server must never hand out a token with less remaining life
+// than that lead, or the client's refresh math can't converge.
+const TOKEN_SERVE_MARGIN_MS = 10 * 60_000
+
 // Mint an installation access token. When `repo` ("owner/name") is given the
 // mint body pins `repositories: [<bare name>]` so the token reaches EXACTLY
 // that repo — the invariant behind repositories.installationToken (a workspace
@@ -150,10 +157,12 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>()
 async function installationToken(
   installationId: number,
   repo?: string
-): Promise<string> {
+): Promise<{ token: string; expiresAt: number }> {
   const cacheKey = repo ? `${installationId}#${repo}` : `${installationId}`
   const cached = tokenCache.get(cacheKey)
-  if (cached && cached.expiresAt - 60_000 > Date.now()) return cached.token
+  if (cached && cached.expiresAt - TOKEN_SERVE_MARGIN_MS > Date.now()) {
+    return cached
+  }
   const res = await ghApp(`/app/installations/${installationId}/access_tokens`, {
     method: `POST`,
     ...(repo
@@ -169,18 +178,29 @@ async function installationToken(
     )
   }
   const data = (await res.json()) as { token: string; expires_at: string }
-  tokenCache.set(cacheKey, {
+  const parsedExpiry = new Date(data.expires_at).getTime()
+  const minted = {
     token: data.token,
-    expiresAt: new Date(data.expires_at).getTime(),
-  })
-  return data.token
+    // Defensive: an unparseable expires_at would make every consumer treat
+    // the token as spent (NaN fails all comparisons) — cache-bypass here AND
+    // a re-mint storm from the desktop. Fall back to the nominal ~1h TTL.
+    expiresAt: Number.isFinite(parsedExpiry)
+      ? parsedExpiry
+      : Date.now() + 55 * 60_000,
+  }
+  tokenCache.set(cacheKey, minted)
+  return minted
 }
 
 // A minted token plus the installation it came from — callers that gate on the
 // installation (workspace link checks) or heal a drifted stored id need both.
+// `expiresAt` is GitHub's REAL expiry (epoch ms) for the possibly-cache-served
+// token — never a synthetic now+TTL (EXP-73: the desktop schedules its ambient
+// git-credential refresh from this value).
 export interface RepoInstallationToken {
   token: string
   installationId: number
+  expiresAt: number
 }
 
 // The main entry: a short-lived, repo-scoped token that can clone/push/open PRs
@@ -247,28 +267,31 @@ export async function resolveInstallationTokenWith(
   fallbackInstallationId: number | null | undefined,
   ops: {
     resolveId: (repo: string) => Promise<number | null>
-    mintToken: (installationId: number) => Promise<string>
+    mintToken: (
+      installationId: number
+    ) => Promise<{ token: string; expiresAt: number }>
     verifyRepo: (repo: string, token: string) => Promise<boolean>
   }
 ): Promise<RepoInstallationToken | null> {
   const liveId = await ops.resolveId(repo)
   if (liveId != null) {
-    return { token: await ops.mintToken(liveId), installationId: liveId }
+    const minted = await ops.mintToken(liveId)
+    return { ...minted, installationId: liveId }
   }
   if (fallbackInstallationId != null) {
-    let token: string
+    let minted: { token: string; expiresAt: number }
     try {
-      token = await ops.mintToken(fallbackInstallationId)
+      minted = await ops.mintToken(fallbackInstallationId)
     } catch {
       return null
     }
     try {
-      if (!(await ops.verifyRepo(repo, token))) return null
+      if (!(await ops.verifyRepo(repo, minted.token))) return null
     } catch {
       // Transient verify failure — hand out the token rather than invent a
       // "no access" the caller would surface as a reconnect demand.
     }
-    return { token, installationId: fallbackInstallationId }
+    return { ...minted, installationId: fallbackInstallationId }
   }
   return null
 }
@@ -483,7 +506,7 @@ export async function listInstallationRepos(
   // Installation-WIDE token (no repo scope) — deliberate: this enumerates the
   // installation's whole selection, and the token never leaves the server
   // process.
-  const token = await installationToken(installationId)
+  const { token } = await installationToken(installationId)
   const res = await fetch(
     `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
     { headers: githubApiHeaders(token) }

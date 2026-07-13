@@ -317,12 +317,30 @@ mod tests {
             path
         };
 
+        // Exec'ing a just-written script can hit ETXTBSY when a concurrent
+        // test's fork briefly holds the write fd (the suite spawns many git
+        // children) — retry the transient race instead of flaking.
+        let run_doctor_retrying = |settings: &Settings| {
+            for _ in 0..20 {
+                let report = run_doctor(settings);
+                let busy = report
+                    .first_failure()
+                    .and_then(|check| check.error.as_deref())
+                    .is_some_and(|error| error.contains("Text file busy"));
+                if !busy {
+                    return report;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            run_doctor(settings)
+        };
+
         let old = write_stub("claude-old", "2.1.100");
         let settings = Settings {
             claude_path: old.to_string_lossy().into_owned(),
             ..Settings::default()
         };
-        let report = run_doctor(&settings);
+        let report = run_doctor_retrying(&settings);
         assert!(!report.ok());
         assert_eq!(
             report.first_failure().and_then(|c| c.error.as_deref()),
@@ -334,7 +352,7 @@ mod tests {
             claude_path: new.to_string_lossy().into_owned(),
             ..Settings::default()
         };
-        let report = run_doctor(&settings);
+        let report = run_doctor_retrying(&settings);
         assert!(report.ok(), "2.1.207 must pass: {:?}", report.first_failure());
 
         let _ = fs::remove_dir_all(&dir);
