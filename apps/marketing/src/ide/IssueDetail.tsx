@@ -6,6 +6,7 @@ import {
   ISSUE_BODY,
   PRIORITY_LABEL,
   PROJECT,
+  releaseFor,
   STATUS_LABEL,
   type ActivityItem,
   type Issue,
@@ -33,6 +34,7 @@ import {
   IcListOrdered,
   IcPlay,
   IcQuote,
+  IcRocket,
   IcSend,
   IcStrike,
   IcTag,
@@ -101,6 +103,16 @@ function Description({ issueId }: { issueId: string }) {
               <code key={si} className="ide-inlinecode">
                 {seg.t}
               </code>
+            ) : seg.ref ? (
+              /* #issue mention — plain `#EXP-5` in the markdown source,
+                 rendered as a clickable pill when it resolves in-workspace */
+              <span key={si} className="ide-refpill">
+                <StatusIcon status={getIssue(seg.t).status} size={11} />
+                {seg.t}
+              </span>
+            ) : seg.mention ? (
+              /* @mention — `@<email>` in the source, name pill at render */
+              <span key={si} className="ide-mentionpill">{`@${seg.t}`}</span>
             ) : (
               <span key={si}>{seg.t}</span>
             ),
@@ -145,6 +157,7 @@ function PropGroup({ label, children }: { label: string; children: React.ReactNo
 }
 
 function PropsPanel({ issue }: { issue: Issue }) {
+  const release = releaseFor(issue.id)
   return (
     <div className="ide-props">
       <PropGroup label="Status">
@@ -189,6 +202,19 @@ function PropsPanel({ issue }: { issue: Issue }) {
           Add recurrence
         </div>
       </PropGroup>
+      <PropGroup label="Release">
+        {release ? (
+          <button className="ide-prop-btn" type="button">
+            <IcRocket size={14} className="ide-c-muted" />
+            {release.name}
+          </button>
+        ) : (
+          <button className="ide-prop-btn ide-c-muted" type="button">
+            <IcRocket size={14} />
+            Add to release
+          </button>
+        )}
+      </PropGroup>
       <PropGroup label="Project">
         <span className="ide-prop-chip">
           <span className="ide-proj-dot" style={{ background: PROJECT.color }} />
@@ -200,7 +226,7 @@ function PropsPanel({ issue }: { issue: Issue }) {
 }
 
 export function IssueDetail({ issueId }: { issueId: string }) {
-  const { interactive, coding, codingIssueId, codedIssues, startCoding, stopCoding } = useIde()
+  const { interactive, coding, codingTarget, codedIssues, requestCoding, stopCoding } = useIde()
   const issue = getIssue(issueId)
   const isExp8 = issue.id === `EXP-8`
   const [detailTab, setDetailTab] = useState<`details` | `changes`>(`details`)
@@ -210,7 +236,8 @@ export function IssueDetail({ issueId }: { issueId: string }) {
 
   const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
   const activity = [...baseActivity, ...extraComments]
-  const codingHere = coding === `running` && codingIssueId === issue.id
+  const codingHere =
+    coding === `running` && codingTarget?.kind === `issue` && codingTarget.id === issue.id
   /* EXP-8 ships with its diff fixture; other issues earn one by finishing a run. */
   const hasChanges = isExp8 || codedIssues.has(issue.id)
 
@@ -252,7 +279,9 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           <button
             className={`ide-ghost ide-headbtn${interactive ? ` is-click` : ``}`}
             type="button"
-            onClick={interactive ? () => startCoding(issue.id) : undefined}
+            onClick={
+              interactive ? () => requestCoding({ kind: `issue`, id: issue.id }) : undefined
+            }
           >
             <IcPlay size={14} className="ide-c-green" />
             Start coding

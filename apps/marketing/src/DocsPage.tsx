@@ -186,10 +186,11 @@ export function DocsPage() {
 
           <h3>Stop &amp; steer</h3>
           <p>
-            It&apos;s a real terminal — type into it any time to redirect or
-            answer a question, and hit <strong>Stop</strong> to end the
-            session. While it runs, the live terminal also streams to your
-            other devices, so you can watch and steer from your phone.
+            On the desktop it&apos;s a real terminal — type into it any time
+            to redirect or answer a question, and hit <strong>Stop</strong> to
+            end the session. While it runs, your other devices get a live
+            activity feed of the session, so you can watch and steer it by
+            message from your phone.
           </p>
         </DocsSection>
 

@@ -1,10 +1,19 @@
-/* ─── Source Control: branches sidebar + center tab (changes, commit box, history, diff) ─── */
+/* ─── Source Control: branch-flow lanes sidebar + center tab (changes, commit box, history, diff) ─── */
 import { useState } from "react"
-import { BRANCHES, type Change } from "./data"
+import { LANES, type Change, type Lane } from "./data"
 import { useIde } from "./state"
 import { ToolHead } from "./bits"
 import { DiffView } from "./Diff"
-import { IcCheck, IcGitMerge } from "./icons"
+import { IcCheck, IcCircleCheck, IcGitMerge, IcTimer } from "./icons"
+
+/* Lane indicator: merged = green check, open PR = green dot, local work
+   with no PR = yellow in-progress badge; the default branch carries none. */
+function LaneIndicator({ lane }: { lane: Lane }) {
+  if (lane.indicator === `merged`) return <IcCircleCheck size={13} className="ide-c-green" />
+  if (lane.indicator === `open`) return <span className="ide-lane-dot is-open" />
+  if (lane.indicator === `progress`) return <IcTimer size={13} className="ide-c-yellow" />
+  return null
+}
 
 export function ScPanel() {
   const { viewedBranch, viewBranch, interactive } = useIde()
@@ -12,18 +21,28 @@ export function ScPanel() {
     <div className="ide-scpanel">
       <ToolHead icon={<IcGitMerge size={14} className="ide-c-muted" />} title="Source Control" />
       <div className="ide-sc-branches">
-        <div className="ide-sc-label">Branches</div>
-        {BRANCHES.map((b) => (
+        {LANES.map((lane) => (
           <div
-            key={b.name}
-            className={`ide-branch-row${interactive ? ` is-click` : ``}${viewedBranch === b.name ? ` is-viewing` : ``}`}
-            onClick={interactive ? () => viewBranch(b.name) : undefined}
+            key={lane.branch}
+            className={`ide-lane${interactive ? ` is-click` : ``}${viewedBranch === lane.branch ? ` is-viewing` : ``}`}
+            onClick={interactive ? () => viewBranch(lane.branch) : undefined}
           >
-            <span className={`ide-branch-glyph${b.current ? `` : ` ide-c-muted`}`}>⎇</span>
-            <span className={`ide-branch-name${b.current ? ` is-current` : ``}`}>{b.name}</span>
-            {b.worktree && <span className="ide-branch-tag">worktree</span>}
+            {lane.indent > 0 && <span className="ide-lane-elbow" />}
+            {lane.indent === 0 ? (
+              <span className="ide-branch-glyph">⎇</span>
+            ) : (
+              <LaneIndicator lane={lane} />
+            )}
+            <span className={`ide-branch-name${lane.current ? ` is-current` : ``}`}>
+              {lane.branch}
+            </span>
+            {lane.worktree && <span className="ide-branch-tag">worktree</span>}
             <div className="ide-flex1" />
-            {b.current && <IcCheck size={14} className="ide-c-muted" />}
+            {(lane.behind ?? 0) > 0 && (
+              <span className="ide-lane-counts">{`↓${lane.behind}`}</span>
+            )}
+            {(lane.ahead ?? 0) > 0 && <span className="ide-lane-counts">{`↑${lane.ahead}`}</span>}
+            {lane.current && <IcCheck size={14} className="ide-c-muted" />}
           </div>
         ))}
       </div>

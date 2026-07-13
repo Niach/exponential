@@ -1,21 +1,16 @@
 /* ─── 38px top bar: project pill · run widget · git cluster ─── */
 import { PROJECT } from "./data"
 import { useIde } from "./state"
-import {
-  IcArrowDL,
-  IcArrowUR,
-  IcCheck,
-  IcChevDown,
-  IcChevsUpDown,
-  IcPlay,
-} from "./icons"
+import { IcCheck, IcChevDown, IcChevsUpDown, IcCode, IcPlay } from "./icons"
 
 export function Topbar() {
-  const { ahead } = useIde()
+  const { ahead, push, interactive } = useIde()
   return (
     <div className="ide-topbar">
       <button className="ide-proj" type="button">
-        <span className="ide-proj-dot" style={{ background: PROJECT.color }} />
+        {/* Project-type glyph, tinted with the project color — dev boards
+            get code brackets (tasks = kanban, feedback = megaphone). */}
+        <IcCode size={14} style={{ color: PROJECT.color }} />
         <span className="ide-proj-name">{PROJECT.name}</span>
         <IcChevsUpDown size={12} className="ide-c-muted" />
       </button>
@@ -33,16 +28,21 @@ export function Topbar() {
           <span className="ide-branch-glyph">⎇</span>
           master
         </button>
-        {ahead > 0 && <span className="ide-aheadbehind">{`↑${ahead}`}</span>}
         <button className="ide-ghost ide-icbtn" type="button" title="Commit…">
           <IcCheck size={14} />
         </button>
-        <button className="ide-ghost ide-icbtn" type="button" title="Pull">
-          <IcArrowDL size={14} />
-        </button>
-        <button className="ide-ghost ide-icbtn" type="button" title="Push">
-          <IcArrowUR size={14} />
-        </button>
+        {/* One context-sensitive action — the count IS the button. A clean,
+            in-sync trunk renders nothing. */}
+        {ahead > 0 && (
+          <button
+            className={`ide-ghost ide-syncbtn${interactive ? ` is-click` : ``}`}
+            type="button"
+            title="Push master to origin"
+            onClick={interactive ? push : undefined}
+          >
+            {`↑${ahead}`}
+          </button>
+        )}
       </div>
     </div>
   )

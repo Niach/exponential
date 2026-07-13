@@ -1,6 +1,12 @@
 /* ─── Bottom terminal dock: 29px collapsed strip, session tabs, typed agent script ─── */
 import { useEffect, useRef } from "react"
-import { SHELL_TAB_TITLE, agentTabTitle, type ScriptLine } from "./data"
+import {
+  SHELL_TAB_TITLE,
+  claudeTabTitle,
+  getRelease,
+  releaseTabTitle,
+  type ScriptLine,
+} from "./data"
 import { useIde } from "./state"
 import { IcChevDown, IcChevUp, IcPlus, IcSquareTerminal, IcX } from "./icons"
 
@@ -24,7 +30,7 @@ export function TerminalDock() {
     dockTab,
     setDockTab,
     coding,
-    codingIssueId,
+    codingTarget,
     codingScript,
     scriptPos,
     interactive,
@@ -81,7 +87,9 @@ export function TerminalDock() {
             onClick={interactive ? () => setDockTab(`claude`) : undefined}
           >
             <span className="ide-dock-star">✳</span>
-            {agentTabTitle(codingIssueId ?? ``)}
+            {codingTarget?.kind === `release`
+              ? releaseTabTitle(getRelease(codingTarget.id).name)
+              : claudeTabTitle(codingTarget?.id ?? ``)}
             {coding === `ended` && <span className="ide-exitbadge">0</span>}
             <span className="ide-dock-x" aria-hidden>
               <IcX size={10} />

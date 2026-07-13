@@ -9,12 +9,16 @@ export type Tool =
   | `inbox`
   | `my-issues`
   | `reviews`
+  | `releases`
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
 export type TabKind = `issue` | `file` | `sc`
 export type Tab = { key: string; kind: TabKind; label: string; ref: string }
 
 export type CodingState = `idle` | `running` | `ended`
+/* A coding run targets exactly one of an issue or a release, like
+   codingSessions.start in the real app. */
+export type CodingTarget = { kind: `issue` | `release`; id: string }
 export type DockTab = `shell` | `claude`
 export type ScriptPos = { done: number; chars: number }
 
@@ -50,6 +54,7 @@ export type IdeApi = {
   commits: Commit[]
   commitAll: (message: string, push: boolean) => void
   ahead: number
+  push: () => void
 
   inboxRead: Set<string>
   markInboxRead: (id: string) => void
@@ -59,11 +64,18 @@ export type IdeApi = {
   goneReviews: Set<string>
   mergeReview: (issueId: string) => void
 
+  selectedRelease: string | null
+  selectRelease: (id: string | null) => void
+
   coding: CodingState
-  codingIssueId: string | null
+  codingTarget: CodingTarget | null
   codingScript: ScriptLine[]
   codedIssues: Set<string>
-  startCoding: (issueId: string) => void
+  /* Start-coding dialog beat: request opens the dialog, confirm launches. */
+  pendingCoding: CodingTarget | null
+  requestCoding: (target: CodingTarget) => void
+  cancelStartCoding: () => void
+  confirmStartCoding: () => void
   stopCoding: () => void
   scriptPos: ScriptPos
 

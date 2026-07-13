@@ -11,18 +11,21 @@ import {
   IcCircleCheck,
   IcCompose,
   IcEye,
+  IcFile,
   IcFilter,
   IcGitMerge,
   IcGitPr,
   IcInbox,
-  IcKeyboard,
   IcListTodo,
   IcLucideCircleDashed,
   IcMessage,
   IcMinus,
+  IcRocket,
   IcSearch,
+  IcSend,
   IcSignalHigh,
   IcSignalMedium,
+  IcTerminalSquare,
   IcTimer,
   IcUserPlus,
 } from "../components/icons"
@@ -32,9 +35,11 @@ import {
   mobDetailIssue,
   mobInboxItems,
   mobProjects,
+  mobReleases,
   mobSearchQuery,
   mobSearchResults,
-  mobSteerLines,
+  mobSteerDiff,
+  mobSteerFeed,
   type MobInboxType,
   type MobIssue,
   type MobPriority,
@@ -113,7 +118,7 @@ const Avatar = ({ initials, size = 22 }: { initials: string; size?: number }) =>
 
 /* ─── Tabs / tour plumbing ─── */
 
-type MobTab = `issues` | `search` | `agents` | `steer` | `inbox`
+type MobTab = `issues` | `search` | `agents` | `steer` | `releases` | `inbox`
 
 const TOUR: { tab: MobTab; chip?: number }[] = [
   { tab: `issues`, chip: 0 },
@@ -121,6 +126,7 @@ const TOUR: { tab: MobTab; chip?: number }[] = [
   { tab: `issues`, chip: 2 },
   { tab: `agents` },
   { tab: `steer` },
+  { tab: `releases` },
   { tab: `inbox` },
 ]
 
@@ -143,7 +149,7 @@ const IssueRow = ({ issue }: { issue: MobIssue }) => (
   </div>
 )
 
-/* ─── Bottom dock (4 tabs + compose FAB) ─── */
+/* ─── Bottom dock (5 tabs + compose FAB) ─── */
 
 const DockBtn = ({
   active,
@@ -192,6 +198,9 @@ const BottomBar = ({
         dot={`green`}
       >
         <IcBot size={19} />
+      </DockBtn>
+      <DockBtn active={tab === `releases`} onClick={() => onTab(`releases`)}>
+        <IcRocket size={19} />
       </DockBtn>
       <DockBtn
         active={tab === `inbox`}
@@ -333,7 +342,15 @@ const AgentsScreen = ({ onOpenSteer }: { onOpenSteer: () => void }) => (
   </>
 )
 
-/* ─── Live steer viewer — static terminal snapshot ─── */
+/* ─── Live steer viewer — chat-style scrubbed activity feed (narration
+   bubbles + tool rows), pinned "Latest changes" chip, message composer.
+   No terminal rendering on mobile or web. ─── */
+
+const toolIcon = (name: string) => {
+  if (name === `Bash`) return <IcTerminalSquare size={13} />
+  if (name === `Edit`) return <IcCompose size={13} />
+  return <IcFile size={13} />
+}
 
 const SteerScreen = ({ onBack }: { onBack: () => void }) => (
   <>
@@ -352,38 +369,81 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
         <span className={`mob-presence-chip`}>
           <IcEye size={13} /> 2
         </span>
-        <span className={`mob-presence-chip`}>
-          <IcKeyboard size={13} />
-        </span>
       </span>
     </div>
-    <div className={`mob-steer-term`}>
-      {mobSteerLines.map((line, i) => (
-        <div key={i} className={`mob-steer-line`}>
-          {line.kind === `cmd` && <span className={`mob-steer-prompt`}>{`$ `}</span>}
-          {line.kind === `ok` && <span className={`mob-steer-ok`}>{`✓ `}</span>}
-          {line.kind === `claude` && <span className={`mob-steer-claude`}>{`● `}</span>}
-          <span className={line.kind === `cmd` ? `mob-steer-cmd` : `mob-steer-out`}>
-            {line.text}
-          </span>
-        </div>
-      ))}
-      <div className={`mob-steer-line`}>
-        <span className={`mob-caret mob-caret-term`} />
+    <div className={`mob-feed`}>
+      {mobSteerFeed.map((item, i) =>
+        item.kind === `narration` ? (
+          <div key={i} className={`mob-feed-bubble`}>
+            {item.text}
+          </div>
+        ) : (
+          <div key={i} className={`mob-feed-tool`}>
+            {toolIcon(item.name)}
+            <span className={`mob-feed-tool-name`}>{item.name}</span>
+            <span className={`mob-feed-tool-detail`}>{item.detail}</span>
+          </div>
+        ),
+      )}
+      <div className={`mob-feed-typing`}>
+        <span className={`mob-agent-dot`} />
+        Claude is working…
       </div>
     </div>
     <div className={`mob-steer-input`}>
-      <div className={`mob-steer-keys`}>
-        {[`esc`, `^C`, `tab`, `↑`, `↓`].map((k) => (
-          <span key={k} className={`mob-steer-key`}>
-            {k}
-          </span>
-        ))}
+      <div className={`mob-diffchip`}>
+        <IcGitMerge size={13} />
+        <span className={`mob-diffchip-label`}>Latest changes</span>
+        <span className={`mob-diffchip-stats`}>
+          {`${mobSteerDiff.files} file`}
+          <span className={`mob-diff-add`}>{` +${mobSteerDiff.add}`}</span>
+          <span className={`mob-diff-del`}>{` −${mobSteerDiff.del}`}</span>
+        </span>
+        <IcChev size={14} className={`mob-row-chev`} />
       </div>
       <div className={`mob-steer-fieldrow`}>
-        <span className={`mob-steer-field`}>Type to steer…</span>
-        <span className={`mob-takecontrol`}>Take control</span>
+        <span className={`mob-steer-field`}>Message the agent…</span>
+        <span className={`mob-composer-send`}>
+          <IcSend size={15} />
+        </span>
       </div>
+    </div>
+  </>
+)
+
+/* ─── Releases tab — rocket rows with progress, mirrors the IDE panel ─── */
+
+const ReleasesScreen = () => (
+  <>
+    <h2 className={`mob-title`}>Releases</h2>
+    <div className={`mob-list mob-list-scrollpad`}>
+      {mobReleases.map((release) => (
+        <div key={release.name} className={`mob-row mob-release-row`}>
+          <div className={`mob-release-line1`}>
+            <IcRocket
+              size={16}
+              style={{ color: release.shipped ? `#34d399` : `#8e8e93` }}
+            />
+            <span className={`mob-release-name`}>{release.name}</span>
+            {release.coding ? (
+              <span className={`mob-live-pill`}>
+                <span className={`mob-agent-dot`} />
+                Coding
+              </span>
+            ) : null}
+            {release.shipped ? <span className={`mob-shipped-pill`}>Shipped</span> : null}
+          </div>
+          <div className={`mob-release-sub`}>
+            {`${release.shipped ? `Shipped ${release.shipped}` : `Target ${release.target}`} · ${release.done} of ${release.total} done`}
+          </div>
+          <div className={`mob-release-bar`}>
+            <span
+              className={`mob-release-fill`}
+              style={{ width: `${(release.done / release.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   </>
 )
@@ -486,7 +546,7 @@ const IssueScreen = () => {
   )
 }
 
-/* ─── Interactive app shell (4-tab dock, tour) ─── */
+/* ─── Interactive app shell (5-tab dock, tour) ─── */
 
 const AppShell = ({ reduce, autoTour }: { reduce: boolean; autoTour: boolean }) => {
   const [tab, setTab] = useState<MobTab>(`issues`)
@@ -539,6 +599,8 @@ const AppShell = ({ reduce, autoTour }: { reduce: boolean; autoTour: boolean }) 
           <AgentsScreen onOpenSteer={() => goto(`steer`)} />
         ) : tab === `steer` ? (
           <SteerScreen onBack={() => goto(`agents`)} />
+        ) : tab === `releases` ? (
+          <ReleasesScreen />
         ) : (
           <InboxScreen />
         )}

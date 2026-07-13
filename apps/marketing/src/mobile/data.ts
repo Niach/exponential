@@ -207,19 +207,42 @@ export const mobAgents: MobAgent[] = [
   },
 ]
 
-/* ─── Live steer screen — static terminal snapshot ─── */
+/* ─── Live steer screen — chat-style scrubbed activity feed (never raw
+   terminal bytes): narration bubbles + compact tool rows, a pinned
+   "Latest changes" diff chip, and the "Message the agent…" composer ─── */
 
-export type MobSteerLine = { kind: `cmd` | `claude` | `ok` | `out`; text: string }
+export type MobFeedItem =
+  | { kind: `narration`; text: string }
+  | { kind: `tool`; name: string; detail: string }
 
-export const mobSteerLines: MobSteerLine[] = [
-  { kind: `ok`, text: `Created worktree .worktrees/EXP-12` },
-  { kind: `cmd`, text: `claude --dangerously-skip-permissions` },
-  { kind: `claude`, text: `Reading issue EXP-12 — Attachment paste uploads` },
-  { kind: `claude`, text: `Plan: intercept paste, reuse the drop upload path` },
-  { kind: `claude`, text: `Edited issue-editor/paste-upload.ts (+41 -3)` },
-  { kind: `claude`, text: `Running bun run typecheck…` },
-  { kind: `ok`, text: `typecheck passed · 0 errors` },
-  { kind: `claude`, text: `Committing and opening the pull request` },
+export const mobSteerFeed: MobFeedItem[] = [
+  { kind: `narration`, text: `Reading EXP-12 — paste should reuse the drag-drop upload path.` },
+  { kind: `tool`, name: `Read`, detail: `issue-editor/paste-upload.ts` },
+  { kind: `tool`, name: `Edit`, detail: `paste-upload.ts +41 −3` },
+  {
+    kind: `narration`,
+    text: `Paste now goes through the same upload queue as drag-drop, with progress chips.`,
+  },
+  { kind: `tool`, name: `Bash`, detail: `bun run typecheck · 0 errors` },
+  { kind: `narration`, text: `Typecheck is clean — committing and opening the pull request.` },
+]
+
+export const mobSteerDiff = { files: 1, add: 41, del: 3 }
+
+/* ─── Releases tab fixtures — mirrors the IDE release fixtures ─── */
+
+export type MobRelease = {
+  name: string
+  target?: string
+  shipped?: string
+  done: number
+  total: number
+  coding?: boolean
+}
+
+export const mobReleases: MobRelease[] = [
+  { name: `Live steer v2`, target: `Jul 15`, done: 1, total: 4, coding: true },
+  { name: `Terminal polish`, shipped: `Jul 2`, done: 1, total: 1 },
 ]
 
 /* ─── Inbox tab fixtures — single activity stream ─── */
@@ -277,14 +300,14 @@ export const mobDetailIssue = {
   priority: `High`,
   assignee: { initials: `DS`, name: `Danny Strähhuber` },
   description: [
-    `When the steer relay drops a socket mid-session, the terminal view keeps rendering the last frame instead of reconnecting.`,
-    `Reconnect with backoff and replay the scrollback buffer so remote viewers never see a frozen session.`,
+    `When the steer relay drops a socket mid-session, the activity feed keeps showing the last events instead of reconnecting.`,
+    `Reconnect with backoff and replay the missed events so remote viewers never see a frozen session.`,
   ],
   event: `Danny changed status to In Progress · 2 hours ago`,
   comment: {
     author: `Danny Strähhuber`,
     initials: `DS`,
     time: `1 hour ago`,
-    body: `Repro: toggle Wi-Fi while a session is streaming. The cursor freezes but the session keeps running fine.`,
+    body: `Repro: toggle Wi-Fi while a session is streaming. The feed freezes but the session keeps running fine.`,
   },
 }

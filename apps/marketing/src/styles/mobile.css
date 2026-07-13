@@ -488,10 +488,10 @@ button.mob-backbtn {
   margin-top: 12px;
 }
 
-/* Dock buttons: 4 tabs, white when active */
+/* Dock buttons: 5 tabs, white when active */
 .mob-dock {
-  gap: 20px;
-  padding: 13px 18px;
+  gap: 16px;
+  padding: 13px 16px;
 }
 
 .mob-dock-btn {
@@ -636,50 +636,60 @@ button.mob-backbtn {
   font-size: 11px;
 }
 
-.mob-steer-term {
+/* Chat-style scrubbed activity feed — narration bubbles + tool rows */
+.mob-feed {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin: 12px 12px 0;
-  padding: 12px 12px 8px;
-  border-radius: 14px;
-  background: #050505;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 16px 0;
 }
 
-.mob-steer-line {
+.mob-feed-bubble {
+  align-self: flex-start;
+  max-width: 92%;
+  padding: 9px 12px;
+  border-radius: 16px;
+  border-bottom-left-radius: 5px;
+  background: #1c1c1e;
+  color: #e5e5e7;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mob-feed-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  color: #8e8e93;
+  font-size: 12px;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.mob-feed-tool-name {
+  color: #d4d4d8;
+  font-weight: 600;
+  flex: none;
+}
+
+.mob-feed-tool-detail {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.mob-steer-prompt {
+.mob-feed-typing {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
   color: #8e8e93;
-}
-
-.mob-steer-ok {
-  color: #22c55e;
-}
-
-.mob-steer-claude {
-  color: #f97316;
-}
-
-.mob-steer-cmd {
-  color: #fafafa;
-}
-
-.mob-steer-out {
-  color: #a1a1a1;
-}
-
-.mob-caret-term {
-  width: 7px;
-  height: 12px;
-  vertical-align: -2px;
+  font-size: 12px;
 }
 
 .mob-steer-input {
@@ -690,23 +700,41 @@ button.mob-backbtn {
   padding: 10px 12px 26px;
 }
 
-.mob-steer-keys {
+/* Pinned "Latest changes" diff chip above the composer */
+.mob-diffchip {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8e8e93;
+  font-size: 12.5px;
 }
 
-.mob-steer-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  min-width: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
-  background: #1c1c1e;
-  color: #d4d4d8;
+.mob-diffchip-label {
+  color: #fafafa;
+  font-weight: 500;
+}
+
+.mob-diffchip-stats {
+  flex: 1;
+  min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mob-diff-add {
+  color: #22c55e;
+}
+
+.mob-diff-del {
+  color: #ef4444;
 }
 
 .mob-steer-fieldrow {
@@ -728,18 +756,74 @@ button.mob-backbtn {
   font-size: 13.5px;
 }
 
-.mob-takecontrol {
+.mob-composer-send {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 36px;
   height: 36px;
-  padding: 0 13px;
+  border-radius: 999px;
+  background: #e5e5e5;
+  color: #171717;
+  flex: none;
+}
+
+/* Releases tab — rocket rows with the green progress bar */
+.mob-release-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.mob-release-line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mob-release-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-shipped-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  font-size: 11.5px;
+  font-weight: 600;
+  flex: none;
+}
+
+.mob-release-sub {
+  padding-left: 24px;
+  font-size: 12px;
+  color: #8e8e93;
+}
+
+.mob-release-bar {
+  height: 4px;
+  margin-left: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.mob-release-fill {
+  display: block;
+  height: 100%;
   border-radius: 999px;
   background: #34d399;
-  color: #052e1c;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex: none;
 }
 
 /* Inbox stream rows */
