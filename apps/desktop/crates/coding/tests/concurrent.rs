@@ -164,7 +164,8 @@ fn main() {
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\n\
          [ \"$1\" = \"--model\" ] || exit 7\n\
-         [ \"$3\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
+         [ \"$3\" = \"--mcp-config\" ] || exit 6\n\
+         [ \"$6\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
          echo alive > alive.txt\n\
          while [ ! -f release.txt ]; do sleep 0.05; done\n\
          exit 0\n",
@@ -221,8 +222,8 @@ fn main() {
         worktrees: Arc::new(GitWorktrees),
     };
 
-    // plan_mode OFF so the stub's `$3 = --dangerously-skip-permissions`
-    // check holds (the prompt rides argv as $4 — direct delivery).
+    // plan_mode OFF so the stub's `$6 = --dangerously-skip-permissions`
+    // check holds (the prompt rides argv as $7 — direct delivery).
     let request_for = |issue_id: &str, identifier: &str| {
         PrepareRequest::Issue(LaunchRequest {
             issue_id: issue_id.to_string(),

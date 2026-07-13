@@ -162,7 +162,7 @@ fn main() {
     git(&root, &["clone", "--quiet", bare.to_str().unwrap(), clone.to_str().unwrap()]);
 
     // ---- the stub `claude`: answers --version, echoes the first line of
-    //      its positional prompt ($4 — direct delivery), exits 0 ----
+    //      its positional prompt ($7 — direct delivery), exits 0 ----
     let stub = root.join("bin").join("claude-stub");
     fs::create_dir_all(stub.parent().unwrap()).unwrap();
     fs::write(
@@ -170,8 +170,9 @@ fn main() {
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\n\
          [ \"$1\" = \"--model\" ] || exit 7\n\
-         [ \"$3\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
-         printf '%s\\n' \"$4\" | head -n 1 > claude-ran.txt || exit 9\n\
+         [ \"$3\" = \"--mcp-config\" ] || exit 6\n\
+         [ \"$6\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
+         printf '%s\\n' \"$7\" | head -n 1 > claude-ran.txt || exit 9\n\
          exit 0\n",
     )
     .unwrap();
@@ -219,8 +220,8 @@ fn main() {
         }),
         worktrees: Arc::new(GitWorktrees),
     };
-    // plan_mode OFF so the stub's `$3 = --dangerously-skip-permissions`
-    // check holds; the prompt rides argv as $4 (direct delivery).
+    // plan_mode OFF so the stub's `$6 = --dangerously-skip-permissions`
+    // check holds; the prompt rides argv as $7 (direct delivery).
     let req = PrepareRequest::Issue(LaunchRequest {
         issue_id: "issue-1".to_string(),
         issue_identifier: "GATE-99".to_string(),
@@ -301,14 +302,19 @@ fn main() {
     let status = git_stdout(&expected_worktree, &["status", "--porcelain"]);
     assert!(!status.contains(".mcp.json"), "seed file not excluded: {status}");
 
-    // The composed spawn spec: stub program, explicit --model, the skip flag,
-    // the prompt positional-last, worktree cwd. Model is ALWAYS passed (§7.7).
+    // The composed spawn spec: stub program, explicit --model, the
+    // explicit+strict MCP config (EXP-83: no project-discovery trust dialog),
+    // the skip flag, the prompt positional-last, worktree cwd. Model is
+    // ALWAYS passed (§7.7).
     assert_eq!(prepared.spawn.program, stub.to_string_lossy());
     assert_eq!(
         prepared.spawn.args,
         vec![
             "--model".to_string(),
             "opus".to_string(),
+            "--mcp-config".to_string(),
+            ".mcp.json".to_string(),
+            "--strict-mcp-config".to_string(),
             "--dangerously-skip-permissions".to_string(),
             prompt.clone(),
         ]

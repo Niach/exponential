@@ -9,6 +9,14 @@
 //! branch/worktree — it runs where it is pointed (`cwd`). Always visible,
 //! always steerable by typing; never a hidden background job.
 //!
+//! Every task passes `--strict-mcp-config` (EXP-83): a conflict task's cwd is
+//! often an issue worktree that carries the coding session's `.mcp.json`, and
+//! project-file discovery would raise claude's MCP trust dialog (even under
+//! `--dangerously-skip-permissions`). Strict mode ENFORCES the MCP-less
+//! posture instead of merely assuming it. The one MCP-enabled task
+//! ([`claude_task_with_mcp`]) passes its `.mcp.json` explicitly via
+//! `--mcp-config`, which is trusted without prompting.
+//!
 //! The prompt is passed as the positional argument (not typed into the PTY),
 //! and `--model` is ALWAYS explicit (DNR invariant 10 — never the CLI default,
 //! which may be a scarcer model).
@@ -32,7 +40,7 @@ pub struct ClaudeTask {
     pub tab_title: String,
 }
 
-/// Build a Claude task (v4 §4.9): `claude --model <model>
+/// Build a Claude task (v4 §4.9): `claude --model <model> --strict-mcp-config
 /// --dangerously-skip-permissions <prompt>`, cwd = `cwd`. `label` names the
 /// terminal tab (e.g. `Fix conflicts · EXP-42`). Program + model come from
 /// [`Settings`] (same source as [`crate::launch`], so the two paths stay in
@@ -42,6 +50,35 @@ pub fn claude_task(settings: &Settings, cwd: &Path, prompt: &str, label: &str) -
         .args([
             "--model",
             settings.claude_model.as_str(),
+            "--strict-mcp-config",
+            "--dangerously-skip-permissions",
+            prompt,
+        ])
+        .cwd(cwd);
+    ClaudeTask {
+        spawn,
+        tab_title: label.to_string(),
+    }
+}
+
+/// [`claude_task`] plus the scoped MCP config the caller wrote into `cwd` —
+/// the run-configs "Create with Claude" variant (v5 §7.3 / L24, the ONE
+/// MCP-enabled task). The file is passed explicitly (`--mcp-config`, resolved
+/// against the spawn cwd) so claude trusts it without the project-discovery
+/// dialog (EXP-83); `--strict-mcp-config` rides along like every task.
+pub fn claude_task_with_mcp(
+    settings: &Settings,
+    cwd: &Path,
+    prompt: &str,
+    label: &str,
+) -> ClaudeTask {
+    let spawn = SpawnSpec::new(&settings.resolved_claude_path())
+        .args([
+            "--model",
+            settings.claude_model.as_str(),
+            "--mcp-config",
+            crate::mcp_json::MCP_JSON_FILE,
+            "--strict-mcp-config",
             "--dangerously-skip-permissions",
             prompt,
         ])
@@ -122,14 +159,18 @@ mod tests {
         let task = claude_task(&settings(), &cwd, "do the thing", "Fix conflicts · EXP-42");
         // program = the configured claude binary, verbatim (never a shell).
         assert_eq!(task.spawn.program, "/opt/homebrew/bin/claude");
-        // Exactly: --model <model> --dangerously-skip-permissions <prompt>.
-        // `--model` is explicit-ALWAYS (never the CLI default) and the prompt
-        // is the positional arg (not typed into the PTY).
+        // Exactly: --model <model> --strict-mcp-config
+        // --dangerously-skip-permissions <prompt>. `--model` is
+        // explicit-ALWAYS (never the CLI default), strict MCP enforces the
+        // task's MCP-less posture even in a worktree carrying a session
+        // `.mcp.json` (EXP-83 — discovery would raise the trust dialog), and
+        // the prompt is the positional arg (not typed into the PTY).
         assert_eq!(
             task.spawn.args,
             vec![
                 "--model".to_string(),
                 "opus".to_string(),
+                "--strict-mcp-config".to_string(),
                 "--dangerously-skip-permissions".to_string(),
                 "do the thing".to_string(),
             ]
@@ -154,6 +195,29 @@ mod tests {
             .args
             .iter()
             .any(|a| a.contains(".mcp.json") || a.contains("PROMPT.md")));
+    }
+
+    #[test]
+    fn mcp_task_passes_the_scoped_config_explicitly_and_strictly() {
+        // The ONE MCP-enabled task (run-config creation): the caller-written
+        // `.mcp.json` rides `--mcp-config` (explicit ⇒ trusted, no dialog —
+        // EXP-83) with `--strict-mcp-config` so discovery can't re-find it.
+        let cwd = PathBuf::from("/repos/acme/web");
+        let task = claude_task_with_mcp(&settings(), &cwd, "make configs", "Create run configs");
+        assert_eq!(task.spawn.program, "/opt/homebrew/bin/claude");
+        assert_eq!(
+            task.spawn.args,
+            vec![
+                "--model".to_string(),
+                "opus".to_string(),
+                "--mcp-config".to_string(),
+                ".mcp.json".to_string(),
+                "--strict-mcp-config".to_string(),
+                "--dangerously-skip-permissions".to_string(),
+                "make configs".to_string(),
+            ]
+        );
+        assert_eq!(task.spawn.cwd.as_deref(), Some(cwd.as_path()));
     }
 
     #[test]

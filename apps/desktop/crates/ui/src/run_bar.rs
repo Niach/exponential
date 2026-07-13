@@ -578,7 +578,8 @@ impl RunBar {
                     return;
                 }
                 let prompt = coding::create_run_configs_prompt(&project_id);
-                let task = coding::claude_task(&settings, &root, &prompt, "Create run configs");
+                let task =
+                    coding::claude_task_with_mcp(&settings, &root, &prompt, "Create run configs");
                 let cleanup_path = created_marker.then(|| root.join(coding::MCP_JSON_FILE));
                 let run_bar = cx.entity().downgrade();
                 let on_exit: ExitHook = Box::new(move |_id, _exit, cx| {
