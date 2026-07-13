@@ -7,7 +7,8 @@
 //! 1. `prepare` with the REAL [`coding::GitWorktrees`] provider:
 //!    `ensure_clone` (reuse — the one GitHub-bound step, pre-seeded from the
 //!    local bare origin per the crate's hermetic test design) →
-//!    `set_token_remote` → `create_worktree` cutting `exp/GATE-99` from
+//!    `git_credentials::ensure` (bare origin + repo-local helper + token
+//!    file, EXP-73) → `create_worktree` cutting `exp/GATE-99` from
 //!    `origin/main` → `.git/info/exclude` covering `.mcp.json`;
 //! 2. `.mcp.json` written into the worktree with the exact §7.1 contents
 //!    (instance `/api/mcp` URL + `Bearer expu_…`) and the rendered issue
@@ -250,10 +251,31 @@ fn main() {
         "exp/GATE-99"
     );
 
-    // set_token_remote ran: origin now carries the (dead) token URL.
+    // git_credentials::ensure ran (EXP-73): origin is the BARE URL, the
+    // repo-local helper pair is configured, and the token sits in the
+    // credential file (0600) — never in the remote.
     assert_eq!(
         git_stdout(&clone, &["remote", "get-url", "origin"]),
-        "https://x-access-token:ghs_dryrun_dead@github.com/acme/web.git"
+        "https://github.com/acme/web.git"
+    );
+    let helpers = git_stdout(
+        &clone,
+        &[
+            "config",
+            "--local",
+            "--get-all",
+            "credential.https://github.com/acme/web.git.helper",
+        ],
+    );
+    let helper_lines: Vec<&str> = helpers.lines().collect();
+    assert_eq!(helper_lines.len(), 2, "reset + ours: {helpers}");
+    assert_eq!(helper_lines[0], "");
+    assert!(helper_lines[1].contains("exp-git-credentials"), "{helpers}");
+    let credentials =
+        fs::read_to_string(coding::git_credentials::credential_file(&clone)).unwrap();
+    assert_eq!(
+        credentials,
+        "username=x-access-token\npassword=ghs_dryrun_dead\n"
     );
 
     // .mcp.json: exact §7.1 step-4 contents, private perms.

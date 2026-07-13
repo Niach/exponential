@@ -38,8 +38,9 @@ use terminal::TerminalManager;
 use crate::agents_json::{build_agents_json, SubagentDefaults};
 use crate::argv::{issue_args, release_args, IssueLaunchOptions};
 use crate::doctor::{run_doctor, ToolCheck};
+use crate::git_credentials;
 use crate::git_worktree::{
-    branch_name, clone_path, create_worktree, ensure_clone, fetch_base, set_token_remote,
+    branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
     shared_cargo_target_dir, worktree_path, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
@@ -118,7 +119,10 @@ pub struct IssueSeed {
 
 /// §7.1 step 3, injectable for tests: turn (repos_root, repo, branch, token)
 /// into a ready worktree. The real impl is [`GitWorktrees`] (argv git).
+/// `expires_at` is the token's real ISO-8601 expiry from the mint — the
+/// ambient-auth install's no-downgrade stamp (EXP-73).
 pub trait WorktreeProvider: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     fn prepare(
         &self,
         repos_root: &Path,
@@ -126,13 +130,15 @@ pub trait WorktreeProvider: Send + Sync {
         default_branch: &str,
         branch: &str,
         url: &TokenUrl,
+        expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError>;
 }
 
-/// The real git path: `ensure_clone` → `set_token_remote` (re-set EVERY
-/// launch — the previous embedded token is dead) → best-effort fetch of the
-/// base branch → `create_worktree` (idempotent reuse) → repo-local excludes
-/// for the credential-bearing seed file.
+/// The real git path: `ensure_clone` → [`git_credentials::ensure`] (bare
+/// origin + repo-local helper + downgrade-guarded token file, re-run EVERY
+/// launch — EXP-73) → best-effort fetch of the base branch →
+/// `create_worktree` (idempotent reuse) → repo-local excludes for the
+/// credential-bearing seed file.
 pub struct GitWorktrees;
 
 impl WorktreeProvider for GitWorktrees {
@@ -143,9 +149,10 @@ impl WorktreeProvider for GitWorktrees {
         default_branch: &str,
         branch: &str,
         url: &TokenUrl,
+        expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError> {
         let clone = ensure_clone(repos_root, full_name, url)?;
-        set_token_remote(&clone, url)?;
+        git_credentials::ensure(&clone, url, expires_at)?;
         // Best-effort: a stale-but-present origin/<default> still yields a
         // valid worktree; only a truly missing base ref fails below.
         let _ = fetch_base(&clone, default_branch, url);
@@ -267,8 +274,9 @@ pub struct PreparedLaunch {
     pub issue_identifier: String,
     pub worktree: PathBuf,
     /// The shared clone the worktree hangs off (`<repos_root>/<owner>/<name>`)
-    /// — the token refresher's `set_token_remote` target (EXP-56 P9: remotes
-    /// are repo-level config, so refreshing the clone covers every worktree).
+    /// — the token refresher's ambient-auth target (EXP-73: the credential
+    /// file + helper config live in the clone's shared `.git`, so refreshing
+    /// the clone covers every worktree).
     pub clone: PathBuf,
     /// The workspace `repositories` row id — re-mints the installation token
     /// mid-session (EXP-56 P9).
@@ -334,8 +342,9 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 ///    resolved the repo group — trust it;
 /// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
 /// 3. git: clone/worktree + branch (`<prefix><IDENTIFIER>` /
-///    `exp/rel-<slug>`) + token remote re-set (the personal-key read/mint
-///    races this on a side thread, §7.2);
+///    `exp/rel-<slug>`) + ambient-auth install (bare origin + repo-local
+///    credential helper, EXP-73; the personal-key read/mint races this on a
+///    side thread, §7.2);
 /// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk);
 /// 5. prompt — Issue: rendered + size-gated delivery (direct argv when
 ///    small); Release: the orchestration template + `--agents` defs, ALWAYS
@@ -367,10 +376,20 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         ),
     };
 
-    // Step 2 — mint the JIT installation token (session-gated, ~55 min TTL,
-    // never persisted/logged — TokenUrl + scrubbed git errors enforce that).
-    let token = match repositories::installation_token(&deps.trpc, &repository_id) {
-        Ok(token) => token,
+    // Step 2 — mint the JIT installation token (session-gated, ≤1 h real
+    // TTL, never persisted/logged server-side — TokenUrl + scrubbed git
+    // errors enforce that). Through the process-wide cache, deliberately:
+    // this seeds it, so the refresher's first pass and the git-bar's next
+    // sync are cache hits instead of duplicate mints (EXP-73). The margin is
+    // the refresher's LEAD, not the smaller per-op one — the session's
+    // ambient token must be born with enough life to reach the refresher's
+    // first scheduled pass even if that pass is delayed.
+    let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
+        &deps.trpc,
+        &repository_id,
+        crate::token_refresh::REFRESH_LEAD,
+    ) {
+        Ok(minted) => minted,
         Err(err) => return map_token_error(err, &full_name),
     };
 
@@ -394,17 +413,18 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             &release_req.release_id,
         )),
     };
-    let url = TokenUrl::new(token.full_name.clone(), token.token.clone());
+    let url = minted.url.clone();
     let repos_root = deps.settings.repos_root_path();
     let worktree = deps.worktrees.prepare(
         &repos_root,
-        &token.full_name,
-        &token.default_branch,
+        url.full_name(),
+        &minted.default_branch,
         &branch,
         &url,
+        minted.expires_at.as_deref(),
     )?;
     // The clone path the worktree hangs off — the P9 token refresher's target.
-    let clone = clone_path(&repos_root, &token.full_name);
+    let clone = clone_path(&repos_root, url.full_name());
 
     // Step 4 — .mcp.json (authenticates the spawned claude as the real user;
     // release subagents inherit the session's MCP servers).
@@ -462,7 +482,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 release_id: &release_req.release_id,
                 release_name: &release_req.release_name,
                 repository_id: &release_req.repo.repository_id,
-                default_branch: &token.default_branch,
+                default_branch: &minted.default_branch,
                 integration_branch: &branch,
                 issues: &prompt_issues,
             });
@@ -892,14 +912,16 @@ mod tests {
         );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
 
-        // Step 3 got the server-confirmed repo + §7.1 branch name.
+        // Step 3 got the server-confirmed repo + §7.1 branch name + the
+        // mint's real expiry (the ambient-auth no-downgrade stamp).
         let seen = worktrees.seen.lock().unwrap();
         assert_eq!(
             seen.as_slice(),
             &[(
                 "acme/web".to_string(),
                 "main".to_string(),
-                "exp/EXP-42".to_string()
+                "exp/EXP-42".to_string(),
+                Some("2026-07-03T12:55:00.000Z".to_string())
             )]
         );
 
@@ -1025,7 +1047,8 @@ mod tests {
             &[(
                 "acme/web".to_string(),
                 "main".to_string(),
-                "exp/rel-0-4-1dc5fb4a".to_string()
+                "exp/rel-0-4-1dc5fb4a".to_string(),
+                Some("2026-07-03T12:55:00.000Z".to_string())
             )]
         );
 

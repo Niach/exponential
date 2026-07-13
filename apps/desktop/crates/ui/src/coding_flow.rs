@@ -35,7 +35,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -325,11 +324,6 @@ pub fn local_session_for<'a>(
 // TokenRefreshers — per-clone installation-token keep-alive (EXP-56 P9)
 // ---------------------------------------------------------------------------
 
-/// Refresh cadence: safely under the ~55-min installation-token TTL.
-const TOKEN_REFRESH_INTERVAL: Duration = Duration::from_secs(40 * 60);
-/// Error backoff before the next attempt.
-const TOKEN_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
-
 struct RefresherEntry {
     /// Live sessions sharing this clone (single-issue + release runs on the
     /// same repo share one loop).
@@ -338,11 +332,14 @@ struct RefresherEntry {
 }
 
 /// Process-global, ref-counted per-CLONE token refreshers: while any local
-/// session runs on a clone, a background loop re-mints the JIT installation
-/// token every ~40 min and re-sets the clone's `origin` remote
-/// ([`coding::refresh_clone_token`]) so `git push` keeps working past the
-/// ~55-min token TTL — for the main worktree AND every subagent worktree
-/// (remotes are repo-level config). `retain` after every successful spawn;
+/// session runs on a clone, a background loop keeps the clone's ambient git
+/// credentials fresh ([`coding::refresh_clone_token`] — cached-or-fresh mint
+/// + downgrade-guarded credential-file install, EXP-73) so `git push` keeps
+/// working past the ≤1 h token TTL — for the main worktree AND every
+/// subagent worktree (the credential file lives in the shared `.git`). The
+/// cadence is derived from each token's REAL expiry
+/// ([`coding::next_refresh_delay`]); the old fixed 40-minute loop could
+/// outlive a cache-served token. `retain` after every successful spawn;
 /// `release` rides [`LocalSessions::remove`] (both exit paths, exactly once).
 #[derive(Default)]
 pub struct TokenRefreshers {
@@ -377,12 +374,11 @@ impl TokenRefreshers {
         let clone = clone.to_path_buf();
         let repository_id = repository_id.to_string();
         cx.spawn(async move |cx| {
-            let mut delay = TOKEN_REFRESH_INTERVAL;
+            // Refresh first, then sleep the expiry-derived delay: the
+            // launcher just seeded the token cache, so the first pass is a
+            // cache hit + idempotent credential install — and it hands us
+            // the real expiry to schedule from.
             loop {
-                cx.background_executor().timer(delay).await;
-                if cancel.load(Ordering::SeqCst) {
-                    break; // released while sleeping — a stale refresh is useless
-                }
                 let trpc = Arc::clone(&trpc);
                 let refresh_clone = clone.clone();
                 let refresh_repo = repository_id.clone();
@@ -395,8 +391,11 @@ impl TokenRefreshers {
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
-                delay = match result {
-                    Ok(()) => TOKEN_REFRESH_INTERVAL,
+                let delay = match result {
+                    Ok(minted) => coding::next_refresh_delay(
+                        minted.expires_at.as_deref(),
+                        std::time::SystemTime::now(),
+                    ),
                     Err(err) => {
                         // A persistent failure eventually surfaces as a
                         // visible push 401 in the tab (GIT_TERMINAL_PROMPT=0
@@ -404,11 +403,15 @@ impl TokenRefreshers {
                         log::warn!(
                             "[ui] clone token refresh failed for {}: {err} — retrying in {}s",
                             clone.display(),
-                            TOKEN_REFRESH_RETRY.as_secs()
+                            coding::TOKEN_REFRESH_RETRY.as_secs()
                         );
-                        TOKEN_REFRESH_RETRY
+                        coding::TOKEN_REFRESH_RETRY
                     }
                 };
+                cx.background_executor().timer(delay).await;
+                if cancel.load(Ordering::SeqCst) {
+                    break; // released while sleeping — a stale refresh is useless
+                }
             }
         })
         .detach();

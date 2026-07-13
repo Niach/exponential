@@ -285,9 +285,11 @@ impl RailView {
             cx.observe(&nav, |_, _, cx| cx.notify()),
             // Conflict badge follows the git bar's trunk state.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
-            // The Reviews dot is a live read over issues ⨝ projects.
+            // The Reviews dot is a live read over issues ⨝ projects, plus
+            // releases (EXP-73: open release PRs count too).
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.releases, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -418,9 +420,13 @@ impl Render for RailView {
         }
 
         let accent = project_accent(&self.nav, cx);
-        // Reviews badge: any open PR in the active workspace.
+        // Reviews badge: any open PR in the active workspace — issue-linked
+        // or a release PR (EXP-73).
         let has_reviews = active_workspace_id(&self.nav, cx)
-            .map(|id| !queries::review_issues(cx, &id).is_empty())
+            .map(|id| {
+                !queries::review_issues(cx, &id).is_empty()
+                    || !queries::review_releases(cx, &id).is_empty()
+            })
             .unwrap_or(false);
         v_flex()
             .w(px(RAIL_W))
@@ -978,18 +984,21 @@ impl SidebarPanel {
     // -- Reviews tool window ----------------------------------------------------
 
     /// *Reviews* tool window: open pull requests across the workspace, each
-    /// row with a two-click inline merge confirm. Issue-linked PRs come from
-    /// the synced issues shape, grouped by project; below them, PRs NOT
-    /// linked to any issue (release PRs, manual branches, external
-    /// contributors) come from a background `repositories.openPulls` fetch,
-    /// grouped by repo — the synced list never waits on GitHub. Merging goes
-    /// through the server (`issues.mergePr` / `repositories.mergePull`,
-    /// GitHub App squash) — never local git; issue rows leave the list via
-    /// the Electric echo, unlinked pulls are removed locally.
+    /// mergeable row with a two-click inline merge confirm. Issue-linked PRs
+    /// come from the synced issues shape, grouped by project; then open
+    /// RELEASE PRs from the synced releases shape (EXP-73 — link-only rows,
+    /// no merge: the webhook auto-ships on merge); below them, PRs NOT
+    /// linked to anything (manual branches, external contributors) come from
+    /// a background `repositories.openPulls` fetch, grouped by repo — the
+    /// synced lists never wait on GitHub. Merging goes through the server
+    /// (`issues.mergePr` / `repositories.mergePull`, GitHub App squash) —
+    /// never local git; synced rows leave the list via the Electric echo,
+    /// unlinked pulls are removed locally.
     fn render_reviews_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let collections = Store::global(cx).collections().clone();
         let is_ready = collections.issues.read(cx).is_ready()
-            && collections.projects.read(cx).is_ready();
+            && collections.projects.read(cx).is_ready()
+            && collections.releases.read(cx).is_ready();
         let workspace_id = active_workspace_id(&self.nav, cx);
         if let Some(id) = workspace_id.as_deref() {
             self.ensure_open_pulls(id, cx);
@@ -997,6 +1006,12 @@ impl SidebarPanel {
         let groups = workspace_id
             .as_deref()
             .map(|id| queries::review_groups(cx, id))
+            .unwrap_or_default();
+        // Open RELEASE PRs (EXP-73): first-class rows from the synced
+        // releases shape (the server dedupes them out of openPulls).
+        let release_rows = workspace_id
+            .as_deref()
+            .map(|id| queries::review_releases(cx, id))
             .unwrap_or_default();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
@@ -1039,7 +1054,7 @@ impl SidebarPanel {
 
         let body: gpui::AnyElement = if !is_ready {
             self.list_skeleton(cx)
-        } else if groups.is_empty() && pull_repos.is_empty() {
+        } else if groups.is_empty() && release_rows.is_empty() && pull_repos.is_empty() {
             self.list_note("No open pull requests.", cx)
         } else {
             let muted = cx.theme().muted_foreground;
@@ -1070,6 +1085,40 @@ impl SidebarPanel {
                 );
                 for issue in &group.issues {
                     children.push(self.review_row(issue, cx));
+                }
+            }
+            if !release_rows.is_empty() {
+                children.push(
+                    h_flex()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            Icon::from(ExpIcon::Rocket)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(muted),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(muted)
+                                .child("Release PRs"),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted.opacity(0.8))
+                                .child(SharedString::from(release_rows.len().to_string())),
+                        )
+                        .into_any_element(),
+                );
+                for release in &release_rows {
+                    children.push(self.release_pr_row(release, cx));
                 }
             }
             for repo in &pull_repos {
@@ -1252,6 +1301,103 @@ impl SidebarPanel {
                         .child(SharedString::from(message)),
                 )
             })
+            .into_any_element()
+    }
+
+    /// One release-PR Reviews row (EXP-73): rocket + release name with a
+    /// trailing `PR #N` link button, sub-line `Target … · N of M done`. NO
+    /// merge button — a release PR auto-ships via the webhook on merge, so
+    /// the release detail is the acting surface. Clicking the row opens the
+    /// release in the Releases tool window; the button opens GitHub.
+    fn release_pr_row(
+        &self,
+        release: &domain::rows::Release,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        let pr_green = theme::tokens::GREEN.to_hsla();
+
+        let name: SharedString = release_name(release).into();
+        let progress = queries::release_progress(&queries::release_issues(cx, &release.id));
+        let mut sub_parts: Vec<String> = Vec::new();
+        if let Some(target) = release.target_date.as_deref() {
+            sub_parts.push(format!("Target {}", format_short_date(target)));
+        }
+        sub_parts.push(progress.label().unwrap_or_else(|| "No issues".to_string()));
+        let sub: SharedString = sub_parts.join(" \u{00B7} ").into();
+
+        let pr_button = release.pr_url.clone().map(|pr_url| {
+            let label = match release.pr_number {
+                Some(number) => format!("PR #{number}"),
+                None => "PR".to_string(),
+            };
+            Button::new(SharedString::from(format!("review-release-pr-{}", release.id)))
+                .xsmall()
+                .outline()
+                .icon(Icon::from(ExpIcon::GitPullRequest).text_color(pr_green))
+                .label(SharedString::from(label))
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    if let Err(error) = api::opener::open_in_browser(&pr_url) {
+                        log::warn!("[ui] release PR link open failed: {error}");
+                    }
+                })
+        });
+
+        let click_id = release.id.clone();
+        v_flex()
+            .id(SharedString::from(format!("review-release-{}", release.id)))
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_0p5()
+            .rounded(radius)
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // Any click outside an armed merge button disarms the
+                // confirm, like the other review rows.
+                if this.review_arm.is_some() {
+                    this.review_arm = None;
+                    this.review_arm_seq += 1;
+                    cx.notify();
+                }
+                open_release(window, cx, click_id.clone());
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(ExpIcon::Rocket)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(pr_green),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(fg)
+                            .child(name),
+                    )
+                    .when_some(pr_button, |this, button| this.child(button)),
+            )
+            .child(
+                div()
+                    .pl_5()
+                    .text_xs()
+                    .truncate()
+                    .text_color(muted)
+                    .child(sub),
+            )
             .into_any_element()
     }
 

@@ -1208,24 +1208,40 @@ fn run_sync_worker(
     prune_branches: &[String],
     tx: &flume::Sender<SyncMsg>,
 ) {
-    // Token via the cache (re-mints only near expiry; never persisted/logged;
-    // only ever rides in the token remote URL, redacted in every error).
+    // A pre-transport failure (mint or ambient-auth install), surfaced
+    // through whichever channel the segment reads.
+    let send_failure = |detail: String| {
+        let _ = tx.send(match mode {
+            SyncMode::Clone => SyncMsg::Clone(CloneEvent::Failed(detail.clone())),
+            SyncMode::AutoSync => SyncMsg::AutoSyncDone(Err(detail.clone())),
+            _ => SyncMsg::Failed(detail.clone()),
+        });
+        let _ = tx.send(SyncMsg::Trunk(Err(detail)));
+    };
+
+    // Token via the cache (re-mints only near the REAL expiry; never
+    // persisted/logged; reaches disk only as the clone's credential file).
     let minted = match coding::token_cache().get_or_mint(trpc, &repo.repository_id) {
         Ok(minted) => minted,
         Err(err) => {
-            let detail = err.to_string();
-            // Surface through whichever channel the segment reads.
-            let _ = tx.send(match mode {
-                SyncMode::Clone => SyncMsg::Clone(CloneEvent::Failed(detail.clone())),
-                SyncMode::AutoSync => SyncMsg::AutoSyncDone(Err(detail.clone())),
-                _ => SyncMsg::Failed(detail.clone()),
-            });
-            let _ = tx.send(SyncMsg::Trunk(Err(detail)));
+            send_failure(err.to_string());
             return;
         }
     };
     let url = minted.url;
+    let expires_at = minted.expires_at.as_deref();
     let clone: &Path = &repo.clone;
+
+    // Ambient-auth install before any transport (EXP-73): downgrade-guarded,
+    // so this 120-s/on-focus writer can never clobber a fresher token the
+    // refresher installed (the exact postmortem failure). Clone mode installs
+    // inside `clone_manager::ensure` — no `.git` exists yet here.
+    if mode != SyncMode::Clone {
+        if let Err(err) = coding::git_credentials::ensure(clone, &url, expires_at) {
+            send_failure(err.to_string());
+            return;
+        }
+    }
 
     match mode {
         SyncMode::Clone => {
@@ -1235,7 +1251,13 @@ fn run_sync_worker(
             };
             // A clone failure already streamed `CloneEvent::Failed` through
             // the callback — nothing more to send here.
-            let _ = clone_manager::ensure(&repo.repos_root, &repo.full_name, &url, &mut on_event);
+            let _ = clone_manager::ensure(
+                &repo.repos_root,
+                &repo.full_name,
+                &url,
+                expires_at,
+                &mut on_event,
+            );
         }
         SyncMode::Fetch => {
             // A freshness pass is fetch + the same ff-only catch-up AutoSync

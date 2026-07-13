@@ -635,8 +635,9 @@ impl SourceControlView {
                             return Err("No branch checked out.".to_string());
                         }
                         let trpc = trpc.ok_or_else(|| "Not signed in.".to_string())?;
-                        let minted = coding::token_cache()
-                            .get_or_mint(&trpc, &repository_id)
+                        // Cached-or-fresh mint + ambient-auth install on the
+                        // clone (EXP-73), then pure-transport push.
+                        let minted = coding::ensure_repo_auth(&trpc, &repository_id, &clone)
                             .map_err(|err| err.to_string())?;
                         clone_manager::push(&clone, &branch, &minted.url)
                             .map_err(|err| err.to_string())?;

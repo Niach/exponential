@@ -1,9 +1,10 @@
 //! `coding` — the Start-coding launcher (masterplan-v3 §3.1 / §07, DC-1).
 //!
 //! Phase 5 lands: git worktree creation via argv `git` (never `gh`, never a
-//! git library), the `exp/<IDENTIFIER>` branch, the token-embedded remote
-//! (never logged — [`git_worktree::TokenUrl`] redacts, git output is
-//! scrubbed), `.mcp.json`, the seed prompt, the tooling doctor, the
+//! git library), the `exp/<IDENTIFIER>` branch, ambient git auth via the
+//! repo-local credential helper ([`git_credentials`] — EXP-73: `origin` stays
+//! bare; the token is never logged — [`git_worktree::TokenUrl`] redacts, git
+//! output is scrubbed), `.mcp.json`, the seed prompt, the tooling doctor, the
 //! coding settings (repos root / branch prefix / claude path — never
 //! a manual API-key field), and the `claude` spawn into the embedded
 //! terminal. Claude-only: the experimental codex adapter is deleted.
@@ -35,6 +36,7 @@ pub mod argv;
 pub mod claude_task;
 pub mod clone_manager;
 pub mod doctor;
+pub mod git_credentials;
 pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
@@ -62,6 +64,7 @@ pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
     FileStatus, StashEntry, StatusSummary, UnifiedHunk,
 };
+pub use git_credentials::{ensure_repo_auth, ensure_repo_auth_with_margin};
 pub use token_cache::{token_cache, MintedToken, TokenCache};
 pub use trunk_state::TrunkState;
 pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
@@ -86,4 +89,6 @@ pub use run_launch::{
     run_spawn_spec, shell_cwd, PlayState, STOP_GRACE,
 };
 pub use settings::Settings;
-pub use token_refresh::refresh_clone_token;
+pub use token_refresh::{
+    next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
+};

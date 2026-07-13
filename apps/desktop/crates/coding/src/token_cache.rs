@@ -1,23 +1,23 @@
-//! Process-wide installation-token cache: the GitBar sync worker and Source
-//! Control's Commit & Push both need a JIT GitHub-App token per network op,
-//! and unconditionally re-minting one per click/timer tick is wasteful (the
-//! token lives ~55 minutes). [`TokenCache::get_or_mint`] returns the cached
-//! token while it is comfortably fresh ([`clone_manager::token_needs_remint`])
-//! and re-mints through `repositories.installationToken` otherwise.
+//! Process-wide installation-token cache: every desktop consumer of a JIT
+//! GitHub-App token (launcher prepare, GitBar sync worker, Source Control's
+//! Commit & Push, the mid-session refresher) mints through here — one token
+//! per repo at a time, re-minted only when its REAL remaining life (the
+//! server returns GitHub's actual `expires_at` since EXP-73) falls under the
+//! caller's margin ([`clone_manager::token_needs_remint_with_margin`]).
 //!
 //! In-memory only — the token is NEVER persisted or logged; it lives inside
-//! [`TokenUrl`] (Display/Debug-redacted) plus this map. The mid-session
-//! 40-minute remote-refresh loop stays on [`crate::token_refresh`] — that one
-//! must re-embed a FRESH token into a clone's remote unconditionally.
+//! [`TokenUrl`] (Display/Debug-redacted) plus this map, and reaches disk only
+//! as the clone's credential file ([`crate::git_credentials`], 0600). The
+//! token no longer rides `remote.origin.url` (EXP-73).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use api::error::ApiError;
 use api::trpc::TrpcClient;
 
-use crate::clone_manager::token_needs_remint;
+use crate::clone_manager::{token_needs_remint_with_margin, TOKEN_REMINT_MARGIN};
 use crate::git_worktree::TokenUrl;
 
 /// One minted installation token, keyed by `repository_id` in the cache.
@@ -38,20 +38,40 @@ pub struct MintedToken {
 pub struct TokenCache(Mutex<HashMap<String, MintedToken>>);
 
 impl TokenCache {
-    /// The cached token for `repository_id` when it does not need a re-mint;
-    /// else mint a fresh one via `repositories.installationToken`, cache, and
-    /// return it. Blocking (network) — run on a background executor.
+    /// The cached token for `repository_id` when it does not need a re-mint
+    /// (per-op margin [`TOKEN_REMINT_MARGIN`]); else mint a fresh one via
+    /// `repositories.installationToken`, cache, and return it. Blocking
+    /// (network) — run on a background executor.
     pub fn get_or_mint(
         &self,
         trpc: &TrpcClient,
         repository_id: &str,
+    ) -> Result<MintedToken, ApiError> {
+        self.get_or_mint_with_margin(trpc, repository_id, TOKEN_REMINT_MARGIN)
+    }
+
+    /// [`TokenCache::get_or_mint`] with an explicit freshness margin: a hit
+    /// must have MORE than `margin` of real life left. The refresher passes
+    /// its longer lead so a token it is about to install outlives the gap to
+    /// its next scheduled run.
+    pub fn get_or_mint_with_margin(
+        &self,
+        trpc: &TrpcClient,
+        repository_id: &str,
+        margin: Duration,
     ) -> Result<MintedToken, ApiError> {
         if let Some(hit) = self
             .0
             .lock()
             .expect("token cache lock")
             .get(repository_id)
-            .filter(|entry| !token_needs_remint(entry.expires_at.as_deref(), SystemTime::now()))
+            .filter(|entry| {
+                !token_needs_remint_with_margin(
+                    entry.expires_at.as_deref(),
+                    SystemTime::now(),
+                    margin,
+                )
+            })
         {
             return Ok(hit.clone());
         }
@@ -173,6 +193,28 @@ mod tests {
         // The stale entry fails token_needs_remint → second call mints anew.
         let fresh = cache.get_or_mint(&client(&base), "repo-expiring").unwrap();
         assert_eq!(fresh.expires_at.as_deref(), Some("2099-01-01T00:00:00.000Z"));
+    }
+
+    #[test]
+    fn a_wider_margin_re_mints_what_the_default_margin_would_serve() {
+        let base = canned_server(vec![
+            (200, token_json("ghs_first", "2099-01-01T00:00:00.000Z")),
+            (200, token_json("ghs_second", "2099-06-01T00:00:00.000Z")),
+        ]);
+        let cache = TokenCache::default();
+
+        // Comfortably fresh under the default per-op margin → cache hit.
+        let first = cache.get_or_mint(&client(&base), "repo-margin").unwrap();
+        let hit = cache.get_or_mint(&client(&base), "repo-margin").unwrap();
+        assert_eq!(first.expires_at, hit.expires_at);
+
+        // A margin wider than the token's remaining life forces a re-mint —
+        // the refresher's stricter freshness demand.
+        let wide = Duration::from_secs(60 * 60 * 24 * 365 * 200); // ≫ 2099
+        let fresh = cache
+            .get_or_mint_with_margin(&client(&base), "repo-margin", wide)
+            .unwrap();
+        assert_eq!(fresh.expires_at.as_deref(), Some("2099-06-01T00:00:00.000Z"));
     }
 
     #[test]

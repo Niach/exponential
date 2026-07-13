@@ -15,10 +15,15 @@ import {
 // tokens that can't reach a repo removed from the installation's selection.
 describe(`resolveInstallationTokenWith`, () => {
   const repo = `Niach/exponential`
+  // The REAL GitHub expiry the mint reports — must reach the resolved object
+  // untouched (EXP-73: a synthetic expiry here poisoned every desktop
+  // freshness check).
+  const expiresAt = Date.parse(`2099-01-01T00:00:00.000Z`)
+  const minted = (token: string) => ({ token, expiresAt })
 
   it(`mints against the live installation id and skips the verify probe on a hit`, async () => {
     const resolveId = vi.fn(async () => 42)
-    const mintToken = vi.fn(async () => `tok-live`)
+    const mintToken = vi.fn(async () => minted(`tok-live`))
     const verifyRepo = vi.fn(async () => true)
 
     const resolved = await resolveInstallationTokenWith(repo, 7, {
@@ -27,7 +32,7 @@ describe(`resolveInstallationTokenWith`, () => {
       verifyRepo,
     })
 
-    expect(resolved).toEqual({ token: `tok-live`, installationId: 42 })
+    expect(resolved).toEqual({ token: `tok-live`, installationId: 42, expiresAt })
     expect(mintToken).toHaveBeenCalledTimes(1)
     expect(mintToken).toHaveBeenCalledWith(42)
     expect(verifyRepo).not.toHaveBeenCalled()
@@ -38,7 +43,7 @@ describe(`resolveInstallationTokenWith`, () => {
     // App still covers the repo through the installation persisted at connect
     // time — mint against that instead of 412ing, verified by the repo probe.
     const resolveId = vi.fn(async () => null)
-    const mintToken = vi.fn(async () => `tok-fallback`)
+    const mintToken = vi.fn(async () => minted(`tok-fallback`))
     const verifyRepo = vi.fn(async () => true)
 
     const resolved = await resolveInstallationTokenWith(repo, 7, {
@@ -47,7 +52,11 @@ describe(`resolveInstallationTokenWith`, () => {
       verifyRepo,
     })
 
-    expect(resolved).toEqual({ token: `tok-fallback`, installationId: 7 })
+    expect(resolved).toEqual({
+      token: `tok-fallback`,
+      installationId: 7,
+      expiresAt,
+    })
     expect(mintToken).toHaveBeenCalledTimes(1)
     expect(mintToken).toHaveBeenCalledWith(7)
     expect(verifyRepo).toHaveBeenCalledWith(repo, `tok-fallback`)
@@ -58,7 +67,7 @@ describe(`resolveInstallationTokenWith`, () => {
     // set: the mint succeeds (the installation exists) but the token can't
     // access the repo — the old blind fallback handed that token out anyway.
     const resolveId = vi.fn(async () => null)
-    const mintToken = vi.fn(async () => `tok-dead`)
+    const mintToken = vi.fn(async () => minted(`tok-dead`))
     const verifyRepo = vi.fn(async () => false)
 
     const resolved = await resolveInstallationTokenWith(repo, 7, {
@@ -72,7 +81,7 @@ describe(`resolveInstallationTokenWith`, () => {
 
   it(`returns the fallback token when the verify probe THROWS (transient error ≠ no access)`, async () => {
     const resolveId = vi.fn(async () => null)
-    const mintToken = vi.fn(async () => `tok-fallback`)
+    const mintToken = vi.fn(async () => minted(`tok-fallback`))
     const verifyRepo = vi.fn(async () => {
       throw new Error(`GitHub repo probe failed (500)`)
     })
@@ -83,12 +92,16 @@ describe(`resolveInstallationTokenWith`, () => {
       verifyRepo,
     })
 
-    expect(resolved).toEqual({ token: `tok-fallback`, installationId: 7 })
+    expect(resolved).toEqual({
+      token: `tok-fallback`,
+      installationId: 7,
+      expiresAt,
+    })
   })
 
   it(`returns null when the live lookup misses and there is no fallback`, async () => {
     const resolveId = vi.fn(async () => null)
-    const mintToken = vi.fn(async () => `never`)
+    const mintToken = vi.fn(async () => minted(`never`))
     const verifyRepo = vi.fn(async () => true)
 
     const resolved = await resolveInstallationTokenWith(repo, null, {
@@ -290,11 +303,12 @@ describe(`installation token minting (repo scoping)`, () => {
     return { ok: status >= 200 && status < 300, status, json: async () => body }
   }
 
+  // A fixed far-future GitHub expiry so the resolved `expiresAt` (the real
+  // `expires_at`, threaded through verbatim) is deterministic to assert.
+  const MINT_EXPIRES_AT = `2099-01-01T00:00:00.000Z`
+
   function tokenResponse(token: string) {
-    return jsonResponse(
-      { token, expires_at: new Date(Date.now() + 3_600_000).toISOString() },
-      201
-    )
+    return jsonResponse({ token, expires_at: MINT_EXPIRES_AT }, 201)
   }
 
   function mintCalls(fetchMock: ReturnType<typeof vi.fn>) {
@@ -318,7 +332,11 @@ describe(`installation token minting (repo scoping)`, () => {
 
     const resolved = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
 
-    expect(resolved).toEqual({ token: `tok-scoped`, installationId: 42 })
+    expect(resolved).toEqual({
+      token: `tok-scoped`,
+      installationId: 42,
+      expiresAt: Date.parse(MINT_EXPIRES_AT),
+    })
     const [[, init]] = mintCalls(fetchMock)
     expect(init.method).toBe(`POST`)
     const headers = init.headers as Record<string, string>
@@ -359,6 +377,39 @@ describe(`installation token minting (repo scoping)`, () => {
     const again = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
     expect(again?.token).toBe(`tok-website`)
     expect(mintCalls(fetchMock)).toHaveLength(2)
+  })
+
+  it(`re-mints instead of serving a cached token inside the 10-min margin`, async () => {
+    // EXP-73: the old 60s margin could serve a token with ~2 min of real life
+    // to the desktop, which embeds it as ambient git credentials and schedules
+    // its refresh 8 min before the reported expiry.
+    const mod = await loadWithAppEnv()
+    let mintCount = 0
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith(`/repos/acme/website/installation`)) {
+        return jsonResponse({ id: 42 })
+      }
+      if (url.endsWith(`/app/installations/42/access_tokens`)) {
+        mintCount += 1
+        return jsonResponse(
+          {
+            token: `tok-${mintCount}`,
+            expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+          },
+          201
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    // Both mints report only ~5 min of remaining life — under the serve
+    // margin, so the second resolve re-mints rather than serving the first
+    // (nearly-dead) token from cache.
+    const first = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
+    const second = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
+    expect(first?.token).toBe(`tok-1`)
+    expect(second?.token).toBe(`tok-2`)
   })
 
   it(`listInstallationRepos mints an installation-wide token (no repositories body)`, async () => {

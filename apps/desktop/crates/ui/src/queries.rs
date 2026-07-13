@@ -500,6 +500,27 @@ pub fn workspace_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
     out
 }
 
+/// Releases with an OPEN release PR, in the shared display order — the
+/// Reviews tool's release section and the rail badge (EXP-73; web parity:
+/// `use-reviews-data.ts` `releasePulls`). Merged release PRs auto-ship via
+/// the webhook and leave the queue on the sync echo, mirroring
+/// [`review_issues`]'s open-only filter.
+pub fn releases_with_open_pr(releases: &[Release]) -> Vec<Release> {
+    let mut out: Vec<Release> = releases
+        .iter()
+        .filter(|release| release.pr_state.as_deref() == Some("open"))
+        .cloned()
+        .collect();
+    out.sort_by(compare_releases);
+    out
+}
+
+/// The Reviews tool window's release-PR section read:
+/// [`releases_with_open_pr`] over [`workspace_releases`].
+pub fn review_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
+    releases_with_open_pr(&workspace_releases(cx, workspace_id))
+}
+
 /// Every non-archived issue in a workspace (issues ⨝ projects, shared sort
 /// order) — the add-issues picker's candidate pool (the dialog filters
 /// status/membership on top).
@@ -581,6 +602,13 @@ mod tests {
         .unwrap()
     }
 
+    fn release_with_pr(id: &str, target: Option<&str>, pr_state: Option<&str>) -> Release {
+        let mut row = release(id, target, None, "2026-07-01T00:00:00Z");
+        row.pr_state = pr_state.map(str::to_string);
+        row.pr_url = pr_state.map(|_| format!("https://github.com/acme/web/pull/{id}"));
+        row
+    }
+
     fn issue(id: &str, status: &str) -> domain::rows::Issue {
         serde_json::from_value(json!({
             "id": id,
@@ -643,6 +671,21 @@ mod tests {
         remove_merged_pull(&mut repos, "repo-1", 99);
         assert_eq!(repos[0].pulls.len(), 1);
         assert_eq!(repos[1].pulls.len(), 1);
+    }
+
+    #[test]
+    fn releases_with_open_pr_keeps_only_open_state_in_display_order() {
+        let rows = vec![
+            release_with_pr("merged", None, Some("merged")),
+            release_with_pr("open-aug", Some("2026-08-01"), Some("open")),
+            release_with_pr("closed", None, Some("closed")),
+            release_with_pr("open-jul", Some("2026-07-15"), Some("open")),
+            release_with_pr("no-pr", None, None),
+        ];
+        let open = releases_with_open_pr(&rows);
+        let order: Vec<&str> = open.iter().map(|r| r.id.as_str()).collect();
+        // Only open survives, in the shared display order (target asc).
+        assert_eq!(order, ["open-jul", "open-aug"]);
     }
 
     #[test]
