@@ -54,7 +54,8 @@ pub mod trunk_state;
 
 pub use argv::{issue_args, permission_args, release_args, IssueLaunchOptions};
 pub use claude_task::{
-    claude_task, create_run_configs_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
+    claude_task, claude_task_with_mcp, create_run_configs_prompt, fix_conflicts_prompt,
+    resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use doctor::{

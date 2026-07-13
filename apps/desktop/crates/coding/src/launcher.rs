@@ -895,15 +895,19 @@ mod tests {
         assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
 
         // Step 7's spawn spec: configured program, explicit --model, the
-        // native plan-mode permission args (issue default ON), the FULL
-        // rendered prompt as the positional (small prompt ⇒ direct delivery),
-        // worktree cwd.
+        // explicit+strict MCP config (EXP-83: no project-discovery trust
+        // dialog), the native plan-mode permission args (issue default ON),
+        // the FULL rendered prompt as the positional (small prompt ⇒ direct
+        // delivery), worktree cwd.
         assert_eq!(prepared.spawn.program, "git"); // test claude_path
         assert_eq!(
             prepared.spawn.args,
             vec![
                 "--model".to_string(),
                 "fable".to_string(),
+                "--mcp-config".to_string(),
+                ".mcp.json".to_string(),
+                "--strict-mcp-config".to_string(),
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--allow-dangerously-skip-permissions".to_string(),
@@ -959,12 +963,15 @@ mod tests {
         match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
             Prepared::Ready(prepared) => {
                 assert_eq!(
-                    prepared.spawn.args[..5],
+                    prepared.spawn.args[..8],
                     [
                         "--model".to_string(),
                         "fable".to_string(),
                         "--effort".to_string(),
                         "xhigh".to_string(),
+                        "--mcp-config".to_string(),
+                        ".mcp.json".to_string(),
+                        "--strict-mcp-config".to_string(),
                         "--dangerously-skip-permissions".to_string(),
                     ]
                 );
@@ -1070,8 +1077,9 @@ mod tests {
         assert!(prompt.contains("web.worktrees"));
 
         // The spawn args: ultracode = `--effort ultracode` (model untouched),
-        // --agents unconditional, plan_mode:false ⇒ the skip flag, seed line
-        // positional-last (file delivery).
+        // --agents unconditional, the explicit+strict MCP config (EXP-83),
+        // plan_mode:false ⇒ the skip flag, seed line positional-last (file
+        // delivery).
         assert_eq!(prepared.spawn.program, "git");
         assert_eq!(
             prepared.spawn.args[..4],
@@ -1087,8 +1095,16 @@ mod tests {
         assert!(agents.get("exp-42").is_some(), "agents json: {agents}");
         assert_eq!(agents["exp-42"]["model"], "opus");
         assert_eq!(agents["exp-42"]["effort"], "high");
-        assert_eq!(prepared.spawn.args[6], "--dangerously-skip-permissions");
-        assert_eq!(prepared.spawn.args[7], SEED_LINE);
+        assert_eq!(
+            prepared.spawn.args[6..9],
+            [
+                "--mcp-config".to_string(),
+                ".mcp.json".to_string(),
+                "--strict-mcp-config".to_string(),
+            ]
+        );
+        assert_eq!(prepared.spawn.args[9], "--dangerously-skip-permissions");
+        assert_eq!(prepared.spawn.args[10], SEED_LINE);
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
         // Subagents are always pre-defined via --agents.
         assert!(prompt.contains("pre-defined subagent"));

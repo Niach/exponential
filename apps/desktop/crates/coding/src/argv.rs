@@ -7,8 +7,26 @@
 //! `--dangerously-skip-permissions` otherwise. The doctor's
 //! [`crate::doctor::MIN_CLAUDE_VERSION`] gate guarantees every flag here.
 
+use crate::mcp_json::MCP_JSON_FILE;
 use crate::release_launcher::ReleaseLaunchOptions;
 use crate::settings::Settings;
+
+/// The MCP wiring of every coding argv: the launcher-written worktree
+/// `.mcp.json` is passed EXPLICITLY (`--mcp-config`, resolved against the
+/// spawn cwd = the worktree) instead of being left to project-file discovery —
+/// discovered project servers trigger claude's "New MCP server found in
+/// .mcp.json" trust dialog even under `--dangerously-skip-permissions`
+/// (EXP-83), while explicitly-passed config is trusted without prompting.
+/// `--strict-mcp-config` then disables discovery entirely so the SAME file
+/// (and anything else the repo carries) can't be found a second time and
+/// re-raise the dialog.
+pub fn mcp_config_args() -> Vec<String> {
+    vec![
+        "--mcp-config".into(),
+        MCP_JSON_FILE.into(),
+        "--strict-mcp-config".into(),
+    ]
+}
 
 /// The permission tail of every coding argv: native plan mode, or the classic
 /// skip flag. `--dangerously-skip-permissions` cannot ride NEXT TO plan mode
@@ -53,7 +71,8 @@ impl IssueLaunchOptions {
 }
 
 /// Single-issue argv:
-/// `--model <m> [--effort <e>] <permission_args> <positional>`.
+/// `--model <m> [--effort <e>] <mcp_config_args> <permission_args>
+/// <positional>`.
 pub fn issue_args(opts: &IssueLaunchOptions, positional: &str) -> Vec<String> {
     let mut args = vec!["--model".to_string(), opts.model.clone()];
     let effort = opts.effort.trim();
@@ -61,14 +80,15 @@ pub fn issue_args(opts: &IssueLaunchOptions, positional: &str) -> Vec<String> {
         args.push("--effort".to_string());
         args.push(effort.to_string());
     }
+    args.extend(mcp_config_args());
     args.extend(permission_args(opts.plan_mode));
     args.push(positional.to_string());
     args
 }
 
 /// Release-orchestrator argv:
-/// `--model <m> [--effort ultracode|<e>] --agents <json> <permission_args>
-/// <positional>`. Ultracode IS an effort level (`--effort ultracode`,
+/// `--model <m> [--effort ultracode|<e>] --agents <json> <mcp_config_args>
+/// <permission_args> <positional>`. Ultracode IS an effort level (`--effort ultracode`,
 /// CLI ≥2.1.203 — model-independent, no opus pin) and wins over the main
 /// effort while engaged.
 pub fn release_args(
@@ -92,6 +112,7 @@ pub fn release_args(
     }
     args.push("--agents".to_string());
     args.push(agents_json.to_string());
+    args.extend(mcp_config_args());
     args.extend(permission_args(opts.plan_mode));
     args.push(positional.to_string());
     args
@@ -121,6 +142,20 @@ mod tests {
     }
 
     #[test]
+    fn mcp_config_args_pass_the_worktree_file_explicitly_and_strictly() {
+        // EXP-83: explicit --mcp-config (trusted, no dialog) + strict mode
+        // (no project-file discovery that would re-raise the dialog).
+        assert_eq!(
+            mcp_config_args(),
+            vec![
+                "--mcp-config".to_string(),
+                ".mcp.json".to_string(),
+                "--strict-mcp-config".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn issue_args_matrix() {
         // Plan mode ON (the issue default), no effort.
         let opts = IssueLaunchOptions {
@@ -133,6 +168,9 @@ mod tests {
             vec![
                 "--model",
                 "fable",
+                "--mcp-config",
+                ".mcp.json",
+                "--strict-mcp-config",
                 "--permission-mode",
                 "plan",
                 "--allow-dangerously-skip-permissions",
@@ -141,7 +179,7 @@ mod tests {
         );
 
         // Plan mode OFF + effort set: skip flag, effort before the
-        // permission tail, positional last.
+        // MCP + permission tail, positional last.
         let opts = IssueLaunchOptions {
             model: "opus".to_string(),
             effort: "xhigh".to_string(),
@@ -154,6 +192,9 @@ mod tests {
                 "opus",
                 "--effort",
                 "xhigh",
+                "--mcp-config",
+                ".mcp.json",
+                "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "prompt",
             ]
@@ -210,6 +251,9 @@ mod tests {
                 "ultracode",
                 "--agents",
                 r#"{"exp-42":{}}"#,
+                "--mcp-config",
+                ".mcp.json",
+                "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "seed",
             ]
@@ -227,6 +271,9 @@ mod tests {
                 "high",
                 "--agents",
                 "{}",
+                "--mcp-config",
+                ".mcp.json",
+                "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "seed",
             ]
