@@ -319,10 +319,27 @@ private fun DangerZone(
     if (isOwner && state.workspace?.slug != "feedback") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader("Danger zone")
-            OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { confirmDelete = true },
+                enabled = !state.isOnlyWorkspace,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Delete workspace", color = MaterialTheme.colorScheme.error)
+                // Disabled content is auto-dimmed — only tint the label red
+                // while the action is actually available.
+                if (state.isOnlyWorkspace) {
+                    Text("Delete workspace")
+                } else {
+                    Text("Delete workspace", color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (state.isOnlyWorkspace) {
+                Text(
+                    "This is your only workspace, so it can't be deleted.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
             }
         }
     }

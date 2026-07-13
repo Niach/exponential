@@ -27,6 +27,33 @@ export async function findPersonalMembership(tx: Tx, userId: string) {
   return membership
 }
 
+// Would the user still have a personal workspace if `excludeWorkspaceId` went
+// away? Used by `workspaces.delete` to refuse deleting the LAST personal
+// workspace (EXP-82) — the EXP-43 ensureDefault self-heal would otherwise
+// silently recreate it on some clients (Android home bootstrap, desktop,
+// web /w/default) and not others (iOS), which reads as data corruption.
+export async function findOtherPersonalMembership(
+  tx: Tx,
+  userId: string,
+  excludeWorkspaceId: string
+) {
+  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
+  const [membership] = await tx
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.userId, userId),
+        ne(workspaceMembers.workspaceId, excludeWorkspaceId),
+        feedbackWorkspaceId
+          ? ne(workspaceMembers.workspaceId, feedbackWorkspaceId)
+          : undefined
+      )
+    )
+    .limit(1)
+  return membership
+}
+
 export async function createPersonalWorkspace(
   tx: Tx,
   args: { userId: string; userName: string | null }

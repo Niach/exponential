@@ -15,6 +15,7 @@ struct WorkspaceSettingsView: View {
     @State private var labels: [LabelEntity] = []
     @State private var projects: [ProjectEntity] = []
     @State private var users: [UserEntity] = []
+    @State private var allWorkspaces: [WorkspaceEntity] = []
     @State private var observationTask: Task<Void, Never>?
     @State private var showDeleteWorkspace = false
     @State private var deletingWorkspace = false
@@ -93,7 +94,7 @@ struct WorkspaceSettingsView: View {
                                     Text("Delete Workspace")
                                 }
                                 .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.red.opacity(isOnlyWorkspace ? 0.4 : 1))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                                 // Full-capsule hit target — .plain hit-tests only opaque pixels.
@@ -101,6 +102,13 @@ struct WorkspaceSettingsView: View {
                             }
                             .glassButton()
                             .buttonStyle(.plain)
+                            .disabled(isOnlyWorkspace)
+
+                            if isOnlyWorkspace {
+                                Text("This is your only workspace, so it can't be deleted.")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            }
 
                             if let dangerError {
                                 Text(dangerError)
@@ -156,15 +164,23 @@ struct WorkspaceSettingsView: View {
         Set(projects.filter { $0.isProtected }.compactMap { $0.repositoryId })
     }
 
+    /// The GRDB workspaces table mirrors the membership-scoped Electric shape,
+    /// so "synced workspaces minus feedback" == "my personal workspaces".
+    /// Deleting the last one is server-refused (EXP-82); empty-while-loading
+    /// biases the affordance to disabled, the safe default.
+    private var isOnlyWorkspace: Bool {
+        allWorkspaces.filter { $0.slug != "feedback" }.count <= 1
+    }
+
     private func deleteWorkspace() async {
         deletingWorkspace = true
         defer { deletingWorkspace = false }
         do {
             try await deps.workspacesApi.delete(accountId: accountId, workspaceId: workspaceId)
-            // Deleting the LAST workspace must not strand the app in the
-            // empty state until a relaunch (EXP-43): ensureDefault is
-            // idempotent — it returns the surviving personal workspace, or
-            // recreates one server-side when none is left.
+            // Deleting the LAST workspace is server-refused (EXP-82), so a
+            // successful delete always leaves a surviving membership —
+            // ensureDefault is idempotent and resolves it as the new
+            // landing spot without creating anything.
             _ = try? await deps.workspacesApi.ensureDefault(accountId: accountId)
             // Membership changed, so every shape's server-derived where clause
             // rotated — relaunch the pipeline so all 15 shapes re-scope
@@ -239,6 +255,12 @@ struct WorkspaceSettingsView: View {
                 let obs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { users = items }
+                }
+            }
+            Task {
+                let obs = ValueObservation.tracking { db in try WorkspaceEntity.fetchAll(db) }
+                for try await items in obs.values(in: pool) {
+                    await MainActor.run { allWorkspaces = items }
                 }
             }
         }

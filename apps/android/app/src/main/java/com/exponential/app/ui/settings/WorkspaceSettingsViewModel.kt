@@ -60,12 +60,21 @@ data class WorkspaceSettingsState(
     val createdInviteToken: String? = null,
     val instanceUrl: String? = null,
     val workspaceDeleted: Boolean = false,
+    // All synced workspaces of the account (membership-scoped shape), for the
+    // only-workspace derivation below.
+    val allWorkspaces: List<WorkspaceEntity> = emptyList(),
 ) {
     // Owner-gated controls key off this (hidden for non-owners — web parity).
     val isOwner: Boolean
         get() = currentUserId != null && members.any {
             it.member.userId == currentUserId && it.member.role == DomainContract.workspaceRoleOwner
         }
+
+    // Synced workspaces minus the bootstrap feedback workspace == "my personal
+    // workspaces". Deleting the last one is server-refused (EXP-82);
+    // empty-while-loading biases the delete affordance to disabled.
+    val isOnlyWorkspace: Boolean
+        get() = allWorkspaces.count { it.slug != "feedback" } <= 1
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -170,6 +179,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             _transient,
             _createdInviteToken,
             _workspaceDeleted,
+            dbFlow.scopedQuery(emptyList<WorkspaceEntity>()) { it.workspaceDao().observeAll() },
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -192,6 +202,8 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val transient = values[10] as String?
         val invite = values[11] as String?
         val deleted = values[12] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val allWorkspaces = values[13] as List<WorkspaceEntity>
         WorkspaceSettingsState(
             workspace = workspace,
             // Synthetic agent users (widget reporters etc.) are workspace
@@ -211,6 +223,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             createdInviteToken = invite,
             instanceUrl = instance,
             workspaceDeleted = deleted,
+            allWorkspaces = allWorkspaces,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspaceSettingsState())
 

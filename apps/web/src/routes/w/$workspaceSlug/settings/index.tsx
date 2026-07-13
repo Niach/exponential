@@ -4,6 +4,7 @@ import { useSession } from "@/hooks/use-session"
 import {
   useShowWorkspaceChrome,
   useWorkspaceBySlug,
+  useWorkspaceMemberships,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
@@ -76,6 +77,12 @@ function WorkspaceSettings() {
   } = useWorkspacePermissions(workspace)
   const showChrome = useShowWorkspaceChrome(workspace?.id, session?.user?.id)
   const solo = !showChrome
+  const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
+  // Deleting your LAST personal workspace is server-refused (EXP-82) — the
+  // bootstrap feedback workspace (slug `feedback`) never counts as one.
+  // Empty-while-loading biases to disabled, the safe default.
+  const isOnlyWorkspace =
+    myWorkspaces.filter((w) => w.slug !== `feedback`).length <= 1
 
   const handleDeleteWorkspace = async () => {
     if (!workspace || deleteConfirmation !== workspace.name) return
@@ -164,13 +171,19 @@ function WorkspaceSettings() {
                 Permanently delete this workspace and all its data.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-2">
               <Button
                 variant="destructive"
+                disabled={isOnlyWorkspace}
                 onClick={() => setShowDeleteWorkspace(true)}
               >
                 Delete workspace
               </Button>
+              {isOnlyWorkspace && (
+                <p className="text-sm text-muted-foreground">
+                  This is your only workspace, so it can't be deleted.
+                </p>
+              )}
             </CardContent>
           </Card>
 
