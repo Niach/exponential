@@ -189,8 +189,15 @@ const BottomBar = ({
       <DockBtn active={tab === `issues`} onClick={() => onTab(`issues`)}>
         <IcListTodo size={19} />
       </DockBtn>
-      <DockBtn active={tab === `search`} onClick={() => onTab(`search`)}>
-        <IcSearch size={19} />
+      <DockBtn
+        active={tab === `inbox`}
+        onClick={() => onTab(`inbox`)}
+        dot={inboxUnread ? `unread` : undefined}
+      >
+        <IcInbox size={19} />
+      </DockBtn>
+      <DockBtn active={tab === `releases`} onClick={() => onTab(`releases`)}>
+        <IcRocket size={19} />
       </DockBtn>
       <DockBtn
         active={tab === `agents` || tab === `steer`}
@@ -199,15 +206,8 @@ const BottomBar = ({
       >
         <IcBot size={19} />
       </DockBtn>
-      <DockBtn active={tab === `releases`} onClick={() => onTab(`releases`)}>
-        <IcRocket size={19} />
-      </DockBtn>
-      <DockBtn
-        active={tab === `inbox`}
-        onClick={() => onTab(`inbox`)}
-        dot={inboxUnread ? `unread` : undefined}
-      >
-        <IcInbox size={19} />
+      <DockBtn active={tab === `search`} onClick={() => onTab(`search`)}>
+        <IcSearch size={19} />
       </DockBtn>
     </div>
     <div className={`mob-fab`}>
