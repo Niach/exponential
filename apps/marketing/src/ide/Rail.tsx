@@ -1,5 +1,5 @@
 /* ─── 44px left icon rail with active-tool accent bar ─── */
-import { INBOX_ITEMS, REVIEWS } from "./data"
+import { REVIEWS } from "./data"
 import { useIde } from "./state"
 import {
   IcCircleUser,
@@ -8,6 +8,7 @@ import {
   IcGitPullRequest,
   IcInbox,
   IcListTodo,
+  IcRocket,
   IcSearch,
   IcSettings,
   type IdeIcon,
@@ -17,13 +18,13 @@ function RailBtn({
   Icon,
   title,
   active,
-  badge,
+  dot,
   onClick,
 }: {
   Icon: IdeIcon
   title: string
   active?: boolean
-  badge?: number
+  dot?: boolean
   onClick?: () => void
 }) {
   return (
@@ -34,15 +35,14 @@ function RailBtn({
       onClick={onClick}
     >
       <Icon size={16} />
-      {badge ? <span className="ide-rail-badge">{badge}</span> : null}
+      {dot ? <span className="ide-rail-dot" /> : null}
     </button>
   )
 }
 
 export function Rail() {
-  const { tool, setTool, openSourceControl, interactive, inboxRead, goneReviews } = useIde()
+  const { tool, setTool, openSourceControl, interactive, goneReviews } = useIde()
   const on = (fn: () => void) => (interactive ? fn : undefined)
-  const unread = INBOX_ITEMS.filter((n) => n.unread && !inboxRead.has(n.id)).length
   const openReviews = REVIEWS.filter((r) => !goneReviews.has(r.issueId)).length
   return (
     <div className="ide-rail">
@@ -52,7 +52,6 @@ export function Rail() {
         Icon={IcInbox}
         title="Inbox"
         active={tool === `inbox`}
-        badge={unread}
         onClick={on(() => setTool(`inbox`))}
       />
       <RailBtn
@@ -71,8 +70,14 @@ export function Rail() {
         Icon={IcGitPullRequest}
         title="Reviews"
         active={tool === `reviews`}
-        badge={openReviews}
+        dot={openReviews > 0}
         onClick={on(() => setTool(`reviews`))}
+      />
+      <RailBtn
+        Icon={IcRocket}
+        title="Releases"
+        active={tool === `releases`}
+        onClick={on(() => setTool(`releases`))}
       />
       <div className="ide-rail-div" />
       <RailBtn

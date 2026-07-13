@@ -1,8 +1,6 @@
 /* ─── Small lucide wrapper for the IDE recreation (14px default, product stroke) ─── */
 import type { ComponentType, CSSProperties } from "react"
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   Bell,
   BellOff,
   Bold,
@@ -10,6 +8,7 @@ import {
   CalendarSync,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
@@ -43,6 +42,7 @@ import {
   Plus,
   RefreshCw,
   RemoveFormatting,
+  Rocket,
   Search,
   Send,
   Settings,
@@ -92,10 +92,10 @@ export const IcChevsUpDown = wrap(ChevronsUpDown)
 export const IcChevDown = wrap(ChevronDown)
 export const IcChevUp = wrap(ChevronUp)
 export const IcChevRight = wrap(ChevronRight)
+export const IcChevLeft = wrap(ChevronLeft)
+export const IcRocket = wrap(Rocket)
 export const IcPlay = wrap(Play)
 export const IcCheck = wrap(Check)
-export const IcArrowDL = wrap(ArrowDownLeft)
-export const IcArrowUR = wrap(ArrowUpRight)
 export const IcRefresh = wrap(RefreshCw)
 export const IcSquareTerminal = wrap(SquareTerminal)
 export const IcX = wrap(X)

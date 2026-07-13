@@ -42,6 +42,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Rocket,
   Search,
   Send,
   Server,
@@ -148,6 +149,7 @@ export const IcMessage = wrap(MessageSquare)
 export const IcUserPlus = wrap(UserPlus)
 export const IcEye = wrap(Eye)
 export const IcKeyboard = wrap(Keyboard)
+export const IcRocket = wrap(Rocket)
 
 const Custom = ({
   size = 16,

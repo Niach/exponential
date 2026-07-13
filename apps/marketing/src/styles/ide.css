@@ -16,6 +16,7 @@
 .ide-root {
   --ide-mono:
     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  position: relative;
   width: 100%;
   height: 640px;
   display: flex;
@@ -199,10 +200,10 @@
   font-size: 12px;
   line-height: 1;
 }
-.ide-aheadbehind {
+/* The ↑N/↓N counts render AS the one context-sensitive git action */
+.ide-syncbtn {
   font-family: var(--ide-mono);
   font-size: 11px;
-  color: #a1a1a1;
 }
 
 /* ── Left icon rail (44px) ── */
@@ -244,22 +245,16 @@
   border-radius: 2px;
   background: #4f46e5;
 }
-.ide-rail-badge {
+/* Small amber attention dot (open PRs on Reviews, conflicts on Source
+   Control) — the rail never shows numeric count badges */
+.ide-rail-dot {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  background: #4f46e5;
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
+  background: #f59e0b;
 }
 .ide-rail-div {
   width: 24px;
@@ -413,7 +408,7 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #4f46e5;
+  background: #fafafa;
 }
 
 .ide-reviews-group {
@@ -1175,9 +1170,9 @@
   color: #737373;
 }
 
-/* ── Source Control sidebar ── */
+/* ── Source Control sidebar — branch-flow lanes ── */
 .ide-sc-branches {
-  padding: 4px 8px;
+  padding: 8px;
   overflow-y: auto;
 }
 .ide-sc-label {
@@ -1186,7 +1181,8 @@
   color: #a1a1a1;
   padding: 8px 8px 4px;
 }
-.ide-branch-row {
+/* One lane row: default branch at indent 0, exp/… lanes indented off it */
+.ide-lane {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1194,11 +1190,37 @@
   border-radius: 6px;
   font-size: 13px;
 }
-.ide-branch-row:hover {
+.ide-lane:hover {
   background: rgba(38, 38, 38, 0.25);
 }
-.ide-branch-row.is-viewing {
+.ide-lane.is-viewing {
   background: rgba(38, 38, 38, 0.4);
+}
+/* L-shaped connector hanging off the parent lane */
+.ide-lane-elbow {
+  width: 8px;
+  height: 14px;
+  flex: none;
+  margin: -6px 0 4px 5px;
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom-left-radius: 4px;
+}
+.ide-lane-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin: 0 3px;
+  border-radius: 999px;
+}
+.ide-lane-dot.is-open {
+  background: #22c55e;
+}
+.ide-lane-counts {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: 11px;
+  color: #a1a1a1;
 }
 .ide-branch-name {
   color: #a1a1a1;
@@ -1593,6 +1615,254 @@
   background: #22c55e;
 }
 
+/* ── Releases tool panel ── */
+.ide-release-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.ide-release-row:hover {
+  background: rgba(38, 38, 38, 0.3);
+}
+.ide-release-line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ide-release-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #fafafa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-release-sub {
+  padding-left: 19px;
+  font-size: 11px;
+  color: #a1a1a1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-shippedpill {
+  flex: none;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ide-release-detail-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #fafafa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-release-summary {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ide-release-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #a1a1a1;
+}
+.ide-release-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ide-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.ide-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.ide-release-progress-label {
+  font-size: 11px;
+  color: #a1a1a1;
+}
+
+/* ── @mention + #issue-ref pills ── */
+.ide-refpill,
+.ide-mentionpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: rgba(38, 38, 38, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  color: #fafafa;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.ide-refpill {
+  font-family: var(--ide-mono);
+  font-size: 11px;
+}
+
+/* ── Start coding dialog ── */
+.ide-dlg-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+.ide-dlg {
+  width: 340px;
+  max-height: 85%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #171717;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.ide-dlg-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.ide-dlg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+.ide-dlg-label {
+  font-size: 12px;
+  color: #a1a1a1;
+  white-space: nowrap;
+}
+.ide-dlg-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: #262626;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fafafa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ide-dlg-select:hover:not(.is-disabled) {
+  background: #303030;
+}
+.ide-dlg-select.is-disabled {
+  color: #737373;
+}
+.ide-switch {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  flex: none;
+  border-radius: 999px;
+  background: #3f3f46;
+  transition: background 0.15s ease;
+}
+.ide-switch.is-on {
+  background: #22c55e;
+}
+.ide-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #fafafa;
+  transition: transform 0.15s ease;
+}
+.ide-switch.is-on .ide-switch-knob {
+  transform: translateX(13px);
+}
+.ide-dlg-issues {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.ide-dlg-repo {
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a1a1a1;
+  font-family: var(--ide-mono);
+}
+.ide-dlg-issue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+.ide-dlg-issue:hover {
+  background: rgba(38, 38, 38, 0.5);
+}
+.ide-dlg-issue-id {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: 11px;
+  color: #a1a1a1;
+}
+.ide-dlg-issue-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ide-dlg-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 /* ── Motion ── */
 @keyframes ide-blink {
   50% {
@@ -1608,5 +1878,9 @@
   .ide-caret,
   .ide-codingdot {
     animation: none;
+  }
+  .ide-switch,
+  .ide-switch-knob {
+    transition: none;
   }
 }

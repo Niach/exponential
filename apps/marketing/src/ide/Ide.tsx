@@ -6,6 +6,8 @@ import {
   INBOX_ITEMS,
   codingScriptFor,
   getIssue,
+  getRelease,
+  releaseCodingScriptFor,
   type Change,
   type Commit,
   type FilterTab,
@@ -16,6 +18,7 @@ import {
   toggledSet,
   useIde,
   type CodingState,
+  type CodingTarget,
   type DockTab,
   type IdeApi,
   type IdeView,
@@ -30,6 +33,7 @@ import { IssueDetail } from "./IssueDetail"
 import { FileTab } from "./Files"
 import { ScTab } from "./SourceControl"
 import { TerminalDock } from "./Terminal"
+import { StartCodingDialog } from "./StartCodingDialog"
 import { IcInbox, IcX } from "./icons"
 
 const BASE_W = 960
@@ -172,8 +176,10 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [staged, setStaged] = useState<Set<string>>(new Set())
   const [commits, setCommits] = useState<Commit[]>(COMMITS)
   const [ahead, setAhead] = useState(0)
+  const [selectedRelease, setSelectedRelease] = useState<string | null>(null)
   const [coding, setCoding] = useState<CodingState>(`idle`)
-  const [codingIssueId, setCodingIssueId] = useState<string | null>(null)
+  const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
+  const [pendingCoding, setPendingCoding] = useState<CodingTarget | null>(null)
   const [codedIssues, setCodedIssues] = useState<Set<string>>(new Set())
   const [runId, setRunId] = useState(0)
   const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
@@ -192,18 +198,22 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     [],
   )
 
-  /* The scripted agent session for whichever issue is being coded. */
-  const codingScript = useMemo(
-    () => (codingIssueId ? codingScriptFor(getIssue(codingIssueId)) : []),
-    [codingIssueId],
-  )
+  /* The scripted Claude session for whichever issue or release is coding. */
+  const codingScript = useMemo(() => {
+    if (!codingTarget) return []
+    return codingTarget.kind === `issue`
+      ? codingScriptFor(getIssue(codingTarget.id))
+      : releaseCodingScriptFor(getRelease(codingTarget.id))
+  }, [codingTarget])
 
-  /* Typed-out agent session. Instant when prefers-reduced-motion. */
+  /* Typed-out Claude session. Instant when prefers-reduced-motion. */
   useEffect(() => {
-    if (coding !== `running` || !codingIssueId) return undefined
+    if (coding !== `running` || !codingTarget) return undefined
     const finish = () => {
       setCoding(`ended`)
-      setCodedIssues((prev) => new Set(prev).add(codingIssueId))
+      if (codingTarget.kind === `issue`) {
+        setCodedIssues((prev) => new Set(prev).add(codingTarget.id))
+      }
     }
     if (prefersReducedMotion()) {
       setScriptPos({ done: codingScript.length, chars: 0 })
@@ -235,7 +245,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     setScriptPos({ done: 0, chars: 0 })
     t = window.setTimeout(tick, 450)
     return () => window.clearTimeout(t)
-  }, [coding, runId, codingIssueId, codingScript])
+  }, [coding, runId, codingTarget, codingScript])
 
   const openTab = (tab: Tab) => {
     setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]))
@@ -279,12 +289,13 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     commits,
     commitAll: (message, push) => {
       if (changes.length === 0 || message.length === 0) return
-      setCommits((prev) => [{ subject: message, meta: `niach · gerade eben` }, ...prev])
+      setCommits((prev) => [{ subject: message, meta: `niach · just now` }, ...prev])
       setChanges([])
       setStaged(new Set())
       setAhead(push ? 0 : ahead + 1)
     },
     ahead,
+    push: () => setAhead(0),
     inboxRead,
     markInboxRead: (id) => setInboxRead((prev) => new Set(prev).add(id)),
     markAllInboxRead: () =>
@@ -304,12 +315,19 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
         ),
       )
     },
+    selectedRelease,
+    selectRelease: setSelectedRelease,
     coding,
-    codingIssueId,
+    codingTarget,
     codingScript,
     codedIssues,
-    startCoding: (issueId) => {
-      setCodingIssueId(issueId)
+    pendingCoding,
+    requestCoding: (target) => setPendingCoding(target),
+    cancelStartCoding: () => setPendingCoding(null),
+    confirmStartCoding: () => {
+      if (!pendingCoding) return
+      setCodingTarget(pendingCoding)
+      setPendingCoding(null)
       setCoding(`running`)
       setRunId((n) => n + 1)
       setDockOpen(true)
@@ -349,6 +367,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
               <TerminalDock />
             </div>
           </div>
+          {pendingCoding && <StartCodingDialog />}
         </div>
       </IdeContext.Provider>
     </div>

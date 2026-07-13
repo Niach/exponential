@@ -74,6 +74,55 @@ export const ISSUES: Issue[] = [
 export const getIssue = (id: string): Issue =>
   ISSUES.find((i) => i.id === id) ?? ISSUES[0]
 
+/* ─── Releases — workspace-level bundles of issues (EXP-56) ─── */
+
+export type Release = {
+  id: string
+  name: string
+  target?: string
+  shippedAt?: string
+  issueIds: string[]
+}
+
+export const RELEASES: Release[] = [
+  {
+    id: `rel-steer`,
+    name: `Live steer v2`,
+    target: `Jul 15`,
+    issueIds: [`EXP-8`, `EXP-11`, `EXP-12`, `EXP-5`],
+  },
+  {
+    id: `rel-terminal`,
+    name: `Terminal polish`,
+    shippedAt: `Jul 2`,
+    issueIds: [`EXP-7`],
+  },
+]
+
+export const getRelease = (id: string): Release =>
+  RELEASES.find((r) => r.id === id) ?? RELEASES[0]
+
+/* An issue ships in at most ONE release. */
+export const releaseFor = (issueId: string): Release | undefined =>
+  RELEASES.find((r) => r.issueIds.includes(issueId))
+
+/* Progress derives client-side, like the real apps. */
+export const releaseProgress = (release: Release): { done: number; total: number } => {
+  const issues = release.issueIds.map(getIssue)
+  return { done: issues.filter((i) => i.status === `done`).length, total: issues.length }
+}
+
+export const releaseSubline = (release: Release): string => {
+  const { done, total } = releaseProgress(release)
+  const when = release.shippedAt
+    ? `Shipped ${release.shippedAt}`
+    : release.target
+      ? `Target ${release.target}`
+      : undefined
+  const progress = `${done} of ${total} done`
+  return when ? `${when} · ${progress}` : progress
+}
+
 export const GROUP_ORDER: { status: IssueStatus; label: string }[] = [
   { status: `in_progress`, label: `In Progress` },
   { status: `todo`, label: `Todo` },
@@ -127,7 +176,7 @@ export const INBOX_ITEMS: InboxItem[] = [
     type: `pr_opened`,
     issueId: `EXP-8`,
     title: `Live-steer terminal reconnect`,
-    sentence: `Your coding agent opened pull request #214 for EXP-8`,
+    sentence: `Claude opened pull request #214 for EXP-8`,
     time: `2m`,
     unread: true,
   },
@@ -200,23 +249,32 @@ export const REVIEWS: Review[] = [
   },
 ]
 
-/* ─── Issue detail bodies (rendered GFM, statically) ─── */
+/* ─── Issue detail bodies (rendered GFM, statically) ───
+   `ref` renders a same-workspace #issue pill, `mention` an @member pill —
+   both are plain text in the markdown source, pills only at render time. */
 
-export type Inline = { t: string; code?: boolean }
+export type Inline = { t: string; code?: boolean; ref?: boolean; mention?: boolean }
 
 export const ISSUE_BODY: Record<string, Inline[][]> = {
   [`EXP-8`]: [
     [
       {
-        t: `When the steer relay drops a WebSocket mid-session, the terminal view goes stale and never recovers. Reconnect with exponential backoff and resume the `,
+        t: `When the steer relay drops a WebSocket mid-session, the activity feed goes stale and never recovers. Reconnect with exponential backoff and resume the `,
       },
       { t: `pty`, code: true },
       { t: ` stream from the last acked offset.` },
     ],
     [
       {
-        t: `Repro: kill the relay while an agent session is streaming — the xterm freezes until a full page reload.`,
+        t: `Repro: kill the relay while a Claude session is streaming — the viewer freezes until a full page reload.`,
       },
+    ],
+    [
+      { t: `Same reconnect contract as ` },
+      { t: `EXP-5`, ref: true },
+      { t: ` — ping ` },
+      { t: `Danny Strähhuber`, mention: true },
+      { t: ` once the relay patch lands.` },
     ],
   ],
 }
@@ -244,20 +302,54 @@ export const ISSUE_ACTIVITY: Record<string, ActivityItem[]> = {
 
 /* ─── Git fixtures ─── */
 
-export type Branch = { name: string; current?: boolean; worktree?: boolean }
+/* Branch-flow lanes: default branch → exp/… lanes joined to issues by
+   branch name, with a status indicator, ↑↓ counts and worktree tags —
+   matches the real Source Control panel's semantic lanes. */
+export type LaneIndicator = `none` | `progress` | `open` | `merged`
 
-export const BRANCHES: Branch[] = [
-  { name: `master`, current: true },
-  { name: `exp/EXP-8`, worktree: true },
+export type Lane = {
+  branch: string
+  label?: string
+  indent: 0 | 1
+  indicator: LaneIndicator
+  ahead?: number
+  behind?: number
+  current?: boolean
+  worktree?: boolean
+}
+
+export const LANES: Lane[] = [
+  { branch: `master`, indent: 0, indicator: `none`, current: true },
+  {
+    branch: `exp/EXP-8`,
+    label: `EXP-8 · Live-steer terminal reconnect`,
+    indent: 1,
+    indicator: `progress`,
+    ahead: 2,
+    worktree: true,
+  },
+  {
+    branch: `exp/EXP-11`,
+    label: `EXP-11 · Issue board keyboard navigation`,
+    indent: 1,
+    indicator: `open`,
+    ahead: 1,
+  },
+  {
+    branch: `exp/EXP-5`,
+    label: `EXP-5 · Side-by-side diff view`,
+    indent: 1,
+    indicator: `merged`,
+  },
 ]
 
 export type Commit = { subject: string; meta: string }
 
 export const COMMITS: Commit[] = [
-  { subject: `feat(desktop): JetBrains-style IDE shell`, meta: `niach · vor 3 Stunden` },
-  { subject: `fix(ios): show compose button only inside a project`, meta: `niach · vor 5 Stunden` },
-  { subject: `fix(mobile): Android issue-open crash`, meta: `niach · vor 9 Stunden` },
-  { subject: `feat!: masterplan v5 — per-seat billing`, meta: `niach · vor 11 Stunden` },
+  { subject: `feat(desktop): JetBrains-style IDE shell`, meta: `niach · 3 hours ago` },
+  { subject: `fix(ios): show compose button only inside a project`, meta: `niach · 5 hours ago` },
+  { subject: `fix(mobile): Android issue-open crash`, meta: `niach · 9 hours ago` },
+  { subject: `feat!: masterplan v5 — per-seat billing`, meta: `niach · 11 hours ago` },
 ]
 
 export type GitLetter = `M` | `A` | `D` | `R`
@@ -441,7 +533,7 @@ const PLAN_LINES: Record<string, string> = {
 
 export const codingScriptFor = (issue: Issue): ScriptLine[] => [
   { kind: `ok`, text: `Created worktree .worktrees/${issue.id} on branch exp/${issue.id}` },
-  { kind: `ok`, text: `Handing ${issue.id} to your coding agent` },
+  { kind: `ok`, text: `Launched Claude on ${issue.id}` },
   { kind: `claude`, text: `Reading issue ${issue.id} — ${issue.title}` },
   { kind: `claude`, text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify, open a PR` },
   { kind: `claude`, text: `Edited apps/web/src/components/steer-terminal.tsx (+24 -6)` },
@@ -450,5 +542,32 @@ export const codingScriptFor = (issue: Issue): ScriptLine[] => [
   { kind: `ok`, text: `Session finished · 1 file changed` },
 ]
 
+/* ─── Release orchestrator run — ONE session plans waves, merges issues
+   back into the integration branch, opens the ONE release PR ─── */
+
+export const releaseCodingScriptFor = (release: Release): ScriptLine[] => {
+  const slug = release.name.toLowerCase().replace(/[^a-z0-9]+/g, `-`)
+  const open = release.issueIds.filter((id) => getIssue(id).status !== `done`)
+  return [
+    {
+      kind: `ok`,
+      text: `Created integration branch exp/rel-${slug} · ${open.length} issues in scope`,
+    },
+    { kind: `claude`, text: `Planning dependency waves across ${open.length} issues` },
+    { kind: `claude`, text: `Wave 1 — ${open.slice(0, 2).join(`, `)} in parallel worktrees` },
+    ...open.map(
+      (id): ScriptLine => ({
+        kind: `claude`,
+        text: `Merged exp/${id} into exp/rel-${slug} — PR #${prNumberFor(getIssue(id))} targets the integration branch`,
+      }),
+    ),
+    { kind: `claude`, text: `Reviewing the combined diff` },
+    { kind: `cmd`, text: `git push -u origin exp/rel-${slug}` },
+    { kind: `claude`, text: `Opened release PR #221 — ${release.name}` },
+    { kind: `ok`, text: `Release run finished · ${open.length} issues merged` },
+  ]
+}
+
 export const SHELL_TAB_TITLE = `~/E/r/N/exponential`
-export const agentTabTitle = (issueId: string): string => `agent · ${issueId}`
+export const claudeTabTitle = (issueId: string): string => `claude · ${issueId}`
+export const releaseTabTitle = (name: string): string => `claude · release ${name}`

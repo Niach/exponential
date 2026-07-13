@@ -77,11 +77,11 @@ export function HomePage() {
             <motion.div className={`home-mobile-copy`} {...sectionReveal}>
               <span className={`section-eyebrow`}>Mobile</span>
               <h2 className={`section-title`}>
-                Steer your agents from your pocket.
+                Steer Claude from your pocket.
               </h2>
               <p className={`section-sub`}>
-                A coding session is running on your desk &mdash; watch its live
-                terminal, take control, and type, from wherever you are. Native
+                A coding session is running on your desk &mdash; watch the live
+                session and steer it by message, from wherever you are. Native
                 apps for iOS and Android.
               </p>
               <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
