@@ -63,7 +63,7 @@ struct MyIssuesListContent: View {
                             issueRow(issue: issue, vm: vm)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                         }
                     } header: {
                         statusHeader(status: status, count: statusIssues.count)
@@ -74,6 +74,15 @@ struct MyIssuesListContent: View {
             }
         }
         .listStyle(.plain)
+        // Same compact-list treatment as the project IssueListView (EXP-80):
+        // zero the List's own content margins, kill the implicit 44pt row
+        // floor, and flow sections without the inter-section band — without
+        // these, My Issues rows sit inboard with visibly chunkier spacing
+        // than the project list's.
+        .contentMargins(.horizontal, 0, for: .scrollContent)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .environment(\.defaultMinListRowHeight, 0)
+        .listSectionSpacing(0)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         // Clearance for the floating tab bar (EXP-36) — this List renders as
@@ -107,10 +116,11 @@ struct MyIssuesListContent: View {
     private func issueRow(issue: IssueEntity, vm: MyIssuesViewModel) -> some View {
         NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
+                // Priority icon (16pt column, IssueListView/Android parity)
                 Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
                     .font(.caption)
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
-                    .frame(width: 20)
+                    .frame(width: 16)
 
                 // The identifier carries the project prefix ({PREFIX}-{n}) —
                 // exactly the cross-project disambiguator this view needs.
