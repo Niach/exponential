@@ -7,6 +7,7 @@ import {
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
+  isMemberOnlyActivity,
   OUTPUT_OPCODE,
   parseClientFrame,
   type ActivityEvent,
@@ -69,7 +70,9 @@ interface Room {
    *  public fan-out + replay; members are unaffected (keep_private stays a
    *  publisher-declared invariant, not a viewer-side filter). */
   activityPublic: boolean
-  /** Replayable scrubbed event log (narration/tool), capped. */
+  /** Replayable scrubbed event log (narration/tool/user_message/question),
+   *  capped. Shared across audiences — member-only kinds are filtered out at
+   *  replay time for public viewers (EXP-78). */
   activityLog: ActivityEvent[]
   /** Latest worktree diff — replaces rather than appends (replay stays small). */
   lastDiff: ActivityEvent | null
@@ -296,7 +299,7 @@ export class Hub {
           conn.sessionId = sessionId
           room.publicViewers.add(conn)
           if (!room.activityPublic) return
-          this.replayActivity(room, conn)
+          this.replayActivity(room, conn, { publicSafe: true })
           return
         }
 
@@ -409,10 +412,14 @@ export class Hub {
         }
         const framed = frame({ t: `activity`, event: msg.event })
         // Authenticated activity members receive activity ALWAYS; anonymous
-        // public viewers only while the room's activityPublic is true.
-        const audience = room.activityPublic
-          ? [...room.activityMembers.keys(), ...room.publicViewers]
-          : [...room.activityMembers.keys()]
+        // public viewers only while the room's activityPublic is true AND the
+        // kind is not member-only (EXP-78: user_message/question carry
+        // steering input / answerable prompts — never public, regardless of
+        // activityPublic).
+        const audience =
+          room.activityPublic && !isMemberOnlyActivity(msg.event)
+            ? [...room.activityMembers.keys(), ...room.publicViewers]
+            : [...room.activityMembers.keys()]
         for (const viewer of audience) {
           // Activity is low-volume JSON; a saturated activity socket just gets
           // dropped rather than lag-managed like the PTY hot path.
@@ -530,9 +537,17 @@ export class Hub {
     this.broadcastPresence(room)
   }
 
-  /** Replay the scrubbed event log then the latest diff to one socket. */
-  private replayActivity(room: Room, conn: Conn) {
+  /** Replay the scrubbed event log then the latest diff to one socket.
+   *  `publicSafe` (anonymous public_viewer targets) filters out the
+   *  member-only kinds — the log is shared across audiences, so the EXP-78
+   *  gate must hold on replay exactly like on live fan-out. */
+  private replayActivity(
+    room: Room,
+    conn: Conn,
+    opts: { publicSafe?: boolean } = {}
+  ) {
     for (const event of room.activityLog) {
+      if (opts.publicSafe && isMemberOnlyActivity(event)) continue
       conn.sock.send(frame({ t: `activity`, event }))
     }
     if (room.lastDiff) {

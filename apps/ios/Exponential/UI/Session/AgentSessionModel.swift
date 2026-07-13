@@ -35,16 +35,34 @@ final class AgentSessionModel {
         case closed(detail: String?)
     }
 
+    /// One answer choice of a `question` event — `key` is the raw keystroke
+    /// that selects it in the desktop TUI picker (mapped desktop-side).
+    struct QuestionOption: Equatable {
+        let label: String
+        let key: String
+    }
+
     /// One rendered feed entry. Diffs never enter the feed — see `latestDiff`.
     enum FeedItem: Identifiable, Equatable {
         case narration(id: Int, text: String)
         case tool(id: Int, name: String, detail: String?)
+        /// A human turn (EXP-78): the initial prompt or a steered message.
+        case userMessage(id: Int, text: String)
+        /// An interactive question (AskUserQuestion / plan approval, EXP-78).
+        case question(id: Int, text: String, options: [QuestionOption], multiSelect: Bool)
 
         var id: Int {
             switch self {
             case let .narration(id, _): id
             case let .tool(id, _, _): id
+            case let .userMessage(id, _): id
+            case let .question(id, _, _, _): id
             }
+        }
+
+        var isQuestion: Bool {
+            if case .question = self { return true }
+            return false
         }
     }
 
@@ -72,6 +90,17 @@ final class AgentSessionModel {
     }
     var sessionEnded: Bool { session?.status == DomainContract.codingSessionStatusEnded }
 
+    /// Ids of the TRAILING consecutive run of question items — the only ones
+    /// still answerable (any later event means the desktop TUI moved on).
+    var activeQuestionIds: Set<Int> {
+        var ids = Set<Int>()
+        for item in feed.reversed() {
+            guard item.isQuestion else { break }
+            ids.insert(item.id)
+        }
+        return ids
+    }
+
     private let accountId: String
     private let codingSessionId: String
     private let currentUserId: String?
@@ -85,6 +114,9 @@ final class AgentSessionModel {
     private var retryStarting = false
     private var endDetail: String?
     private var nextEventId = 0
+    /// Locally-echoed sent messages awaiting their transcript-derived
+    /// `user_message` event (EXP-78 dedupe).
+    private var recentEchoes: [(text: String, at: Date)] = []
     private var retryTask: Task<Void, Never>?
     private var idleReleaseTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
@@ -97,6 +129,11 @@ final class AgentSessionModel {
     private static let idleReleaseSeconds: Double = 60
     /// Redial cadence while the desktop's publisher socket is still starting.
     private static let startingRetrySeconds: Double = 3
+    /// Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while
+    /// to hit the transcript, but an unmatched echo must not swallow an
+    /// identical message sent much later.
+    private static let echoCap = 8
+    private static let echoTTLSeconds: Double = 300
 
     init(
         accountId: String,
@@ -170,6 +207,38 @@ final class AgentSessionModel {
         }
         sendText(#"{"t":"input","data":"\r"}"#)
         scheduleIdleRelease()
+        // Local echo (EXP-78): show the sent message immediately; its
+        // transcript-derived `user_message` event is deduped via the FIFO.
+        recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
+        if recentEchoes.count > Self.echoCap {
+            recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
+        }
+        append(.userMessage(id: takeEventId(), text: text))
+    }
+
+    /// Answer an interactive question: steal-claim + raw keystrokes — the
+    /// desktop passes single-byte frames to the PTY unwrapped, so the TUI
+    /// sees keypresses, not a paste. Verified against the real picker: a
+    /// digit SELECTS but does not submit, so single-select answers pass
+    /// `submit: true` to follow up with a separate `\r` (multi-select taps
+    /// toggle with the digit alone; `sendSubmit` sends the Enter).
+    func sendAnswer(_ key: String, submit: Bool = false) {
+        guard !key.isEmpty, canSteer, connected else { return }
+        sendText(#"{"t":"claim","steal":true}"#)
+        let frame: [String: Any] = ["t": "input", "data": key]
+        if let data = try? JSONSerialization.data(withJSONObject: frame),
+           let json = String(data: data, encoding: .utf8) {
+            sendText(json)
+        }
+        if submit, key != "\r" {
+            sendText(#"{"t":"input","data":"\r"}"#)
+        }
+        scheduleIdleRelease()
+    }
+
+    /// Submit a multi-select question (Enter).
+    func sendSubmit() {
+        sendAnswer("\r")
     }
 
     /// Best-effort claim release — closing the socket also releases it
@@ -245,6 +314,9 @@ final class AgentSessionModel {
         feed = []
         nextEventId = 0
         latestDiff = nil
+        // After a reconnect the replayed transcript event is the ONLY copy of
+        // a sent message — it must render, so no stale echo may swallow it.
+        recentEchoes = []
         sendText(#"{"t":"join","channel":"activity"}"#)
         phase = .live
         receiveLoop()
@@ -337,9 +409,37 @@ final class AgentSessionModel {
             // one behind the pinned "Latest changes" chip.
             let diff = event["diff"] as? String
             latestDiff = (diff?.isEmpty == false) ? diff : nil
+        case "user_message":
+            guard let text = event["text"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            // A message this client just sent was already echoed locally —
+            // skip its transcript-derived twin (EXP-78).
+            if consumeEcho(text) { return }
+            append(.userMessage(id: takeEventId(), text: text))
+        case "question":
+            guard let text = event["text"] as? String, !text.isEmpty,
+                  let rawOptions = event["options"] as? [[String: Any]] else { return }
+            let options: [QuestionOption] = rawOptions.compactMap { o in
+                guard let label = o["label"] as? String, let key = o["key"] as? String else { return nil }
+                return QuestionOption(label: label, key: key)
+            }
+            guard !options.isEmpty else { return }
+            let multiSelect = (event["multiSelect"] as? Bool) ?? false
+            append(.question(id: takeEventId(), text: text, options: options, multiSelect: multiSelect))
         default:
             break
         }
+    }
+
+    /// Whether an incoming `user_message` matches a recent local echo —
+    /// consumes the matched entry (and evicts expired ones); true = skip it.
+    private func consumeEcho(_ text: String) -> Bool {
+        let now = Date()
+        recentEchoes.removeAll { now.timeIntervalSince($0.at) > Self.echoTTLSeconds }
+        let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let index = recentEchoes.firstIndex(where: { $0.text == needle }) else { return false }
+        recentEchoes.remove(at: index)
+        return true
     }
 
     private func takeEventId() -> Int {

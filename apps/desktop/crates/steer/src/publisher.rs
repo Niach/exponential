@@ -188,11 +188,15 @@ pub struct PublisherHooks {
     pub error: Arc<dyn Fn(String) + Send + Sync>,
 }
 
-/// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, lone
-/// control bytes) must land raw; anything else is message TEXT from a
-/// steerer's composer and gets local-paste treatment (bracketed, EXP-72).
+/// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
+/// byte — EXP-78: a single printable char is a picker answer, e.g. a digit
+/// selecting an AskUserQuestion/plan-approval option, and must land raw or the
+/// TUI sees a paste instead of a keypress) must land raw; anything else is
+/// message TEXT from a steerer's composer and gets local-paste treatment
+/// (bracketed, EXP-72 — a one-char message landing unbracketed is
+/// indistinguishable from typing it, harmless).
 fn is_keystroke(bytes: &[u8]) -> bool {
-    bytes.first() == Some(&0x1b) || (bytes.len() == 1 && (bytes[0] < 0x20 || bytes[0] == 0x7f))
+    bytes.len() == 1 || bytes.first() == Some(&0x1b)
 }
 
 /// [`PublisherHooks::write_input`] over the shared PTY writer
@@ -867,7 +871,8 @@ mod tests {
         hook(b"\r"); // Enter (submit)
         hook(b"\x1b"); // interrupt
         hook(b"\x1b[A"); // CSI sequence (arrow up)
-        assert_eq!(recorded.lock().unwrap().as_slice(), b"\r\x1b\x1b[A");
+        hook(b"1"); // EXP-78: picker answer digit — a keypress, not a paste
+        assert_eq!(recorded.lock().unwrap().as_slice(), b"\r\x1b\x1b[A1");
     }
 
     #[test]

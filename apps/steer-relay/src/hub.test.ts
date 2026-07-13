@@ -614,6 +614,93 @@ describe(`member activity channel (EXP-32)`, () => {
   })
 })
 
+describe(`member-only activity kinds (EXP-78)`, () => {
+  const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
+    hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
+  const userMessage = { kind: `user_message`, text: `fix the login bug` }
+  const question = {
+    kind: `question`,
+    text: `Which color?`,
+    options: [
+      { label: `Red`, key: `1` },
+      { label: `Blue`, key: `2` },
+    ],
+    multiSelect: true,
+  }
+
+  test(`user_message and question fan out to activity members with fields intact`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectActivityMember(hub)
+
+    activity(hub, pub, userMessage)
+    expect(member.lastFrame(`activity`)).toMatchObject({ event: userMessage })
+
+    activity(hub, pub, question)
+    expect(member.lastFrame(`activity`)).toMatchObject({ event: question })
+  })
+
+  test(`member-only kinds NEVER reach public viewers, even when activityPublic`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub) // activityPublic defaults to true
+    const pv = connectPublicViewer(hub)
+    const member = connectActivityMember(hub)
+
+    activity(hub, pub, userMessage)
+    activity(hub, pub, question)
+    activity(hub, pub, { kind: `narration`, text: `on it` })
+
+    const publicKinds = pv
+      .frames()
+      .filter((f) => f.t === `activity`)
+      .map((f) => (f.event as { kind: string }).kind)
+    expect(publicKinds).toEqual([`narration`])
+    const memberKinds = member
+      .frames()
+      .filter((f) => f.t === `activity`)
+      .map((f) => (f.event as { kind: string }).kind)
+    expect(memberKinds).toEqual([`user_message`, `question`, `narration`])
+  })
+
+  test(`replay filters member-only kinds for public joiners but not members`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, userMessage)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, question)
+
+    const pv = connectPublicViewer(hub)
+    expect(
+      pv
+        .frames()
+        .filter((f) => f.t === `activity`)
+        .map((f) => (f.event as { kind: string }).kind)
+    ).toEqual([`narration`])
+
+    const member = connectActivityMember(hub)
+    expect(
+      member
+        .frames()
+        .filter((f) => f.t === `activity`)
+        .map((f) => (f.event as { kind: string }).kind)
+    ).toEqual([`user_message`, `narration`, `question`])
+  })
+
+  test(`a question with an invalid shape is dropped by the schema`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectActivityMember(hub)
+
+    activity(hub, pub, { kind: `question`, text: `no options`, options: [] })
+    activity(hub, pub, {
+      kind: `question`,
+      text: `oversized key`,
+      options: [{ label: `A`, key: `x`.repeat(9) }],
+    })
+    expect(member.frames().filter((f) => f.t === `activity`).length).toBe(0)
+  })
+})
+
 describe(`claim steal (EXP-32)`, () => {
   test(`claim{steal:true} overrides an existing steerer and broadcasts presence`, () => {
     const hub = new Hub()

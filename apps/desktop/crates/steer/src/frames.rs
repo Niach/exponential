@@ -100,9 +100,12 @@ pub enum ClientFrame<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         outcome: Option<&'a str>,
     },
-    /// One PUBLIC activity event (§P7 live-coding view). Serializes to
-    /// `{"t":"activity","event":{...}}`; the relay fans it to `public_viewer`
-    /// sockets only. The event text is ALREADY redacted by the emitter.
+    /// One activity event (§P7 live-coding view). Serializes to
+    /// `{"t":"activity","event":{...}}`; the relay fans it to authenticated
+    /// activity members always, and to anonymous `public_viewer` sockets only
+    /// when the room is public AND the kind is not member-only (EXP-78:
+    /// `user_message`/`question` never reach the public audience). The event
+    /// text is ALREADY redacted by the emitter.
     Activity {
         event: ActivityEvent,
     },
@@ -127,6 +130,29 @@ pub enum ActivityEvent {
     },
     /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
     Diff { diff: String },
+    /// A human turn from the transcript: the initial prompt or a (locally- or
+    /// remotely-)steered message (EXP-78). MEMBER-ONLY on the relay — never
+    /// fanned to anonymous public viewers ("never steering input").
+    UserMessage { text: String },
+    /// An interactive question the session is blocked on (`AskUserQuestion`
+    /// question, or the `ExitPlanMode` plan-approval picker). MEMBER-ONLY.
+    /// `options[].key` is the raw keystroke a steering client sends to pick
+    /// that option — the desktop owns the TUI key mapping, clients stay dumb.
+    #[serde(rename_all = "camelCase")]
+    Question {
+        text: String,
+        options: Vec<QuestionOption>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multi_select: Option<bool>,
+    },
+}
+
+/// One answer choice of an [`ActivityEvent::Question`].
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct QuestionOption {
+    pub label: String,
+    /// Raw keystroke(s) that select this option in the `claude` TUI picker.
+    pub key: String,
 }
 
 impl ClientFrame<'_> {
@@ -345,6 +371,55 @@ mod tests {
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"}}"#
+        );
+    }
+
+    #[test]
+    fn user_message_and_question_serialize_to_the_relay_schema() {
+        // EXP-78 kinds — tag snake_case, fields camelCase (`multiSelect`).
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::UserMessage {
+                    text: "fix the login bug".into()
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"user_message","text":"fix the login bug"}}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Which color?".into(),
+                    options: vec![
+                        QuestionOption {
+                            label: "Red".into(),
+                            key: "1".into()
+                        },
+                        QuestionOption {
+                            label: "Blue".into(),
+                            key: "2".into()
+                        },
+                    ],
+                    multi_select: Some(true),
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true}}"#
+        );
+        // multiSelect is omitted when absent.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Approve?".into(),
+                    options: vec![QuestionOption {
+                        label: "Approve".into(),
+                        key: "1".into()
+                    }],
+                    multi_select: None,
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}]}}"#
         );
     }
 

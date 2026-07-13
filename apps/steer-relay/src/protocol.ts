@@ -68,14 +68,19 @@ export const byeFrame = z.object({
   outcome: z.string().max(64).optional(),
 })
 
-// Publisher → relay: one PUBLIC activity event (feedback boards with
-// publicShowCoding='live'). The desktop emits these from the Claude session
-// transcript + worktree diffs, ALREADY REDACTED (known-secret masking +
-// gitleaks-style patterns) — the relay stays a dumb pipe and fans them out to
-// public_viewer sockets only, never to the PTY audience and never vice versa.
-//   narration: assistant prose        { kind, text }
-//   tool:      tool-call headline     { kind, name, detail? }
-//   diff:      worktree unified diff  { kind, diff }  (latest replaces prior)
+// Publisher → relay: one activity event (member activity channel + feedback
+// boards with publicShowCoding='live'). The desktop emits these from the
+// Claude session transcript + worktree diffs, ALREADY REDACTED (known-secret
+// masking + gitleaks-style patterns) — the relay stays a dumb pipe and fans
+// them out to the activity audience only, never to the PTY audience and never
+// vice versa.
+//   narration:    assistant prose        { kind, text }
+//   tool:         tool-call headline     { kind, name, detail? }
+//   diff:         worktree unified diff  { kind, diff }  (latest replaces prior)
+//   user_message: a human turn           { kind, text }             MEMBER-ONLY
+//   question:     interactive question   { kind, text, options[] }  MEMBER-ONLY
+// MEMBER-ONLY kinds (EXP-78) carry steering input / answerable prompts and
+// must NEVER reach anonymous public_viewer sockets — see isMemberOnlyActivity.
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`narration`),
@@ -93,9 +98,39 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     diff: z.string().max(512 * 1024),
     at: z.number().optional(),
   }),
+  z.object({
+    kind: z.literal(`user_message`),
+    text: z.string().max(16 * 1024),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`question`),
+    // Question text shares the narration budget — an ExitPlanMode plan rides
+    // here and can be large.
+    text: z.string().max(16 * 1024),
+    // `key` is the raw keystroke a steering client sends to pick the option.
+    options: z
+      .array(
+        z.object({
+          label: z.string().max(256),
+          key: z.string().min(1).max(8),
+        }),
+      )
+      .min(1)
+      .max(10),
+    multiSelect: z.boolean().optional(),
+    at: z.number().optional(),
+  }),
 ])
 
 export type ActivityEvent = z.infer<typeof activityEventSchema>
+
+/** Kinds that must NEVER reach anonymous public_viewer sockets (EXP-78:
+ * "never steering input" — user turns and answerable prompts are for
+ * authenticated activity members only, live AND on replay). */
+export function isMemberOnlyActivity(event: ActivityEvent): boolean {
+  return event.kind === `user_message` || event.kind === `question`
+}
 
 export const activityFrame = z.object({
   t: z.literal(`activity`),
@@ -134,7 +169,7 @@ export type ServerFrame =
   | { t: `kill` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
-  | { t: `activity`; event: ActivityEvent } // relay → activity audience (members always; public viewers only when the room is public)
+  | { t: `activity`; event: ActivityEvent } // relay → activity audience (members always; public viewers only when the room is public AND the kind is not member-only)
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
@@ -171,7 +172,16 @@ fun AgentSessionScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
                         }
-                    else -> ActivityFeed(feed = feed)
+                    else -> ActivityFeed(
+                        feed = feed,
+                        // Question cards are answerable while live + steerable
+                        // (EXP-78); the card itself also checks the trailing run.
+                        answerEnabled = perm == "steer" &&
+                            phase == AgentPhase.Live &&
+                            !sessionEnded,
+                        onAnswer = viewModel::sendAnswer,
+                        onSubmit = viewModel::sendSubmit,
+                    )
                 }
             }
 
@@ -351,9 +361,19 @@ private fun SessionStatusTitle(phase: AgentPhase, deviceLabel: String?) {
 // ── The feed ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ActivityFeed(feed: List<AgentFeedItem>) {
+private fun ActivityFeed(
+    feed: List<AgentFeedItem>,
+    answerEnabled: Boolean,
+    /** (key, submit) — single-select taps submit (digit + Enter); multi-select
+     *  taps toggle with the digit alone and [onSubmit] sends the Enter. */
+    onAnswer: (String, Boolean) -> Unit,
+    onSubmit: () -> Unit,
+) {
     val listState = rememberLazyListState()
     var follow by remember { mutableStateOf(true) }
+    // Only the trailing consecutive run of questions is still answerable —
+    // any later event means the desktop TUI moved on (EXP-78).
+    val activeQuestionIds = remember(feed) { trailingQuestionIds(feed) }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     LaunchedEffect(listState) {
@@ -380,6 +400,13 @@ private fun ActivityFeed(feed: List<AgentFeedItem>) {
                 when (item) {
                     is AgentFeedItem.Narration -> NarrationBubble(item.text)
                     is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
+                    is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+                    is AgentFeedItem.Question -> QuestionCard(
+                        item = item,
+                        answerable = answerEnabled && item.id in activeQuestionIds,
+                        onAnswer = onAnswer,
+                        onSubmit = onSubmit,
+                    )
                 }
             }
         }
@@ -427,6 +454,165 @@ private fun NarrationBubble(text: String) {
             )
         }
     }
+}
+
+/** Fold threshold for user/question text — the initial prompt can be 16 KiB. */
+private const val CLAMP_LINES = 6
+private const val CLAMP_CHARS = 600
+
+private fun clampable(text: String): Boolean =
+    text.length > CLAMP_CHARS || text.count { it == '\n' } >= CLAMP_LINES
+
+@Composable
+private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) {
+    Text(
+        if (expanded) "Show less" else "Show more",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        modifier = Modifier
+            .clickable(onClick = onToggle)
+            .padding(top = 2.dp),
+    )
+}
+
+// A human turn (EXP-78): the initial prompt or a steered message — rendered
+// end-aligned like the sender's own chat bubble, long text folded.
+@Composable
+private fun UserMessageBubble(text: String) {
+    var expanded by remember { mutableStateOf(false) }
+    val folds = remember(text) { clampable(text) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Spacer(Modifier.width(32.dp))
+        Column(
+            modifier = Modifier
+                // Slightly brighter than the assistant's glass sections — the
+                // sender's own bubble (matches the composer's active tint).
+                .background(GlassTokens.RowFillActive, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            SelectionContainer {
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (folds) {
+                ShowMoreToggle(expanded) { expanded = !expanded }
+            }
+        }
+    }
+}
+
+// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
+// buttons send the option's raw TUI keystroke while the question is still in
+// the trailing feed run; stale/view-only cards render options as plain rows.
+// Best-effort by design — the desktop TUI remains the source of truth.
+@Composable
+private fun QuestionCard(
+    item: AgentFeedItem.Question,
+    answerable: Boolean,
+    onAnswer: (String, Boolean) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
+    val folds = remember(item.text) { clampable(item.text) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.HelpOutline,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = ConnectingYellow,
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .glassSection()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SelectionContainer {
+                Text(
+                    item.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (folds) {
+                ShowMoreToggle(expanded) { expanded = !expanded }
+            }
+            item.options.forEach { option ->
+                if (answerable) {
+                    Row(
+                        modifier = Modifier
+                            .glassButton(active = option.key in picked)
+                            .clickable {
+                                onAnswer(option.key, !item.multiSelect)
+                                picked = if (item.multiSelect) {
+                                    if (option.key in picked) picked - option.key
+                                    else picked + option.key
+                                } else {
+                                    setOf(option.key)
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        QuestionOptionLabel(option)
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        QuestionOptionLabel(option)
+                    }
+                }
+            }
+            if (answerable && item.multiSelect) {
+                Text(
+                    "Submit selection",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .glassButton(active = true)
+                        .clickable(onClick = onSubmit)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuestionOptionLabel(option: QuestionOption) {
+    Text(
+        option.key,
+        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    )
+    Text(
+        option.label,
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+        color = MaterialTheme.colorScheme.onSurface,
+    )
 }
 
 // Tool-call headline — compact single line, consecutive rows visually tight.

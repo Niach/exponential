@@ -239,7 +239,26 @@ struct AgentSessionView: View {
             NarrationBubble(text: text)
         case let .tool(_, name, detail):
             ToolRow(name: name, detail: detail)
+        case let .userMessage(_, text):
+            UserMessageBubble(text: text)
+        case let .question(id, text, options, multiSelect):
+            QuestionCard(
+                text: text,
+                options: options,
+                multiSelect: multiSelect,
+                answerable: answerable(id),
+                onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
+                onSubmit: { model?.sendSubmit() }
+            )
         }
+    }
+
+    /// A question is answerable while it sits in the trailing question run of
+    /// a live, steerable session (EXP-78).
+    private func answerable(_ itemId: Int) -> Bool {
+        guard let model, model.canSteer, model.phase == .live, !model.sessionEnded
+        else { return false }
+        return model.activeQuestionIds.contains(itemId)
     }
 
     // MARK: - Status banners (feed retained above)
@@ -414,6 +433,163 @@ private struct NarrationBubble: View {
                 .glassSection()
         }
         .padding(.vertical, 5)
+    }
+}
+
+/// A human turn (EXP-78): the initial prompt or a steered message — rendered
+/// trailing-aligned like the sender's own chat bubble, long text folded.
+private struct UserMessageBubble: View {
+    let text: String
+
+    @State private var expanded = false
+
+    /// Fold threshold — the initial prompt can be 16 KiB.
+    private static let clampLines = 6
+    private static let clampChars = 600
+
+    private var clampable: Bool {
+        text.count > Self.clampChars
+            || text.filter { $0 == "\n" }.count >= Self.clampLines
+    }
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 32)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .textSelection(.enabled)
+                    .lineLimit(clampable && !expanded ? Self.clampLines : nil)
+                if clampable {
+                    Button(expanded ? "Show less" : "Show more") {
+                        expanded.toggle()
+                    }
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            // Slightly brighter than the assistant's glass sections — the
+            // sender's own bubble (matches the composer's active tint).
+            .background(Color.white.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
+            )
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+/// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
+/// buttons send the option's raw TUI keystroke while the question is still in
+/// the trailing feed run; stale/view-only cards render options as plain rows.
+/// Best-effort by design — the desktop TUI remains the source of truth.
+private struct QuestionCard: View {
+    let text: String
+    let options: [AgentSessionModel.QuestionOption]
+    let multiSelect: Bool
+    let answerable: Bool
+    /// (key, submit) — single-select taps submit (digit + Enter); multi-select
+    /// taps toggle with the digit alone and `onSubmit` sends the Enter.
+    let onAnswer: (String, Bool) -> Void
+    let onSubmit: () -> Void
+
+    @State private var expanded = false
+    @State private var picked: Set<String> = []
+
+    private static let clampLines = 6
+    private static let clampChars = 600
+
+    private var clampable: Bool {
+        text.count > Self.clampChars
+            || text.filter { $0 == "\n" }.count >= Self.clampLines
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "questionmark.circle")
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .textSelection(.enabled)
+                    .lineLimit(clampable && !expanded ? Self.clampLines : nil)
+                if clampable {
+                    Button(expanded ? "Show less" : "Show more") {
+                        expanded.toggle()
+                    }
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .buttonStyle(.plain)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(options, id: \.key) { option in
+                        if answerable {
+                            Button {
+                                pick(option)
+                            } label: {
+                                optionLabel(option)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                            }
+                            .glassButton(isActive: picked.contains(option.key))
+                            .buttonStyle(.plain)
+                        } else {
+                            optionLabel(option)
+                        }
+                    }
+                }
+                if answerable, multiSelect {
+                    Button("Submit selection") {
+                        onSubmit()
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassButton(isActive: true)
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassSection()
+        .padding(.vertical, 5)
+    }
+
+    private func pick(_ option: AgentSessionModel.QuestionOption) {
+        onAnswer(option.key, !multiSelect)
+        if multiSelect {
+            if picked.contains(option.key) {
+                picked.remove(option.key)
+            } else {
+                picked.insert(option.key)
+            }
+        } else {
+            picked = [option.key]
+        }
+    }
+
+    private func optionLabel(_ option: AgentSessionModel.QuestionOption) -> some View {
+        HStack(spacing: 6) {
+            Text(option.key)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text(option.label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+        }
     }
 }
 

@@ -7,6 +7,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  CircleHelp,
   Eye,
   Keyboard,
   Loader2,
@@ -24,6 +25,12 @@ import {
   codingSessionCollection,
   workspaceMemberCollection,
 } from "@/lib/collections"
+import {
+  consumeEcho,
+  pushEcho,
+  trailingQuestionIds,
+  type EchoEntry,
+} from "@/lib/agent-feed"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -79,10 +86,26 @@ interface PresenceViewer {
   perm: `view` | `steer`
 }
 
+interface QuestionOption {
+  label: string
+  /** Raw keystroke that selects this option in the desktop TUI picker. */
+  key: string
+}
+
 type ActivityEvent =
   | { kind: `narration`; text: string; at?: number }
   | { kind: `tool`; name: string; detail?: string; at?: number }
   | { kind: `diff`; diff: string; at?: number }
+  // EXP-78 (member-only on the relay): a human turn from the transcript…
+  | { kind: `user_message`; text: string; at?: number }
+  // …and an interactive question (AskUserQuestion / plan approval).
+  | {
+      kind: `question`
+      text: string
+      options: QuestionOption[]
+      multiSelect?: boolean
+      at?: number
+    }
 
 type ServerFrame =
   | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
@@ -372,6 +395,22 @@ type ViewerPhase =
 type FeedItem =
   | { id: number; kind: `narration`; text: string }
   | { id: number; kind: `tool`; name: string; detail?: string }
+  | { id: number; kind: `user_message`; text: string }
+  | {
+      id: number
+      kind: `question`
+      text: string
+      options: QuestionOption[]
+      multiSelect: boolean
+    }
+
+/** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
+ *  union to its common keys, losing the per-kind fields). */
+type NewFeedItem = FeedItem extends infer T
+  ? T extends FeedItem
+    ? Omit<T, `id`>
+    : never
+  : never
 
 // Exported for the workspace Agents page, which renders the view per SESSION
 // row (this component is session-scoped; the IssueSteerPanel wrapper above is
@@ -405,6 +444,8 @@ export function AgentSessionView({
   const wsRef = useRef<WebSocket | null>(null)
   const steeringRef = useRef(false)
   const nextIdRef = useRef(0)
+  /** Locally-echoed sent messages awaiting their transcript-derived event. */
+  const recentEchoesRef = useRef<EchoEntry[]>([])
   const idleReleaseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // The synced row is the truth for "still running" inside the redial loop.
@@ -431,29 +472,55 @@ export function AgentSessionView({
     const markLive = () =>
       setPhase((prev) => (prev.kind === `live` ? prev : { kind: `live` }))
 
+    const append = (item: NewFeedItem) => {
+      setFeed((prev) =>
+        [...prev, { ...item, id: nextIdRef.current++ } as FeedItem].slice(
+          -FEED_CAP
+        )
+      )
+    }
+
     const handleActivity = (event: ActivityEvent) => {
-      if (event.kind === `narration`) {
-        const text = event.text
-        if (!text.trim()) return
-        setFeed((prev) =>
-          [...prev, { id: nextIdRef.current++, kind: `narration` as const, text }]
-            .slice(-FEED_CAP)
-        )
-        return
+      switch (event.kind) {
+        case `narration`: {
+          if (!event.text.trim()) return
+          append({ kind: `narration`, text: event.text })
+          return
+        }
+        case `tool`: {
+          const detail = event.detail?.trim() ? event.detail : undefined
+          append({ kind: `tool`, name: event.name, detail })
+          return
+        }
+        case `user_message`: {
+          if (!event.text.trim()) return
+          // A message this client just sent was already echoed locally — skip
+          // its transcript-derived twin.
+          if (consumeEcho(recentEchoesRef.current, event.text, Date.now()))
+            return
+          append({ kind: `user_message`, text: event.text })
+          return
+        }
+        case `question`: {
+          if (!event.text.trim() || !event.options?.length) return
+          append({
+            kind: `question`,
+            text: event.text,
+            options: event.options,
+            multiSelect: event.multiSelect === true,
+          })
+          return
+        }
+        case `diff`: {
+          // Diffs never enter the feed — the latest replaces the previous one
+          // behind the pinned "Latest changes" strip.
+          setLatestDiff(event.diff.trim() ? event.diff : null)
+          return
+        }
+        default:
+          // Future kinds from a newer desktop: ignore, never crash the socket.
+          return
       }
-      if (event.kind === `tool`) {
-        const detail = event.detail?.trim() ? event.detail : undefined
-        setFeed((prev) =>
-          [
-            ...prev,
-            { id: nextIdRef.current++, kind: `tool` as const, name: event.name, detail },
-          ].slice(-FEED_CAP)
-        )
-        return
-      }
-      // Diffs never enter the feed — the latest replaces the previous one
-      // behind the pinned "Latest changes" strip.
-      setLatestDiff(event.diff.trim() ? event.diff : null)
     }
 
     const dial = async (retrying: boolean) => {
@@ -491,10 +558,13 @@ export function AgentSessionView({
           if (disposed) return
           // The relay replays the room's whole activity log (+ last diff) to
           // every joining socket — start from a clean slate or each reconnect
-          // would append the full history a second time.
+          // would append the full history a second time. The echo FIFO clears
+          // too: after a reconnect the replayed transcript event is the ONLY
+          // copy of a sent message and must render.
           setFeed([])
           setLatestDiff(null)
           nextIdRef.current = 0
+          recentEchoesRef.current = []
           ws?.send(JSON.stringify({ t: `join`, channel: `activity` }))
           // NOT live yet — the relay may answer the join with no_such_session
           // (desktop still starting). The phase flips to live on the first
@@ -637,11 +707,32 @@ export function AgentSessionView({
   /**
    * Send one message to the agent: the text, then a SEPARATE `\r` frame —
    * bundled into one write TUI apps treat the trailing return as a paste,
-   * which inserts instead of submitting.
+   * which inserts instead of submitting. The sent text is echoed into the
+   * local feed immediately (EXP-78); its transcript-derived `user_message`
+   * event is deduped against the echo FIFO when it arrives.
    */
   const sendMessage = (text: string) => {
     if (!text || !sendInput(text)) return
     wsRef.current?.send(JSON.stringify({ t: `input`, data: `\r` }))
+    pushEcho(recentEchoesRef.current, text, Date.now())
+    setFeed((prev) =>
+      [
+        ...prev,
+        { id: nextIdRef.current++, kind: `user_message` as const, text },
+      ].slice(-FEED_CAP)
+    )
+  }
+
+  /** Answer an interactive question: raw keystrokes — the desktop passes
+   *  single-byte frames to the PTY unwrapped, so the TUI sees keypresses, not
+   *  a paste. Verified against the real picker: a digit SELECTS but does not
+   *  submit, so single-select answers send the digit + a separate `\r`
+   *  (multi-select taps toggle with the digit alone; Submit sends `\r`). */
+  const sendAnswer = (key: string, submit = false) => {
+    if (!sendInput(key)) return
+    if (submit && key !== `\r`) {
+      wsRef.current?.send(JSON.stringify({ t: `input`, data: `\r` }))
+    }
   }
 
   /** Escape interrupts whatever the agent is currently doing. */
@@ -712,6 +803,11 @@ export function AgentSessionView({
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
   const composerVisible = live && perm === `steer` && !sessionEnded
+
+  /** Only the trailing consecutive run of questions is still answerable —
+   *  any later event means the TUI moved on. */
+  const activeQuestionIds = useMemo(() => trailingQuestionIds(feed), [feed])
+  const canAnswer = live && perm === `steer` && !sessionEnded
 
   const closePanel = () => {
     setAttempt(0)
@@ -808,13 +904,37 @@ export function AgentSessionView({
                 </CenteredState>
               ) : (
                 <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
-                  {feed.map((item) =>
-                    item.kind === `narration` ? (
-                      <NarrationBubble key={item.id} text={item.text} />
-                    ) : (
-                      <ToolRow key={item.id} name={item.name} detail={item.detail} />
-                    )
-                  )}
+                  {feed.map((item) => {
+                    switch (item.kind) {
+                      case `narration`:
+                        return <NarrationBubble key={item.id} text={item.text} />
+                      case `tool`:
+                        return (
+                          <ToolRow
+                            key={item.id}
+                            name={item.name}
+                            detail={item.detail}
+                          />
+                        )
+                      case `user_message`:
+                        return (
+                          <UserMessageBubble key={item.id} text={item.text} />
+                        )
+                      case `question`:
+                        return (
+                          <QuestionCard
+                            key={item.id}
+                            text={item.text}
+                            options={item.options}
+                            multiSelect={item.multiSelect}
+                            answerable={
+                              canAnswer && activeQuestionIds.has(item.id)
+                            }
+                            onAnswer={sendAnswer}
+                          />
+                        )
+                    }
+                  })}
                 </div>
               )}
             </div>
@@ -1012,6 +1132,164 @@ function NarrationBubble({ text }: { text: string }) {
       <Sparkles className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
       <div className="min-w-0 flex-1 whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
         {text}
+      </div>
+    </div>
+  )
+}
+
+/** How much user/question text shows before the "Show more" fold (the initial
+ *  prompt can be 16 KiB). Line-based clamp via CSS; the toggle appears on any
+ *  plausibly-clamped text. */
+const CLAMP_LINES = 6
+const CLAMP_CHARS = 600
+
+function useClampToggle(text: string) {
+  const [expanded, setExpanded] = useState(false)
+  const clampable =
+    text.length > CLAMP_CHARS || text.split(`\n`).length > CLAMP_LINES
+  return { expanded, setExpanded, clampable }
+}
+
+function ShowMoreButton({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-1 text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground"
+    >
+      {expanded ? `Show less` : `Show more`}
+    </button>
+  )
+}
+
+/** A human turn (EXP-78): the initial prompt or a steered message — rendered
+ *  right-aligned like the sender's own chat bubble, long text folded. */
+function UserMessageBubble({ text }: { text: string }) {
+  const { expanded, setExpanded, clampable } = useClampToggle(text)
+  return (
+    <div className="flex justify-end py-1 pl-8">
+      <div className="min-w-0 rounded-md border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm text-foreground/90">
+        <div
+          className={cn(
+            `whitespace-pre-wrap break-words`,
+            clampable && !expanded && `line-clamp-6`
+          )}
+        >
+          {text}
+        </div>
+        {clampable && (
+          <ShowMoreButton
+            expanded={expanded}
+            onToggle={() => setExpanded((v) => !v)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** An interactive question (EXP-78): AskUserQuestion / plan approval. Option
+ *  buttons send the option's raw TUI keystroke while the question is still the
+ *  trailing feed item; stale/view-only cards render the options as plain rows.
+ *  Best-effort by design — the desktop TUI remains the source of truth. */
+function QuestionCard({
+  text,
+  options,
+  multiSelect,
+  answerable,
+  onAnswer,
+}: {
+  text: string
+  options: QuestionOption[]
+  multiSelect: boolean
+  answerable: boolean
+  onAnswer: (key: string, submit?: boolean) => void
+}) {
+  const { expanded, setExpanded, clampable } = useClampToggle(text)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+
+  const pick = (option: QuestionOption) => {
+    // Single-select: digit + Enter submits. Multi-select: digit toggles; the
+    // Submit button sends the Enter.
+    onAnswer(option.key, !multiSelect)
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (multiSelect && next.has(option.key)) next.delete(option.key)
+      else if (multiSelect) next.add(option.key)
+      else {
+        next.clear()
+        next.add(option.key)
+      }
+      return next
+    })
+  }
+
+  return (
+    <div className="my-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+      <div className="flex items-start gap-2">
+        <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              `whitespace-pre-wrap break-words text-sm text-foreground/90`,
+              clampable && !expanded && `line-clamp-6`
+            )}
+          >
+            {text}
+          </div>
+          {clampable && (
+            <ShowMoreButton
+              expanded={expanded}
+              onToggle={() => setExpanded((v) => !v)}
+            />
+          )}
+          <div className="mt-2 flex flex-col items-start gap-1">
+            {options.map((option) =>
+              answerable ? (
+                <Button
+                  key={option.key}
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    `h-7 justify-start text-xs`,
+                    picked.has(option.key) &&
+                      `border-amber-500/60 bg-amber-500/15`
+                  )}
+                  onClick={() => pick(option)}
+                >
+                  <span className="font-mono text-muted-foreground">
+                    {option.key}
+                  </span>
+                  {option.label}
+                </Button>
+              ) : (
+                <span
+                  key={option.key}
+                  className="text-xs text-muted-foreground"
+                >
+                  <span className="font-mono">{option.key}</span>
+                  {` · ${option.label}`}
+                </span>
+              )
+            )}
+          </div>
+          {answerable && multiSelect && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-2 h-7 text-xs"
+              onClick={() => onAnswer(`\r`)}
+            >
+              Submit selection
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -62,7 +62,10 @@ export function LiveActivityView({
             const event = frame.event
             if (event.kind === `diff`) {
               setDiff(event.diff)
-            } else {
+            } else if (event.kind === `narration` || event.kind === `tool`) {
+              // Whitelist, not fall-through: the relay never sends the
+              // member-only kinds (user_message/question) to public sockets,
+              // but an unknown future kind must not render as fake narration.
               setEvents((prev) => [...prev.slice(-MAX_FEED + 1), event])
             }
           } else if (frame.t === `bye`) {
