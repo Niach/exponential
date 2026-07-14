@@ -4,7 +4,6 @@ import {
   Check,
   CreditCard,
   Loader2,
-  Mail,
   Minus,
   Plus,
   X,
@@ -96,18 +95,6 @@ const TIERS: TierInfo[] = [
     ],
   },
 ]
-
-// Enterprise is contact-sales only — no Creem product, no checkout. It is
-// deliberately NOT a TIERS entry: TierInfo.tier is a PlanTier, and the
-// server-side PlanTier union must not grow a display-only member.
-const ENTERPRISE_FEATURES: Feature[] = [
-  { label: `Everything in Business`, enabled: true },
-  { label: `SLA & dedicated support`, enabled: true },
-  { label: `Custom contracts & procurement`, enabled: true },
-  { label: `Security review & DPA`, enabled: true },
-]
-
-const CONTACT_SALES_URL = `https://exponential.at/contact/`
 
 function FeatureRow({ label, enabled }: Feature) {
   return (
@@ -258,7 +245,7 @@ export function PlanComparison({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {TIERS.map((t) => {
         const isCurrent = t.tier === currentPlan
         const productId = getProductId(t.tier)
@@ -383,33 +370,6 @@ export function PlanComparison({
           </Card>
         )
       })}
-
-      <Card className="flex h-full flex-col gap-4 py-4">
-        <CardHeader className="gap-1.5 px-4">
-          <CardTitle className="text-sm">Enterprise</CardTitle>
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-semibold tracking-tight">
-              Let&apos;s talk
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">Custom pricing & SLA</p>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-4 px-4">
-          <div className="space-y-2">
-            {ENTERPRISE_FEATURES.map((f) => (
-              <FeatureRow key={f.label} label={f.label} enabled={f.enabled} />
-            ))}
-          </div>
-          <div className="mt-auto space-y-2.5 border-t pt-3">
-            <Button asChild variant="outline" className="w-full" size="sm">
-              <a href={CONTACT_SALES_URL} target="_blank" rel="noreferrer">
-                <Mail className="mr-1.5 size-3.5" />
-                Contact sales
-              </a>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
