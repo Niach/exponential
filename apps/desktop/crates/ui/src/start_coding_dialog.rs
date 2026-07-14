@@ -79,13 +79,9 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog for unknown issue {issue_id}");
         return;
     };
-    // §P7: only a live-public feedback board offers the keep-private opt-out.
-    let live_public = coding_flow::issue_project(&issue_id, cx)
-        .map(|project| project.is_live_public_coding())
-        .unwrap_or(false);
     let title: SharedString = format!("Start coding on {}", issue.identifier).into();
     let view = cx.new(|cx| {
-        StartCodingDialogView::new_issue(issue.id.clone(), issue.identifier, live_public, window, cx)
+        StartCodingDialogView::new_issue(issue.id.clone(), issue.identifier, window, cx)
     });
     window.open_dialog(cx, move |dialog, _, cx| {
         let busy = view.read(cx).launching;
@@ -155,10 +151,6 @@ enum Variant {
     Issue {
         issue_id: String,
         identifier: String,
-        /// The project streams coding publicly (`publicShowCoding='live'`).
-        live_public: bool,
-        /// §P7 per-session opt-out (only offered while `live_public`).
-        keep_private: bool,
     },
     Release {
         release_id: String,
@@ -191,7 +183,6 @@ impl StartCodingDialogView {
     fn new_issue(
         issue_id: String,
         identifier: String,
-        live_public: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -201,8 +192,6 @@ impl StartCodingDialogView {
             variant: Variant::Issue {
                 issue_id,
                 identifier,
-                live_public,
-                keep_private: false,
             },
             model: choice_select(&MODEL_CHOICES, &settings.claude_model, window, cx),
             effort: choice_select(&EFFORT_CHOICES, &settings.claude_effort, window, cx),
@@ -484,15 +473,11 @@ impl StartCodingDialogView {
             return;
         }
         let issue_launch = match &self.variant {
-            Variant::Issue {
-                issue_id,
-                keep_private,
-                ..
-            } => Some((issue_id.clone(), *keep_private)),
+            Variant::Issue { issue_id, .. } => Some(issue_id.clone()),
             Variant::Release { .. } => None,
         };
-        let (request, subject, keep_private) = match issue_launch {
-            Some((issue_id, keep_private)) => {
+        let (request, subject) = match issue_launch {
+            Some(issue_id) => {
                 let options = IssueLaunchOptions {
                     model: selected(&self.model, cx),
                     effort: selected(&self.effort, cx),
@@ -510,7 +495,6 @@ impl StartCodingDialogView {
                     PrepareRequest::Issue(request),
                     deps,
                     SessionSubject::Issue(issue_id),
-                    keep_private,
                     window,
                     cx,
                 );
@@ -523,7 +507,7 @@ impl StartCodingDialogView {
                     return;
                 };
                 let release_id = request.release_id.clone();
-                (request, SessionSubject::Release(release_id), false)
+                (request, SessionSubject::Release(release_id))
             }
         };
         let Some(deps) = coding_flow::build_release_deps(cx) else {
@@ -531,14 +515,7 @@ impl StartCodingDialogView {
             cx.notify();
             return;
         };
-        self.run_prepare(
-            PrepareRequest::Release(request),
-            deps,
-            subject,
-            keep_private,
-            window,
-            cx,
-        );
+        self.run_prepare(PrepareRequest::Release(request), deps, subject, window, cx);
     }
 
     /// Shared prepare→spawn tail for both variants: background
@@ -549,7 +526,6 @@ impl StartCodingDialogView {
         request: PrepareRequest,
         deps: coding::CodingDeps,
         subject: SessionSubject,
-        keep_private: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -566,13 +542,7 @@ impl StartCodingDialogView {
                 this.launching = false;
                 match prepared {
                     Ok(Prepared::Ready(prepared)) => {
-                        match coding_flow::spawn_into_window(
-                            prepared,
-                            subject,
-                            keep_private,
-                            window,
-                            cx,
-                        ) {
+                        match coding_flow::spawn_into_window(prepared, subject, window, cx) {
                             Ok(()) => {
                                 window.close_dialog(cx);
                             }
@@ -770,13 +740,8 @@ impl StartCodingDialogView {
     }
 
     fn render_issue(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let (identifier, live_public, keep_private) = match &self.variant {
-            Variant::Issue {
-                identifier,
-                live_public,
-                keep_private,
-                ..
-            } => (identifier.clone(), *live_public, *keep_private),
+        let identifier = match &self.variant {
+            Variant::Issue { identifier, .. } => identifier.clone(),
             Variant::Release { .. } => return div().into_any_element(),
         };
         let muted = cx.theme().muted_foreground;
@@ -813,30 +778,6 @@ impl StartCodingDialogView {
                     )),
             )
             .child(self.plan_mode_row(cx));
-
-        // §P7 opt-out: on a live feedback board, let the user keep THIS
-        // session out of the public activity stream before starting it.
-        if live_public {
-            body = body.child(
-                v_flex()
-                    .gap_0p5()
-                    .child(
-                        Checkbox::new("sc-keep-private")
-                            .label("Keep private")
-                            .checked(keep_private)
-                            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                                if let Variant::Issue { keep_private, .. } = &mut this.variant {
-                                    *keep_private = *on;
-                                    cx.notify();
-                                }
-                            })),
-                    )
-                    .child(div().pl_6().text_xs().text_color(muted).child(
-                        "This project streams coding sessions publicly. Check to keep \
-                         this session out of the public view.",
-                    )),
-            );
-        }
 
         if let Some(error) = &self.error {
             body = body.child(

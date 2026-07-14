@@ -447,7 +447,6 @@ fn full_protocol_flow_against_the_real_relay() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-1".to_string()),
-            activity_public: true,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,
@@ -573,7 +572,6 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: Some("issue-int-2".to_string()),
-            activity_public: true,
         },
         Arc::new(BunTickets {
             relay_port: relay.port,

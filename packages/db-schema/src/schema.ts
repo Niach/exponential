@@ -38,8 +38,6 @@ import {
   prStateValues,
   projectTypeSchema,
   projectTypeValues,
-  publicCodingVisibilitySchema,
-  publicCodingVisibilityValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
   subscriberSourceSchema,
@@ -74,11 +72,6 @@ export const workspaceMemberRoleEnum = pgEnum(
 )
 
 export const projectTypeEnum = pgEnum(`project_type`, projectTypeValues)
-
-export const publicCodingVisibilityEnum = pgEnum(
-  `public_coding_visibility`,
-  publicCodingVisibilityValues
-)
 
 export const recurrenceUnitEnum = pgEnum(
   `recurrence_unit`,
@@ -238,9 +231,6 @@ export const projects = pgTable(
     publicShowActivity: boolean(`public_show_activity`)
       .notNull()
       .default(false),
-    publicShowCoding: publicCodingVisibilityEnum(`public_show_coding`)
-      .notNull()
-      .default(`off`),
     // A `dev` project is backed by exactly one repo from the workspace
     // registry; the desktop launcher clones this. Nullable since v7: `tasks`
     // and `feedback` projects need no repo (a feedback board MAY still have
@@ -1064,7 +1054,6 @@ export const selectWorkspaceInviteSchema = createSelectSchema(
 )
 export const selectProjectSchema = createSelectSchema(projects, {
   type: projectTypeSchema,
-  publicShowCoding: publicCodingVisibilitySchema,
 })
 export const createProjectSchema = createInsertSchema(projects).omit({
   id: true,

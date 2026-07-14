@@ -5,7 +5,6 @@ import { projects, repositories } from "@/db/schema"
 import { and, eq, isNotNull, isNull } from "drizzle-orm"
 import {
   projectTypeSchema,
-  publicCodingVisibilitySchema,
   PROJECT_TRASH_RETENTION_MS,
 } from "@exp/db-schema/domain"
 import {
@@ -115,7 +114,6 @@ export const projectsRouter = router({
         // other types).
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
-        publicShowCoding: publicCodingVisibilitySchema.optional(),
         // Required for `dev` projects, optional otherwise. Either target an
         // existing registry repo or connect one inline in the same transaction
         // (onboarding/create dialogs stay a single call).
@@ -186,7 +184,6 @@ export const projectsRouter = router({
               type: input.type,
               publicShowComments: input.publicShowComments ?? true,
               publicShowActivity: input.publicShowActivity ?? false,
-              publicShowCoding: input.publicShowCoding ?? `off`,
               repositoryId,
             })
             .returning()
@@ -301,7 +298,6 @@ export const projectsRouter = router({
         type: projectTypeSchema.optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
-        publicShowCoding: publicCodingVisibilitySchema.optional(),
         archivedAt: z
           .string()
           .datetime()
@@ -322,8 +318,7 @@ export const projectsRouter = router({
         Object.hasOwn(updates, `archivedAt`) ||
         updates.type !== undefined ||
         updates.publicShowComments !== undefined ||
-        updates.publicShowActivity !== undefined ||
-        updates.publicShowCoding !== undefined
+        updates.publicShowActivity !== undefined
       if (ownerGated) {
         await assertWorkspaceOwner(
           ctx.session.user.id,

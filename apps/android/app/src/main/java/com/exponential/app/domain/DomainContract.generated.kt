@@ -10,7 +10,6 @@ object DomainContract {
     val recurrenceUnitValues: List<String> = listOf("day", "week", "month")
     val workspaceRoleValues: List<String> = listOf("owner", "member")
     val projectTypeValues: List<String> = listOf("dev", "tasks", "feedback")
-    val publicCodingVisibilityValues: List<String> = listOf("off", "badge", "live")
     val commentKindValues: List<String> = listOf("regular")
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
@@ -24,9 +23,6 @@ object DomainContract {
     const val projectTypeDev: String = "dev"
     const val projectTypeTasks: String = "tasks"
     const val projectTypeFeedback: String = "feedback"
-    const val publicCodingVisibilityOff: String = "off"
-    const val publicCodingVisibilityBadge: String = "badge"
-    const val publicCodingVisibilityLive: String = "live"
     const val commentKindRegular: String = "regular"
     const val notificationTypeIssueAssigned: String = "issue_assigned"
     const val notificationTypeIssueComment: String = "issue_comment"

@@ -570,7 +570,6 @@ pub fn build_release_deps(cx: &mut App) -> Option<CodingDeps> {
 pub fn spawn_into_window(
     prepared: coding::PreparedLaunch,
     subject: SessionSubject,
-    keep_private: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), String> {
@@ -610,16 +609,14 @@ pub fn spawn_into_window(
             // relay for phone steering. Best-effort: a no-op when steer is
             // disabled/unreachable or the account is signed out. This is the
             // single hookup the §08 wiring owns (`ui::steer_wiring`). The
-            // worktree + keep_private flag ride along for the §P7 scrubbed
-            // activity emitter (started unless the user opted the session
-            // keep-private — that opt-out fails closed client-side).
+            // worktree rides along for the §P7 scrubbed activity emitter
+            // (members-only activity channel).
             crate::steer_wiring::attach_publisher(
                 &session_id,
                 &subject,
                 terminal_tab,
                 &manager,
                 worktree,
-                keep_private,
                 cx,
             );
             // P9: keep the clone's embedded token fresh for the session's
@@ -836,33 +833,12 @@ impl Render for StartCodingControl {
         self.ensure_probe(cx);
 
         // Local session running → "Coding…" + the play button becomes STOP.
-        let session_id = LocalSessions::global(cx)
-            .read(cx)
-            .get(&issue_id)
-            .map(|session| session.session_id.clone());
-        if let Some(session_id) = session_id {
-            // §P7: show the "LIVE — public" badge while this session is
-            // actually publishing its activity stream to public viewers.
-            let live = crate::steer_wiring::is_publishing_live(&session_id, cx);
-            let mut row = h_flex().flex_shrink_0().gap_1().items_center();
-            if live {
-                row = row.child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .text_xs()
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_color(theme::tokens::RED.to_hsla())
-                        .child(
-                            div()
-                                .size_1p5()
-                                .rounded_full()
-                                .bg(theme::tokens::RED.to_hsla()),
-                        )
-                        .child("LIVE — public"),
-                );
-            }
-            return row
+        let running = LocalSessions::global(cx).read(cx).get(&issue_id).is_some();
+        if running {
+            return h_flex()
+                .flex_shrink_0()
+                .gap_1()
+                .items_center()
                 .child(
                     h_flex()
                         .gap_1p5()

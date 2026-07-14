@@ -58,9 +58,11 @@ import androidx.room.RoomDatabase
     // v14: releases (EXP-56, the 15th shape) + issues.release_id +
     //      coding_sessions.release_id (issue_id now nullable for
     //      release-scoped orchestrator sessions).
+    // v15: projects.public_show_coding removed (EXP-90 — public feedback
+    //      coding sessions are gone; the column left the synced shape).
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

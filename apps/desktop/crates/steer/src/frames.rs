@@ -73,12 +73,11 @@ pub enum ClientFrame<'a> {
         cols: Option<u16>,
         #[serde(skip_serializing_if = "Option::is_none")]
         rows: Option<u16>,
-        /// EXP-32: whether the room's scrubbed activity stream may fan out to
-        /// ANONYMOUS `public_viewer` sockets. `None` = absent on the wire ⇒
-        /// the relay treats the room as public (legacy shape — existing
-        /// vectors stay byte-identical). Only `Some(false)` is ever sent
-        /// explicitly (keep-private); authenticated activity-channel members
-        /// receive activity regardless.
+        /// EXP-90: the anonymous public-activity audience is removed, so the
+        /// publisher ALWAYS sends `Some(false)`. The field survives because
+        /// `None` = absent means "public" to LEGACY relays (pre-EXP-90 fan
+        /// activity to anonymous sockets when the key is missing) — relay
+        /// deploys are manual, so the explicit `false` must stay on the wire.
         #[serde(skip_serializing_if = "Option::is_none")]
         activity_public: Option<bool>,
     },
@@ -102,10 +101,8 @@ pub enum ClientFrame<'a> {
     },
     /// One activity event (§P7 live-coding view). Serializes to
     /// `{"t":"activity","event":{...}}`; the relay fans it to authenticated
-    /// activity members always, and to anonymous `public_viewer` sockets only
-    /// when the room is public AND the kind is not member-only (EXP-78:
-    /// `user_message`/`question` never reach the public audience). The event
-    /// text is ALREADY redacted by the emitter.
+    /// activity members only (EXP-90 removed the anonymous public audience).
+    /// The event text is ALREADY redacted by the emitter.
     Activity {
         event: ActivityEvent,
     },
@@ -247,8 +244,8 @@ mod tests {
 
     #[test]
     fn hello_serializes_session_and_geometry() {
-        // hub.test.ts connectPublisher sends exactly this frame (120×40).
-        // activity_public: None MUST leave the legacy wire shape untouched.
+        // hub.test.ts connectPublisher sends this frame shape (120×40).
+        // activity_public: None keeps the legacy wire shape (no key).
         assert_eq!(
             ClientFrame::Hello {
                 session_id: "sess-1",
@@ -275,9 +272,8 @@ mod tests {
 
     #[test]
     fn hello_activity_public_false_serializes_byte_exact() {
-        // EXP-32: the keep-private opt-out is an explicit camelCase
-        // `activityPublic:false`; `Some(true)` never ships (spec: absent =
-        // public), but if constructed it must still be the relay's field name.
+        // EXP-90: every real hello carries the explicit camelCase
+        // `activityPublic:false` — absent means "public" to legacy relays.
         assert_eq!(
             ClientFrame::Hello {
                 session_id: "sess-1",

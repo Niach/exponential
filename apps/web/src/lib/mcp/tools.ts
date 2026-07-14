@@ -345,7 +345,6 @@ export function registerExponentialTools(
         type: z.enum([`dev`, `tasks`, `feedback`]).default(`dev`),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
-        publicShowCoding: z.enum([`off`, `badge`, `live`]).optional(),
         repository: z
           .union([
             z.object({ repositoryId: z.string().uuid() }),
@@ -386,7 +385,6 @@ export function registerExponentialTools(
         type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
-        publicShowCoding: z.enum([`off`, `badge`, `live`]).optional(),
         name: z.string().min(1).max(255).optional(),
         color: z
           .string()

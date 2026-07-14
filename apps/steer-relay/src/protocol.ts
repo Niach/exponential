@@ -27,18 +27,14 @@ export const helloFrame = z.object({
   issueId: z.string().max(128).optional(),
   cols: z.number().int().positive().max(1000).optional(),
   rows: z.number().int().positive().max(1000).optional(),
-  // Whether the room's scrubbed activity stream may fan out to ANONYMOUS
-  // public_viewer sockets (absent ⇒ true — legacy publishers stay public).
-  // Authenticated activity-channel members receive activity regardless, so
-  // a private session's own team can still follow along.
-  activityPublic: z.boolean().optional(),
+  // EXP-90: the removed public-activity feature's `activityPublic` flag may
+  // still arrive from older desktops — non-strict parsing ignores it.
 })
 
 export const joinFrame = z.object({
   t: z.literal(`join`),
   // Which audience a VIEWER ticket joins: the PTY mirror (absent/`pty` —
-  // legacy) or the scrubbed activity stream (`activity`). public_viewer
-  // tickets ignore this — they are activity-only by construction.
+  // legacy) or the scrubbed activity stream (`activity`).
   channel: z.enum([`pty`, `activity`]).optional(),
 })
 
@@ -68,19 +64,16 @@ export const byeFrame = z.object({
   outcome: z.string().max(64).optional(),
 })
 
-// Publisher → relay: one activity event (member activity channel + feedback
-// boards with publicShowCoding='live'). The desktop emits these from the
-// Claude session transcript + worktree diffs, ALREADY REDACTED (known-secret
-// masking + gitleaks-style patterns) — the relay stays a dumb pipe and fans
-// them out to the activity audience only, never to the PTY audience and never
-// vice versa.
+// Publisher → relay: one activity event (the authenticated member activity
+// channel). The desktop emits these from the Claude session transcript +
+// worktree diffs, ALREADY REDACTED (known-secret masking + gitleaks-style
+// patterns) — the relay stays a dumb pipe and fans them out to the activity
+// audience only, never to the PTY audience and never vice versa.
 //   narration:    assistant prose        { kind, text }
 //   tool:         tool-call headline     { kind, name, detail? }
 //   diff:         worktree unified diff  { kind, diff }  (latest replaces prior)
-//   user_message: a human turn           { kind, text }             MEMBER-ONLY
-//   question:     interactive question   { kind, text, options[] }  MEMBER-ONLY
-// MEMBER-ONLY kinds (EXP-78) carry steering input / answerable prompts and
-// must NEVER reach anonymous public_viewer sockets — see isMemberOnlyActivity.
+//   user_message: a human turn           { kind, text }
+//   question:     interactive question   { kind, text, options[] }
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`narration`),
@@ -125,13 +118,6 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
 
 export type ActivityEvent = z.infer<typeof activityEventSchema>
 
-/** Kinds that must NEVER reach anonymous public_viewer sockets (EXP-78:
- * "never steering input" — user turns and answerable prompts are for
- * authenticated activity members only, live AND on replay). */
-export function isMemberOnlyActivity(event: ActivityEvent): boolean {
-  return event.kind === `user_message` || event.kind === `question`
-}
-
 export const activityFrame = z.object({
   t: z.literal(`activity`),
   event: activityEventSchema,
@@ -169,7 +155,7 @@ export type ServerFrame =
   | { t: `kill` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
-  | { t: `activity`; event: ActivityEvent } // relay → activity audience (members always; public viewers only when the room is public AND the kind is not member-only)
+  | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

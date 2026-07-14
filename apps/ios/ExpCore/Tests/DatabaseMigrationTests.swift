@@ -153,7 +153,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(projectCols.contains("type"))
         XCTAssertTrue(projectCols.contains("public_show_comments"))
         XCTAssertTrue(projectCols.contains("public_show_activity"))
-        XCTAssertTrue(projectCols.contains("public_show_coding"))
+        // EXP-90: public_show_coding is gone from fresh installs.
+        XCTAssertFalse(projectCols.contains("public_show_coding"))
         // v5 protection flag.
         XCTAssertTrue(projectCols.contains("is_protected"))
         // v6: the invite bearer token is no longer synced (server allowlist),

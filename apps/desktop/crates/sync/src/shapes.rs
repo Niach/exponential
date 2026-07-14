@@ -117,7 +117,6 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "repository_id",
             "public_show_comments",
             "public_show_activity",
-            "public_show_coding",
             // Trash contract: the bootstrap dogfood project is protected —
             // clients disable delete/archive/retype from this synced flag.
             "is_protected",

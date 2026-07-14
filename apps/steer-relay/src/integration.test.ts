@@ -89,6 +89,21 @@ describe(`steer relay end-to-end`, () => {
     expect(res.status).toBe(401)
   })
 
+  test(`rejects signature-valid tickets with the removed public_viewer role`, async () => {
+    // EXP-90 skew guard: a stale web instance that still mints the anonymous
+    // public-activity role gets 401 at upgrade, never a socket.
+    const stale = ticket({
+      role: `public_viewer`,
+      sub: `anon`,
+      perm: `view`,
+      sessionId: `sess-x`,
+    } as unknown as Partial<SteerTicketClaims>)
+    const res = await fetch(`${base}/ws?ticket=${encodeURIComponent(stale)}`, {
+      headers: { upgrade: `websocket`, connection: `upgrade` },
+    })
+    expect(res.status).toBe(401)
+  })
+
   test(`healthz is open, admin requires the secret`, async () => {
     const health = await fetch(`${base}/healthz`)
     expect(health.ok).toBe(true)
@@ -162,10 +177,11 @@ describe(`steer relay end-to-end`, () => {
     pub.close()
   })
 
-  test(`activity channel: private room replays + steers for members, nothing for public viewers`, async () => {
+  test(`activity channel: replays + steers for members; legacy activityPublic flag is ignored`, async () => {
     const sessionId = `sess-activity-e2e`
 
-    // Publisher declares the room's activity stream NOT publicly fanned.
+    // Older desktops still send the removed activityPublic flag in hello —
+    // non-strict parsing must ignore it (EXP-90).
     const pub = await connect(
       ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
     )
@@ -192,13 +208,6 @@ describe(`steer relay end-to-end`, () => {
     pub.send(
       JSON.stringify({ t: `activity`, event: { kind: `diff`, diff: `+ line` } })
     )
-
-    // An anonymous public viewer joins the PRIVATE room.
-    const pv = await connect(
-      ticket({ role: `public_viewer`, sub: `anon`, perm: `view`, sessionId })
-    )
-    const pvIn = collector(pv)
-    pv.send(JSON.stringify({ t: `join` }))
 
     // A workspace member joins the activity channel on an ordinary viewer
     // ticket: replay (log, then latest diff), then presence — no resize, no
@@ -229,7 +238,7 @@ describe(`steer relay end-to-end`, () => {
       steererId: null,
     })
 
-    // Live activity reaches the member despite activityPublic:false.
+    // Live activity reaches the member.
     pub.send(
       JSON.stringify({
         t: `activity`,
@@ -260,10 +269,6 @@ describe(`steer relay end-to-end`, () => {
     })
     member.send(JSON.stringify({ t: `input`, data: `y\n` }))
     expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `y\n` })
-
-    // The anonymous socket received NOTHING for this room: no replay, no
-    // live fan-out, no presence.
-    await expect(pvIn.next(300)).rejects.toThrow(`timeout`)
 
     pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
     expect(await memberIn.nextJson()).toMatchObject({ t: `bye`, outcome: `done` })
