@@ -16,6 +16,7 @@ import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.share.ShareIntentParser
+import com.exponential.app.domain.WebLinks
 import com.exponential.app.navigation.AppNavHost
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -62,6 +63,23 @@ class MainActivity : ComponentActivity() {
             return
         }
         val data = intent?.data ?: return
+        // Verified App Links (EXP-92): https issue/invite URLs from the
+        // manifest's autoVerify filter. Kept dumb here — resolution (slug +
+        // identifier → local issue id) happens in AppNavHost, which already
+        // parks targets until auth/sync are ready.
+        if (data.scheme == "https" || data.scheme == "http") {
+            when (val parsed = WebLinks.parsePath(data.path)) {
+                is WebLinks.Parsed.IssueRef -> deepLinkBus.openWebIssueRef(
+                    uri = data,
+                    host = data.host ?: return,
+                    workspaceSlug = parsed.workspaceSlug,
+                    identifier = parsed.identifier,
+                )
+                is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
+                null -> {}
+            }
+            return
+        }
         if (data.scheme != "exponential") return
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)

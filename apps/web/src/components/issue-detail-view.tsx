@@ -309,6 +309,16 @@ export function IssueDetailView({
     setActiveTab(`details`)
   }, [issue.id])
 
+  // Opening an issue clears its inbox notifications (EXP-92) — the safety net
+  // for push taps and email deep links that never pass through the inbox (whose
+  // row click keeps its own eager markRead). Fire-and-forget: failure just
+  // leaves the row unread.
+  useEffect(() => {
+    trpc.notifications.markReadByIssue
+      .mutate({ issueId: issue.id })
+      .catch(() => {})
+  }, [issue.id])
+
   // Sync title from Electric when another client changes it,
   // but skip if the local value matches what we'd save (user is editing).
   useEffect(() => {

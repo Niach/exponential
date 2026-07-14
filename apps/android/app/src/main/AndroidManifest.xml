@@ -57,6 +57,23 @@
                 <data android:scheme="exponential" android:host="invite" />
             </intent-filter>
 
+            <!-- App Links (EXP-92): verified https links open the app instead of
+                 the mobile web. Host is per-flavor (production app.exponential.at,
+                 staging next.exponential.at); verification needs the host to serve
+                 /.well-known/assetlinks.json with this build's signing cert (env
+                 ANDROID_APP_LINK_FINGERPRINTS on the web app — Play App Signing
+                 key for store installs). Only the two shapes the app can render
+                 are claimed: issue detail + invites; unresolvable links fall back
+                 to a Custom Tab in AppNavHost. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${appLinkHost}" />
+                <data android:pathPattern="/w/.*/projects/.*/issues/.*" />
+                <data android:pathPrefix="/invite/" />
+            </intent-filter>
+
             <!-- Fired by the server's post-GitHub-App-install page so the connect
                  flow returns into the app instead of continuing in the browser. -->
             <intent-filter android:autoVerify="false">

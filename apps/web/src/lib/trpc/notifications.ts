@@ -39,6 +39,30 @@ export const notificationsRouter = router({
       })
     }),
 
+  // Opening an issue clears its inbox entries (EXP-92): push taps and email
+  // deep links land on the issue detail without passing through the inbox, so
+  // the detail views on every client fire this on open. Server-side by design —
+  // it also clears rows the client hasn't synced yet, and a row read here
+  // escapes the hourly unread-email digest.
+  markReadByIssue: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(notifications)
+          .set({ readAt: new Date() })
+          .where(
+            and(
+              eq(notifications.issueId, input.issueId),
+              eq(notifications.userId, ctx.session.user.id),
+              isNull(notifications.readAt)
+            )
+          )
+        return { txId }
+      })
+    }),
+
   markAllRead: authedProcedure.mutation(async ({ ctx }) => {
     return await ctx.db.transaction(async (tx) => {
       const txId = await generateTxId(tx)
