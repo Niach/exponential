@@ -1,5 +1,6 @@
 import { snapdom } from "@zumer/snapdom"
 import type { CaptureEngine } from "./engine"
+import { piiMaskPlugin } from "./pii-mask"
 
 // PNG captures are transparent where nothing paints; fill with the page's
 // own background so dark sites don't end up on white (and vice versa).
@@ -25,6 +26,7 @@ export const snapdomEngine: CaptureEngine = {
       excludeMode: `hide`,
       filter: keepNode,
       filterMode: `hide`,
+      plugins: [piiMaskPlugin],
     })
   },
 }
