@@ -11,6 +11,7 @@ type Plan = {
   note?: string
   tagline: string
   highlight?: boolean
+  enterprise?: boolean
   features: string[]
   cta: { label: string; href: string }
 }
@@ -62,11 +63,28 @@ const cloudPlans: Plan[] = [
     ],
     cta: { label: `Start with Business`, href: LINKS.app.register },
   },
+  {
+    name: `Enterprise`,
+    amount: `Let's talk`,
+    cadence: `custom pricing`,
+    tagline: `For companies that need guarantees.`,
+    enterprise: true,
+    features: [
+      `Everything in Business`,
+      `SLA with guaranteed response times`,
+      `Dedicated support channel`,
+      `Custom contracts & procurement`,
+      `Security review & DPA`,
+      `Onboarding & migration help`,
+    ],
+    /* No self-serve checkout — sales form on the contact page (EXP-39). */
+    cta: { label: `Contact sales`, href: `/contact/` },
+  },
 ]
 
 /* Run-it-yourself tiers — self-host is free & unlimited; Enterprise is
    contact-sales. Plain, friendly phrasing. */
-const selfHostPlans: (Plan & { selfHost?: boolean; enterprise?: boolean })[] = [
+const selfHostPlans: (Plan & { selfHost?: boolean })[] = [
   {
     name: `Self-hosted`,
     amount: `Free`,
@@ -132,7 +150,7 @@ export function PlanCards() {
       {cloudPlans.map((p) => (
         <motion.div
           key={p.name}
-          className={`plan-card${p.highlight ? ` is-highlight` : ``}`}
+          className={`plan-card${p.highlight ? ` is-highlight` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
           variants={cardReveal}
         >
           {p.highlight && <span className="plan-flag">Most popular</span>}
