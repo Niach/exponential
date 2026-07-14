@@ -90,6 +90,9 @@ android {
             resValue("string", "app_name", "Exponential")
             buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://app.exponential.at\"")
             buildConfigField("boolean", "IS_STAGING", "false")
+            // Host of the autoVerify https intent-filter (EXP-92 App Links);
+            // must stay in lockstep with DEFAULT_CLOUD_URL.
+            manifestPlaceholders["appLinkHost"] = "app.exponential.at"
         }
         create("staging") {
             dimension = "env"
@@ -98,6 +101,7 @@ android {
             resValue("string", "app_name", "Exp Staging")
             buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://next.exponential.at\"")
             buildConfigField("boolean", "IS_STAGING", "true")
+            manifestPlaceholders["appLinkHost"] = "next.exponential.at"
         }
     }
 

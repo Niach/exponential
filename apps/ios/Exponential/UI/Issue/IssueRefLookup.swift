@@ -39,6 +39,33 @@ enum IssueRefLookup {
         }) ?? nil
     }
 
+    /// Universal-link resolution (EXP-92): workspace SLUG + identifier → local
+    /// issue id. Unlike the #-ref resolve above: no archived filter (an emailed
+    /// link to an archived issue should still open) and no project-slug
+    /// predicate (identifiers are workspace-unique, and the project slug in an
+    /// old link goes stale when an issue moves — the web route also keys on the
+    /// identifier alone).
+    static func resolve(
+        identifier: String,
+        workspaceSlug: String,
+        db: DatabaseManager,
+        accountId: String
+    ) -> String? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db -> String? in
+            try String.fetchOne(
+                db,
+                sql: """
+                SELECT i.id FROM issues i
+                JOIN projects p ON p.id = i.project_id
+                JOIN workspaces w ON w.id = p.workspace_id
+                WHERE upper(i.identifier) = upper(?) AND w.slug = ?
+                """,
+                arguments: [identifier, workspaceSlug]
+            )
+        }) ?? nil
+    }
+
     /// Issues offered by the #-autocomplete: identifier/title substring match
     /// (case-insensitive), newest first, empty query = most recent (parity
     /// with the web `IssueRefProvider.search`). The issue being edited never

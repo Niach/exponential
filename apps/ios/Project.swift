@@ -176,7 +176,10 @@ let project = Project(
             ]) { _, new in new }),
             sources: sharedSources,
             resources: prodResources,
-            entitlements: "Exponential.entitlements",
+            // App-only entitlements (EXP-92): adds associated-domains for
+            // Universal Links, which the ShareExtension (still on
+            // Exponential.entitlements) must not inherit.
+            entitlements: "ExponentialApp.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
         ),
@@ -191,7 +194,8 @@ let project = Project(
             ]) { _, new in new }),
             sources: sharedSources,
             resources: stagingResources,
-            entitlements: "ExponentialStaging.entitlements",
+            // App-only entitlements (EXP-92) — see the production target.
+            entitlements: "ExponentialAppStaging.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",

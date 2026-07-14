@@ -25,7 +25,9 @@ import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.WorkspaceSelection
+import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.feedback.FeedbackBoardScreen
@@ -64,9 +66,11 @@ fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
     val deepLinkBus = applicationDeepLinkBus()
     val workspaceSelection = applicationWorkspaceSelection()
+    val webLinkResolver = applicationWebLinkResolver()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     val startDestination = when {
         state.instanceUrl == null -> "instance"
@@ -84,6 +88,26 @@ fun AppNavHost() {
                 navController.navigate("issue/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.Invite ->
                 navController.navigate("invite/${target.token}") { launchSingleTop = true }
+            is DeepLinkBus.Target.WebIssueRef ->
+                // Verified App Link (EXP-92): resolve slug+identifier against
+                // the local DB of the account matching the link's host (brief
+                // poll while sync lands fresh rows). Anything unresolvable
+                // opens in a Custom Tab — which never re-triggers App Links,
+                // so it can't loop back here.
+                when (val resolution = webLinkResolver.resolve(target)) {
+                    is WebLinkResolver.Resolution.Found -> {
+                        if (resolution.accountId != state.activeAccountId) {
+                            // The issue lives under another signed-in account:
+                            // switch first; IssueDetail re-scopes reactively.
+                            viewModel.switchAccount(resolution.accountId)
+                        }
+                        navController.navigate("issue/${resolution.issueId}") {
+                            launchSingleTop = true
+                        }
+                    }
+                    WebLinkResolver.Resolution.NotFound ->
+                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
+                }
             is DeepLinkBus.Target.ShareContent -> {
                 // Stash the shared content for the single-screen share composer
                 // to consume (it carries its own inline project selector).
@@ -507,6 +531,14 @@ private fun applicationWorkspaceSelection(): WorkspaceSelection {
         .workspaceSelection()
 }
 
+@Composable
+private fun applicationWebLinkResolver(): WebLinkResolver {
+    val app = LocalContext.current.applicationContext as ExponentialApp
+    return EntryPointAccessors
+        .fromApplication(app, WebLinkResolverEntryPoint::class.java)
+        .webLinkResolver()
+}
+
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 private interface DeepLinkEntryPoint {
@@ -517,4 +549,10 @@ private interface DeepLinkEntryPoint {
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 private interface WorkspaceSelectionEntryPoint {
     fun workspaceSelection(): WorkspaceSelection
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+private interface WebLinkResolverEntryPoint {
+    fun webLinkResolver(): WebLinkResolver
 }

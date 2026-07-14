@@ -289,6 +289,25 @@ impl IssueDetailView {
         // silently dropped with the editor below.
         self.flush_description(cx);
         self.issue_id = Some(issue_id.clone());
+        // Opening an issue clears its inbox notifications (EXP-92) — the
+        // read-on-open safety net for list/search/deep-link navigation that
+        // never passes the sidebar inbox's own per-row markRead.
+        // Fire-and-forget: the Electric echo clears the dot.
+        if let Some(trpc) = queries::trpc_client(cx) {
+            let marked_issue_id = issue_id.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    if let Err(err) = api::notifications::notifications_mark_read_by_issue(
+                        &trpc,
+                        &marked_issue_id,
+                    ) {
+                        log::warn!(
+                            "[ui] notifications.markReadByIssue({marked_issue_id}) failed: {err}"
+                        );
+                    }
+                })
+                .detach();
+        }
         self.editor = None;
         self.editor_issue = None;
         self.synced_title = String::new();

@@ -10,6 +10,7 @@ import com.exponential.app.data.api.PrFilesResult
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.NotificationsApi
 import com.exponential.app.data.api.ReleasesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -79,6 +80,7 @@ class IssueDetailViewModel @Inject constructor(
     private val releasesApi: ReleasesApi,
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val notificationsApi: NotificationsApi,
     private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
@@ -423,6 +425,16 @@ class IssueDetailViewModel @Inject constructor(
     val repoName: StateFlow<String?> = _repoName
 
     init {
+        // Opening an issue clears its inbox notifications (EXP-92) — push taps
+        // and app links never pass through the inbox's own mark-read.
+        // Fire-and-forget; also tolerates older self-hosted servers without
+        // the mutation.
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            if (accountId != null && issueId.isNotEmpty()) {
+                runCatching { notificationsApi.markReadByIssue(accountId, issueId) }
+            }
+        }
         viewModelScope.launch {
             combine(dbFlow, issueFlow) { db, issue -> db to issue }
                 .flatMapLatest { (db, issue) ->

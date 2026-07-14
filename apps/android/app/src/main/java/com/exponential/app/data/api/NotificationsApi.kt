@@ -10,6 +10,9 @@ import kotlinx.serialization.Serializable
 private data class NotificationIdInput(@SerialName("id") val id: String)
 
 @Serializable
+private data class NotificationIssueInput(@SerialName("issueId") val issueId: String)
+
+@Serializable
 private object NotificationsEmptyInput
 
 @Singleton
@@ -21,6 +24,17 @@ class NotificationsApi @Inject constructor(private val trpc: TrpcClient) {
             path = "notifications.markRead",
             input = NotificationIdInput(id),
             inputSerializer = NotificationIdInput.serializer(),
+        )
+    }
+
+    /** Opening an issue clears its inbox entries (EXP-92) — the read-on-open
+     * safety net for push taps and app links that skip the inbox. */
+    suspend fun markReadByIssue(accountId: String, issueId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "notifications.markReadByIssue",
+            input = NotificationIssueInput(issueId),
+            inputSerializer = NotificationIssueInput.serializer(),
         )
     }
 

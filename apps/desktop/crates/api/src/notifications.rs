@@ -4,6 +4,8 @@
 //!
 //! - `notifications.markRead({id})` → `{txId}` (ownership-guarded; the
 //!   `read_at` update re-streams over the per-user notifications shape)
+//! - `notifications.markReadByIssue({issueId})` → `{txId}` (EXP-92
+//!   read-on-open)
 //! - `notifications.markAllRead()` → `{txId}`
 //! - `notifications.emailPrefs()` → prefs (query; `user_notification_prefs`
 //!   is server-only — read via tRPC, never synced)
@@ -25,6 +27,22 @@ pub fn notifications_mark_read(trpc: &TrpcClient, id: &str) -> Result<TxOutput, 
         id: &'a str,
     }
     trpc.mutation("notifications.markRead", &Input { id })
+}
+
+/// `notifications.markReadByIssue` — mutation (EXP-92): opening an issue
+/// clears the viewer's unread notifications for it, covering paths that never
+/// touch the inbox row click (deep links, list navigation). Callers
+/// fire-and-forget; older self-hosted servers without the route just error.
+pub fn notifications_mark_read_by_issue(
+    trpc: &TrpcClient,
+    issue_id: &str,
+) -> Result<TxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    trpc.mutation("notifications.markReadByIssue", &Input { issue_id })
 }
 
 /// `notifications.markAllRead` — input-less mutation (inbox header action).
@@ -97,6 +115,16 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/notifications.markRead HTTP/1.1"));
         assert!(request.ends_with(r#"{"id":"n-1"}"#));
+    }
+
+    #[test]
+    fn mark_read_by_issue_posts_camel_case_issue_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":33}}}"#);
+        let out = notifications_mark_read_by_issue(&client(&base), "i-1").unwrap();
+        assert_eq!(out.tx_id, Some(33));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/notifications.markReadByIssue HTTP/1.1"));
+        assert!(request.ends_with(r#"{"issueId":"i-1"}"#));
     }
 
     #[test]

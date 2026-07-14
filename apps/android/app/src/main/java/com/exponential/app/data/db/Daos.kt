@@ -69,6 +69,18 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
+    // App-link resolution (EXP-92): workspace SLUG + identifier → issue id.
+    // Deliberately no archived filter (an emailed link to an archived issue
+    // should still open) and no project-slug predicate (identifiers are
+    // workspace-unique; the project slug in an old link goes stale when an
+    // issue moves — the web route also keys on the identifier alone).
+    @Query(
+        "SELECT i.id FROM issues i JOIN projects p ON p.id = i.project_id " +
+            "JOIN workspaces w ON w.id = p.workspace_id " +
+            "WHERE upper(i.identifier) = upper(:identifier) AND w.slug = :workspaceSlug LIMIT 1"
+    )
+    suspend fun findIdByWorkspaceRef(workspaceSlug: String, identifier: String): String?
+
     // The issues bundled into one release (EXP-56) — drives the release
     // detail's status-grouped list.
     @Query("SELECT * FROM issues WHERE release_id = :releaseId AND archived_at IS NULL ORDER BY sort_order, created_at")

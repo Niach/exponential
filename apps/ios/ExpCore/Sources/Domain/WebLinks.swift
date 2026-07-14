@@ -32,4 +32,28 @@ public enum WebLinks {
     private static func encode(_ segment: String) -> String {
         segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
     }
+
+    /// A web-app URL the native app can render (EXP-92 Universal Links) — the
+    /// inverse of `issue(...)` plus the invite route. Only these two shapes are
+    /// claimed in the associated-domains AASA; anything else returns nil.
+    public enum Parsed: Equatable, Sendable {
+        case issue(workspaceSlug: String, projectSlug: String, identifier: String)
+        case invite(token: String)
+    }
+
+    /// Parse `{base}/w/{ws}/projects/{proj}/issues/{identifier}` and
+    /// `{base}/invite/{token}`. Splitting `url.path` (already percent-decoded)
+    /// on "/" drops empty segments, so a trailing slash is tolerated while
+    /// deeper paths (e.g. an issue's sub-tab) fail the exact-length match —
+    /// deliberate: the app should only claim what it can render.
+    public static func parse(_ url: URL) -> Parsed? {
+        let parts = url.path.split(separator: "/").map(String.init)
+        if parts.count == 6, parts[0] == "w", parts[2] == "projects", parts[4] == "issues" {
+            return .issue(workspaceSlug: parts[1], projectSlug: parts[3], identifier: parts[5])
+        }
+        if parts.count == 2, parts[0] == "invite" {
+            return .invite(token: parts[1])
+        }
+        return nil
+    }
 }

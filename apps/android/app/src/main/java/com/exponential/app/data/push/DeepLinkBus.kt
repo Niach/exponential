@@ -17,6 +17,17 @@ class DeepLinkBus @Inject constructor() {
         data class Issue(val id: String) : Target
         data class Invite(val token: String) : Target
 
+        // A verified https App Link (EXP-92): carries the web URL's slugs +
+        // identifier; AppNavHost resolves them against the local DB of the
+        // account matching `host` (falling back to a Custom Tab). `uri` is
+        // kept for that fallback.
+        data class WebIssueRef(
+            val uri: android.net.Uri,
+            val host: String,
+            val workspaceSlug: String,
+            val identifier: String,
+        ) : Target
+
         // exponential://github-connected — the GitHub App install finished in the Custom
         // Tab and the server's post-install page deep-linked back into the app.
         // Not a navigation target: the open repo-picker sheet consumes it and
@@ -42,6 +53,15 @@ class DeepLinkBus @Inject constructor() {
 
     fun openInvite(token: String) {
         _target.value = Target.Invite(token)
+    }
+
+    fun openWebIssueRef(
+        uri: android.net.Uri,
+        host: String,
+        workspaceSlug: String,
+        identifier: String,
+    ) {
+        _target.value = Target.WebIssueRef(uri, host, workspaceSlug, identifier)
     }
 
     fun openGithubConnected() {

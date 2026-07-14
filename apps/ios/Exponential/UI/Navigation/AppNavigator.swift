@@ -36,6 +36,15 @@ struct CurrentProjectRef: Hashable {
 
 struct AppNavigator: View {
     @Environment(AppDependencies.self) private var deps
+    // Web URL the app can't render (EXP-92) — presented in an in-app Safari
+    // sheet. Lives at the root (not MainNavigator) so the fallback also works
+    // while signed out / mid-onboarding.
+    @State private var externalUrl: ExternalUrl?
+
+    private struct ExternalUrl: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
 
     var body: some View {
         Group {
@@ -66,10 +75,26 @@ struct AppNavigator: View {
         .onOpenURL { url in
             handleDeepLink(url)
         }
+        .onChange(of: deps.deepLinkBus.pendingExternalUrl) { _, url in
+            if let url {
+                externalUrl = ExternalUrl(url: url)
+                _ = deps.deepLinkBus.consumeExternalUrl()
+            }
+        }
+        .sheet(item: $externalUrl) { external in
+            SafariView(url: external.url)
+                .ignoresSafeArea()
+        }
         .transaction { $0.animation = nil }
     }
 
     private func handleDeepLink(_ url: URL) {
+        // Universal links (EXP-92): https app.exponential.at issue/invite URLs
+        // land here too (SwiftUI lifecycle delivers them to onOpenURL).
+        if url.scheme == "https" || url.scheme == "http" {
+            handleWebLink(url)
+            return
+        }
         // exponential://oauth-return#token=...
         if url.host == "oauth-return", let fragment = url.fragment {
             let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
@@ -97,6 +122,67 @@ struct AppNavigator: View {
         // exponential://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToInvite(String(token))
+        }
+    }
+
+    /// A universal link (EXP-92). Issue links resolve locally (identifier →
+    /// synced issue id) under a signed-in account matching the URL's host;
+    /// anything unresolvable falls back to the in-app Safari sheet.
+    private func handleWebLink(_ url: URL) {
+        switch WebLinks.parse(url) {
+        case .invite(let token):
+            deps.deepLinkBus.navigateToInvite(token)
+        case .issue(let workspaceSlug, _, let identifier):
+            resolveWebIssueLink(url: url, workspaceSlug: workspaceSlug, identifier: identifier)
+        case nil:
+            // Shouldn't happen (the AASA claims only the two parsed shapes),
+            // but never swallow a link the user tapped.
+            deps.deepLinkBus.openExternal(url)
+        }
+    }
+
+    private func resolveWebIssueLink(url: URL, workspaceSlug: String, identifier: String) {
+        // Signed-in accounts on the link's instance — active account first,
+        // then most recently used (multi-account devices can hold several
+        // accounts on the same host).
+        let host = url.host
+        let candidates = deps.auth.accounts
+            .filter { $0.token != nil && URL(string: $0.instanceUrl)?.host == host }
+            .sorted { a, b in
+                if a.id == deps.auth.activeAccountId { return true }
+                if b.id == deps.auth.activeAccountId { return false }
+                return a.lastUsedAt > b.lastUsedAt
+            }
+        guard !candidates.isEmpty else {
+            deps.deepLinkBus.openExternal(url)
+            return
+        }
+        Task { @MainActor in
+            func resolve() -> (issueId: String, accountId: String)? {
+                for account in candidates {
+                    if let issueId = IssueRefLookup.resolve(
+                        identifier: identifier,
+                        workspaceSlug: workspaceSlug,
+                        db: deps.db,
+                        accountId: account.id
+                    ) {
+                        return (issueId, account.id)
+                    }
+                }
+                return nil
+            }
+            if let hit = resolve() {
+                deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
+                return
+            }
+            // Cold launch / brand-new issue: the row may simply not have
+            // synced yet — one sync pass, then retry before giving up.
+            await deps.syncManager.initialSync()
+            if let hit = resolve() {
+                deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
+            } else {
+                deps.deepLinkBus.openExternal(url)
+            }
         }
     }
 }
@@ -180,8 +266,11 @@ struct MainNavigator: View {
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
-                let userId = deps.deepLinkBus.pendingIssueUserId
-                path.append(AppRoute.issue(accountId: issueAccountId(forUserId: userId), id: issueId))
+                // Universal links (EXP-92) resolve the account directly (URL
+                // host match); push taps only know the recipient's userId.
+                let accountId = deps.deepLinkBus.pendingIssueAccountId
+                    ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
+                path.append(AppRoute.issue(accountId: accountId, id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -200,9 +289,11 @@ struct MainNavigator: View {
         // The Issues tab already lands in the last-used project, so there is no
         // auto-push anymore — deep links are the only cold-launch navigation.
         .task {
+            let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
             let userId = deps.deepLinkBus.pendingIssueUserId
             if let issueId = deps.deepLinkBus.consume() {
-                path.append(AppRoute.issue(accountId: issueAccountId(forUserId: userId), id: issueId))
+                let accountId = pendingAccountId ?? issueAccountId(forUserId: userId)
+                path.append(AppRoute.issue(accountId: accountId, id: issueId))
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
