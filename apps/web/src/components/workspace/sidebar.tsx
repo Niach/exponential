@@ -38,7 +38,7 @@ import {
 } from "@/hooks/use-workspace-data"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
-import { DesktopDownloadButton } from "@/components/workspace/desktop-download-button"
+import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -437,9 +437,14 @@ export function WorkspaceSidebar({
 
         <SidebarFooter>
           <SidebarMenu>
-            {/* EXP-68: modest desktop-app download entry (Claude web UI
-                style) — members only; the public board stays clean. */}
-            {isAuthed && <DesktopDownloadButton />}
+            {/* EXP-88: re-entry point for the Getting started cards once the
+                board's inline block is gone (issues exist / dismissed). */}
+            {isAuthed && (
+              <GettingStartedButton
+                workspaceSlug={workspaceSlug}
+                workspace={workspace}
+              />
+            )}
             <FeedbackButton />
           </SidebarMenu>
           {isAuthed ? (

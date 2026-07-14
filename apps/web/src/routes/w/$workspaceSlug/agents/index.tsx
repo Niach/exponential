@@ -181,7 +181,8 @@ function AgentsPage() {
       </div>
 
       {/* The old "Get the desktop app" card lived here — replaced by the
-          sidebar's DesktopDownloadButton (EXP-68). */}
+          sidebar's Getting started entry (EXP-88), whose coding card
+          carries the download link. */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>

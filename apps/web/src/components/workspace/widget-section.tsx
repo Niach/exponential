@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -42,24 +43,7 @@ import { Textarea } from "@/components/ui/textarea"
 type WidgetList = Awaited<ReturnType<typeof trpc.widgets.list.query>>
 
 function buildSnippet(publicKey: string): string {
-  const scriptUrl = `${window.location.origin}/widget/v1/loader.js`
-  return `<script>
-  (function (w, d, u) {
-    if (w.ExponentialWidget) return;
-    var q = [], api = { q: q };
-    ["init","identify","setCustomData","open","close"].forEach(function (m) {
-      api[m] = function () { q.push([m, [].slice.call(arguments)]); };
-    });
-    w.ExponentialWidget = api;
-    var s = d.createElement("script");
-    s.async = true; s.src = u;
-    d.head.appendChild(s);
-  })(window, document, "${scriptUrl}");
-  ExponentialWidget.init({ key: "${publicKey}" });
-  // Optional: attach your signed-in user for the helpdesk flow.
-  // ExponentialWidget.identify({ email: "user@example.com", name: "Jane" });
-  // ExponentialWidget.setCustomData({ plan: "pro" });
-</script>`
+  return buildWidgetSnippet(publicKey, window.location.origin)
 }
 
 function parseDomains(value: string): string[] {
@@ -207,7 +191,8 @@ export function WorkspaceWidgetSection({
   }
 
   return (
-    <Card>
+    // Anchor target for the "Getting started" widget card's settings link.
+    <Card id="feedback-widget" className="scroll-mt-6">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquarePlus className="h-4 w-4" />

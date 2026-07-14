@@ -155,6 +155,13 @@
       "when": 1784041597351,
       "tag": "0021_odd_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784068984565,
+      "tag": "0022_cheerful_scorpion",
+      "breakpoints": true
     }
   ]
 }

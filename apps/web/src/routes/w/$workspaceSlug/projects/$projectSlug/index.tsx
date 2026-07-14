@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
+import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
@@ -161,6 +162,17 @@ function ProjectPage() {
           hasActiveFilters={filtersActive(filters)}
           onClearFilters={() =>
             setFilters({ statuses: [], priorities: [], labelIds: [] })
+          }
+          // Members only — visitors on a public feedback board (or authed
+          // non-members) get the plain empty state.
+          emptyStateExtra={
+            permissions.isMember ? (
+              <GettingStartedSection
+                workspaceSlug={workspaceSlug}
+                projectType={project.type}
+                canManageWidgets={permissions.canManageWidgets}
+              />
+            ) : undefined
           }
         />
       </div>
