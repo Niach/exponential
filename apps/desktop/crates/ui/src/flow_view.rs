@@ -57,9 +57,11 @@ pub struct FlowView {
     /// or a worktree add/remove moves the dirty-probe target even when the
     /// branch names are unchanged.
     counts_for: Vec<(String, bool, bool)>,
-    /// A delete op is in flight (the lane buttons disable).
+    /// A delete/sweep op is in flight (the lane + sweep buttons disable).
     busy: bool,
     error: Option<SharedString>,
+    /// The last sweep's summary line (EXP-93) — informational, muted.
+    notice: Option<SharedString>,
     /// Stale-pass guard for counts + delete completions.
     generation: u64,
     _subscriptions: Vec<Subscription>,
@@ -98,6 +100,7 @@ impl FlowView {
             counts_for: Vec::new(),
             busy: false,
             error: None,
+            notice: None,
             generation: 0,
             _subscriptions: subscriptions,
         }
@@ -281,6 +284,102 @@ impl FlowView {
                 if let Err(err) = result {
                     this.error = Some(format!("{err}").into());
                 }
+                this.git_bar.update(cx, |bar, cx| bar.refresh(cx));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The sweep's targets (EXP-93): every merged lane that isn't checked out
+    /// — the default lane never carries a merged PR tone, and the current
+    /// branch can't lose its working tree.
+    pub fn sweep_candidates(&self, cx: &mut gpui::Context<Self>) -> Vec<String> {
+        self.build_flow(cx)
+            .lanes
+            .iter()
+            .filter(|lane| {
+                matches!(lane.pr, crate::flow_lanes::PrTone::Merged)
+                    && !lane.current
+                    && !matches!(lane.kind, LaneKind::Default)
+            })
+            .map(|lane| lane.branch.clone())
+            .collect()
+    }
+
+    /// A delete/sweep op is in flight (the header sweep button disables).
+    pub fn is_busy(&self) -> bool {
+        self.busy
+    }
+
+    /// Confirm-then-sweep for ALL merged lanes (EXP-93, the header broom):
+    /// each merged branch loses its worktree and local branch, but — unlike
+    /// the per-lane delete — a worktree with uncommitted changes is skipped
+    /// and reported, never force-removed (a bulk action mustn't eat work).
+    pub fn prompt_sweep_merged(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let branches = self.sweep_candidates(cx);
+        if branches.is_empty() {
+            return;
+        }
+        let view = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let view = view.clone();
+            let branches_for_ok = branches.clone();
+            let noun = if branches.len() == 1 { "branch" } else { "branches" };
+            alert
+                .confirm()
+                .overlay_closable(true)
+                .close_button(true)
+                .width(px(440.))
+                .title(SharedString::from(format!(
+                    "Sweep {} merged {noun}?",
+                    branches.len()
+                )))
+                .description(
+                    "Deletes the local branch and worktree of every merged lane. \
+                     A worktree with uncommitted changes is skipped — nothing is \
+                     force-removed. Branches on origin are untouched.",
+                )
+                .button_props(DialogButtonProps::default().ok_text("Sweep"))
+                .on_ok(move |_, _, cx| {
+                    if let Some(view) = view.upgrade() {
+                        let branches = branches_for_ok.clone();
+                        view.update(cx, |view, cx| view.sweep_merged(branches, cx));
+                    }
+                    true
+                })
+        });
+    }
+
+    /// The confirm path: [`scm::sweep_branches`] off the foreground, then a
+    /// git-bar refresh; the removed/skipped summary lands in `notice`.
+    fn sweep_merged(&mut self, branches: Vec<String>, cx: &mut gpui::Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let Some(clone) = self.git_bar.read(cx).clone_dir() else {
+            return;
+        };
+        self.busy = true;
+        self.error = None;
+        self.notice = None;
+        cx.notify();
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { scm::sweep_branches(&clone, &branches) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                if this.generation == generation {
+                    // Invalidate the counts cache — the lane set changed.
+                    this.counts_for.clear();
+                }
+                this.notice = Some(format_sweep_result(&result));
                 this.git_bar.update(cx, |bar, cx| bar.refresh(cx));
                 cx.notify();
             });
@@ -565,6 +664,39 @@ impl Render for FlowView {
                     .child(error.clone()),
             );
         }
+        if let Some(notice) = &self.notice {
+            section = section.child(
+                div()
+                    .px_1()
+                    .py_0p5()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(notice.clone()),
+            );
+        }
         section.into_any_element()
     }
+}
+
+/// The sweep's summary line (`Swept 3 branches. Skipped exp/EXP-2
+/// (uncommitted changes).`).
+fn format_sweep_result(result: &scm::SweepResult) -> SharedString {
+    let mut parts = Vec::new();
+    if result.removed > 0 {
+        let noun = if result.removed == 1 { "branch" } else { "branches" };
+        parts.push(format!("Swept {} {noun}.", result.removed));
+    }
+    if !result.skipped.is_empty() {
+        let detail = result
+            .skipped
+            .iter()
+            .map(|(branch, reason)| format!("{branch} ({reason})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("Skipped {detail}."));
+    }
+    if parts.is_empty() {
+        return "Nothing to sweep.".into();
+    }
+    parts.join(" ").into()
 }

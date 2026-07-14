@@ -2236,8 +2236,30 @@ impl SidebarPanel {
     /// the one dirty-switch dialog surface).
     fn render_source_control_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let git_bar = self.shared.read(cx).git_bar.clone();
+        // The sweep button (EXP-93) only lights up when merged lanes exist —
+        // the candidate probe is the same cheap pure join the flow renders
+        // from (no git cost).
+        let sweepable = self
+            .flow
+            .update(cx, |flow, cx| !flow.sweep_candidates(cx).is_empty());
+        let sweep_busy = self.flow.read(cx).is_busy();
+        let flow = self.flow.clone();
         let header = self
             .tool_header(Icon::from(ExpIcon::GitMerge), "Source Control", cx)
+            .child(
+                Button::new("branches-sweep")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::from(ExpIcon::BrushCleaning))
+                    .tooltip(
+                        "Sweep merged branches — delete their worktrees and local \
+                         branches (worktrees with uncommitted changes are skipped)…",
+                    )
+                    .disabled(!sweepable || sweep_busy)
+                    .on_click(move |_, window, cx| {
+                        flow.update(cx, |flow, cx| flow.prompt_sweep_merged(window, cx));
+                    }),
+            )
             .child(
                 Button::new("branches-refresh")
                     .ghost()

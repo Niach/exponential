@@ -513,6 +513,43 @@ pub fn delete_branch_and_worktree(clone: &Path, branch: &str) -> Result<(), GitE
     delete_branch(clone, branch)
 }
 
+/// Outcome of a bulk sweep (EXP-93): lanes removed + skipped
+/// `(branch, reason)` pairs.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SweepResult {
+    pub removed: usize,
+    pub skipped: Vec<(String, String)>,
+}
+
+/// Bulk cleanup for merged lanes (EXP-93 sweep button): for each branch,
+/// remove its session worktree and delete the local branch. Unlike the
+/// per-lane delete, a worktree with uncommitted changes is **skipped and
+/// reported** — a bulk action never force-removes work (the settings-pane
+/// prune rule). A branch without a worktree just loses the local branch.
+/// Origin is never touched. Blocking; callers run it off the foreground.
+pub fn sweep_branches(clone: &Path, branches: &[String]) -> SweepResult {
+    let mut result = SweepResult::default();
+    for branch in branches {
+        let outcome = match worktree_for_branch(clone, branch) {
+            Some(worktree) if is_dirty(&worktree).unwrap_or(true) => {
+                result
+                    .skipped
+                    .push((branch.clone(), "uncommitted changes".to_string()));
+                continue;
+            }
+            // `remove_worktree` re-checks dirtiness and deletes the branch
+            // best-effort once the worktree is gone.
+            Some(worktree) => remove_worktree(clone, &worktree, branch),
+            None => delete_branch(clone, branch),
+        };
+        match outcome {
+            Ok(()) => result.removed += 1,
+            Err(err) => result.skipped.push((branch.clone(), err.detail)),
+        }
+    }
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Config (the one-time identity prompt + any future key)
 // ---------------------------------------------------------------------------
@@ -1097,6 +1134,52 @@ detached
         run_git(Some(r), &["branch", "spare"], None, "git branch").unwrap();
         delete_branch_and_worktree(r, "spare").unwrap();
         assert!(delete_branch_and_worktree(r, "main").is_err());
+        std::fs::remove_dir_all(wt_root).ok();
+    }
+
+    #[test]
+    fn sweep_branches_removes_clean_lanes_and_skips_dirty_worktrees() {
+        let d = temp_dir("sweep");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "x");
+        commit_all(r, "init");
+        let wt_root = crate::git_worktree::worktrees_dir(r);
+        for branch in ["exp/EXP-1", "exp/EXP-2"] {
+            let wt = wt_root.join(branch.replace('/', "-"));
+            run_git(
+                Some(r),
+                &["worktree", "add", "-b", branch, wt.to_str().unwrap()],
+                None,
+                "git worktree add",
+            )
+            .unwrap();
+        }
+        // EXP-2 is dirty — the sweep must skip it, never force-remove.
+        std::fs::write(wt_root.join("exp-EXP-2").join("f.txt"), "dirty").unwrap();
+        // EXP-3 is a branch-only lane (no worktree).
+        run_git(Some(r), &["branch", "exp/EXP-3"], None, "git branch").unwrap();
+
+        let result = sweep_branches(
+            r,
+            &[
+                "exp/EXP-1".to_string(),
+                "exp/EXP-2".to_string(),
+                "exp/EXP-3".to_string(),
+            ],
+        );
+        assert_eq!(result.removed, 2);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].0, "exp/EXP-2");
+        assert_eq!(result.skipped[0].1, "uncommitted changes");
+
+        assert!(!wt_root.join("exp-EXP-1").exists());
+        assert!(wt_root.join("exp-EXP-2").exists());
+        let names: Vec<String> =
+            branches(r).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(!names.contains(&"exp/EXP-1".to_string()));
+        assert!(names.contains(&"exp/EXP-2".to_string()));
+        assert!(!names.contains(&"exp/EXP-3".to_string()));
         std::fs::remove_dir_all(wt_root).ok();
     }
 
