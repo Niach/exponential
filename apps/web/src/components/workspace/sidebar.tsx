@@ -38,7 +38,6 @@ import {
 } from "@/hooks/use-workspace-data"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
-import { DesktopDownloadButton } from "@/components/workspace/desktop-download-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -446,9 +445,6 @@ export function WorkspaceSidebar({
                 workspace={workspace}
               />
             )}
-            {/* EXP-68: modest desktop-app download entry (Claude web UI
-                style) — members only; the public board stays clean. */}
-            {isAuthed && <DesktopDownloadButton />}
             <FeedbackButton />
           </SidebarMenu>
           {isAuthed ? (
