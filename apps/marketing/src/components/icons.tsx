@@ -74,7 +74,12 @@ export type IconProps = {
 }
 
 const wrap = (Cmp: React.ComponentType<LucideProps>) =>
-  function WrappedIcon({ size = 16, stroke = 1.6, className, style }: IconProps) {
+  function WrappedIcon({
+    size = 16,
+    stroke = 1.6,
+    className,
+    style,
+  }: IconProps) {
     return (
       <Cmp
         size={size}
@@ -170,6 +175,7 @@ const Custom = ({
     strokeLinejoin="round"
     className={className}
     style={style}
+    aria-hidden
   >
     {children}
   </svg>
@@ -224,6 +230,7 @@ export const ExpLogo = ({
       width={size}
       height={size}
       style={{ display: `block`, ...style }}
+      aria-hidden
     >
       <defs>
         <clipPath id={`${id}-c`}>

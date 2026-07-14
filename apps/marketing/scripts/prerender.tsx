@@ -7,7 +7,8 @@
    first paint get real markup, then the client hydrates), (2) strips any
    stray SEO tags from the head and injects the canonical/OG/Twitter/JSON-LD
    block from src/lib/seo.ts, and (3) emits dist/sitemap.xml with per-page
-   lastmod from git. This is the single owner of SEO <head> markup — the source
+   lastmod from git plus dist/llms.txt (llmstxt.org) from the same page
+   manifest. This is the single owner of SEO <head> markup — the source
    HTML heads carry only charset/viewport/title/fonts/icons. */
 
 import { renderToString } from "react-dom/server"
@@ -17,7 +18,13 @@ import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ComponentType } from "react"
 
-import { PAGES, SITE_ORIGIN, SITE_NAME, type PageSeo, type JsonLd } from "../src/lib/seo"
+import {
+  PAGES,
+  SITE_ORIGIN,
+  SITE_NAME,
+  type PageSeo,
+  type JsonLd,
+} from "../src/lib/seo"
 import { HomePage } from "../src/HomePage"
 import { PricingPage } from "../src/PricingPage"
 import { DownloadPage } from "../src/DownloadPage"
@@ -63,7 +70,7 @@ function stripExistingSeo(head: string): string {
     .replace(/[ \t]*<meta\s+name=["']twitter:[^"']*["'][^>]*>\s*/gi, ``)
     .replace(
       /[ \t]*<script\s+type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>\s*/gi,
-      ``,
+      ``
     )
 }
 
@@ -91,7 +98,9 @@ function metaBlock(page: PageSeo): string {
     `<meta name="twitter:image" content="${escapeAttr(image)}" />`,
   ]
   if (page.jsonLd) {
-    const blocks: JsonLd[] = Array.isArray(page.jsonLd) ? page.jsonLd : [page.jsonLd]
+    const blocks: JsonLd[] = Array.isArray(page.jsonLd)
+      ? page.jsonLd
+      : [page.jsonLd]
     for (const block of blocks) {
       /* Escape </script> so JSON-LD can never break out of the tag. */
       const json = JSON.stringify(block).replace(/<\//g, `<\\/`)
@@ -107,7 +116,7 @@ function gitLastmod(sources: string[]): string {
       const iso = execFileSync(
         `git`,
         [`log`, `-1`, `--format=%cI`, `--`, src],
-        { cwd: ROOT, encoding: `utf8` },
+        { cwd: ROOT, encoding: `utf8` }
       ).trim()
       if (iso) return iso
     } catch {
@@ -120,7 +129,9 @@ function gitLastmod(sources: string[]): string {
 function prerenderPage(page: PageSeo): void {
   const htmlPath = resolve(DIST, page.htmlFile)
   if (!existsSync(htmlPath)) {
-    throw new Error(`prerender: dist file missing for ${page.path}: ${htmlPath}`)
+    throw new Error(
+      `prerender: dist file missing for ${page.path}: ${htmlPath}`
+    )
   }
   const Component = COMPONENTS[page.path]
   if (!Component) throw new Error(`prerender: no component for ${page.path}`)
@@ -128,7 +139,7 @@ function prerenderPage(page: PageSeo): void {
   let html = readFileSync(htmlPath, `utf8`)
   if (!html.includes(MARKER)) {
     throw new Error(
-      `prerender: marker ${MARKER} not found in ${page.htmlFile} — cannot inject SSR markup`,
+      `prerender: marker ${MARKER} not found in ${page.htmlFile} — cannot inject SSR markup`
     )
   }
 
@@ -139,16 +150,21 @@ function prerenderPage(page: PageSeo): void {
   if (!html.includes(headClose)) {
     throw new Error(`prerender: </head> not found in ${page.htmlFile}`)
   }
-  const withStrippedHead = html.replace(/<head>([\s\S]*?)<\/head>/i, (_m, head) => {
-    return `<head>${stripExistingSeo(head)}</head>`
-  })
+  const withStrippedHead = html.replace(
+    /<head>([\s\S]*?)<\/head>/i,
+    (_m, head) => {
+      return `<head>${stripExistingSeo(head)}</head>`
+    }
+  )
   html = withStrippedHead.replace(
     headClose,
-    () => `${metaBlock(page)}\n  ${headClose}`,
+    () => `${metaBlock(page)}\n  ${headClose}`
   )
 
   writeFileSync(htmlPath, html)
-  console.log(`prerendered ${page.path} → ${page.htmlFile} (${body.length} bytes body)`)
+  console.log(
+    `prerendered ${page.path} → ${page.htmlFile} (${body.length} bytes body)`
+  )
 }
 
 function writeSitemap(): void {
@@ -166,6 +182,47 @@ ${urls.join(`\n`)}
   console.log(`wrote dist/sitemap.xml (${PAGES.length} urls)`)
 }
 
+/* llms.txt (https://llmstxt.org) — a markdown site map for LLM crawlers,
+   generated from the same PAGES manifest as the sitemap so it can't drift. */
+function writeLlmsTxt(): void {
+  const SECTIONS: { heading: string; paths: string[] }[] = [
+    { heading: `Product`, paths: [`/`, `/pricing/`, `/download/`] },
+    { heading: `Docs`, paths: [`/docs/`, `/docs/self-host/`] },
+    {
+      heading: `Company & legal`,
+      paths: [`/contact/`, `/privacy/`, `/terms/`, `/imprint/`],
+    },
+  ]
+  const byPath = new Map(PAGES.map((p) => [p.path, p]))
+  const lines: string[] = [
+    `# ${SITE_NAME}`,
+    ``,
+    `> An open-source issue tracker with a built-in coding IDE. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests. Native apps for web, iOS, Android, macOS and Linux — free cloud tier or self-hosted.`,
+    ``,
+    `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential.`,
+  ]
+  for (const section of SECTIONS) {
+    lines.push(``, `## ${section.heading}`, ``)
+    for (const path of section.paths) {
+      const page = byPath.get(path)
+      if (!page) throw new Error(`llms.txt: unknown page path ${path}`)
+      lines.push(
+        `- [${page.title}](${SITE_ORIGIN}${page.path}): ${page.description}`
+      )
+    }
+  }
+  const covered = new Set(SECTIONS.flatMap((s) => s.paths))
+  const missing = PAGES.filter((p) => !covered.has(p.path))
+  if (missing.length) {
+    throw new Error(
+      `llms.txt: pages missing from a section: ${missing.map((p) => p.path).join(`, `)}`
+    )
+  }
+  writeFileSync(resolve(DIST, `llms.txt`), `${lines.join(`\n`)}\n`)
+  console.log(`wrote dist/llms.txt (${PAGES.length} pages)`)
+}
+
 for (const page of PAGES) prerenderPage(page)
 writeSitemap()
+writeLlmsTxt()
 console.log(`prerender complete`)

@@ -55,17 +55,26 @@ const statusColor: Record<MobStatus, string> = {
   done: `#22c55e`,
 }
 
-const StatusIcon = ({ status, size = 15 }: { status: MobStatus; size?: number }) => {
+const StatusIcon = ({
+  status,
+  size = 15,
+}: {
+  status: MobStatus
+  size?: number
+}) => {
   const style = { color: statusColor[status] }
   if (status === `in_progress`) return <IcTimer size={size} style={style} />
   if (status === `done`) return <IcCircleCheck size={size} style={style} />
-  if (status === `backlog`) return <IcLucideCircleDashed size={size} style={style} />
+  if (status === `backlog`)
+    return <IcLucideCircleDashed size={size} style={style} />
   return <IcCircle size={size} style={style} />
 }
 
 const PriorityIcon = ({ priority }: { priority: MobPriority }) => {
-  if (priority === `high`) return <IcSignalHigh size={15} style={{ color: `#f97316` }} />
-  if (priority === `medium`) return <IcSignalMedium size={15} style={{ color: `#facc15` }} />
+  if (priority === `high`)
+    return <IcSignalHigh size={15} style={{ color: `#f97316` }} />
+  if (priority === `medium`)
+    return <IcSignalMedium size={15} style={{ color: `#facc15` }} />
   return <IcMinus size={15} style={{ color: `#5b5b60` }} />
 }
 
@@ -92,7 +101,10 @@ const BatteryGlyph = () => (
     >
       96
     </text>
-    <path d={`M27.2 4.4 v4.2 a2.1 2.1 0 0 0 0 -4.2 z`} fill={`rgba(255,255,255,0.35)`} />
+    <path
+      d={`M27.2 4.4 v4.2 a2.1 2.1 0 0 0 0 -4.2 z`}
+      fill={`rgba(255,255,255,0.35)`}
+    />
   </svg>
 )
 
@@ -107,7 +119,13 @@ const StatusBar = () => (
   </div>
 )
 
-const Avatar = ({ initials, size = 22 }: { initials: string; size?: number }) => (
+const Avatar = ({
+  initials,
+  size = 22,
+}: {
+  initials: string
+  size?: number
+}) => (
   <span
     className={`mob-avatar`}
     style={{ width: size, height: size, fontSize: size * 0.42 }}
@@ -140,7 +158,10 @@ const IssueRow = ({ issue }: { issue: MobIssue }) => (
     <span className={`mob-row-title`}>{issue.title}</span>
     {issue.label ? (
       <span className={`mob-row-label`}>
-        <span className={`mob-row-label-dot`} style={{ background: issue.label.color }} />
+        <span
+          className={`mob-row-label-dot`}
+          style={{ background: issue.label.color }}
+        />
         {issue.label.name}
       </span>
     ) : null}
@@ -155,11 +176,13 @@ const DockBtn = ({
   active,
   onClick,
   dot,
+  label,
   children,
 }: {
   active: boolean
   onClick: () => void
   dot?: `green` | `unread`
+  label: string
   children: React.ReactNode
 }) => (
   <button
@@ -167,10 +190,15 @@ const DockBtn = ({
     className={active ? `mob-dock-btn mob-dock-btn-active` : `mob-dock-btn`}
     onClick={onClick}
     tabIndex={-1}
+    aria-label={label}
   >
     {children}
     {dot ? (
-      <span className={dot === `green` ? `mob-dock-dot mob-dock-dot-green` : `mob-dock-dot`} />
+      <span
+        className={
+          dot === `green` ? `mob-dock-dot mob-dock-dot-green` : `mob-dock-dot`
+        }
+      />
     ) : null}
   </button>
 )
@@ -186,27 +214,41 @@ const BottomBar = ({
 }) => (
   <div className={`mob-bottombar`}>
     <div className={`mob-dock`}>
-      <DockBtn active={tab === `issues`} onClick={() => onTab(`issues`)}>
+      <DockBtn
+        active={tab === `issues`}
+        onClick={() => onTab(`issues`)}
+        label={`Issues`}
+      >
         <IcListTodo size={19} />
       </DockBtn>
       <DockBtn
         active={tab === `inbox`}
         onClick={() => onTab(`inbox`)}
         dot={inboxUnread ? `unread` : undefined}
+        label={`Inbox`}
       >
         <IcInbox size={19} />
       </DockBtn>
-      <DockBtn active={tab === `releases`} onClick={() => onTab(`releases`)}>
+      <DockBtn
+        active={tab === `releases`}
+        onClick={() => onTab(`releases`)}
+        label={`Releases`}
+      >
         <IcRocket size={19} />
       </DockBtn>
       <DockBtn
         active={tab === `agents` || tab === `steer`}
         onClick={() => onTab(`agents`)}
         dot={`green`}
+        label={`Agents`}
       >
         <IcBot size={19} />
       </DockBtn>
-      <DockBtn active={tab === `search`} onClick={() => onTab(`search`)}>
+      <DockBtn
+        active={tab === `search`}
+        onClick={() => onTab(`search`)}
+        label={`Search`}
+      >
         <IcSearch size={19} />
       </DockBtn>
     </div>
@@ -240,11 +282,18 @@ const IssuesScreen = ({
   cycleProject: () => void
 }) => {
   const project = mobProjects[projIdx]
-  const visible = project.groups.filter((g) => chipStatuses[chip].includes(g.status))
+  const visible = project.groups.filter((g) =>
+    chipStatuses[chip].includes(g.status)
+  )
 
   return (
     <>
-      <button type={`button`} className={`mob-titlerow`} onClick={cycleProject} tabIndex={-1}>
+      <button
+        type={`button`}
+        className={`mob-titlerow`}
+        onClick={cycleProject}
+        tabIndex={-1}
+      >
         <h2 className={`mob-title`}>{project.name}</h2>
         <span className={`mob-title-switch`}>
           <IcChevSwap size={15} />
@@ -355,7 +404,13 @@ const toolIcon = (name: string) => {
 const SteerScreen = ({ onBack }: { onBack: () => void }) => (
   <>
     <div className={`mob-header`}>
-      <button type={`button`} className={`mob-backbtn`} onClick={onBack} tabIndex={-1}>
+      <button
+        type={`button`}
+        className={`mob-backbtn`}
+        onClick={onBack}
+        tabIndex={-1}
+        aria-label={`Back`}
+      >
         <IcChevLeft size={19} stroke={2.2} />
       </button>
       <span className={`mob-steer-title`}>
@@ -383,7 +438,7 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
             <span className={`mob-feed-tool-name`}>{item.name}</span>
             <span className={`mob-feed-tool-detail`}>{item.detail}</span>
           </div>
-        ),
+        )
       )}
       <div className={`mob-feed-typing`}>
         <span className={`mob-agent-dot`} />
@@ -431,7 +486,9 @@ const ReleasesScreen = () => (
                 Coding
               </span>
             ) : null}
-            {release.shipped ? <span className={`mob-shipped-pill`}>Shipped</span> : null}
+            {release.shipped ? (
+              <span className={`mob-shipped-pill`}>Shipped</span>
+            ) : null}
           </div>
           <div className={`mob-release-sub`}>
             {`${release.shipped ? `Shipped ${release.shipped}` : `Target ${release.target}`} · ${release.done} of ${release.total} done`}
@@ -464,13 +521,21 @@ const InboxScreen = () => (
       {mobInboxItems.map((n) => (
         <div
           key={n.identifier}
-          className={n.unread ? `mob-inbox-row` : `mob-inbox-row mob-inbox-read`}
+          className={
+            n.unread ? `mob-inbox-row` : `mob-inbox-row mob-inbox-read`
+          }
         >
           <span className={`mob-inbox-badge`}>{inboxIcon(n.type)}</span>
           <span className={`mob-inbox-main`}>
             <span className={`mob-inbox-line1`}>
               <span className={`mob-row-id`}>{n.identifier}</span>
-              <span className={n.unread ? `mob-inbox-title mob-inbox-unread` : `mob-inbox-title`}>
+              <span
+                className={
+                  n.unread
+                    ? `mob-inbox-title mob-inbox-unread`
+                    : `mob-inbox-title`
+                }
+              >
                 {n.title}
               </span>
             </span>
@@ -548,7 +613,13 @@ const IssueScreen = () => {
 
 /* ─── Interactive app shell (5-tab dock, tour) ─── */
 
-const AppShell = ({ reduce, autoTour }: { reduce: boolean; autoTour: boolean }) => {
+const AppShell = ({
+  reduce,
+  autoTour,
+}: {
+  reduce: boolean
+  autoTour: boolean
+}) => {
   const [tab, setTab] = useState<MobTab>(`issues`)
   const [chip, setChip] = useState(0)
   const [projIdx, setProjIdx] = useState(0)
@@ -605,7 +676,9 @@ const AppShell = ({ reduce, autoTour }: { reduce: boolean; autoTour: boolean }) 
           <InboxScreen />
         )}
       </motion.div>
-      {tab !== `steer` && <BottomBar tab={tab} inboxUnread={!inboxSeen} onTab={goto} />}
+      {tab !== `steer` && (
+        <BottomBar tab={tab} inboxUnread={!inboxSeen} onTab={goto} />
+      )}
     </div>
   )
 }
@@ -632,7 +705,11 @@ export const MobileDemo = ({
     >
       <div className={`mob-screen`}>
         <StatusBar />
-        {screen === `list` ? <AppShell reduce={reduce} autoTour={autoTour} /> : <IssueScreen />}
+        {screen === `list` ? (
+          <AppShell reduce={reduce} autoTour={autoTour} />
+        ) : (
+          <IssueScreen />
+        )}
         <span className={`mob-home-indicator`} />
       </div>
     </motion.div>
