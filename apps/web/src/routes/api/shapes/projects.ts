@@ -22,7 +22,6 @@ const PROJECT_COLUMNS = [
   `type`,
   `public_show_comments`,
   `public_show_activity`,
-  `public_show_coding`,
   `repository_id`,
   `sort_order`,
   `archived_at`,

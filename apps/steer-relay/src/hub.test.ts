@@ -51,11 +51,7 @@ function claims(overrides: Partial<SteerTicketClaims>): SteerTicketClaims {
   }
 }
 
-function connectPublisher(
-  hub: Hub,
-  sessionId = `sess-1`,
-  opts: { activityPublic?: boolean } = {}
-) {
+function connectPublisher(hub: Hub, sessionId = `sess-1`) {
   const sock = new FakeSocket()
   hub.onOpen(sock, claims({ role: `publisher`, sessionId, perm: `view` }))
   hub.onMessage(
@@ -66,9 +62,6 @@ function connectPublisher(
       issueId: `issue-1`,
       cols: 120,
       rows: 40,
-      ...(opts.activityPublic === undefined
-        ? {}
-        : { activityPublic: opts.activityPublic }),
     })
   )
   return sock
@@ -93,11 +86,19 @@ function connectViewer(
   return sock
 }
 
-function connectPublicViewer(hub: Hub, sessionId = `sess-1`) {
+/** A socket carrying the REMOVED anonymous public_viewer role (EXP-90) — the
+ *  Bun upgrade layer 401s these; if one ever reaches the hub anyway it must
+ *  stay outside every audience. */
+function connectStalePublicViewer(hub: Hub, sessionId = `sess-1`) {
   const sock = new FakeSocket()
   hub.onOpen(
     sock,
-    claims({ role: `public_viewer`, sub: `anon`, perm: `view`, sessionId })
+    claims({
+      role: `public_viewer`,
+      sub: `anon`,
+      perm: `view`,
+      sessionId,
+    } as unknown as Partial<SteerTicketClaims>)
   )
   hub.onMessage(sock, JSON.stringify({ t: `join` }))
   return sock
@@ -318,7 +319,6 @@ describe(`session rooms`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub) // 120x40
     const viewer = connectViewer(hub)
-    const pv = connectPublicViewer(hub)
     expect(viewer.lastFrame(`resize`)).toMatchObject({ cols: 120, rows: 40 })
 
     // Publisher drops, gets resized while disconnected, re-hellos at 80x24.
@@ -330,8 +330,6 @@ describe(`session rooms`, () => {
       JSON.stringify({ t: `hello`, sessionId: `sess-1`, cols: 80, rows: 24 })
     )
     expect(viewer.lastFrame(`resize`)).toMatchObject({ cols: 80, rows: 24 })
-    // The anonymous activity audience never receives geometry.
-    expect(pv.lastFrame(`resize`)).toBeUndefined()
 
     // A same-geometry re-hello stays quiet.
     const resizes = () => viewer.frames().filter((f) => f.t === `resize`).length
@@ -375,23 +373,62 @@ describe(`session rooms`, () => {
   })
 })
 
-describe(`public activity channel`, () => {
+describe(`removed public_viewer role (EXP-90)`, () => {
   const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
     hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
 
-  test(`public viewers receive activity but NEVER pty output, presence, or geometry`, () => {
+  test(`a stale public_viewer socket joins NO audience and receives nothing`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
-    const pv = connectPublicViewer(hub)
+    const stale = connectStalePublicViewer(hub)
 
     output(hub, pub, `secret pty bytes`)
     activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
+    hub.onMessage(pub, JSON.stringify({ t: `resize`, cols: 80, rows: 24 }))
 
-    expect(pv.outputs().length).toBe(0)
-    expect(pv.lastFrame(`resize`)).toBeUndefined()
-    expect(pv.lastFrame(`presence`)).toBeUndefined()
-    expect(pv.lastFrame(`activity`)).toMatchObject({
-      event: { kind: `tool`, name: `Edit` },
+    expect(stale.sent.length).toBe(0)
+    // It never entered presence either.
+    expect(pub.lastFrame(`presence`)).toMatchObject({ viewers: [] })
+  })
+
+  test(`a stale public_viewer cannot steer, kill, or forge output/activity`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const stale = connectStalePublicViewer(hub)
+    const member = connectActivityMember(hub)
+
+    hub.onMessage(stale, JSON.stringify({ t: `claim`, steal: true }))
+    hub.onMessage(stale, JSON.stringify({ t: `input`, data: `rm -rf /` }))
+    hub.onMessage(stale, JSON.stringify({ t: `kill` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
+    expect(pub.lastFrame(`kill`)).toBeUndefined()
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
+
+    output(hub, stale as unknown as FakeSocket, `forged`)
+    hub.onMessage(stale, JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `fake` } }))
+    expect(member.frames().filter((f) => f.t === `activity`).length).toBe(0)
+  })
+
+  test(`hello with the legacy activityPublic flag still parses and runs the room`, () => {
+    const hub = new Hub()
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `publisher`, sessionId: `sess-1`, perm: `view` }))
+    hub.onMessage(
+      sock,
+      JSON.stringify({
+        t: `hello`,
+        sessionId: `sess-1`,
+        cols: 120,
+        rows: 40,
+        activityPublic: false,
+      })
+    )
+    expect(hub.sessionInfo(`sess-1`)).toMatchObject({ live: true })
+
+    const member = connectActivityMember(hub)
+    activity(hub, sock, { kind: `narration`, text: `still flows` })
+    expect(member.lastFrame(`activity`)).toMatchObject({
+      event: { kind: `narration`, text: `still flows` },
     })
   })
 
@@ -401,52 +438,6 @@ describe(`public activity channel`, () => {
     const viewer = connectViewer(hub)
     activity(hub, pub, { kind: `narration`, text: `working on it` })
     expect(viewer.lastFrame(`activity`)).toBeUndefined()
-  })
-
-  test(`join replays the activity log and only the LATEST diff`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    activity(hub, pub, { kind: `narration`, text: `one` })
-    activity(hub, pub, { kind: `diff`, diff: `old diff` })
-    activity(hub, pub, { kind: `tool`, name: `Bash` })
-    activity(hub, pub, { kind: `diff`, diff: `new diff` })
-
-    const pv = connectPublicViewer(hub)
-    const events = pv
-      .frames()
-      .filter((f) => f.t === `activity`)
-      .map((f) => f.event as { kind: string; diff?: string })
-    expect(events.map((e) => e.kind)).toEqual([`narration`, `tool`, `diff`])
-    expect(events.at(-1)?.diff).toBe(`new diff`)
-  })
-
-  test(`public viewers cannot steer, kill, or forge output/activity`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const pv = connectPublicViewer(hub)
-    const other = connectPublicViewer(hub)
-
-    hub.onMessage(pv, JSON.stringify({ t: `claim` }))
-    hub.onMessage(pv, JSON.stringify({ t: `claim`, steal: true }))
-    hub.onMessage(pv, JSON.stringify({ t: `input`, data: `rm -rf /` }))
-    hub.onMessage(pv, JSON.stringify({ t: `kill` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-    expect(pub.lastFrame(`kill`)).toBeUndefined()
-    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
-
-    // Forged frames from a public viewer reach nobody.
-    output(hub, pv as unknown as FakeSocket, `forged`)
-    hub.onMessage(pv, JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `fake` } }))
-    expect(other.frames().filter((f) => f.t === `activity`).length).toBe(0)
-  })
-
-  test(`room close evicts public viewers too`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const pv = connectPublicViewer(hub)
-    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `done` }))
-    expect(pv.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
-    expect(pv.closed?.code).toBe(4001)
   })
 })
 
@@ -494,57 +485,16 @@ describe(`member activity channel (EXP-32)`, () => {
     })
   })
 
-  test(`pty viewers get no activity; public viewers get no presence`, () => {
+  test(`pty viewers get no activity`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     const viewer = connectViewer(hub, { sub: `pty-v` })
-    const pv = connectPublicViewer(hub)
     const member = connectActivityMember(hub)
 
     activity(hub, pub, { kind: `narration`, text: `working` })
     expect(viewer.lastFrame(`activity`)).toBeUndefined()
     expect(member.lastFrame(`activity`)).toMatchObject({
       event: { kind: `narration` },
-    })
-    // The member-join presence broadcast never reached the anonymous socket.
-    expect(pv.lastFrame(`presence`)).toBeUndefined()
-  })
-
-  test(`hello activityPublic:false blocks public replay AND live fan-out, but not members`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub, `sess-1`, { activityPublic: false })
-    activity(hub, pub, { kind: `narration`, text: `team-only` })
-    activity(hub, pub, { kind: `diff`, diff: `private diff` })
-
-    const pv = connectPublicViewer(hub)
-    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
-
-    const member = connectActivityMember(hub)
-    const replayed = member.frames().filter((f) => f.t === `activity`)
-    expect(replayed.map((f) => (f.event as { kind: string }).kind)).toEqual([
-      `narration`,
-      `diff`,
-    ])
-
-    activity(hub, pub, { kind: `tool`, name: `Bash` })
-    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
-    expect(member.lastFrame(`activity`)).toMatchObject({
-      event: { kind: `tool`, name: `Bash` },
-    })
-  })
-
-  test(`re-hello with activityPublic:true reopens the public fan-out`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub, `sess-1`, { activityPublic: false })
-    const pv = connectPublicViewer(hub)
-    activity(hub, pub, { kind: `narration`, text: `hidden` })
-    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
-
-    hub.onClose(pub)
-    const pub2 = connectPublisher(hub, `sess-1`, { activityPublic: true })
-    activity(hub, pub2, { kind: `narration`, text: `visible` })
-    expect(pv.lastFrame(`activity`)).toMatchObject({
-      event: { text: `visible` },
     })
   })
 
@@ -640,42 +590,12 @@ describe(`member-only activity kinds (EXP-78)`, () => {
     expect(member.lastFrame(`activity`)).toMatchObject({ event: question })
   })
 
-  test(`member-only kinds NEVER reach public viewers, even when activityPublic`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub) // activityPublic defaults to true
-    const pv = connectPublicViewer(hub)
-    const member = connectActivityMember(hub)
-
-    activity(hub, pub, userMessage)
-    activity(hub, pub, question)
-    activity(hub, pub, { kind: `narration`, text: `on it` })
-
-    const publicKinds = pv
-      .frames()
-      .filter((f) => f.t === `activity`)
-      .map((f) => (f.event as { kind: string }).kind)
-    expect(publicKinds).toEqual([`narration`])
-    const memberKinds = member
-      .frames()
-      .filter((f) => f.t === `activity`)
-      .map((f) => (f.event as { kind: string }).kind)
-    expect(memberKinds).toEqual([`user_message`, `question`, `narration`])
-  })
-
-  test(`replay filters member-only kinds for public joiners but not members`, () => {
+  test(`replay preserves all kinds in order for members`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     activity(hub, pub, userMessage)
     activity(hub, pub, { kind: `narration`, text: `working` })
     activity(hub, pub, question)
-
-    const pv = connectPublicViewer(hub)
-    expect(
-      pv
-        .frames()
-        .filter((f) => f.t === `activity`)
-        .map((f) => (f.event as { kind: string }).kind)
-    ).toEqual([`narration`])
 
     const member = connectActivityMember(hub)
     expect(

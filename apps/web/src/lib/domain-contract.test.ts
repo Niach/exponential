@@ -6,7 +6,6 @@ import {
   recurrenceUnitValues,
   workspaceRoleValues,
   projectTypeValues,
-  publicCodingVisibilityValues,
   commentKindValues,
   notificationTypeValues,
   prStateValues,
@@ -43,12 +42,6 @@ describe(`domain-contract parity`, () => {
 
   it(`project type values match the contract`, () => {
     expect([...projectTypeValues]).toEqual([...contract.projectType.values])
-  })
-
-  it(`public coding visibility values match the contract`, () => {
-    expect([...publicCodingVisibilityValues]).toEqual([
-      ...contract.publicCodingVisibility.values,
-    ])
   })
 
   it(`comment kind values match the contract`, () => {

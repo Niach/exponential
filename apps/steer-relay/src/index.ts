@@ -176,6 +176,13 @@ export default {
       if (!verdict.ok) {
         return new Response(`Unauthorized: ${verdict.reason}`, { status: 401 })
       }
+      // Role allowlist: signature-valid tickets can still carry roles this
+      // relay no longer serves (EXP-90 removed the anonymous `public_viewer`
+      // audience) — a stale instance that still mints one gets 401, never a
+      // socket.
+      if (![`control`, `publisher`, `viewer`].includes(verdict.claims.role)) {
+        return new Response(`Unauthorized: unknown_role`, { status: 401 })
+      }
       const ok = server.upgrade(req, { data: { claims: verdict.claims } })
       return ok
         ? undefined

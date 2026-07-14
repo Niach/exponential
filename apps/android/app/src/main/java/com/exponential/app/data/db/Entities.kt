@@ -41,10 +41,9 @@ data class ProjectEntity(
     // public read-only board. Defaulted for tolerant decode of any legacy row.
     val type: String = "dev",
     // Anonymous-visitor toggles — only meaningful on feedback boards, inert
-    // otherwise. publicShowCoding is the enum off|badge|live (default off).
+    // otherwise.
     @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: PgBool = true,
     @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: PgBool = false,
-    @ColumnInfo(name = "public_show_coding") @SerialName("public_show_coding") @JsonNames("publicShowCoding") val publicShowCoding: String = "off",
     // Server-owned protection flag (the dogfood feedback board). A protected
     // project can't be deleted/archived, so clients hide the delete affordance.
     @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: PgBool = false,

@@ -27,7 +27,6 @@ interface Contract {
   recurrenceUnit: Section
   workspaceRole: Section
   projectType: Section
-  publicCodingVisibility: Section
   commentKind: Section
   notificationType: Section
   prState: Section
@@ -126,7 +125,6 @@ ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOr
 ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("projectTypeValues", contract.projectType.values)}
-${swiftStringArray("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
@@ -137,7 +135,6 @@ ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${swiftNamedValues("projectType", contract.projectType.values)}
-${swiftNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
@@ -157,7 +154,6 @@ ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayO
 ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("projectTypeValues", contract.projectType.values)}
-${kotlinStringArray("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
@@ -168,7 +164,6 @@ ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${kotlinNamedValues("projectType", contract.projectType.values)}
-${kotlinNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
@@ -190,7 +185,6 @@ ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder 
 ${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
 ${rustStrSlice("projectTypeValues", contract.projectType.values)}
-${rustStrSlice("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
@@ -201,7 +195,6 @@ ${rustIntSlice("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${rustNamedValues("projectType", contract.projectType.values)}
-${rustNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}

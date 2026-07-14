@@ -100,8 +100,6 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     // boards, inert otherwise.
     public let publicShowComments: Bool
     public let publicShowActivity: Bool
-    // off | badge | live (DomainContract.publicCodingVisibility*).
-    public let publicShowCoding: String
     // Server-managed protection flag: a protected project (the bootstrap
     // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
     // the projects shape; clients hide the destructive affordances for it.
@@ -126,7 +124,6 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         type: String = DomainContract.projectTypeDev,
         publicShowComments: Bool = true,
         publicShowActivity: Bool = false,
-        publicShowCoding: String = DomainContract.publicCodingVisibilityOff,
         isProtected: Bool = false,
         previewConfig: String?,
         createdAt: String,
@@ -145,7 +142,6 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.type = type
         self.publicShowComments = publicShowComments
         self.publicShowActivity = publicShowActivity
-        self.publicShowCoding = publicShowCoding
         self.isProtected = isProtected
         self.previewConfig = previewConfig
         self.createdAt = createdAt
@@ -164,7 +160,6 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         case repositoryId = "repository_id"
         case publicShowComments = "public_show_comments"
         case publicShowActivity = "public_show_activity"
-        case publicShowCoding = "public_show_coding"
         case isProtected = "is_protected"
         case previewConfig = "preview_config"
         case createdAt = "created_at"
@@ -194,8 +189,6 @@ extension ProjectEntity: Codable {
         publicShowComments = Self.decodeBool(c, .publicShowComments, default: true)
         publicShowActivity = Self.decodeBool(c, .publicShowActivity, default: false)
         isProtected = Self.decodeBool(c, .isProtected, default: false)
-        publicShowCoding = (try? c.decodeIfPresent(String.self, forKey: .publicShowCoding))
-            .flatMap { $0 } ?? DomainContract.publicCodingVisibilityOff
         previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)

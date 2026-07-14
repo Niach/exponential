@@ -111,17 +111,6 @@ impl RawSink for PublisherSink {
 pub struct PublishSpec {
     pub session_id: String,
     pub issue_id: Option<String>,
-    /// EXP-32: whether the room's scrubbed activity stream may fan out to
-    /// ANONYMOUS public viewers (feedback board with `publicShowCoding='live'`
-    /// and not opted private). `true` serializes as ABSENT on the wire (the
-    /// legacy hello shape — old relays behave as before); only `false` is
-    /// sent explicitly. Authenticated activity-channel members receive the
-    /// stream either way. NOTE: this flag alone is NOT the keep-private
-    /// enforcement — a pre-EXP-32 relay strips the unknown key and fans
-    /// activity to anonymous viewers regardless, so the wiring layer
-    /// additionally never spawns the activity emitter for an explicitly
-    /// keep-private session (fail closed under relay/desktop deploy skew).
-    pub activity_public: bool,
 }
 
 /// Publisher-ticket source, injectable for tests. Blocking (ureq) — the loop
@@ -279,9 +268,10 @@ impl LocalResizeNotifier {
 }
 
 /// A cheap `Send + Sync` clone of the publisher's control sender, dedicated to
-/// §P7 public activity events. The activity emitter thread holds one and pushes
-/// already-redacted narration/tool/diff events; sending is fire-and-forget and
-/// never blocks the emitter (unbounded flume). Sending after the publisher has
+/// §P7 activity events (the member-only activity channel). The activity
+/// emitter thread holds one and pushes already-redacted narration/tool/diff
+/// events; sending is fire-and-forget and never blocks the emitter (unbounded
+/// flume). Sending after the publisher has
 /// stopped is a harmless no-op (the pump drops the receiver).
 #[derive(Clone)]
 pub struct ActivitySender {
@@ -329,7 +319,7 @@ impl PublisherHandle {
     }
 
     /// A cheap [`ActivitySender`] for the §P7 activity emitter thread — pushes
-    /// public activity events onto the same unbounded control channel without
+    /// activity events onto the same unbounded control channel without
     /// coupling the emitter to the whole handle.
     pub fn activity_sender(&self) -> ActivitySender {
         ActivitySender {
@@ -492,9 +482,10 @@ async fn run_publisher_loop(
             issue_id: spec.issue_id.as_deref(),
             cols: Some(cols),
             rows: Some(rows),
-            // Absent = public (the legacy wire shape); only the keep-private
-            // opt-out is explicit (EXP-32).
-            activity_public: if spec.activity_public { None } else { Some(false) },
+            // EXP-90: the anonymous public-activity audience is removed —
+            // always send the explicit opt-out, because an ABSENT key means
+            // "public" to legacy relays (manual, independent deploys).
+            activity_public: Some(false),
         }
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
@@ -622,8 +613,8 @@ async fn pump_connection(
                         }
                     }
                     PublisherCmd::Activity(event) => {
-                        // §P7: publish one already-redacted public activity
-                        // event. The relay fans it to public viewers only.
+                        // §P7: publish one already-redacted activity event.
+                        // The relay fans it to the member activity audience.
                         let frame = ClientFrame::Activity { event }.to_json();
                         // The emitter caps event strings in UTF-8 bytes, but
                         // JSON escaping can still inflate pathological content
@@ -995,7 +986,6 @@ mod tests {
             PublishSpec {
                 session_id: "sess-t".to_string(),
                 issue_id: Some("issue-t".to_string()),
-                activity_public: true,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1004,11 +994,11 @@ mod tests {
         );
 
         // 1) hello with TRUE geometry (the hook says 100×30, not 80×24).
-        // activity_public: true stays ABSENT on the wire (legacy shape).
+        // EXP-90: every hello carries the explicit activityPublic:false.
         let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             hello,
-            r#"{"t":"hello","sessionId":"sess-t","issueId":"issue-t","cols":100,"rows":30}"#
+            r#"{"t":"hello","sessionId":"sess-t","issueId":"issue-t","cols":100,"rows":30,"activityPublic":false}"#
         );
 
         // 2) teed output arrives as 0x01 binary frames (and fills the ring).
@@ -1101,9 +1091,6 @@ mod tests {
             PublishSpec {
                 session_id: "sess-x".to_string(),
                 issue_id: None,
-                // EXP-32: the keep-private path — hello carries the explicit
-                // opt-out.
-                activity_public: false,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -1137,7 +1124,6 @@ mod tests {
             PublishSpec {
                 session_id: "sess-d".to_string(),
                 issue_id: None,
-                activity_public: true,
             },
             Arc::new(DisabledTickets),
             recording_hooks(recorded.clone()),

@@ -155,7 +155,6 @@ fn main() {
         PublishSpec {
             session_id: SESSION_ID.to_string(),
             issue_id: None,
-            activity_public: false,
         },
         Arc::new(HarnessTickets { relay_port: port }),
         hooks,

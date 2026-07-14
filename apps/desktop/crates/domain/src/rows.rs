@@ -69,15 +69,12 @@ pub struct Project {
     #[serde(default)]
     pub repository_id: Option<String>,
     /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
-    /// carried so the desktop mirrors the full shape (P7 live-coding reads
-    /// `public_show_coding`). `None` on legacy/other rows.
+    /// carried so the desktop mirrors the full shape. `None` on legacy/other
+    /// rows.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub public_show_comments: Option<bool>,
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub public_show_activity: Option<bool>,
-    /// `off` / `badge` / `live` — raw wire value (contract-locked).
-    #[serde(default)]
-    pub public_show_coding: Option<String>,
     /// Trash contract: protected projects (the bootstrap dogfood board) are
     /// non-deletable/non-archivable/non-retypable — the server refuses, and
     /// clients disable the affordances from this flag. `None` on legacy rows.
@@ -111,14 +108,6 @@ impl Project {
         self.project_type.as_deref() == Some(crate::contract::PROJECT_TYPE_FEEDBACK)
     }
 
-    /// Whether coding sessions on this project publish a PUBLIC live activity
-    /// stream (§P7): a feedback board with `public_show_coding == 'live'`. Gates
-    /// both the "Keep private" opt-out UI and the activity emitter itself.
-    pub fn is_live_public_coding(&self) -> bool {
-        self.is_feedback()
-            && self.public_show_coding.as_deref()
-                == Some(crate::contract::PUBLIC_CODING_VISIBILITY_LIVE)
-    }
 }
 
 /// `issues` shape row (§5.5's exemplar struct plus the full column set).
@@ -537,15 +526,13 @@ mod tests {
             "workspace_id": "w-1",
             "name": "Feedback",
             "type": "feedback",
-            "public_show_comments": "t",
-            "public_show_coding": "badge"
+            "public_show_comments": "t"
         }))
         .unwrap();
         assert_eq!(feedback.project_type.as_deref(), Some("feedback"));
         assert!(feedback.is_feedback());
         assert!(!feedback.is_dev());
         assert_eq!(feedback.public_show_comments, Some(true));
-        assert_eq!(feedback.public_show_coding.as_deref(), Some("badge"));
 
         let tasks: Project = serde_json::from_value(json!({
             "id": "p-2", "workspace_id": "w-1", "name": "Tasks", "type": "tasks"

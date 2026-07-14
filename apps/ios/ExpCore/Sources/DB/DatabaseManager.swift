@@ -205,7 +205,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Anonymous-visitor visibility toggles (feedback boards only).
                 t.column("public_show_comments", .boolean).notNull().defaults(to: true)
                 t.column("public_show_activity", .boolean).notNull().defaults(to: false)
-                t.column("public_show_coding", .text).notNull().defaults(to: "off")
                 // Display-only mirror of the preview run targets + feedback target.
                 t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
@@ -473,7 +472,10 @@ public final class DatabaseManager: @unchecked Sendable {
             // Same table-existence guard as v3 (see above).
             guard try db.tableExists("projects") else { return }
             let existing = Set(try db.columns(in: "projects").map(\.name))
-            let needed = ["type", "public_show_comments", "public_show_activity", "public_show_coding"]
+            // public_show_coding was dropped again in EXP-90 — existing devices
+            // keep the stale column (harmless, same precedent as workspaces
+            // is_public); fresh installs never create it.
+            let needed = ["type", "public_show_comments", "public_show_activity"]
             guard needed.contains(where: { !existing.contains($0) }) else { return }
             try db.alter(table: "projects") { t in
                 if !existing.contains("type") {
@@ -484,9 +486,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 }
                 if !existing.contains("public_show_activity") {
                     t.add(column: "public_show_activity", .boolean).notNull().defaults(to: false)
-                }
-                if !existing.contains("public_show_coding") {
-                    t.add(column: "public_show_coding", .text).notNull().defaults(to: "off")
                 }
             }
         }

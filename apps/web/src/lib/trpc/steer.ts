@@ -1,8 +1,8 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, isNull } from "drizzle-orm"
-import { router, authedProcedure, publicProcedure, generateTxId } from "@/lib/trpc"
-import { codingSessions, projects } from "@/db/schema"
+import { eq } from "drizzle-orm"
+import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import { codingSessions } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -117,61 +117,6 @@ export const steerRouter = router({
         role: member.role,
         isSessionOwner: session.userId === userId,
         name: ctx.session.user.name || ctx.session.user.email,
-      })
-    }),
-
-  // Anonymous ticket for the PUBLIC activity stream of a live feedback-board
-  // coding session. publicProcedure by design: the gate is the project's
-  // publicShowCoding='live' opt-in, checked fresh on every mint — flipping the
-  // toggle off stops new tickets immediately and running viewers drop at the
-  // relay's next reconnect (tickets are 60s). The ticket's role
-  // (public_viewer) can only ever receive scrubbed activity frames — the
-  // relay's room isolation keeps raw PTY bytes out of reach by construction.
-  mintPublicViewTicket: publicProcedure
-    .input(z.object({ codingSessionId: z.string().uuid() }))
-    .mutation(async ({ input }) => {
-      const config = getSteerRelayConfig()
-      if (!config) return { disabled: true as const }
-
-      const session = await loadCodingSession(input.codingSessionId)
-      if (session.status !== `running`) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `Session has ended`,
-        })
-      }
-      // Release-scoped sessions (EXP-56, project_id NULL) are member-only —
-      // they span projects, so no feedback-board live toggle can apply.
-      if (!session.projectId) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `This session is not publicly viewable`,
-        })
-      }
-      const { db } = await import(`@/db/connection`)
-      const [project] = await db
-        .select({
-          type: projects.type,
-          publicShowCoding: projects.publicShowCoding,
-          archivedAt: projects.archivedAt,
-        })
-        .from(projects)
-        .where(and(eq(projects.id, session.projectId), isNull(projects.deletedAt)))
-        .limit(1)
-      if (
-        !project ||
-        project.type !== `feedback` ||
-        project.publicShowCoding !== `live` ||
-        project.archivedAt !== null
-      ) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `This session is not publicly viewable`,
-        })
-      }
-      return mintSteerTicket(config, {
-        kind: `public_viewer`,
-        sessionId: session.id,
       })
     }),
 

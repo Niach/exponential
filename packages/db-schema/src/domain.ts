@@ -36,12 +36,6 @@ export const PROJECT_TRASH_RETENTION_HOURS = 48
 export const PROJECT_TRASH_RETENTION_MS =
   PROJECT_TRASH_RETENTION_HOURS * 60 * 60 * 1000
 
-// Anonymous visibility of coding sessions on a feedback board
-// (projects.public_show_coding). `badge` exposes only the "coding now" badge;
-// `live` additionally allows the stripped public activity stream (tool
-// headlines + scrubbed diffs) — never raw terminal bytes.
-export const publicCodingVisibilityValues = [`off`, `badge`, `live`] as const
-
 // How long a `running` coding_sessions row may go without a liveness signal
 // (updated_at — the desktop heartbeats it while the claude child is alive)
 // before the server-side staleness sweep DELETES it. The desktop's exit hook
@@ -125,8 +119,6 @@ export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
 export type ProjectType = (typeof projectTypeValues)[number]
-export type PublicCodingVisibility =
-  (typeof publicCodingVisibilityValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
@@ -139,7 +131,6 @@ export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const projectTypeSchema = z.enum(projectTypeValues)
-export const publicCodingVisibilitySchema = z.enum(publicCodingVisibilityValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)

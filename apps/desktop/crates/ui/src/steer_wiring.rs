@@ -261,13 +261,9 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
-                // Remote start defaults to NOT private — the phone user
-                // initiating it opted the project into live coding; publish if
-                // the project is a live feedback board.
                 if let Err(message) = coding_flow::spawn_into_window(
                     prepared,
                     coding_flow::SessionSubject::Issue(issue_id),
-                    false,
                     window,
                     cx,
                 ) {
@@ -293,16 +289,9 @@ struct PublisherEntry {
     sink: Arc<dyn RawSink>,
     /// The current remote steerer's display name, if any (§8.5 banner state).
     steerer: Option<String>,
-    /// §P7 + EXP-32: the activity emitter's run flag. The emitter runs for
-    /// every session EXCEPT an explicit keep-private one (which emits nothing
-    /// at all — the fail-closed guard against relays that predate the hello's
-    /// `activityPublic` flag); flipping it `false` stops the thread on
-    /// teardown.
+    /// §P7: the activity emitter's run flag (members-only activity channel);
+    /// flipping it `false` stops the thread on teardown.
     activity_active: Arc<AtomicBool>,
-    /// Whether the relay also fans this session's activity to ANONYMOUS
-    /// public viewers (feedback board + `publicShowCoding='live'`, not opted
-    /// private) — drives the "LIVE — public" indicator.
-    activity_public: bool,
 }
 
 /// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
@@ -343,39 +332,6 @@ enum SteerUiEvent {
     Teardown,
 }
 
-/// The EXP-32 activity wiring decision, resolved once at publisher attach.
-struct ActivityDecision {
-    /// Spawn the scrubbed activity emitter at all.
-    emit: bool,
-    /// Declare the room publicly fanned (`activityPublic` in the hello — the
-    /// relay may forward activity to ANONYMOUS public viewers).
-    public: bool,
-}
-
-/// Decide the activity wiring for a session (EXP-32). Pure so the keep-private
-/// invariant is testable.
-///
-/// - `keep_private` — the user's explicit per-session opt-out (only offered on
-///   a live-public board): spawn NO emitter at all, not merely
-///   `activityPublic:false`. The hello flag alone is fail-OPEN under deploy
-///   skew: a pre-EXP-32 relay strips the unknown `activityPublic` key
-///   (plain zod object) and fans every activity frame — including worktree
-///   diffs — to all anonymous public viewers, and relay deploys are manual
-///   while desktops self-update from GitHub Releases. Suppressing the emitter
-///   restores the pre-EXP-32 client-side enforcement, so a stale relay has
-///   nothing to leak. Cost: members lose the scrubbed feed for keep-private
-///   sessions (they keep full PTY view/steer) until the relay can positively
-///   acknowledge the flag (a future hello-ack); privacy wins until then.
-/// - otherwise the emitter always runs (the members-only activity channel),
-///   and the room is public exactly when the board streams live
-///   (`publicShowCoding='live'`).
-fn activity_decision(keep_private: bool, live_public_board: bool) -> ActivityDecision {
-    ActivityDecision {
-        emit: !keep_private,
-        public: !keep_private && live_public_board,
-    }
-}
-
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
 /// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
 /// Spawned` — for BOTH subjects (issue sessions and EXP-56 release
@@ -389,7 +345,6 @@ pub fn attach_publisher(
     tab: TabId,
     manager: &Entity<TerminalManager>,
     worktree: PathBuf,
-    keep_private: bool,
     cx: &mut App,
 ) {
     let Some(runtime) = runtime(cx) else {
@@ -442,20 +397,6 @@ pub fn attach_publisher(
         trpc,
         coding_session_id: session_id.to_string(),
     });
-    // EXP-32: the keep-private/live-board decision table (pure, tested below).
-    // The live-public check is issue→project based; a RELEASE session has no
-    // single project, so it is hard-coded members-only — release activity is
-    // NEVER publicly fanned in v1.
-    let live_public_board = match subject {
-        coding_flow::SessionSubject::Issue(issue_id) => coding_flow::issue_project(issue_id, cx)
-            .map(|project| project.is_live_public_coding())
-            .unwrap_or(false),
-        coding_flow::SessionSubject::Release(_) => false,
-    };
-    let ActivityDecision {
-        emit: emit_activity,
-        public: activity_public,
-    } = activity_decision(keep_private, live_public_board);
     let spec = PublishSpec {
         session_id: session_id.to_string(),
         // Release sessions publish an issue-less room (the field is already
@@ -465,7 +406,6 @@ pub fn attach_publisher(
             coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
             coding_flow::SessionSubject::Release(_) => None,
         },
-        activity_public,
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);
 
@@ -487,23 +427,18 @@ pub fn attach_publisher(
             resize_notifier.notify(cols, rows);
         }));
 
-    // §P7 + EXP-32: start the activity emitter — the desktop emits scrubbed
-    // activity events over the publisher socket. Authenticated workspace
-    // members follow them on the relay's activity channel; whether ANONYMOUS
-    // public viewers also see them is the room's `activityPublic` flag
-    // declared in the hello above (the relay enforces it). The emitter tails
-    // the Claude transcript + worktree diffs and redacts before sending.
-    // Best-effort: a relay-disabled instance just drops the sends.
-    // A keep-private session spawns NO emitter at all (`emit_activity` —
-    // see [`activity_decision`] for the fail-closed rationale).
-    let activity_active = Arc::new(AtomicBool::new(emit_activity));
-    if emit_activity {
-        spawn_activity_emitter(
-            EmitterConfig { worktree },
-            handle.activity_sender(),
-            activity_active.clone(),
-        );
-    }
+    // §P7: start the activity emitter — the desktop emits scrubbed activity
+    // events over the publisher socket for authenticated workspace members on
+    // the relay's activity channel (the anonymous public audience was removed
+    // in EXP-90). The emitter tails the Claude transcript + worktree diffs
+    // and redacts before sending. Best-effort: a relay-disabled instance just
+    // drops the sends.
+    let activity_active = Arc::new(AtomicBool::new(true));
+    spawn_activity_emitter(
+        EmitterConfig { worktree },
+        handle.activity_sender(),
+        activity_active.clone(),
+    );
 
     // Register the session (banner state + take-over + teardown).
     let registry = PublisherRegistry::global(cx);
@@ -515,7 +450,6 @@ pub fn attach_publisher(
                 sink,
                 steerer: None,
                 activity_active,
-                activity_public,
             },
         );
     });
@@ -672,22 +606,6 @@ fn teardown_session(
 // The §8.5 "Remote steering" surface — consumed by the terminal-tab banner
 // ---------------------------------------------------------------------------
 
-/// Whether this session is publishing a PUBLIC live activity stream right now
-/// (§P7) — the room is publicly fanned (`activityPublic`) and the emitter is
-/// still active. Drives the "LIVE — public" indicator on the coding-session
-/// UI. `false` for non-live sessions (whose emitter still runs for the
-/// members-only activity channel, EXP-32) and for keep-private sessions
-/// (whose emitter never starts — the fail-closed guard).
-pub fn is_publishing_live(session_id: &str, cx: &App) -> bool {
-    PublisherRegistry::global_ref(cx)
-        .and_then(|registry| {
-            registry.read(cx).entries.get(session_id).map(|entry| {
-                entry.activity_public && entry.activity_active.load(Ordering::SeqCst)
-            })
-        })
-        .unwrap_or(false)
-}
-
 /// The remote steerer's display name for a published session, if one is
 /// steering right now (§8.5). Drives the terminal-tab "Remote steering — {name}"
 /// banner; the LOCAL user is never gated (they type straight to the PTY).
@@ -746,34 +664,3 @@ pub fn notify_local_resize(session_id: &str, cols: u16, rows: u16, cx: &App) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // EXP-32 keep-private must fail CLOSED on the client: a keep-private
-    // session spawns NO activity emitter, regardless of the board state —
-    // `activityPublic:false` in the hello is NOT enough, because a
-    // pre-EXP-32 relay strips the unknown key and fans activity (incl.
-    // worktree diffs) to anonymous public viewers.
-    #[test]
-    fn keep_private_never_emits_activity() {
-        for live in [true, false] {
-            let decision = activity_decision(true, live);
-            assert!(!decision.emit, "keep-private must not emit (live={live})");
-            assert!(!decision.public, "keep-private is never public (live={live})");
-        }
-    }
-
-    // The members-only activity channel (EXP-32): every non-private session
-    // emits, and only a live-public board fans to anonymous viewers.
-    #[test]
-    fn non_private_emits_and_is_public_only_on_a_live_board() {
-        let live = activity_decision(false, true);
-        assert!(live.emit);
-        assert!(live.public);
-
-        let member_only = activity_decision(false, false);
-        assert!(member_only.emit, "members-only channel still gets activity");
-        assert!(!member_only.public);
-    }
-}

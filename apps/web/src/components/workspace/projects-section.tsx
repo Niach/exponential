@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Check, Copy, Github, GitBranch, Globe, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import type { PublicCodingVisibility } from "@exp/db-schema/domain"
 import { getProjectTypeOption } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Card,
   CardContent,
@@ -396,7 +388,6 @@ function PublicBoardDialog({
     updates: Partial<{
       publicShowComments: boolean
       publicShowActivity: boolean
-      publicShowCoding: PublicCodingVisibility
     }>
   ) => {
     if (!project) return
@@ -478,33 +469,6 @@ function PublicBoardDialog({
                 void update({ publicShowActivity: checked })
               }
             />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <Label className="text-sm">Show coding sessions</Label>
-              <p className="text-xs text-muted-foreground">
-                Badge shows when someone is coding an issue; Live additionally
-                streams tool activity and diffs to visitors.
-              </p>
-            </div>
-            <Select
-              value={project?.publicShowCoding ?? `off`}
-              disabled={busy}
-              onValueChange={(value) =>
-                void update({
-                  publicShowCoding: value as PublicCodingVisibility,
-                })
-              }
-            >
-              <SelectTrigger className="w-28 shrink-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="off">Off</SelectItem>
-                <SelectItem value="badge">Badge</SelectItem>
-                <SelectItem value="live">Live</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
       </DialogContent>

@@ -4,7 +4,6 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, publicProcedure, generateTxId } from "@/lib/trpc"
 import {
-  codingSessions,
   comments,
   issueLabels,
   issues,
@@ -84,7 +83,6 @@ async function resolvePublicProject(
       type: projects.type,
       publicShowComments: projects.publicShowComments,
       publicShowActivity: projects.publicShowActivity,
-      publicShowCoding: projects.publicShowCoding,
     })
     .from(projects)
     .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
@@ -373,45 +371,11 @@ export const publicBoardRouter = router({
         c.body = scrubbed[i + 2] ?? c.body
       })
 
-      // The public "coding now" surface, per the board's opt-in level: `badge`
-      // exposes only that a session runs (+ device label); `live` additionally
-      // lets the client mint a public activity ticket for it.
-      let codingSession: {
-        id: string
-        deviceLabel: string | null
-        startedAt: Date
-        live: boolean
-      } | null = null
-      if (board.publicShowCoding !== `off`) {
-        const [running] = await ctx.db
-          .select({
-            id: codingSessions.id,
-            deviceLabel: codingSessions.deviceLabel,
-            startedAt: codingSessions.startedAt,
-          })
-          .from(codingSessions)
-          .where(
-            and(
-              eq(codingSessions.issueId, issue.id),
-              eq(codingSessions.status, `running`)
-            )
-          )
-          .orderBy(asc(codingSessions.startedAt))
-          .limit(1)
-        if (running) {
-          codingSession = {
-            ...running,
-            live: board.publicShowCoding === `live`,
-          }
-        }
-      }
-
       return {
         board,
         issue,
         labels: labelRows,
         comments: commentRows,
-        codingSession,
       }
     }),
 

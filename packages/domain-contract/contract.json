@@ -18,9 +18,6 @@
   "projectType": {
     "values": ["dev", "tasks", "feedback"]
   },
-  "publicCodingVisibility": {
-    "values": ["off", "badge", "live"]
-  },
   "commentKind": {
     "values": ["regular"]
   },

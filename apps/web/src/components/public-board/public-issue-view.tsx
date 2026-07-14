@@ -8,7 +8,6 @@ import { getStatusConfig, StatusIcon } from "@/components/issue-properties/statu
 import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
 import { Badge } from "@/components/ui/badge"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
-import { LiveActivityView } from "./live-activity-view"
 
 type IssueData = Awaited<ReturnType<typeof trpc.publicBoard.issue.query>>
 
@@ -111,22 +110,6 @@ export function PublicIssueView({
           ))}
         </div>
       </div>
-
-      {data.codingSession &&
-        (data.codingSession.live ? (
-          <LiveActivityView
-            codingSessionId={data.codingSession.id}
-            deviceLabel={data.codingSession.deviceLabel}
-          />
-        ) : (
-          <Badge variant="outline" className="gap-1.5 text-xs">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-            Someone is coding this issue right now
-            {data.codingSession.deviceLabel
-              ? ` on ${data.codingSession.deviceLabel}`
-              : ``}
-          </Badge>
-        ))}
 
       {issue.description && (
         <div className="rounded-md border border-border/60 p-4">

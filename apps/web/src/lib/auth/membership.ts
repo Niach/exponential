@@ -56,10 +56,6 @@ export type PublicProjectScope = {
   commentProjectIds: string[]
   // Public projects with publicShowActivity = true.
   activityProjectIds: string[]
-  // Public projects with publicShowCoding != 'off' (badge or live).
-  codingProjectIds: string[]
-  // Public projects with publicShowCoding = 'live' (public activity stream).
-  liveProjectIds: string[]
 }
 
 let publicProjectScopeCache: PublicProjectScope | undefined = undefined
@@ -75,7 +71,6 @@ export async function getPublicProjectScope(): Promise<PublicProjectScope> {
       workspaceId: projects.workspaceId,
       publicShowComments: projects.publicShowComments,
       publicShowActivity: projects.publicShowActivity,
-      publicShowCoding: projects.publicShowCoding,
     })
     .from(projects)
     .where(
@@ -95,12 +90,6 @@ export async function getPublicProjectScope(): Promise<PublicProjectScope> {
       .map((row) => row.id),
     activityProjectIds: rows
       .filter((row) => row.publicShowActivity)
-      .map((row) => row.id),
-    codingProjectIds: rows
-      .filter((row) => row.publicShowCoding !== `off`)
-      .map((row) => row.id),
-    liveProjectIds: rows
-      .filter((row) => row.publicShowCoding === `live`)
       .map((row) => row.id),
   }
   return publicProjectScopeCache

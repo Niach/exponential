@@ -11,7 +11,6 @@ public enum DomainContract {
     public static let recurrenceUnitValues: [String] = ["day", "week", "month"]
     public static let workspaceRoleValues: [String] = ["owner", "member"]
     public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
-    public static let publicCodingVisibilityValues: [String] = ["off", "badge", "live"]
     public static let commentKindValues: [String] = ["regular"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
@@ -25,9 +24,6 @@ public enum DomainContract {
     public static let projectTypeDev: String = "dev"
     public static let projectTypeTasks: String = "tasks"
     public static let projectTypeFeedback: String = "feedback"
-    public static let publicCodingVisibilityOff: String = "off"
-    public static let publicCodingVisibilityBadge: String = "badge"
-    public static let publicCodingVisibilityLive: String = "live"
     public static let commentKindRegular: String = "regular"
     public static let notificationTypeIssueAssigned: String = "issue_assigned"
     public static let notificationTypeIssueComment: String = "issue_comment"
