@@ -20,6 +20,7 @@
 //! (§7.9); Google Calendar does not exist anywhere.
 
 mod account;
+mod appearance;
 mod coding;
 mod labels;
 mod local_repos;
@@ -42,6 +43,7 @@ use sync::Store;
 use crate::navigation::{active_workspace_id, nav_for_window, Navigation};
 use crate::queries;
 
+use appearance::AppearancePane;
 use labels::LabelsPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
@@ -70,6 +72,9 @@ pub struct SettingsView {
     /// §4.7 desktop-only Local repositories section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated, after Coding.
     local_repos: Entity<LocalReposPane>,
+    /// EXP-85 desktop-only Appearance card (UI-scale slider) — local
+    /// per-install state, un-gated, first in the local block.
+    appearance: Entity<AppearancePane>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -83,6 +88,7 @@ impl SettingsView {
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
         let coding = cx.new(|cx| CodingPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
+        let appearance = cx.new(AppearancePane::new);
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/workspace data moves.
@@ -103,6 +109,7 @@ impl SettingsView {
             repositories,
             coding,
             local_repos,
+            appearance,
             _subscriptions: subscriptions,
         }
     }
@@ -166,8 +173,10 @@ impl Render for SettingsView {
             // Desktop-only §7.7 block: launcher settings + tooling doctor +
             // the §7.2 personal-key status row. Local per-install state — no
             // owner gate, no web-parity counterpart. §4.7 Local repositories
-            // (clone disk usage + prune/remove) rides the same local block.
+            // (clone disk usage + prune/remove) rides the same local block,
+            // as does the EXP-85 Appearance (UI-scale) card.
             .child(separator(cx))
+            .child(self.appearance.clone())
             .child(self.coding.clone())
             .child(self.local_repos.clone());
 

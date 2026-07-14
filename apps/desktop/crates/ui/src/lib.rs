@@ -71,6 +71,7 @@ pub mod steer_wiring;
 mod terminal_dock;
 mod timeline;
 mod top_bar;
+mod ui_scale;
 mod undock;
 mod undocked_terminal;
 mod update;
@@ -93,6 +94,9 @@ use gpui_component::dock::register_panel;
 /// navigation action handlers (§4.2). Must run once at bootstrap, after
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
+    // EXP-85 UI zoom: re-apply the persisted scale to the theme's base font
+    // size (→ window rem size). AFTER theme::init, which resets it.
+    ui_scale::init(cx);
     navigation::init(cx);
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and terminal dock filter against.
