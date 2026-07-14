@@ -8,7 +8,8 @@
   /* Text */
   --fg: #fafafa;
   --fg-muted: #a1a1a1;
-  --fg-dim: #737373;
+  /* WCAG AA: ≥4.5:1 on --bg (5.3:1) and on --bg-elev cards (4.8:1) */
+  --fg-dim: #848484;
 
   /* Lines */
   --border: rgba(255, 255, 255, 0.1);

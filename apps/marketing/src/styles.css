@@ -1,5 +1,6 @@
 /* ─── Exponential marketing styles — import hub ───
    Order matters: files concatenate in the original cascade order. */
+@import "./styles/fonts.css";
 @import "./styles/tokens.css";
 @import "./styles/site.css";
 @import "./styles/site-footer.css";

@@ -126,7 +126,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
   return (
     <>
       <SiteHeader />
-      {children}
+      <main>{children}</main>
       <SiteFooter />
     </>
   )
