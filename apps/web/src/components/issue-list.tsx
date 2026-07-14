@@ -48,6 +48,10 @@ interface IssueListProps {
   hasAnyIssues?: boolean
   hasActiveFilters?: boolean
   onClearFilters?: () => void
+  // Rendered below the genuine "No issues yet" empty state only (never the
+  // filtered-empty one) — the project board passes the member-only "Getting
+  // started" cards here (EXP-88).
+  emptyStateExtra?: React.ReactNode
   // Optional trailing per-row action cell (e.g. the release detail's
   // remove-from-release X). Rendered in its own click-isolated grid column.
   renderRowAction?: (issue: Issue) => React.ReactNode
@@ -95,6 +99,7 @@ export function IssueList({
   hasAnyIssues = false,
   hasActiveFilters = false,
   onClearFilters,
+  emptyStateExtra,
   renderRowAction,
   bulkWorkspaceId,
 }: IssueListProps) {
@@ -312,18 +317,21 @@ export function IssueList({
     }
 
     return (
-      <EmptyState
-        icon={ListTodo}
-        title="No issues yet"
-        description="Create an issue to start tracking work."
-      >
-        {canCreate && (
-          <Button size="sm" onClick={() => onNewIssue()}>
-            <Plus className="mr-1.5 size-4" />
-            New issue
-          </Button>
-        )}
-      </EmptyState>
+      <div>
+        <EmptyState
+          icon={ListTodo}
+          title="No issues yet"
+          description="Create an issue to start tracking work."
+        >
+          {canCreate && (
+            <Button size="sm" onClick={() => onNewIssue()}>
+              <Plus className="mr-1.5 size-4" />
+              New issue
+            </Button>
+          )}
+        </EmptyState>
+        {emptyStateExtra}
+      </div>
     )
   }
 

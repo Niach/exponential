@@ -34,6 +34,11 @@ export const users = pgTable(`users`, {
   desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
     withTimezone: true,
   }),
+  // One-shot dismissal of the "Getting started" cards on the empty project
+  // board (EXP-88). SERVER-ONLY like desktopAppCardDismissedAt; never syncs.
+  gettingStartedDismissedAt: timestamp(`getting_started_dismissed_at`, {
+    withTimezone: true,
+  }),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),

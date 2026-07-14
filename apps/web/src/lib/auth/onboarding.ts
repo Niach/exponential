@@ -43,22 +43,42 @@ export async function resolveOnboardingCompletedAt(user: {
   return completedAt
 }
 
-// The "Get the desktop app" card dismissal (EXP-51) must survive the session
-// cookie cache (5-min TTL): right after dismissing, the cached user snapshot
-// still carries null, so a reload inside the TTL would resurrect the card.
-// Dismissal is one-way — a cached non-null value is trusted as-is; a cached
-// null gets one cheap PK re-read on session resolution.
-export async function resolveDesktopAppCardDismissedAt(user: {
+// Card dismissals — the "Get the desktop app" card (EXP-51) and the
+// "Getting started" cards on the empty board (EXP-88) — must survive the
+// session cookie cache (5-min TTL): right after dismissing, the cached user
+// snapshot still carries null, so a reload inside the TTL would resurrect the
+// card. Dismissal is one-way — a cached non-null value is trusted as-is; a
+// cached null gets one cheap PK re-read (both columns in a single query) on
+// session resolution.
+export async function resolveDismissalFlags(user: {
   id: string
   desktopAppCardDismissedAt?: Date | string | null
-}): Promise<Date | string | null> {
-  if (user.desktopAppCardDismissedAt != null) {
-    return user.desktopAppCardDismissedAt
+  gettingStartedDismissedAt?: Date | string | null
+}): Promise<{
+  desktopAppCardDismissedAt: Date | string | null
+  gettingStartedDismissedAt: Date | string | null
+}> {
+  if (
+    user.desktopAppCardDismissedAt != null &&
+    user.gettingStartedDismissedAt != null
+  ) {
+    return {
+      desktopAppCardDismissedAt: user.desktopAppCardDismissedAt,
+      gettingStartedDismissedAt: user.gettingStartedDismissedAt,
+    }
   }
   const [row] = await db
-    .select({ dismissedAt: users.desktopAppCardDismissedAt })
+    .select({
+      desktopAppCardDismissedAt: users.desktopAppCardDismissedAt,
+      gettingStartedDismissedAt: users.gettingStartedDismissedAt,
+    })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1)
-  return row?.dismissedAt ?? null
+  return {
+    desktopAppCardDismissedAt:
+      user.desktopAppCardDismissedAt ?? row?.desktopAppCardDismissedAt ?? null,
+    gettingStartedDismissedAt:
+      user.gettingStartedDismissedAt ?? row?.gettingStartedDismissedAt ?? null,
+  }
 }

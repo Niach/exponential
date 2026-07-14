@@ -90,6 +90,18 @@ export const usersRouter = router({
     return { ok: true }
   }),
 
+  // Dismiss the "Getting started" cards on the empty project board (EXP-88).
+  // Same contract as dismissDesktopAppCard: one-way per-user timestamp flag
+  // surfaced read-only on the session; the client hides the cards immediately
+  // via local state.
+  dismissGettingStarted: authedProcedure.mutation(async ({ ctx }) => {
+    await ctx.db
+      .update(users)
+      .set({ gettingStartedDismissedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, ctx.session.user.id))
+    return { ok: true }
+  }),
+
   revokePersonalApiKey: authedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

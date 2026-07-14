@@ -19,7 +19,7 @@ import {
 } from "@/lib/email"
 import { isAdminUser } from "./app-user"
 import {
-  resolveDesktopAppCardDismissedAt,
+  resolveDismissalFlags,
   resolveOnboardingCompletedAt,
 } from "./onboarding"
 import {
@@ -203,6 +203,15 @@ export const auth = betterAuth({
       // view (users.dismissDesktopAppCard). Surfaced read-only on the session
       // so the card stays hidden on later loads; never client-settable.
       desktopAppCardDismissedAt: {
+        type: `date`,
+        defaultValue: null,
+        required: false,
+        input: false,
+      },
+      // When the user dismissed the "Getting started" cards on the empty
+      // project board (users.dismissGettingStarted, EXP-88). Surfaced
+      // read-only on the session; never client-settable.
+      gettingStartedDismissedAt: {
         type: `date`,
         defaultValue: null,
         required: false,
@@ -497,15 +506,14 @@ export const auth = betterAuth({
     // so the rule lives server-side in resolveOnboardingCompletedAt — users
     // who already have a real project get the flag backfilled on read.
     customSession(async ({ user, session }) => {
-      // Both flags out-live the 5-min session cookie cache via a fresh
+      // These flags out-live the 5-min session cookie cache via a fresh
       // resolve on read (see their resolvers for the one-way semantics).
-      const [onboardingCompletedAt, desktopAppCardDismissedAt] =
-        await Promise.all([
-          resolveOnboardingCompletedAt(user),
-          resolveDesktopAppCardDismissedAt(user),
-        ])
+      const [onboardingCompletedAt, dismissals] = await Promise.all([
+        resolveOnboardingCompletedAt(user),
+        resolveDismissalFlags(user),
+      ])
       return {
-        user: { ...user, onboardingCompletedAt, desktopAppCardDismissedAt },
+        user: { ...user, onboardingCompletedAt, ...dismissals },
         session,
       }
     }),
