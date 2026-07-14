@@ -11,6 +11,7 @@ import {
   Eye,
   Keyboard,
   Loader2,
+  MonitorOff,
   MonitorPlay,
   MonitorUp,
   OctagonX,
@@ -66,7 +67,9 @@ import { FileDiffList } from "@/components/diff-view"
 // pinned "Latest changes" diff above the composer — never raw PTY bytes.
 // Steering is message-shaped like mobile: a steal-claim + chunked input + a
 // SEPARATE `\r` frame. With no running session, members with an online
-// desktop get a "Start on my desktop" button (relay-routed remote start).
+// desktop get a "Start on my desktop" button (relay-routed remote start);
+// `offlineHint` callers (the issue Details tab, EXP-87) additionally show the
+// mobile-parity "No desktop online" hint instead of hiding.
 // Everything degrades to just the badge (or nothing) when the relay is off.
 
 // ── Wire protocol (activity-viewer side of apps/steer-relay/src/protocol.ts) ─
@@ -190,6 +193,9 @@ interface IssueSteerPanelProps {
   workspaceId: string
   currentUserId: string
   users: User[]
+  /** Show a "No desktop online" hint instead of hiding when no desktop is
+   *  reachable (iOS-parity discoverability on the issue Details tab). */
+  offlineHint?: boolean
 }
 
 export function IssueSteerPanel({
@@ -197,6 +203,7 @@ export function IssueSteerPanel({
   workspaceId,
   currentUserId,
   users,
+  offlineHint = false,
 }: IssueSteerPanelProps) {
   const config = useSteerConfig()
 
@@ -234,7 +241,7 @@ export function IssueSteerPanel({
 
   if (!session) {
     if (!isMember || !config?.enabled) return null
-    return <StartOnDesktop issueId={issueId} />
+    return <StartOnDesktop issueId={issueId} offlineHint={offlineHint} />
   }
 
   const owner = users.find((u) => u.id === session.userId)
@@ -281,7 +288,13 @@ interface SteerDevice {
   connectedAt: number
 }
 
-function StartOnDesktop({ issueId }: { issueId: string }) {
+function StartOnDesktop({
+  issueId,
+  offlineHint = false,
+}: {
+  issueId: string
+  offlineHint?: boolean
+}) {
   const [devices, setDevices] = useState<SteerDevice[] | null>(null)
   const [starting, setStarting] = useState(false)
   const [sentTo, setSentTo] = useState<string | null>(null)
@@ -297,8 +310,22 @@ function StartOnDesktop({ issueId }: { issueId: string }) {
     }
   }, [])
 
-  // No online desktop (or presence lookup failed) — hide cleanly.
-  if (!devices || devices.length === 0) return null
+  // Presence lookup still in flight — keep the section quiet.
+  if (!devices) return null
+
+  // No online desktop (or the lookup failed): hide cleanly, unless the caller
+  // wants the mobile-parity hint (the Details tab, where discoverability of
+  // the whole remote-start feature depends on it).
+  if (devices.length === 0) {
+    if (!offlineHint) return null
+    return (
+      <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
+        <MonitorOff className="size-3.5 shrink-0" />
+        No desktop online — open the Exponential desktop app to run this issue
+        there.
+      </div>
+    )
+  }
 
   const start = async (device: SteerDevice) => {
     setStarting(true)

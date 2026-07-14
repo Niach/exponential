@@ -53,6 +53,7 @@ import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueChangesTab } from "@/components/issue-changes-tab"
+import { IssueSteerPanel } from "@/components/agent-session"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
@@ -757,6 +758,24 @@ export function IssueDetailView({
     </div>
   )
 
+  // Coding section on the Details tab (EXP-87, mobile parity): "Coding now"
+  // badge + live viewer while a session runs, "Start on my desktop" (or the
+  // no-desktop-online hint) otherwise. Repo presence gates it — coding
+  // features gate on repo presence, so task boards stay quiet; the panel
+  // itself hides for non-members and when the relay is off. The Changes tab
+  // mounts its own copy, but only one tab renders at a time, so the live
+  // viewer never double-connects.
+  const steerPanel =
+    currentUserId && project.repositoryId ? (
+      <IssueSteerPanel
+        issueId={issue.id}
+        workspaceId={workspaceId}
+        currentUserId={currentUserId}
+        users={users}
+        offlineHint
+      />
+    ) : null
+
   const timeline = currentUserId ? (
     <IssueTimeline
       issue={issue}
@@ -838,6 +857,7 @@ export function IssueDetailView({
               {titleField}
               {editor}
               {attachmentRail}
+              {steerPanel}
               {widgetCard}
               {timeline}
             </>
@@ -863,6 +883,7 @@ export function IssueDetailView({
                 {titleField}
                 {editor}
                 {attachmentRail}
+                {steerPanel}
                 {widgetCard}
                 {timeline}
               </div>
