@@ -11,7 +11,7 @@
 }
 
 .plan-grid-cloud {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .plan-grid-selfhost {
@@ -20,7 +20,12 @@
   margin: 28px auto 0;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1080px) {
+  .plan-grid-cloud {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
   .plan-grid-cloud {
     grid-template-columns: 1fr;
   }

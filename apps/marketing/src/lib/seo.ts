@@ -53,7 +53,9 @@ const softwareApplication: Record<string, unknown> = {
 
 /* Pricing Offers mirror the cloud tiers in
    apps/marketing/src/components/PlanCards.tsx (which itself mirrors
-   apps/web/src/lib/billing.ts). Keep in sync when prices change. */
+   apps/web/src/lib/billing.ts). Keep in sync when prices change.
+   Enterprise is deliberately absent — a schema.org Offer needs a numeric
+   price, and Enterprise is contact-sales. */
 const pricingProduct: Record<string, unknown> = {
   "@context": `https://schema.org`,
   "@type": `Product`,
@@ -115,7 +117,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `pricing/index.html`,
     sources: [`src/PricingPage.tsx`, `src/components/PlanCards.tsx`],
     title: `Pricing — Exponential`,
-    description: `Per-seat pricing: Free for individuals, Pro $5/seat/mo, Business $10/seat/mo. Local AI agents free on every tier. Self-host free and unlimited.`,
+    description: `Per-seat pricing: Free for individuals, Pro $5/seat/mo, Business $10/seat/mo, Enterprise with SLA — let's talk. Local AI agents free on every tier. Self-host free and unlimited.`,
     ogImage: `/og/og-pricing.png`,
     jsonLd: pricingProduct,
   },
