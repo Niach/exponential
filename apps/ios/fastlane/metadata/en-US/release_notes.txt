@@ -1,5 +1,3 @@
-• Workspace owners can now delete a workspace from settings
-• Steering chat now shows your own messages
-• Fixed menu ordering in mobile navigation
-• My Issues list margins now match the rest of the app
-• Stability and reliability fixes
+• Issue and invite links now open directly in the app
+• Opening an issue now clears its notification everywhere
+• Privacy and reliability improvements

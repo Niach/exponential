@@ -1,0 +1,1 @@
+Issue and invite links now open directly in the app, opening an issue clears its notification, plus privacy and reliability fixes.
