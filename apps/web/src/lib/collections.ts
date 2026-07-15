@@ -12,7 +12,6 @@ import {
   selectLabelSchema,
   selectNotificationSchema,
   selectProjectSchema,
-  selectReleaseSchema,
   selectUserSchema,
   selectWorkspaceInviteSchema,
   selectWorkspaceMemberSchema,
@@ -225,17 +224,3 @@ export const codingSessionCollection = createCollection(
   })
 )
 
-// Releases (EXP-56): workspace-level issue bundles — the 15th synced shape
-// (member-only; the proxy's anonymous clause is the impossible-match sentinel).
-export const releaseCollection = createCollection(
-  electricCollectionOptions({
-    id: `releases`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/releases`),
-      parser: shapeParser,
-      columnMapper,
-    },
-    schema: selectReleaseSchema,
-    getKey: (item) => item.id,
-  })
-)

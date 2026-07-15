@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { issueCollection, releaseCollection } from "@/lib/collections"
+import { issueCollection } from "@/lib/collections"
 import {
   useWorkspaceProjects,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
-import { compareReleases } from "@/lib/releases"
 import { trpc } from "@/lib/trpc-client"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import type { Issue, Project, Release, Workspace } from "@/db/schema"
+import type { Issue, Project, Workspace } from "@/db/schema"
 
 export interface ReviewGroup {
   project: Project
@@ -47,25 +46,6 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
             )
         : undefined,
     [projectIds.join(`,`)]
-  )
-
-  // Releases with an OPEN release PR (EXP-73) — first-class Reviews rows from
-  // the synced releases shape (the server also dedupes them out of the
-  // external openPulls bucket). Merged release PRs auto-ship via the webhook
-  // and leave the queue on the sync echo, mirroring the issues filter.
-  const { data: releases } = useLiveQuery(
-    (query) =>
-      workspaceId
-        ? query
-            .from({ releases: releaseCollection })
-            .where(({ releases }) =>
-              and(
-                eq(releases.workspaceId, workspaceId),
-                eq(releases.prState, `open`)
-              )
-            )
-        : undefined,
-    [workspaceId]
   )
 
   const { userMap } = useWorkspaceUsers(workspace?.id)
@@ -145,22 +125,14 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
       0
     )
 
-    // Shared release display order (near-shipped first by target date) — the
-    // tested comparator from the releases surfaces.
-    const releasePulls = [...((releases ?? []) as Release[])].sort(
-      compareReleases
-    )
-
     return {
       groups,
-      releasePulls,
       externalGroups,
-      count: list.length + releasePulls.length + externalCount,
+      count: list.length + externalCount,
       // A workspace with no projects skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without
-      // waiting on GitHub; a not-yet-ready releases shape just renders no
-      // release section (same graceful degradation).
+      // waiting on GitHub.
       isLoading: !isReady && projects.length > 0,
       externalLoading,
       userMap,
@@ -168,7 +140,6 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
     }
   }, [
     issues,
-    releases,
     isReady,
     projects,
     userMap,

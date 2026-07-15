@@ -1,6 +1,6 @@
 //! Mid-session installation-token refresh (EXP-56 P9, reworked in EXP-73):
 //! the JIT GitHub-App token in a clone's credential file lives ≤1 h, so any
-//! session outliving it — a release orchestrator fanning out subagents, or a
+//! session outliving it — a long-running batch session, or a
 //! long single-issue run — loses `git push` mid-flight. The refresh is the
 //! same ambient-auth install the launcher runs at step 3, repeated:
 //! cached-or-fresh mint + [`crate::git_credentials::ensure`] on the clone
@@ -83,7 +83,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    // ---- harness (mirrors release_launcher.rs's canned server +
+    // ---- harness (mirrors the launcher tests' canned server +
     //      git_worktree.rs's seed_origin) ----
 
     struct TempDir(PathBuf);

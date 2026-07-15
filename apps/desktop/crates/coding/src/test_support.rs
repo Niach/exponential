@@ -1,6 +1,6 @@
 //! Shared test harness for the launcher tests: temp dirs, a canned one-shot
 //! tRPC server, a fake [`WorktreeProvider`], ready-made [`CodingDeps`], and
-//! the canned response bodies both the issue and release prepare paths
+//! the canned response bodies both the issue and batch prepare paths
 //! consume. `#[cfg(test)]`-only — never compiled into the crate proper.
 
 use std::fs;
@@ -150,5 +150,5 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
 pub(crate) const FOR_ISSUE_OK: &str = r#"{"result":{"data":{"repositoryId":"repo-1","fullName":"acme/web","defaultBranch":"main"}}}"#;
 pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
 pub(crate) const START_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"}}}}"#;
-pub(crate) const START_RELEASE_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-rel","releaseId":"1dc5fb4a-8923-471c-a940-53094cd33b76","status":"running"}}}}"#;
+pub(crate) const START_BATCH_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-b","issueId":null,"workspaceId":"ws-1","status":"running"}}}}"#;
 pub(crate) const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;

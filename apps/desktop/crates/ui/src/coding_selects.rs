@@ -49,26 +49,6 @@ pub const EFFORT_CHOICES: [(&str, &str); 6] = [
     ("Max", "max"),
 ];
 
-/// Release-run subagent model: [`MODEL_CHOICES`] with a leading blank
-/// "Inherit" (= the orchestrator session's model).
-pub const SUBAGENT_MODEL_CHOICES: [(&str, &str); 4] = [
-    ("Inherit", ""),
-    ("Fable", "fable"),
-    ("Opus", "opus"),
-    ("Sonnet", "sonnet"),
-];
-
-/// Release-run subagent effort: [`EFFORT_CHOICES`] with blank relabeled
-/// "Inherit" (= the orchestrator session's effort).
-pub const SUBAGENT_EFFORT_CHOICES: [(&str, &str); 6] = [
-    ("Inherit", ""),
-    ("Low", "low"),
-    ("Medium", "medium"),
-    ("High", "high"),
-    ("XHigh", "xhigh"),
-    ("Max", "max"),
-];
-
 /// Build a select over `choices`, preselecting `initial` by VALUE (falling
 /// back to the first row — every choice set puts its default first, and the
 /// persisted settings values are load-normalized into these sets anyway).

@@ -11,7 +11,6 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.NotificationsApi
-import com.exponential.app.data.api.ReleasesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SubscriptionsApi
@@ -24,7 +23,6 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.data.db.ReleaseEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -33,7 +31,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
-import com.exponential.app.domain.releaseComparator
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
@@ -77,7 +74,6 @@ class IssueDetailViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
-    private val releasesApi: ReleasesApi,
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
     private val notificationsApi: NotificationsApi,
@@ -183,35 +179,6 @@ class IssueDetailViewModel @Inject constructor(
             assignee = issue?.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
-
-    // ── Releases (EXP-56) ─────────────────────────────────────────────────────
-
-    // The issue's workspace's releases in canonical order (unshipped by target
-    // date first, shipped last) — the single-select release picker's options.
-    val workspaceReleases: StateFlow<List<ReleaseEntity>> = combine(
-        dbFlow, _project,
-    ) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(emptyList())
-            else db.releaseDao().observeByWorkspace(project.workspaceId)
-        }
-        .map { it.sortedWith(releaseComparator) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** The release this issue currently ships in (null = none). */
-    val currentRelease: StateFlow<ReleaseEntity?> = combine(
-        issueFlow, workspaceReleases,
-    ) { issue, releases ->
-        issue?.releaseId?.let { id -> releases.firstOrNull { it.id == id } }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** Single-select: move the issue into [releaseId], or out with null. */
-    fun setRelease(releaseId: String?) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { releasesApi.setIssueRelease(accountId, issueId, releaseId) }
-        }
-    }
 
     // Subscription state (separate StateFlow — the main combine is at the 5-arg
     // typed cap). Drives the Bell/BellOff toggle in the detail top bar.

@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, projects, releases, repositories } from "@/db/schema"
+import { issues, projects, repositories } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -357,7 +357,7 @@ export const repositoriesRouter = router({
   // Member-readable: every open pull request across the workspace's repos
   // that is NOT already linked to an issue (those rows render from the synced
   // issues shape). Listed live from GitHub so PRs opened outside the issue
-  // flow — release PRs on other branches, manual PRs, external contributors —
+  // flow — PRs on other branches, manual PRs, external contributors —
   // still land in the Reviews queue.
   openPulls: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
@@ -397,20 +397,8 @@ export const repositoriesRouter = router({
             isNotNull(issues.prUrl)
           )
         )
-      // Release PRs are excluded the same way (EXP-73) — the Reviews surfaces
-      // render them as first-class release rows from the synced releases
-      // shape, so the anonymous external bucket must not double-list them.
-      const releaseRows = await ctx.db
-        .select({ prUrl: releases.prUrl })
-        .from(releases)
-        .where(
-          and(
-            eq(releases.workspaceId, input.workspaceId),
-            isNotNull(releases.prUrl)
-          )
-        )
       const linkedUrls = new Set(
-        [...linkedRows, ...releaseRows].map((row) => row.prUrl).filter(Boolean)
+        linkedRows.map((row) => row.prUrl).filter(Boolean)
       )
 
       const results = await Promise.all(

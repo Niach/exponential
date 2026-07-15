@@ -5,9 +5,8 @@
 //! Delivery ([`deliver_prompt`]) is size-gated: a small prompt rides argv as
 //! claude's positional prompt directly ([`PromptDelivery::Direct`] — no
 //! `PROMPT.md` indirection); an oversized one is written to `PROMPT.md` and
-//! the positional becomes the [`SEED_LINE`] pointer. Release runs ALWAYS
-//! deliver via file ([`deliver_prompt_file`]) — the `--agents` subagent
-//! prompts reference `PROMPT.md` sections.
+//! the positional becomes the [`SEED_LINE`] pointer
+//! ([`deliver_prompt_file`]).
 //!
 //! The named MCP tools are real and verified: `exponential_pr_open` (the
 //! server opens + links the PR through the GitHub App) and
@@ -52,11 +51,10 @@ impl PromptDelivery {
     }
 }
 
-/// Size-gated delivery (single-issue runs): a prompt within
-/// [`PROMPT_ARGV_MAX_BYTES`] goes [`PromptDelivery::Direct`] — any stale
-/// `PROMPT.md` from an earlier launch is best-effort removed so claude can
-/// never read an outdated copy. Bigger prompts fall back to
-/// [`deliver_prompt_file`].
+/// Size-gated delivery: a prompt within [`PROMPT_ARGV_MAX_BYTES`] goes
+/// [`PromptDelivery::Direct`] — any stale `PROMPT.md` from an earlier launch
+/// is best-effort removed so claude can never read an outdated copy. Bigger
+/// prompts fall back to [`deliver_prompt_file`].
 pub fn deliver_prompt(
     worktree: &Path,
     clone: &Path,
@@ -69,11 +67,10 @@ pub fn deliver_prompt(
     deliver_prompt_file(worktree, clone, rendered)
 }
 
-/// Unconditional file delivery — release runs use this ALWAYS (fix F5: the
-/// `--agents` subagent prompts reference "### {id}:" sections of `PROMPT.md`,
-/// so the file must exist regardless of prompt size). Writes the prompt and
-/// keeps it git-invisible via the clone's shared `.git/info/exclude`
-/// (best-effort by design — see [`crate::git_worktree::ensure_local_excludes`]).
+/// Unconditional file delivery — the oversized-prompt fallback. Writes the
+/// prompt and keeps it git-invisible via the clone's shared
+/// `.git/info/exclude` (best-effort by design — see
+/// [`crate::git_worktree::ensure_local_excludes`]).
 pub fn deliver_prompt_file(
     worktree: &Path,
     clone: &Path,
@@ -234,9 +231,8 @@ The login page flickers on slow connections.
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Release runs always take file delivery — even a tiny prompt lands in
-    /// `PROMPT.md` (the `--agents` subagent prompts reference its sections),
-    /// and the clone's `.git/info/exclude` keeps it git-invisible.
+    /// Explicit file delivery lands even a tiny prompt in `PROMPT.md`, and
+    /// the clone's `.git/info/exclude` keeps it git-invisible.
     #[test]
     fn file_delivery_is_unconditional_and_excluded_from_git() {
         let dir = temp_dir("file");

@@ -702,7 +702,7 @@ export const issuesRouter = router({
   // project_id columns (their populate triggers are also INSERT-only) are
   // re-pointed in the same transaction so member + anonymous shape scoping
   // stays truthful. PR/branch linkage (pr_url/pr_number/branch) survives
-  // untouched; labels and releases are workspace-scoped, so they survive too.
+  // untouched; labels are workspace-scoped, so they survive too.
   move: authedProcedure
     .input(
       z.object({

@@ -12,10 +12,10 @@
 //! | Tooling doctor         | "Check tools"         |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
-//! text — the closed alias sets the CLI accepts), plus the release-run
-//! subagent defaults and three toggles: ultracode (release runs) and the two
-//! NATIVE plan-mode defaults (issue runs ON / release runs OFF) the shared
-//! Start-coding dialog prefills from.
+//! text — the closed alias sets the CLI accepts), plus four per-mode toggles
+//! the shared Start-coding dialog prefills from: ultracode (issue runs OFF /
+//! batch runs ON) and the NATIVE plan-mode defaults (issue runs ON / batch
+//! runs OFF).
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
@@ -45,10 +45,7 @@ use gpui_component::{
 use coding::{DoctorReport, Settings, ToolCheck};
 
 use crate::coding_flow::CodingHub;
-use crate::coding_selects::{
-    choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES,
-    SUBAGENT_EFFORT_CHOICES, SUBAGENT_MODEL_CHOICES,
-};
+use crate::coding_selects::{choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES};
 
 use super::{card, card_header, error_notice};
 
@@ -62,14 +59,12 @@ pub struct CodingPane {
     effort_select: ChoiceSelect,
     repos_input: Entity<InputState>,
     prefix_input: Entity<InputState>,
-    /// EXP-56 release-run defaults (the launch dialog's prefill).
-    subagent_model_select: ChoiceSelect,
-    subagent_effort_select: ChoiceSelect,
-    release_ultracode: bool,
-    /// Native plan-mode defaults (the shared dialog's prefill; issue ON /
-    /// release OFF out of the box).
+    /// Per-mode run defaults (the shared dialog's prefill): ultracode issue
+    /// OFF / batch ON, plan mode issue ON / batch OFF out of the box.
+    issue_ultracode: bool,
+    batch_ultracode: bool,
     issue_plan_mode: bool,
-    release_plan_mode: bool,
+    batch_plan_mode: bool,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -88,10 +83,6 @@ impl CodingPane {
         let defaults = Settings::default();
         let model_select = choice_select(&MODEL_CHOICES, &defaults.claude_model, window, cx);
         let effort_select = choice_select(&EFFORT_CHOICES, &defaults.claude_effort, window, cx);
-        let subagent_model_select =
-            choice_select(&SUBAGENT_MODEL_CHOICES, &defaults.subagent_model, window, cx);
-        let subagent_effort_select =
-            choice_select(&SUBAGENT_EFFORT_CHOICES, &defaults.subagent_effort, window, cx);
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -109,12 +100,7 @@ impl CodingPane {
                 }
             }));
         }
-        for select in [
-            &model_select,
-            &effort_select,
-            &subagent_model_select,
-            &subagent_effort_select,
-        ] {
+        for select in [&model_select, &effort_select] {
             // Confirming a choice notifies the state — observing keeps the
             // Save button's dirty tracking live without a typed subscription.
             subscriptions.push(cx.observe(select, |_, _, cx| cx.notify()));
@@ -126,11 +112,10 @@ impl CodingPane {
             effort_select,
             repos_input,
             prefix_input,
-            subagent_model_select,
-            subagent_effort_select,
-            release_ultracode: defaults.release_ultracode,
+            issue_ultracode: defaults.issue_ultracode,
+            batch_ultracode: defaults.batch_ultracode,
             issue_plan_mode: defaults.issue_plan_mode,
-            release_plan_mode: defaults.release_plan_mode,
+            batch_plan_mode: defaults.batch_plan_mode,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -168,23 +153,10 @@ impl CodingPane {
                 cx,
             )
         });
-        self.subagent_model_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &SharedString::from(settings.subagent_model.clone()),
-                window,
-                cx,
-            )
-        });
-        self.subagent_effort_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &SharedString::from(settings.subagent_effort.clone()),
-                window,
-                cx,
-            )
-        });
-        self.release_ultracode = settings.release_ultracode;
+        self.issue_ultracode = settings.issue_ultracode;
+        self.batch_ultracode = settings.batch_ultracode;
         self.issue_plan_mode = settings.issue_plan_mode;
-        self.release_plan_mode = settings.release_plan_mode;
+        self.batch_plan_mode = settings.batch_plan_mode;
         self.synced = Some(settings);
         cx.notify();
     }
@@ -207,11 +179,10 @@ impl CodingPane {
             claude_path: value(&self.claude_input, &defaults.claude_path),
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
-            subagent_model: selected(&self.subagent_model_select, cx),
-            subagent_effort: selected(&self.subagent_effort_select, cx),
-            release_ultracode: self.release_ultracode,
-            release_plan_mode: self.release_plan_mode,
+            issue_ultracode: self.issue_ultracode,
+            batch_ultracode: self.batch_ultracode,
             issue_plan_mode: self.issue_plan_mode,
+            batch_plan_mode: self.batch_plan_mode,
             repos_root: value(&self.repos_input, &defaults.repos_root),
             branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
         }
@@ -447,41 +418,37 @@ impl Render for CodingPane {
                 |this, checked, _| this.issue_plan_mode = *checked,
                 cx,
             ))
-            // EXP-56: defaults for "Start coding" on a whole RELEASE — the
-            // launch dialog prefills from these four.
+            .child(Self::toggle_row(
+                "issue-ultracode",
+                "Dynamic workflows (ultracode) — issue runs",
+                "Runs single-issue sessions with --effort ultracode — works with any model.",
+                self.issue_ultracode,
+                |this, checked, _| this.issue_ultracode = *checked,
+                cx,
+            ))
+            // Defaults for "Start coding" on SEVERAL issues at once — the
+            // launch dialog prefills from these two when 2+ are checked.
             .child(
                 div()
                     .pt_2()
                     .text_sm()
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .child("Release runs"),
+                    .child("Batch runs (multiple issues)"),
             )
-            .child(Self::labeled_select(
-                "Subagent model",
-                "Default model for per-issue subagents in release runs — Inherit uses the orchestrator's model.",
-                &self.subagent_model_select,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Subagent effort",
-                "Default effort for per-issue subagents — Inherit uses the orchestrator's effort.",
-                &self.subagent_effort_select,
+            .child(Self::toggle_row(
+                "batch-ultracode",
+                "Dynamic workflows (ultracode) — batch runs",
+                "Runs batch sessions with --effort ultracode — works with any model.",
+                self.batch_ultracode,
+                |this, checked, _| this.batch_ultracode = *checked,
                 cx,
             ))
             .child(Self::toggle_row(
-                "release-ultracode",
-                "Dynamic workflows (ultracode)",
-                "Runs the orchestrator with --effort ultracode — works with any model.",
-                self.release_ultracode,
-                |this, checked, _| this.release_ultracode = *checked,
-                cx,
-            ))
-            .child(Self::toggle_row(
-                "release-plan-mode",
-                "Plan mode — release runs",
-                "The orchestrator presents its wave plan for approval before pushing anything.",
-                self.release_plan_mode,
-                |this, checked, _| this.release_plan_mode = *checked,
+                "batch-plan-mode",
+                "Plan mode — batch runs",
+                "Claude presents its plan for approval before editing or pushing anything.",
+                self.batch_plan_mode,
+                |this, checked, _| this.batch_plan_mode = *checked,
                 cx,
             ));
         if let Some(error) = &self.save_error {

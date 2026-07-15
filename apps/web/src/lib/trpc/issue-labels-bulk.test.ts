@@ -8,7 +8,7 @@ import { is, Param, SQL } from "drizzle-orm"
 // ONLY for rows the onConflictDoNothing insert actually created (returning())
 // — a half-labelled selection must not double-log the already-labelled
 // issues. bulkRemove deletes by (labelId, issueIds) and records label_removed
-// per actually-deleted row. Fake-db harness mirrors releases.test.ts.
+// per actually-deleted row. Fake-db harness mirrors issues-bulk.test.ts.
 
 const h = vi.hoisted(() => ({
   assertWorkspaceMember: vi.fn(

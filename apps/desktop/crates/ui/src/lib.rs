@@ -55,8 +55,6 @@ mod navigation;
 mod oauth;
 mod properties_panel;
 mod queries;
-mod release_add_issues_dialog;
-mod release_create_dialog;
 mod repo_resolver;
 mod run_bar;
 mod screens;
@@ -106,7 +104,7 @@ pub fn init(cx: &mut App) {
     // EXP-48 issue switcher: J/K bindings scoped to the detail's key context
     // (guarded against focused editables — see issue_detail::init).
     issue_detail::init(cx);
-    // Bulk select (release rework Phase 7): cmd-a/ctrl-a select-all +
+    // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
     // Create-flow dialog actions (§4.2): NewIssue (board filter bar),

@@ -8,7 +8,7 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // Live "coding now" rows, workspace-scoped (workspace_id is denormalized from
 // issue→project by a trigger). MEMBER-ONLY since EXP-90: anonymous
 // feedback-board viewers get NOTHING (the empty id list yields the
-// impossible-match sentinel — zero rows, no 401, same posture as releases).
+// impossible-match sentinel — zero rows, no 401).
 export const Route = createFileRoute(`/api/shapes/coding-sessions`)({
   server: {
     handlers: {

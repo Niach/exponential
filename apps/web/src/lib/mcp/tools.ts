@@ -21,8 +21,6 @@ import {
   labels,
   notifications,
   projects,
-  releases,
-  repositories,
   runConfigs,
   users,
   workspaceInvites,
@@ -976,40 +974,75 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      title: `Open a pull request for an issue`,
-      description: `Open a GitHub pull request for the issue's linked repository and link it to the issue. The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' defaults to the repo's default branch. On success the issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event. Fails with a clear message if the issue's project has no linked repository. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      title: `Open a pull request for one issue or a batch of issues`,
+      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event; merging the PR later completes them all. Fails with a clear message if a project has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
       inputSchema: {
-        issueId: z.string().min(1),
+        issueId: z.string().min(1).optional(),
+        issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         title: z.string().min(1).max(255),
         body: z.string().max(60_000).optional(),
         head: z.string().max(255).optional(),
         base: z.string().max(255).optional(),
       },
     },
-    async ({ issueId, title, body, head, base }) => {
+    async ({ issueId, issueIds, title, body, head, base }) => {
       try {
-        const id = await resolveIssueId(issueId, user.id, access)
-        const issueCtx = await getIssueWorkspaceContext(id)
-        assertProjectGranted(access, issueCtx.projectId, issueCtx.workspaceId)
-        await resolveWorkspaceAccess(user.id, issueCtx.workspaceId)
-
-        const repo = await caller(user, request).repositories.forIssue({
-          issueId: id,
-        })
-        if (!repo) {
+        if (Boolean(issueId) === Boolean(issueIds?.length)) {
+          throw new Error(`Provide exactly one of issueId or issueIds`)
+        }
+        if (issueIds?.length && !head) {
           throw new Error(
-            `No repository linked to this project — link one in workspace settings.`
+            `'head' is required with issueIds — pass the pushed batch branch`
           )
         }
 
-        const [issue] = await db
-          .select({ identifier: issues.identifier, branch: issues.branch })
-          .from(issues)
-          .where(eq(issues.id, id))
-          .limit(1)
-        if (!issue) throw new Error(`Issue not found`)
+        // Resolve + authorize every issue; a batch must land in ONE repo.
+        const rawIds = issueIds ?? [issueId!]
+        const ids: string[] = []
+        for (const raw of rawIds) {
+          const id = await resolveIssueId(raw, user.id, access)
+          if (!ids.includes(id)) ids.push(id)
+        }
 
-        const headBranch = head ?? issue.branch ?? `exp/${issue.identifier}`
+        const workspaceIdByIssue = new Map<string, string>()
+        let repo: {
+          repositoryId: string
+          fullName: string
+          defaultBranch: string
+        } | null = null
+        for (const id of ids) {
+          const issueCtx = await getIssueWorkspaceContext(id)
+          assertProjectGranted(access, issueCtx.projectId, issueCtx.workspaceId)
+          await resolveWorkspaceAccess(user.id, issueCtx.workspaceId)
+          workspaceIdByIssue.set(id, issueCtx.workspaceId)
+
+          const issueRepo = await caller(user, request).repositories.forIssue({
+            issueId: id,
+          })
+          if (!issueRepo) {
+            throw new Error(
+              `No repository linked to this project — link one in workspace settings.`
+            )
+          }
+          if (repo && repo.repositoryId !== issueRepo.repositoryId) {
+            throw new Error(
+              `All issues in a batch PR must share one repository (${repo.fullName} vs ${issueRepo.fullName}).`
+            )
+          }
+          repo = issueRepo
+        }
+        if (!repo) throw new Error(`Issue not found`)
+
+        let headBranch = head
+        if (!headBranch) {
+          const [issue] = await db
+            .select({ identifier: issues.identifier, branch: issues.branch })
+            .from(issues)
+            .where(eq(issues.id, ids[0]))
+            .limit(1)
+          if (!issue) throw new Error(`Issue not found`)
+          headBranch = issue.branch ?? `exp/${issue.identifier}`
+        }
         const baseBranch = base ?? repo.defaultBranch
 
         const token = await resolveRepoInstallationToken(repo.fullName)
@@ -1029,128 +1062,40 @@ export function registerExponentialTools(
         })
 
         await db.transaction(async (tx) => {
-          await tx
-            .update(issues)
-            .set({
-              prUrl: created.url,
-              prNumber: created.number,
-              prState: `open`,
-              branch: headBranch,
+          for (const id of ids) {
+            await tx
+              .update(issues)
+              .set({
+                prUrl: created.url,
+                prNumber: created.number,
+                prState: `open`,
+                branch: headBranch,
+              })
+              .where(eq(issues.id, id))
+            await recordIssueEvent(tx, {
+              issueId: id,
+              workspaceId: workspaceIdByIssue.get(id)!,
+              actorUserId: user.id,
+              type: `pr_opened`,
+              payload: {
+                prUrl: created.url,
+                prNumber: created.number,
+                branch: headBranch,
+              },
             })
-            .where(eq(issues.id, id))
-          await recordIssueEvent(tx, {
-            issueId: id,
-            workspaceId: issueCtx.workspaceId,
-            actorUserId: user.id,
-            type: `pr_opened`,
-            payload: {
-              prUrl: created.url,
-              prNumber: created.number,
-              branch: headBranch,
-            },
-          })
+          }
         })
 
         // Away/phone flow: "PR opened" reaches assignee + subscribers on
         // in-app + push + email (deliver()'s dedupe window absorbs the
         // near-simultaneous GitHub webhook `opened` fan-out).
-        fireAndForgetPrNotify({
-          issueId: id,
-          type: `pr_opened`,
-          actorUserId: user.id,
-        })
-
-        return ok({ url: created.url, number: created.number })
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_release_pr_open`,
-    {
-      title: `Open the release pull request`,
-      description: `Open the ONE pull request for a release coding run's integration branch and record it on the release. The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. 'head' is the pushed integration branch (e.g. 'exp/rel-<slug>'); 'base' defaults to the repository's default branch. This is IN ADDITION to the per-issue PRs (which keep using exponential_pr_open with base = the integration branch) — the release PR carries the combined diff, and merging it AUTO-SHIPS the release. Refuses when the release already has a linked PR (one release PR per release; a multi-repo release records only its first).`,
-      inputSchema: {
-        releaseId: z.string().uuid(),
-        repositoryId: z.string().uuid(),
-        title: z.string().min(1).max(255),
-        body: z.string().max(60_000).optional(),
-        head: z.string().min(1).max(255),
-        base: z.string().max(255).optional(),
-      },
-    },
-    async ({ releaseId, repositoryId, title, body, head, base }) => {
-      try {
-        const [release] = await db
-          .select({
-            id: releases.id,
-            workspaceId: releases.workspaceId,
-            prUrl: releases.prUrl,
+        for (const id of ids) {
+          fireAndForgetPrNotify({
+            issueId: id,
+            type: `pr_opened`,
+            actorUserId: user.id,
           })
-          .from(releases)
-          .where(eq(releases.id, releaseId))
-          .limit(1)
-        if (!release) throw new Error(`Release not found`)
-        // Workspace-level GitHub write: a project-scoped OAuth grant must not
-        // reach it (same posture as exponential_repositories_add and
-        // exponential_projects_set_repository). Personal keys/sessions have
-        // full access and pass.
-        assertWorkspaceFullyGranted(access, release.workspaceId)
-        await resolveWorkspaceAccess(user.id, release.workspaceId)
-
-        if (release.prUrl) {
-          throw new Error(
-            `This release already has a linked PR: ${release.prUrl}`
-          )
         }
-
-        const [repo] = await db
-          .select({
-            id: repositories.id,
-            fullName: repositories.fullName,
-            defaultBranch: repositories.defaultBranch,
-            workspaceId: repositories.workspaceId,
-            archivedAt: repositories.archivedAt,
-          })
-          .from(repositories)
-          .where(eq(repositories.id, repositoryId))
-          .limit(1)
-        if (
-          !repo ||
-          repo.workspaceId !== release.workspaceId ||
-          repo.archivedAt
-        ) {
-          throw new Error(`Repository not found in this release's workspace`)
-        }
-
-        const token = await resolveRepoInstallationToken(repo.fullName)
-        if (!token) {
-          throw new Error(
-            `The Exponential GitHub App is not installed on ${repo.fullName}.`
-          )
-        }
-
-        const created = await createPullRequest({
-          repo: repo.fullName,
-          head,
-          base: base ?? repo.defaultBranch,
-          title,
-          body: body ?? ``,
-          token,
-        })
-
-        // Conditional on pr_url still being NULL: a concurrent link keeps the
-        // first writer (the PR opened here still exists on GitHub either way).
-        await db
-          .update(releases)
-          .set({
-            prUrl: created.url,
-            prNumber: created.number,
-            prState: `open`,
-          })
-          .where(and(eq(releases.id, releaseId), isNull(releases.prUrl)))
 
         return ok({ url: created.url, number: created.number })
       } catch (e) {

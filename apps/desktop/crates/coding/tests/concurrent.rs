@@ -37,7 +37,7 @@ use api::trpc::TrpcClient;
 use api::StaticToken;
 use coding::{
     clone_path, prepare, spawn_prepared, worktree_path, CodingDeps, GitWorktrees, IssueSeed,
-    IssueLaunchOptions, LaunchOrigin, LaunchRequest, LaunchOutcome, Prepared, PrepareRequest,
+    LaunchOptions, LaunchOrigin, LaunchRequest, LaunchOutcome, Prepared, PrepareRequest,
     Settings,
 };
 use gpui::AppContext as _;
@@ -230,9 +230,10 @@ fn main() {
             issue_identifier: identifier.to_string(),
             device_label: "concurrentbox".to_string(),
             origin: LaunchOrigin::Local,
-            options: IssueLaunchOptions {
+            options: LaunchOptions {
                 model: "opus".to_string(),
                 effort: "".to_string(),
+                ultracode: false,
                 plan_mode: false,
             },
         })

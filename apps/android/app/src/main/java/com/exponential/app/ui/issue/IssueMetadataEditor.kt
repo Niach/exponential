@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,12 +64,9 @@ fun IssueMetadataEditor(
     isModerator: Boolean,
     // EXP-50: hide the assignee row in a solo workspace (one human member).
     hideAssignee: Boolean = false,
-    // EXP-56: the workspace release this issue ships in (null = none).
-    releaseName: String? = null,
     onStatusClick: () -> Unit,
     onPriorityClick: () -> Unit,
     onAssigneeClick: () -> Unit,
-    onReleaseClick: () -> Unit = {},
     onDueDateClick: () -> Unit,
     onClearDueDate: () -> Unit,
     onStartTimeClick: () -> Unit,
@@ -113,29 +109,6 @@ fun IssueMetadataEditor(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        // Release (EXP-56): single-select — an issue ships in at most one
-        // workspace release.
-        CardDivider()
-        DetailRow(label = "Release", enabled = isModerator, onClick = onReleaseClick) {
-            if (releaseName != null) {
-                Icon(
-                    Icons.Filled.RocketLaunch,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = mutedTint,
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(
-                releaseName ?: "No release",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (releaseName != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 

@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Send } from "lucide-react"
-import type { Comment, Issue, IssueEvent, Label, Project, Release, User } from "@/db/schema"
+import type { Comment, Issue, IssueEvent, Label, Project, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   commentCollection,
   issueEventCollection,
   labelCollection,
   projectCollection,
-  releaseCollection,
 } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
@@ -52,10 +51,6 @@ export function IssueTimeline({
     query.from({ labels: labelCollection })
   )
 
-  const { data: releases } = useLiveQuery((query) =>
-    query.from({ releases: releaseCollection })
-  )
-
   // Project names for project_moved rows (EXP-57).
   const { data: projects } = useLiveQuery((query) =>
     query.from({ projects: projectCollection })
@@ -65,10 +60,6 @@ export function IssueTimeline({
   const labelMap = useMemo(
     () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
     [labels]
-  )
-  const releaseMap = useMemo(
-    () => new Map((releases ?? []).map((r) => [r.id, r as Release])),
-    [releases]
   )
   const projectMap = useMemo(
     () => new Map((projects ?? []).map((p) => [p.id, p as Project])),
@@ -149,7 +140,6 @@ export function IssueTimeline({
               event={item.event}
               userMap={userMap}
               labelMap={labelMap}
-              releaseMap={releaseMap}
               projectMap={projectMap}
             />
           )

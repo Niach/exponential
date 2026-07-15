@@ -49,8 +49,8 @@ use sync::Store;
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
 use coding::{
-    run_doctor, CodingDeps, DoctorReport, IssueLaunchOptions, IssueSeed, LaunchOrigin,
-    LaunchOutcome, LaunchRequest, Settings,
+    run_doctor, CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchOutcome,
+    LaunchRequest, Settings,
 };
 
 use crate::queries;
@@ -166,12 +166,12 @@ impl CodingHub {
 // LocalSessions — the sessions THIS process launched (§7.5 play↔stop)
 // ---------------------------------------------------------------------------
 
-/// What a local coding session works on: one issue (§7.1) or a whole release
-/// (the EXP-56 orchestrator — one session per release × repo group).
+/// What a local coding session works on: one issue (§7.1) or a multi-issue
+/// batch (one session per batch run, keyed by its batch id).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionSubject {
     Issue(String),
-    Release(String),
+    Batch(String),
 }
 
 /// One locally running coding session (a `coding_sessions` row whose child
@@ -191,9 +191,8 @@ pub struct LocalCodingSession {
 #[derive(Default)]
 pub struct LocalSessions {
     by_issue: HashMap<String, LocalCodingSession>,
-    /// EXP-56: release-orchestrator sessions, keyed by release id (the
-    /// release-detail Start↔Stop flip).
-    by_release: HashMap<String, LocalCodingSession>,
+    /// Multi-issue batch sessions, keyed by batch id.
+    by_batch: HashMap<String, LocalCodingSession>,
     /// Keeps the per-session `TabClosed` watchers alive (keyed by session id;
     /// dropped with the entry).
     watchers: HashMap<String, Subscription>,
@@ -223,19 +222,13 @@ impl LocalSessions {
         self.by_issue.get(issue_id)
     }
 
-    /// The release-orchestrator session for `release_id`, if this process is
-    /// running one (EXP-56 — the release-detail Start↔Stop flip).
-    pub fn get_release(&self, release_id: &str) -> Option<&LocalCodingSession> {
-        self.by_release.get(release_id)
-    }
-
     /// The coding session id whose terminal tab is `tab`, if this process is
     /// coding it (reverse of the subject-keyed maps — the §8.5 banner resolves
     /// a dock tab back to its steer session).
     pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
         self.by_issue
             .values()
-            .chain(self.by_release.values())
+            .chain(self.by_batch.values())
             .find(|session| session.tab == tab)
             .map(|session| session.session_id.as_str())
     }
@@ -248,7 +241,7 @@ impl LocalSessions {
         let removed = sessions.update(cx, |this, cx| {
             let entry = match subject {
                 SessionSubject::Issue(id) => this.by_issue.remove(id),
-                SessionSubject::Release(id) => this.by_release.remove(id),
+                SessionSubject::Batch(id) => this.by_batch.remove(id),
             };
             if let Some(entry) = &entry {
                 this.watchers.remove(&entry.session_id);
@@ -303,8 +296,8 @@ impl LocalSessions {
                 SessionSubject::Issue(id) => {
                     this.by_issue.insert(id.clone(), session);
                 }
-                SessionSubject::Release(id) => {
-                    this.by_release.insert(id.clone(), session);
+                SessionSubject::Batch(id) => {
+                    this.by_batch.insert(id.clone(), session);
                 }
             }
             cx.notify();
@@ -325,7 +318,7 @@ pub fn local_session_for<'a>(
 // ---------------------------------------------------------------------------
 
 struct RefresherEntry {
-    /// Live sessions sharing this clone (single-issue + release runs on the
+    /// Live sessions sharing this clone (single-issue + batch runs on the
     /// same repo share one loop).
     count: usize,
     cancel: Arc<AtomicBool>,
@@ -497,7 +490,7 @@ fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
 pub fn build_launch(
     issue_id: &str,
     origin: LaunchOrigin,
-    options: IssueLaunchOptions,
+    options: LaunchOptions,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -539,11 +532,11 @@ pub fn build_launch(
     Some((request, deps))
 }
 
-/// [`CodingDeps`] for a RELEASE launch (EXP-56) — the same assembly as
-/// [`build_launch`] minus the issue lookup: the release dialog snapshots
-/// every issue's title/description into the [`coding::ReleaseLaunchRequest`]
-/// itself, so the seed fn is inert. `None` when signed out.
-pub fn build_release_deps(cx: &mut App) -> Option<CodingDeps> {
+/// [`CodingDeps`] for a BATCH launch — the same assembly as [`build_launch`]
+/// minus the issue lookup: the dialog snapshots every issue's
+/// title/description into the [`coding::BatchLaunchRequest`] itself, so the
+/// seed fn is inert. `None` when signed out.
+pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let data_dir = cx
@@ -564,9 +557,9 @@ pub fn build_release_deps(cx: &mut App) -> Option<CodingDeps> {
 
 /// Foreground half of the launch: spawn the prepared Claude tab into THIS
 /// window's dock, register the local session (play→stop), and hook the exit
-/// edge to clear it again. Shared by the single-issue and release (EXP-56)
-/// paths — only the [`SessionSubject`] differs. A spawn failure never strands
-/// the row — `spawn_prepared_with` already ends it.
+/// edge to clear it again. Shared by the single-issue and batch paths — only
+/// the [`SessionSubject`] differs. A spawn failure never strands the row —
+/// `spawn_prepared_with` already ends it.
 pub fn spawn_into_window(
     prepared: coding::PreparedLaunch,
     subject: SessionSubject,

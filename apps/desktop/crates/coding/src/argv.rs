@@ -8,7 +8,6 @@
 //! [`crate::doctor::MIN_CLAUDE_VERSION`] gate guarantees every flag here.
 
 use crate::mcp_json::MCP_JSON_FILE;
-use crate::release_launcher::ReleaseLaunchOptions;
 use crate::settings::Settings;
 
 /// The MCP wiring of every coding argv: the launcher-written worktree
@@ -51,71 +50,61 @@ pub fn permission_args(plan_mode: bool) -> Vec<String> {
     }
 }
 
-/// The Start-coding dialog's choices for a SINGLE-ISSUE run.
+/// The Start-coding dialog's choices — ONE shape for both run modes (a
+/// single-issue session and a multi-issue batch session differ only in their
+/// settings DEFAULTS, not in the flags they can carry).
 #[derive(Clone, Debug)]
-pub struct IssueLaunchOptions {
+pub struct LaunchOptions {
     /// `--model` alias (fable/opus/sonnet).
     pub model: String,
-    /// `--effort` level; blank = omit the flag.
+    /// `--effort` level; blank = omit the flag. Ignored while ultracode is on
+    /// (ultracode IS the effort level — `--effort ultracode`).
     pub effort: String,
+    /// Dynamic workflows (`--effort ultracode`, CLI ≥2.1.203 —
+    /// model-independent, no opus pin). Wins over `effort` while on.
+    pub ultracode: bool,
     /// Native plan mode (`--permission-mode plan`).
     pub plan_mode: bool,
 }
 
-impl IssueLaunchOptions {
-    /// The settings-default options — what a relay start (no dialog) runs
-    /// with.
-    pub fn from_settings(settings: &Settings) -> Self {
+impl LaunchOptions {
+    /// The settings-default options for a SINGLE-ISSUE run — what a relay
+    /// start (no dialog) runs with.
+    pub fn issue_defaults(settings: &Settings) -> Self {
         Self {
             model: settings.claude_model.clone(),
             effort: settings.claude_effort.clone(),
+            ultracode: settings.issue_ultracode,
             plan_mode: settings.issue_plan_mode,
+        }
+    }
+
+    /// The settings-default options for a BATCH (multi-issue) run.
+    pub fn batch_defaults(settings: &Settings) -> Self {
+        Self {
+            model: settings.claude_model.clone(),
+            effort: settings.claude_effort.clone(),
+            ultracode: settings.batch_ultracode,
+            plan_mode: settings.batch_plan_mode,
         }
     }
 }
 
-/// Single-issue argv:
-/// `--model <m> [--effort <e>] <mcp_config_args> <permission_args>
+/// The coding-session argv:
+/// `--model <m> [--effort ultracode|<e>] <mcp_config_args> <permission_args>
 /// <positional>`.
-pub fn issue_args(opts: &IssueLaunchOptions, positional: &str) -> Vec<String> {
+pub fn session_args(opts: &LaunchOptions, positional: &str) -> Vec<String> {
     let mut args = vec!["--model".to_string(), opts.model.clone()];
-    let effort = opts.effort.trim();
-    if !effort.is_empty() {
-        args.push("--effort".to_string());
-        args.push(effort.to_string());
-    }
-    args.extend(mcp_config_args());
-    args.extend(permission_args(opts.plan_mode));
-    args.push(positional.to_string());
-    args
-}
-
-/// Release-orchestrator argv:
-/// `--model <m> [--effort ultracode|<e>] --agents <json> <mcp_config_args>
-/// <permission_args> <positional>`. Ultracode IS an effort level (`--effort ultracode`,
-/// CLI ≥2.1.203 — model-independent, no opus pin) and wins over the main
-/// effort while engaged.
-pub fn release_args(
-    opts: &ReleaseLaunchOptions,
-    agents_json: &str,
-    positional: &str,
-) -> Vec<String> {
-    let mut args = vec!["--model".to_string(), opts.main_model.clone()];
     let effort = if opts.ultracode {
         Some("ultracode".to_string())
     } else {
-        opts.main_effort
-            .as_deref()
-            .map(str::trim)
-            .filter(|effort| !effort.is_empty())
-            .map(str::to_string)
+        let trimmed = opts.effort.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
     };
     if let Some(effort) = effort {
         args.push("--effort".to_string());
         args.push(effort);
     }
-    args.push("--agents".to_string());
-    args.push(agents_json.to_string());
     args.extend(mcp_config_args());
     args.extend(permission_args(opts.plan_mode));
     args.push(positional.to_string());
@@ -161,15 +150,16 @@ mod tests {
     }
 
     #[test]
-    fn issue_args_matrix() {
-        // Plan mode ON (the issue default), no effort.
-        let opts = IssueLaunchOptions {
+    fn session_args_matrix() {
+        // Plan mode ON (the issue default), no effort, no ultracode.
+        let opts = LaunchOptions {
             model: "fable".to_string(),
             effort: "".to_string(),
+            ultracode: false,
             plan_mode: true,
         };
         assert_eq!(
-            issue_args(&opts, "do the thing"),
+            session_args(&opts, "do the thing"),
             vec![
                 "--model",
                 "fable",
@@ -185,13 +175,14 @@ mod tests {
 
         // Plan mode OFF + effort set: skip flag, effort before the
         // MCP + permission tail, positional last.
-        let opts = IssueLaunchOptions {
+        let opts = LaunchOptions {
             model: "opus".to_string(),
             effort: "xhigh".to_string(),
+            ultracode: false,
             plan_mode: false,
         };
         assert_eq!(
-            issue_args(&opts, "prompt"),
+            session_args(&opts, "prompt"),
             vec![
                 "--model",
                 "opus",
@@ -205,97 +196,62 @@ mod tests {
             ]
         );
 
-        // Whitespace effort → omitted.
-        let opts = IssueLaunchOptions {
-            model: "sonnet".to_string(),
-            effort: "  ".to_string(),
+        // Ultracode WINS over a set effort (`--effort ultracode`,
+        // model-independent — the chosen model stays).
+        let opts = LaunchOptions {
+            model: "fable".to_string(),
+            effort: "high".to_string(),
+            ultracode: true,
             plan_mode: false,
         };
-        assert!(!issue_args(&opts, "p").iter().any(|arg| arg == "--effort"));
+        assert_eq!(
+            session_args(&opts, "seed")[..4],
+            [
+                "--model".to_string(),
+                "fable".to_string(),
+                "--effort".to_string(),
+                "ultracode".to_string(),
+            ]
+        );
+
+        // Whitespace effort + no ultracode → no --effort at all; never
+        // an --agents flag.
+        let opts = LaunchOptions {
+            model: "sonnet".to_string(),
+            effort: "  ".to_string(),
+            ultracode: false,
+            plan_mode: false,
+        };
+        let args = session_args(&opts, "p");
+        assert!(!args.iter().any(|arg| arg == "--effort"));
+        assert!(!args.iter().any(|arg| arg == "--agents"));
+        assert_eq!(args.last().map(String::as_str), Some("p"));
     }
 
     #[test]
-    fn from_settings_maps_model_effort_and_issue_plan_mode() {
+    fn defaults_map_model_effort_and_per_mode_toggles() {
         let mut settings = Settings::default();
         settings.claude_model = "sonnet".to_string();
         settings.claude_effort = "high".to_string();
         settings.issue_plan_mode = false;
-        let opts = IssueLaunchOptions::from_settings(&settings);
+        let opts = LaunchOptions::issue_defaults(&settings);
         assert_eq!(opts.model, "sonnet");
         assert_eq!(opts.effort, "high");
         assert!(!opts.plan_mode);
+        assert!(!opts.ultracode);
 
-        // The stock defaults: fable, no effort, plan mode ON.
-        let opts = IssueLaunchOptions::from_settings(&Settings::default());
-        assert_eq!(opts.model, "fable");
-        assert_eq!(opts.effort, "");
-        assert!(opts.plan_mode);
-    }
+        // The stock defaults: issue runs — plan mode ON, ultracode OFF;
+        // batch runs — ultracode ON, plan mode OFF. Same model/effort pair.
+        let issue = LaunchOptions::issue_defaults(&Settings::default());
+        assert_eq!(issue.model, "fable");
+        assert_eq!(issue.effort, "");
+        assert!(issue.plan_mode);
+        assert!(!issue.ultracode);
 
-    fn release_options() -> ReleaseLaunchOptions {
-        ReleaseLaunchOptions {
-            main_model: "fable".to_string(),
-            main_effort: Some("high".to_string()),
-            subagent_model: "opus".to_string(),
-            subagent_effort: Some("high".to_string()),
-            ultracode: true,
-            plan_mode: false,
-        }
-    }
-
-    #[test]
-    fn release_args_matrix() {
-        // Ultracode: `--effort ultracode` (model-independent — fable stays),
-        // main effort ignored, agents + skip flag + positional.
-        assert_eq!(
-            release_args(&release_options(), r#"{"exp-42":{}}"#, "seed"),
-            vec![
-                "--model",
-                "fable",
-                "--effort",
-                "ultracode",
-                "--agents",
-                r#"{"exp-42":{}}"#,
-                "--mcp-config",
-                ".exp-mcp.json",
-                "--strict-mcp-config",
-                "--dangerously-skip-permissions",
-                "seed",
-            ]
-        );
-
-        // Ultracode OFF: the main effort applies.
-        let mut opts = release_options();
-        opts.ultracode = false;
-        assert_eq!(
-            release_args(&opts, "{}", "seed"),
-            vec![
-                "--model",
-                "fable",
-                "--effort",
-                "high",
-                "--agents",
-                "{}",
-                "--mcp-config",
-                ".exp-mcp.json",
-                "--strict-mcp-config",
-                "--dangerously-skip-permissions",
-                "seed",
-            ]
-        );
-
-        // Ultracode OFF + blank effort → no --effort at all.
-        let mut opts = release_options();
-        opts.ultracode = false;
-        opts.main_effort = Some("  ".to_string());
-        assert!(!release_args(&opts, "{}", "seed").iter().any(|arg| arg == "--effort"));
-
-        // Plan mode ON rides the native permission args.
-        let mut opts = release_options();
-        opts.plan_mode = true;
-        let args = release_args(&opts, "{}", "seed");
-        assert!(args.windows(2).any(|pair| pair == ["--permission-mode", "plan"]));
-        assert!(!args.iter().any(|arg| arg == "--dangerously-skip-permissions"));
-        assert_eq!(args.last().map(String::as_str), Some("seed"));
+        let batch = LaunchOptions::batch_defaults(&Settings::default());
+        assert_eq!(batch.model, "fable");
+        assert_eq!(batch.effort, "");
+        assert!(!batch.plan_mode);
+        assert!(batch.ultracode);
     }
 }

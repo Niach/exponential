@@ -38,7 +38,7 @@ use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
     Attachment, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber, Label,
-    Notification, Project, Release, User, Workspace, WorkspaceInvite, WorkspaceMember,
+    Notification, Project, User, Workspace, WorkspaceInvite, WorkspaceMember,
 };
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,6 @@ id_shape_row!(Notification, "notifications");
 id_shape_row!(IssueEvent, "issue_events");
 id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(CodingSession, "coding_sessions");
-id_shape_row!(Release, "releases");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -287,11 +286,10 @@ pub struct Collections {
     pub issue_events: Entity<Collection<IssueEvent>>,
     pub issue_subscribers: Entity<Collection<IssueSubscriber>>,
     pub coding_sessions: Entity<Collection<CodingSession>>,
-    pub releases: Entity<Collection<Release>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 15-way fan-out in one
+/// entity — the single dispatch point that keeps the 14-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -323,8 +321,6 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.coding_sessions;
         $body;
-        let $entity = &$collections.releases;
-        $body;
     }};
 }
 
@@ -345,7 +341,6 @@ impl Collections {
             issue_events: cx.new(|_| Collection::new()),
             issue_subscribers: cx.new(|_| Collection::new()),
             coding_sessions: cx.new(|_| Collection::new()),
-            releases: cx.new(|_| Collection::new()),
         }
     }
 
@@ -380,12 +375,11 @@ impl Collections {
                 apply_to(&self.issue_subscribers, keys, full_replace, sqlite, cx)
             }
             "coding_sessions" => apply_to(&self.coding_sessions, keys, full_replace, sqlite, cx),
-            "releases" => apply_to(&self.releases, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 15 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 14 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -822,7 +816,6 @@ mod tests {
             IssueEvent::spec().name,
             IssueSubscriber::spec().name,
             CodingSession::spec().name,
-            Release::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

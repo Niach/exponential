@@ -81,30 +81,6 @@ interface IssueDao {
     )
     suspend fun findIdByWorkspaceRef(workspaceSlug: String, identifier: String): String?
 
-    // The issues bundled into one release (EXP-56) — drives the release
-    // detail's status-grouped list.
-    @Query("SELECT * FROM issues WHERE release_id = :releaseId AND archived_at IS NULL ORDER BY sort_order, created_at")
-    fun observeByRelease(releaseId: String): Flow<List<IssueEntity>>
-
-    // Every release-bundled issue — grouped client-side per release for the
-    // releases list's progress bars.
-    @Query("SELECT * FROM issues WHERE release_id IS NOT NULL AND archived_at IS NULL")
-    fun observeAllInReleases(): Flow<List<IssueEntity>>
-
-    // Candidates for the release detail's add-issues sheet: workspace issues
-    // that are still actionable (not done/cancelled/duplicate) and not already
-    // in THIS release — issues in another release stay offered (the server
-    // records both timeline sides on the move).
-    @Query(
-        "SELECT i.* FROM issues i JOIN projects p ON p.id = i.project_id " +
-            "WHERE p.workspace_id = :workspaceId " +
-            "AND i.archived_at IS NULL " +
-            "AND i.status NOT IN ('done', 'cancelled', 'duplicate') " +
-            "AND (i.release_id IS NULL OR i.release_id != :releaseId) " +
-            "ORDER BY i.sort_order, i.created_at"
-    )
-    fun observeAddableForRelease(workspaceId: String, releaseId: String): Flow<List<IssueEntity>>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEntity)
 
@@ -225,28 +201,6 @@ interface CodingSessionDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM coding_sessions")
-    suspend fun clear()
-}
-
-@Dao
-interface ReleaseDao {
-    @Query("SELECT * FROM releases WHERE workspace_id = :workspaceId")
-    fun observeByWorkspace(workspaceId: String): Flow<List<ReleaseEntity>>
-
-    // Cross-workspace map for timeline release-name resolution.
-    @Query("SELECT * FROM releases")
-    fun observeAll(): Flow<List<ReleaseEntity>>
-
-    @Query("SELECT * FROM releases WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<ReleaseEntity?>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ReleaseEntity)
-
-    @Query("DELETE FROM releases WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM releases")
     suspend fun clear()
 }
 

@@ -37,8 +37,6 @@ final class AppDependencies: @unchecked Sendable {
     // Remote start + live steer viewer (relay-backed; graceful-off when the
     // instance has no relay configured).
     let steerApi: SteerApi
-    // Workspace releases (EXP-56) — view/manage only on mobile.
-    let releasesApi: ReleasesApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -126,7 +124,6 @@ final class AppDependencies: @unchecked Sendable {
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)
-        self.releasesApi = ReleasesApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

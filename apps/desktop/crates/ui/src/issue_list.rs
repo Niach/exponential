@@ -109,9 +109,6 @@ pub enum IssueQuery {
         workspace_id: String,
         user_id: String,
     },
-    /// One release's bundled issues (EXP-56 — the release detail's
-    /// status-grouped list).
-    Release { release_id: String },
 }
 
 /// One flattened virtual-list row. The issue payload is boxed so the enum
@@ -210,9 +207,6 @@ impl IssueListView {
                 workspace_id,
                 user_id,
             } => Some(queries::my_issues(cx, workspace_id, user_id, &self.filters)),
-            IssueQuery::Release { release_id } => {
-                Some(queries::release_board(cx, release_id, &self.filters))
-            }
         }
     }
 
@@ -225,18 +219,8 @@ impl IssueListView {
 
     // -- bulk selection --------------------------------------------------------
 
-    /// Whether THIS list offers bulk selection at all. The release detail's
-    /// embedded list does not: it is already a curated bundle, and a second
-    /// bulk bar there (with its own "Add to release"…) reads as UI noise.
-    fn bulk_enabled(&self) -> bool {
-        !matches!(self.query, IssueQuery::Release { .. })
-    }
-
     /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
     fn toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if !self.bulk_enabled() {
-            return;
-        }
         if !self.selected.remove(&issue_id) {
             self.selected.insert(issue_id.clone());
         }
@@ -260,9 +244,6 @@ impl IssueListView {
     /// the target — the anchor stays put for further extensions (web
     /// parity). Without a usable anchor it degrades to a plain toggle.
     fn extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if !self.bulk_enabled() {
-            return;
-        }
         let ids = self.visible_issue_ids();
         let anchor_ix = self
             .select_anchor
@@ -293,8 +274,7 @@ impl IssueListView {
     }
 
     /// The workspace behind the current query — scopes the bulk bar's
-    /// assignee/label/release pickers. `None` (join not synced yet) hides
-    /// the bar.
+    /// assignee/label pickers. `None` (join not synced yet) hides the bar.
     fn bulk_workspace_id(&self, cx: &App) -> Option<String> {
         let collections = Store::global(cx).collections();
         match &self.query {
@@ -305,11 +285,6 @@ impl IssueListView {
                 .get(project_id)
                 .map(|project| project.workspace_id.clone()),
             IssueQuery::MyIssues { workspace_id, .. } => Some(workspace_id.clone()),
-            IssueQuery::Release { release_id } => collections
-                .releases
-                .read(cx)
-                .get(release_id)
-                .and_then(|release| release.workspace_id.clone()),
         }
     }
 
@@ -421,22 +396,19 @@ impl IssueListView {
             // Row click: Cmd/Ctrl toggles the selection, Shift extends the
             // range from the anchor, plain navigates to the detail. The
             // selection SURVIVES navigation (EXP-68): peeking into an issue
-            // while composing a release must not throw the picked set away —
-            // it clears on scope change (`set_query`), Escape, or the bulk
+            // while composing a selection must not throw the picked set away
+            // — it clears on scope change (`set_query`), Escape, or the bulk
             // bar's ✕.
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                // Modifier clicks drive selection only where bulk exists —
-                // on a bulk-less list they navigate like a plain click.
+                // Modifier clicks drive selection; plain clicks navigate.
                 let modifiers = event.modifiers();
-                if this.bulk_enabled() {
-                    if modifiers.secondary() {
-                        this.toggle_selected(issue_id.clone(), cx);
-                        return;
-                    }
-                    if modifiers.shift {
-                        this.extend_selection_to(issue_id.clone(), cx);
-                        return;
-                    }
+                if modifiers.secondary() {
+                    this.toggle_selected(issue_id.clone(), cx);
+                    return;
+                }
+                if modifiers.shift {
+                    this.extend_selection_to(issue_id.clone(), cx);
+                    return;
                 }
                 navigate(
                     window,
@@ -448,23 +420,20 @@ impl IssueListView {
             }))
             // Leading bulk-select checkbox: hover-revealed, pinned visible
             // while ANY selection exists (web `group-hover/row` parity).
-            // Absent entirely on bulk-less lists (release detail).
-            .when(self.bulk_enabled(), |row| {
-                row.child({
-                    let toggle_id = issue.id.clone();
-                    control_cell(row_id("select-cell", &issue.id))
-                        .w_5()
-                        .when(!any_selected, |cell| {
-                            cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
-                        })
-                        .child(
-                            Checkbox::new(row_id("select", &issue.id))
-                                .checked(is_selected)
-                                .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                    this.toggle_selected(toggle_id.clone(), cx);
-                                })),
-                        )
-                })
+            .child({
+                let toggle_id = issue.id.clone();
+                control_cell(row_id("select-cell", &issue.id))
+                    .w_5()
+                    .when(!any_selected, |cell| {
+                        cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
+                    })
+                    .child(
+                        Checkbox::new(row_id("select", &issue.id))
+                            .checked(is_selected)
+                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                                this.toggle_selected(toggle_id.clone(), cx);
+                            })),
+                    )
             })
             // 24px priority dropdown cell (stop_propagation wrapper, §4.6).
             .child(
@@ -544,7 +513,7 @@ impl IssueListView {
     // -- bulk action bar -------------------------------------------------------
 
     /// The Linear-style floating bar (web `bulk-action-bar.tsx`): N selected ·
-    /// Status · Priority · Assignee · Labels · Add to release · Delete
+    /// Status · Priority · Assignee · Labels · Start coding · Delete
     /// (nested confirm) · clear. Buttons are icon-only with tooltips — every
     /// issue list renders inside the ~260px tool panel, where the web's
     /// labeled buttons cannot fit on one row. Property edits keep the
@@ -804,65 +773,25 @@ impl IssueListView {
                 })
         };
 
-        let release_menu = {
+        // Bulk "Start coding": ONE batch coding session over the selection —
+        // opens the unified Start-coding dialog with the selected issues
+        // pre-checked (one repo per run is enforced there).
+        let start_coding = {
             let ids = ids.clone();
-            let list = list.clone();
             let workspace_id = workspace_id.clone();
-            Button::new("bulk-release")
+            Button::new("bulk-start-coding")
                 .ghost()
                 .xsmall()
-                .icon(Icon::from(ExpIcon::Rocket))
-                .tooltip("Add to release")
+                .icon(Icon::new(IconName::Play))
+                .tooltip("Start coding")
                 .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
-                    let mut menu = menu.scrollable(true).max_h(px(320.));
-                    // "New release" routes through the creation dialog
-                    // pre-seeded with the selection (EXP-62): name + confirm
-                    // BEFORE the release exists, and the dialog lands on the
-                    // new release's detail on success.
-                    menu = menu.item(
-                        PopupMenuItem::new("New release")
-                            .icon(Icon::new(IconName::Plus))
-                            .on_click({
-                                let ids = ids.clone();
-                                let workspace_id = workspace_id.clone();
-                                move |_, window, cx| {
-                                    crate::release_create_dialog::open(
-                                        window,
-                                        cx,
-                                        workspace_id.clone(),
-                                        ids.clone(),
-                                    );
-                                }
-                            }),
+                .on_click(move |_, window, cx| {
+                    crate::start_coding_dialog::open_for_selection(
+                        window,
+                        cx,
+                        workspace_id.clone(),
+                        ids.clone(),
                     );
-                    let releases = queries::workspace_releases(cx, &workspace_id);
-                    if releases.is_empty() {
-                        return menu;
-                    }
-                    menu = menu.separator();
-                    for release in releases {
-                        let name = release
-                            .name
-                            .clone()
-                            .unwrap_or_else(|| "Untitled release".to_string());
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let release_id = release.id.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new(SharedString::from(name))
-                                .icon(Icon::from(ExpIcon::Rocket))
-                                .on_click(move |_, _, cx| {
-                                    spawn_bulk_add_to_release(
-                                        list.clone(),
-                                        cx,
-                                        release_id.clone(),
-                                        ids.clone(),
-                                    );
-                                }),
-                        );
-                    }
-                    menu
                 })
         };
 
@@ -946,7 +875,7 @@ impl IssueListView {
                     .child(priority_menu)
                     .child(assignee_menu)
                     .child(labels_menu)
-                    .child(release_menu)
+                    .child(start_coding)
                     .child(delete_menu),
             )
             .into_any_element()
@@ -1009,74 +938,6 @@ fn spawn_bulk_op(
     .detach();
 }
 
-/// The bulk bar's add-to-EXISTING-release: chunked `releases.addIssues`,
-/// then land on that release. (The bulk "New release" path opens
-/// [`crate::release_create_dialog`] pre-seeded with the selection instead —
-/// EXP-62.)
-fn spawn_bulk_add_to_release(
-    list: WeakEntity<IssueListView>,
-    cx: &mut App,
-    release_id: String,
-    ids: Vec<String>,
-) {
-    if ids.is_empty() {
-        return;
-    }
-    let Some(trpc) = queries::trpc_client(cx) else {
-        log::warn!("[ui] releases.addIssues skipped: no signed-in account");
-        return;
-    };
-    let _ = list.update(cx, |this, cx| {
-        this.bulk_busy = true;
-        cx.notify();
-    });
-    cx.spawn(async move |cx| {
-        let target = release_id.clone();
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                for chunk in ids.chunks(BULK_CHUNK) {
-                    api::releases::add_issues(&trpc, &target, chunk)?;
-                }
-                Ok::<(), api::ApiError>(())
-            })
-            .await;
-        let _ = list.update(cx, |this, cx| {
-            this.bulk_busy = false;
-            cx.notify();
-        });
-        match result {
-            Ok(()) => open_release_after(cx, release_id).await,
-            Err(err) => log::warn!("[ui] releases.addIssues failed: {err}"),
-        }
-    })
-    .detach();
-}
-
-/// Foreground hop after a release bulk-add: open the Releases tool focused
-/// on the release, in the active window (deferred — safe from any context).
-/// Gated on the release row being SYNCED first — the Releases drill-down
-/// self-heals to the list while the row is missing, which would silently
-/// wipe a too-early selection (matters for the create path's echo).
-async fn open_release_after(cx: &mut gpui::AsyncApp, release_id: String) {
-    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
-    const POLL: std::time::Duration = std::time::Duration::from_millis(60);
-    let releases = cx.update(|cx| Store::global(cx).collections().releases.clone());
-    let deadline = std::time::Instant::now() + TIMEOUT;
-    loop {
-        let present = cx.update(|cx| releases.read(cx).get(&release_id).is_some());
-        if present || std::time::Instant::now() >= deadline {
-            break; // timed out ⇒ navigate anyway; the list still shows
-        }
-        cx.background_executor().timer(POLL).await;
-    }
-    cx.update(move |cx| {
-        crate::navigation::on_active_window(cx, move |window, cx| {
-            crate::sidebar::open_release(window, cx, release_id);
-        });
-    });
-}
-
 impl Render for IssueListView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let data = self.board_data(cx);
@@ -1090,9 +951,6 @@ impl Render for IssueListView {
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SelectAllIssues, _, cx| {
-                if !this.bulk_enabled() {
-                    return;
-                }
                 let ids = this.visible_issue_ids();
                 if ids.is_empty() {
                     return;
@@ -1127,16 +985,6 @@ impl Render for IssueListView {
                         Icon::from(ExpIcon::SearchX),
                         "No issues match your filters",
                         "Try removing some filters to see more issues.",
-                        cx,
-                    ))
-                    .into_any_element();
-            }
-            if matches!(self.query, IssueQuery::Release { .. }) {
-                return base
-                    .child(empty_state(
-                        Icon::from(ExpIcon::Rocket),
-                        "No issues in this release",
-                        "Add issues from the Release picker on an issue.",
                         cx,
                     ))
                     .into_any_element();
@@ -1207,7 +1055,7 @@ impl Render for IssueListView {
         // The floating bulk action bar — selected ids snapshotted in visible
         // list order (workspace resolution can lag the issue rows; the bar
         // waits for it, the selection itself does not).
-        let bulk_bar = if !self.bulk_enabled() || self.selected.is_empty() {
+        let bulk_bar = if self.selected.is_empty() {
             None
         } else {
             self.bulk_workspace_id(cx).map(|workspace_id| {
@@ -1456,7 +1304,7 @@ fn assignable_users(project_id: &str, current: Option<&str>, cx: &App) -> Vec<Us
 
 /// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
 /// done / Move to todo, Copy issue ID, Mark as duplicate… / Unmark duplicate,
-/// then Status / Assignee / Priority / Labels / Add-to-release /
+/// then Status / Assignee / Priority / Labels /
 /// Move-to-project / Set-due-date submenus, then the Delete-issue confirm
 /// submenu. Mutations are the §4.1 un-gated form.
 fn build_row_context_menu(
@@ -1517,19 +1365,6 @@ fn build_row_context_menu(
                 .icon(Icon::from(ExpIcon::Copy))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(identifier.clone()));
-                }),
-        );
-    }
-
-    // Remove from release (EXP-56) — shown whenever the issue is bundled;
-    // adding goes through the detail's Release picker.
-    if issue.release_id.is_some() {
-        let issue_id = issue.id.clone();
-        menu = menu.item(
-            PopupMenuItem::new("Remove from release")
-                .icon(Icon::from(ExpIcon::Rocket))
-                .on_click(move |_, _, cx| {
-                    crate::properties_panel::set_issue_release(cx, issue_id.clone(), None);
                 }),
         );
     }
@@ -1677,63 +1512,6 @@ fn build_row_context_menu(
             }
             menu
         });
-    }
-
-    // Add to release submenu (EXP-56, web parity): the workspace's releases
-    // in the shared display order, current membership checked; picking one
-    // moves the issue (setIssueRelease replaces any existing bundle). The
-    // symmetric "Remove from release" item stays above.
-    {
-        let issue_id = issue.id.clone();
-        let project_id = issue.project_id.clone();
-        let current = issue.release_id.clone();
-        menu = menu.submenu_with_icon(
-            Some(Icon::from(ExpIcon::Rocket)),
-            "Add to release",
-            window,
-            cx,
-            move |menu, _, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                // Workspace via the project row — the Labels submenu's lookup.
-                let Some(workspace_id) = Store::global(cx)
-                    .collections()
-                    .projects
-                    .read(cx)
-                    .get(&project_id)
-                    .map(|project| project.workspace_id.clone())
-                else {
-                    return menu;
-                };
-                let releases = queries::workspace_releases(cx, &workspace_id);
-                if releases.is_empty() {
-                    return menu.item(PopupMenuItem::label("No releases in this workspace"));
-                }
-                for release in releases {
-                    let checked = current.as_deref() == Some(release.id.as_str());
-                    let name = SharedString::from(
-                        release
-                            .name
-                            .clone()
-                            .unwrap_or_else(|| "Untitled release".to_string()),
-                    );
-                    let issue_id = issue_id.clone();
-                    let release_id = release.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(name)
-                            .icon(Icon::from(ExpIcon::Rocket))
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                crate::properties_panel::set_issue_release(
-                                    cx,
-                                    issue_id.clone(),
-                                    Some(release_id.clone()),
-                                );
-                            }),
-                    );
-                }
-                menu
-            },
-        );
     }
 
     // Move to project submenu (EXP-57, web `ProjectSubmenu`): the workspace's

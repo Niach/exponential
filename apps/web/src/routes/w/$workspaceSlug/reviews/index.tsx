@@ -5,7 +5,6 @@ import {
   GitMerge,
   GitPullRequest,
   Loader2,
-  Rocket,
   X,
 } from "lucide-react"
 import type { Issue } from "@/db/schema"
@@ -30,11 +29,8 @@ import {
 // Cross-project review queue: every issue in the workspace with an open PR,
 // grouped by project, with a one-click (confirmed) squash-merge that goes
 // through the GitHub App server-side. Deliberately filter-free — the queue
-// should be short. Open RELEASE PRs render as their own section from the
-// synced releases shape (EXP-73 — link-only: merging a release PR auto-ships
-// via the webhook, so the release detail is the acting surface). Open PRs
-// WITHOUT any link (manual PRs, external contributors) are listed last,
-// grouped by repository, straight from GitHub.
+// should be short. Open PRs WITHOUT any link (manual PRs, external
+// contributors) are listed last, grouped by repository, straight from GitHub.
 export const Route = createFileRoute(`/w/$workspaceSlug/reviews/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
@@ -59,7 +55,6 @@ function ReviewsPage() {
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const {
     groups,
-    releasePulls,
     externalGroups,
     count,
     isLoading,
@@ -86,13 +81,6 @@ function ReviewsPage() {
     void navigate({
       to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
       params: { workspaceSlug, projectSlug, issueIdentifier },
-    })
-  }
-
-  const openRelease = (releaseId: string) => {
-    void navigate({
-      to: `/w/$workspaceSlug/releases/$releaseId`,
-      params: { workspaceSlug, releaseId },
     })
   }
 
@@ -319,58 +307,6 @@ function ReviewsPage() {
               })}
             </div>
           ))}
-
-          {releasePulls.length > 0 && (
-            <div className="mb-4">
-              <div
-                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 px-3 py-1.5"
-                style={{ backgroundColor: `rgba(113, 113, 122, 0.08)` }}
-              >
-                <Rocket className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-                <span className="text-sm font-medium">Release PRs</span>
-                <span className="text-xs text-muted-foreground">
-                  {releasePulls.length}
-                </span>
-              </div>
-
-              {releasePulls.map((release) => (
-                <div
-                  key={release.id}
-                  className="group/row grid h-11 cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 hover:bg-muted/50"
-                  onClick={() => openRelease(release.id)}
-                  data-testid={`review-release-${release.id}`}
-                >
-                  <Rocket className="h-4 w-4 text-emerald-500" />
-                  <span className="truncate font-mono text-xs text-muted-foreground">
-                    {release.prNumber != null ? `#${release.prNumber}` : ``}
-                  </span>
-                  <span className="min-w-0 truncate pr-2 text-sm">
-                    {release.name}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {release.prUrl && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        aria-label="Open pull request on GitHub"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          window.open(
-                            release.prUrl ?? ``,
-                            `_blank`,
-                            `noopener,noreferrer`
-                          )
-                        }}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
 
           {externalGroups.map((group) => (
             <div key={group.repositoryId} className="mb-4">

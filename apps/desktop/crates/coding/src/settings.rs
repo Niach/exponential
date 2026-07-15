@@ -37,13 +37,18 @@ pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// Default reasoning effort — EMPTY, meaning "omit --effort" (the CLI's own
 /// default applies). Blank is a VALID value here (EXP-56).
 pub const DEFAULT_CLAUDE_EFFORT: &str = "";
-/// Default subagent model for RELEASE runs (EXP-56) — EMPTY, meaning
-/// "inherit `claude_model` at use". Blank is a VALID value; `load` must NOT
-/// degrade it (mirrors [`DEFAULT_CLAUDE_EFFORT`]).
-pub const DEFAULT_SUBAGENT_MODEL: &str = "";
-/// Default subagent effort for RELEASE runs — EMPTY = inherit/omit. Blank is
-/// VALID; never degraded on load.
-pub const DEFAULT_SUBAGENT_EFFORT: &str = "";
+
+/// Settings keys retired by past reworks, scrubbed from the file on every
+/// [`Settings::save`] (the merge-save would otherwise carry them forever):
+/// the release-run subagent knobs and the release toggles (EXP-106 — batch
+/// runs replaced release runs), plus the even older `releaseAutonomous`.
+const DEAD_KEYS: [&str; 5] = [
+    "subagentModel",
+    "subagentEffort",
+    "releaseUltracode",
+    "releasePlanMode",
+    "releaseAutonomous",
+];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
 /// (possibly `~`-prefixed) form and tilde-expanded at use
@@ -66,23 +71,18 @@ pub struct Settings {
     /// [`EFFORT_LEVELS`] or blank (= omit the flag); `load` normalizes
     /// anything else to blank.
     pub claude_effort: String,
-    /// RELEASE-run subagent model default (the launch dialog's prefill,
-    /// EXP-56). Blank is VALID = inherit `claude_model` at use; otherwise one
-    /// of [`MODEL_ALIASES`] (`load` normalizes anything else to blank).
-    pub subagent_model: String,
-    /// RELEASE-run subagent effort default. Blank is VALID = inherit/omit;
-    /// otherwise one of [`EFFORT_LEVELS`] (`load` normalizes anything else
-    /// to blank).
-    pub subagent_effort: String,
-    /// RELEASE-run "dynamic workflows" (ultracode) default — ON by default.
-    /// A MISSING key fills from this struct's manual [`Default`] impl (the
-    /// container-level `#[serde(default)]` uses `Settings::default()`, not
-    /// `bool::default()`), so absent stays `true` — locked by a test below.
-    pub release_ultracode: bool,
-    /// RELEASE-run native plan mode default — OFF by default (an orchestrator
-    /// usually runs unattended). Replaces the old `releaseAutonomous` key,
-    /// which is simply ignored on load.
-    pub release_plan_mode: bool,
+    /// BATCH-run (multi-issue) "dynamic workflows" (ultracode) default — ON
+    /// by default. A MISSING key fills from this struct's manual [`Default`]
+    /// impl (the container-level `#[serde(default)]` uses
+    /// `Settings::default()`, not `bool::default()`), so absent stays `true`
+    /// — locked by a test below.
+    pub batch_ultracode: bool,
+    /// BATCH-run native plan mode default — OFF by default (a batch session
+    /// usually runs unattended).
+    pub batch_plan_mode: bool,
+    /// SINGLE-ISSUE-run "dynamic workflows" (ultracode) default — OFF by
+    /// default (a plain issue run stays cheap unless opted in).
+    pub issue_ultracode: bool,
     /// SINGLE-ISSUE-run native plan mode default — ON by default (Claude
     /// presents a plan for approval in the terminal before editing).
     pub issue_plan_mode: bool,
@@ -96,10 +96,9 @@ impl Default for Settings {
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
-            subagent_model: DEFAULT_SUBAGENT_MODEL.to_string(),
-            subagent_effort: DEFAULT_SUBAGENT_EFFORT.to_string(),
-            release_ultracode: true,
-            release_plan_mode: false,
+            batch_ultracode: true,
+            batch_plan_mode: false,
+            issue_ultracode: false,
             issue_plan_mode: true,
         }
     }
@@ -134,9 +133,7 @@ impl Settings {
         }
         settings.claude_model =
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
-        settings.subagent_model = normalize_choice(&settings.subagent_model, &MODEL_ALIASES, "");
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
-        settings.subagent_effort = normalize_choice(&settings.subagent_effort, &EFFORT_LEVELS, "");
         settings
     }
 
@@ -155,6 +152,9 @@ impl Settings {
         if let (Some(target), Some(source)) = (root.as_object_mut(), ours.as_object()) {
             for (key, value) in source {
                 target.insert(key.clone(), value.clone());
+            }
+            for key in DEAD_KEYS {
+                target.remove(key);
             }
         }
         let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
@@ -292,12 +292,11 @@ mod tests {
         assert_eq!(settings.branch_prefix, "exp/");
         assert_eq!(settings.claude_model, "fable");
         assert_eq!(settings.claude_effort, "");
-        // EXP-56 release-run defaults: blank subagent fields (= inherit),
-        // ultracode ON. Plan mode: ON for issue runs, OFF for release runs.
-        assert_eq!(settings.subagent_model, "");
-        assert_eq!(settings.subagent_effort, "");
-        assert!(settings.release_ultracode);
-        assert!(!settings.release_plan_mode);
+        // Per-mode run defaults: batch runs — ultracode ON, plan mode OFF;
+        // issue runs — ultracode OFF, plan mode ON.
+        assert!(settings.batch_ultracode);
+        assert!(!settings.batch_plan_mode);
+        assert!(!settings.issue_ultracode);
         assert!(settings.issue_plan_mode);
     }
 
@@ -344,64 +343,59 @@ mod tests {
     }
 
     /// Model/effort values normalize on load: lowercase-trim into the closed
-    /// alias sets; anything unknown falls back (model → fable, subagent
-    /// model and efforts → blank) so the argv can never carry a value the
-    /// CLI rejects.
+    /// alias sets; anything unknown falls back (model → fable, effort →
+    /// blank) so the argv can never carry a value the CLI rejects.
     #[test]
     fn model_and_effort_values_normalize_on_load() {
         let dir = TempDir::new("normalize");
         let path = dir.0.join("settings.json");
-        fs::write(
-            &path,
-            r#"{"claudeModel":" Opus ","subagentModel":"SONNET","claudeEffort":" XHigh ","subagentEffort":"max"}"#,
-        )
-        .unwrap();
+        fs::write(&path, r#"{"claudeModel":" Opus ","claudeEffort":" XHigh "}"#).unwrap();
         let settings = Settings::load(&path);
         assert_eq!(settings.claude_model, "opus");
-        assert_eq!(settings.subagent_model, "sonnet");
         assert_eq!(settings.claude_effort, "xhigh");
-        assert_eq!(settings.subagent_effort, "max");
 
-        fs::write(
-            &path,
-            r#"{"claudeModel":"haiku","subagentModel":"gpt","claudeEffort":"extreme","subagentEffort":"ultracode"}"#,
-        )
-        .unwrap();
+        fs::write(&path, r#"{"claudeModel":"haiku","claudeEffort":"extreme"}"#).unwrap();
         let settings = Settings::load(&path);
         assert_eq!(settings.claude_model, "fable", "unknown model → fable");
-        assert_eq!(settings.subagent_model, "", "unknown subagent model → inherit");
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
-        assert_eq!(settings.subagent_effort, "");
     }
 
-    /// EXP-56 release-run fields: MISSING keys must fill from the manual
-    /// `Default` impl (container-level `#[serde(default)]`) — ultracode TRUE,
-    /// issue plan mode TRUE, release plan mode FALSE. Blank subagent
-    /// model/effort are VALID ("inherit"); explicit bools round-trip; the
-    /// dead `releaseAutonomous` key is ignored.
+    /// Per-mode run fields: MISSING keys must fill from the manual `Default`
+    /// impl (container-level `#[serde(default)]`) — batch ultracode TRUE,
+    /// issue plan mode TRUE, batch plan mode / issue ultracode FALSE.
+    /// Explicit bools round-trip; the dead release-era keys are ignored on
+    /// load and scrubbed from the file on save.
     #[test]
-    fn release_run_fields_fill_from_defaults_and_blanks_survive() {
-        let dir = TempDir::new("release-fields");
+    fn batch_run_fields_fill_from_defaults_and_dead_keys_are_scrubbed() {
+        let dir = TempDir::new("batch-fields");
         let path = dir.0.join("settings.json");
         fs::write(&path, r#"{"claudeModel":"sonnet"}"#).unwrap();
         let settings = Settings::load(&path);
-        assert!(settings.release_ultracode, "missing key must default TRUE");
-        assert!(!settings.release_plan_mode, "missing key must default FALSE");
+        assert!(settings.batch_ultracode, "missing key must default TRUE");
+        assert!(!settings.batch_plan_mode, "missing key must default FALSE");
+        assert!(!settings.issue_ultracode, "missing key must default FALSE");
         assert!(settings.issue_plan_mode, "missing key must default TRUE");
-        assert_eq!(settings.subagent_model, "");
-        assert_eq!(settings.subagent_effort, "");
 
         fs::write(
             &path,
-            r#"{"subagentModel":"  ","subagentEffort":"","releaseUltracode":false,"releasePlanMode":true,"issuePlanMode":false,"releaseAutonomous":false}"#,
+            r#"{"batchUltracode":false,"batchPlanMode":true,"issueUltracode":true,"issuePlanMode":false,"subagentModel":"opus","releaseUltracode":false,"releaseAutonomous":false}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
-        assert_eq!(settings.subagent_model, "", "blank = inherit");
-        assert_eq!(settings.subagent_effort, "");
-        assert!(!settings.release_ultracode);
-        assert!(settings.release_plan_mode);
+        assert!(!settings.batch_ultracode);
+        assert!(settings.batch_plan_mode);
+        assert!(settings.issue_ultracode);
         assert!(!settings.issue_plan_mode);
+
+        // Saving scrubs the retired keys the merge-save would otherwise
+        // carry forever.
+        settings.save(&path).unwrap();
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        for dead in ["subagentModel", "releaseUltracode", "releaseAutonomous"] {
+            assert!(root.get(dead).is_none(), "{dead} must be scrubbed");
+        }
+        assert_eq!(root["batchUltracode"], false);
     }
 
     #[test]
@@ -414,10 +408,9 @@ mod tests {
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
-            subagent_model: "opus".to_string(),
-            subagent_effort: "low".to_string(),
-            release_ultracode: false,
-            release_plan_mode: true,
+            batch_ultracode: false,
+            batch_plan_mode: true,
+            issue_ultracode: true,
             issue_plan_mode: false,
         };
         settings.save(&path).unwrap();
@@ -425,10 +418,9 @@ mod tests {
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"subagentModel\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"subagentEffort\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"releaseUltracode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"releasePlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"batchUltracode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"batchPlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"issueUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"issuePlanMode\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }

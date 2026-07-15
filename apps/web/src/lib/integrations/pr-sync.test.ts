@@ -33,15 +33,15 @@ describe(`parseIssueIdentifierFromBranch`, () => {
     expect(parseIssueIdentifierFromBranch(`exp/MET-12/sub`)).toBeNull()
   })
 
-  // EXP-56: release integration branches are exp/rel-<slug> with a LOWERCASE
-  // slug by construction — the desktop launcher lowercases it exactly so this
-  // parser can never mis-link a release PR to an issue. Release PRs resolve by
+  // Batch coding runs work on exp/batch-<id8> with a LOWERCASE hex id by
+  // construction — the desktop launcher guarantees it so this parser can never
+  // mis-link a batch PR to an issue. Batch PRs resolve to their issues by
   // exact pr_url only. If this contract changes, the desktop's
-  // release_branch_name guard test must change with it.
-  it(`never matches release integration branches (lowercase rel-<slug> tail)`, () => {
-    expect(parseIssueIdentifierFromBranch(`exp/rel-0-4`)).toBeNull()
-    expect(parseIssueIdentifierFromBranch(`exp/rel-july-wave`)).toBeNull()
-    expect(parseIssueIdentifierFromBranch(`exp/rel-v2`)).toBeNull()
+  // batch_branch_name guard test must change with it.
+  it(`never matches batch integration branches (lowercase batch-<hex> tail)`, () => {
+    expect(parseIssueIdentifierFromBranch(`exp/batch-a1b2c3d4`)).toBeNull()
+    expect(parseIssueIdentifierFromBranch(`exp/batch-12345678`)).toBeNull()
+    expect(parseIssueIdentifierFromBranch(`exp/batch-deadbeef`)).toBeNull()
   })
 })
 

@@ -81,7 +81,7 @@ fun AgentsScreen(
                                 if (state.steerEnabled == true) {
                                     onOpenSteer(row.session.id)
                                 } else {
-                                    // Release-scoped sessions carry no issue.
+                                    // Batch multi-issue sessions carry no issue.
                                     row.session.issueId?.let(onOpenIssue)
                                 }
                             },

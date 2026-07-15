@@ -28,12 +28,9 @@ use crate::trpc::TrpcClient;
 #[serde(rename_all = "camelCase")]
 pub struct CodingSession {
     pub id: String,
+    /// NULL on batch-scoped (multi-issue) session rows.
     #[serde(default)]
     pub issue_id: Option<String>,
-    /// Set for release-scoped orchestrator sessions (EXP-56); `issue_id` is
-    /// NULL on those rows.
-    #[serde(default)]
-    pub release_id: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
@@ -64,8 +61,8 @@ struct StartInput<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct StartReleaseInput<'a> {
-    release_id: &'a str,
+struct StartBatchInput<'a> {
+    workspace_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
 }
@@ -98,19 +95,19 @@ pub fn start(
     Ok(envelope.session)
 }
 
-/// `codingSessions.start` for a RELEASE-scoped orchestrator session (EXP-56):
-/// the server accepts exactly one of `issueId`/`releaseId` and inserts a row
-/// with `issue_id`/`project_id` NULL and `workspace_id` from the release.
-/// Same 412 semantics as [`start`].
-pub fn start_release(
+/// `codingSessions.start` for a BATCH-scoped (multi-issue) session: the
+/// server accepts exactly one of `issueId`/`workspaceId` and inserts a row
+/// with `issue_id`/`project_id` NULL and the given `workspace_id`. Same 412
+/// semantics as [`start`].
+pub fn start_batch(
     trpc: &TrpcClient,
-    release_id: &str,
+    workspace_id: &str,
     device_label: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
-        &StartReleaseInput {
-            release_id,
+        &StartBatchInput {
+            workspace_id,
             device_label,
         },
     )?;
@@ -176,20 +173,20 @@ mod tests {
     }
 
     #[test]
-    fn start_release_posts_release_id_and_decodes_the_release_row() {
+    fn start_batch_posts_workspace_id_and_decodes_the_issueless_row() {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"session":{
-                "id":"sess-r","issueId":null,"releaseId":"rel-1","workspaceId":"ws-1",
+                "id":"sess-b","issueId":null,"workspaceId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_release(&client(&base), "rel-1", Some("testbox")).unwrap();
-        assert_eq!(session.id, "sess-r");
-        assert_eq!(session.release_id.as_deref(), Some("rel-1"));
+        let session = start_batch(&client(&base), "ws-1", Some("testbox")).unwrap();
+        assert_eq!(session.id, "sess-b");
+        assert_eq!(session.workspace_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
-        assert!(request.ends_with(r#"{"releaseId":"rel-1","deviceLabel":"testbox"}"#));
+        assert!(request.ends_with(r#"{"workspaceId":"ws-1","deviceLabel":"testbox"}"#));
     }
 
     #[test]

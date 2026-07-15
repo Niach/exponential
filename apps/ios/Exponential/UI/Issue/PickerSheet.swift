@@ -114,42 +114,6 @@ func assigneeOptions(users: [UserEntity]) -> [AssigneeOption] {
     return options
 }
 
-// MARK: - Release picker helper
-
-/// Row model for the single-select release `PickerSheet` (EXP-56). Wraps an
-/// optional release so "No release" is a first-class option with a stable
-/// identifier (`"__no_release"`), mirroring `AssigneeOption`.
-struct ReleaseOption: Identifiable, Hashable {
-    let id: String
-    let releaseId: String?
-    let displayName: String
-    let isShipped: Bool
-
-    static let none = ReleaseOption(
-        id: "__no_release",
-        releaseId: nil,
-        displayName: "No release",
-        isShipped: false
-    )
-}
-
-/// Options for the release picker: "No release" first, then the workspace's
-/// releases in the caller-provided (canonical compareReleases) order.
-func releaseOptions(releases: [ReleaseEntity]) -> [ReleaseOption] {
-    var options: [ReleaseOption] = [.none]
-    for release in releases {
-        options.append(
-            ReleaseOption(
-                id: release.id,
-                releaseId: release.id,
-                displayName: release.name,
-                isShipped: release.shippedAt != nil
-            )
-        )
-    }
-    return options
-}
-
 // MARK: - Recurrence picker sheet
 
 /// Recurrence has a sectioned layout (one section per `RecurrenceUnit`)

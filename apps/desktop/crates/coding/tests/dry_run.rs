@@ -41,7 +41,7 @@ use api::trpc::TrpcClient;
 use api::StaticToken;
 use coding::{
     clone_path, prepare, spawn_prepared, worktree_path, CodingDeps, GitWorktrees, IssueSeed,
-    IssueLaunchOptions, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest,
+    LaunchOptions, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest,
     Settings,
 };
 use gpui::AppContext as _;
@@ -227,9 +227,10 @@ fn main() {
         issue_identifier: "GATE-99".to_string(),
         device_label: "dryrunbox".to_string(),
         origin: LaunchOrigin::Local,
-        options: IssueLaunchOptions {
+        options: LaunchOptions {
             model: "opus".to_string(),
             effort: "".to_string(),
+            ultracode: false,
             plan_mode: false,
         },
     });

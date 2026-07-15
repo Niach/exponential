@@ -1,9 +1,9 @@
 //! The sidebar Source Control tool window's FLOW view — the branch graph
-//! (default branch → `exp/rel-*` releases → issue branches, drawn as a
-//! connected tree with PR-state tones) that replaced both the flat branch
+//! (default branch → `exp/batch-*` batch branches → issue branches, drawn as
+//! a connected tree with PR-state tones) that replaced both the flat branch
 //! list and the center screen's flow strip. Lanes come from
 //! [`crate::flow_lanes`] joined over the shared [`GitBar`]'s live branch
-//! list and the synced issue/release rows; per-lane ↑/↓ counts fill in from
+//! list and the synced issue rows; per-lane ↑/↓ counts fill in from
 //! a background pass keyed on the visible branch set. Clicking a lane views
 //! that branch's history in the changes screen (issue lanes open the issue);
 //! hover reveals a per-lane delete (forced worktree removal + `branch -D`,
@@ -29,7 +29,6 @@ use coding::{clone_manager, scm};
 use crate::coding_flow::CodingHub;
 use crate::flow_lanes::{
     build_lanes, connectors, lane_indicator, FlowModel, IssueLite, Lane, LaneIndicator, LaneKind,
-    ReleaseLite,
 };
 use crate::git_bar::GitBar;
 use crate::navigation::{self, Navigation, Screen};
@@ -88,7 +87,6 @@ impl FlowView {
             cx.observe(&shared, |_, _, cx| cx.notify()),
             // The lane joins read synced rows.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            cx.observe(&collections.releases, |_, _, cx| cx.notify()),
             // Workspace/project switches change the join scope.
             cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
@@ -121,17 +119,17 @@ impl FlowView {
             return FlowModel::default();
         }
         let branch_prefix = CodingHub::global(cx).read(cx).settings.branch_prefix.clone();
-        let (issues, releases) = self.join_rows(cx);
-        build_lanes(&branches, &default_branch, &branch_prefix, &issues, &releases)
+        let issues = self.join_rows(cx);
+        build_lanes(&branches, &default_branch, &branch_prefix, &issues)
     }
 
     /// Snapshot the synced rows the lane join reads (active workspace).
-    fn join_rows(&self, cx: &App) -> (Vec<IssueLite>, Vec<ReleaseLite>) {
+    fn join_rows(&self, cx: &App) -> Vec<IssueLite> {
         let Some(workspace_id) = navigation::active_workspace_id(&self.nav, cx) else {
-            return (Vec::new(), Vec::new());
+            return Vec::new();
         };
-        let collections = Store::global(cx).collections();
-        let issues = collections
+        Store::global(cx)
+            .collections()
             .issues_in_workspace(&workspace_id, cx)
             .into_iter()
             .map(|issue| IssueLite {
@@ -140,21 +138,8 @@ impl FlowView {
                 title: issue.title,
                 branch: issue.branch,
                 pr_state: issue.pr_state,
-                release_id: issue.release_id,
             })
-            .collect();
-        let releases = collections
-            .releases
-            .read(cx)
-            .iter()
-            .filter(|release| release.workspace_id.as_deref() == Some(workspace_id.as_str()))
-            .map(|release| ReleaseLite {
-                id: release.id.clone(),
-                name: release.name.clone().unwrap_or_default(),
-                pr_state: release.pr_state.clone(),
-            })
-            .collect();
-        (issues, releases)
+            .collect()
     }
 
     /// Refire the background ↑/↓ + dirty pass when the VISIBLE lane set
@@ -421,7 +406,7 @@ impl FlowView {
         let current = lane.current;
         let delete_branch = lane.branch.clone();
         // Never the trunk's default lane or the checked-out branch —
-        // everything else (stale issue/release/other lanes) can go.
+        // everything else (stale issue/batch/other lanes) can go.
         let deletable = !lane.current && !matches!(lane.kind, LaneKind::Default);
 
         // The connector gutter: pass-through rails for the ancestor columns,

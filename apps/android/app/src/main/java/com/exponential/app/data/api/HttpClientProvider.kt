@@ -40,7 +40,7 @@ object HttpClientModule {
             // requestTimeout of 15s — BELOW the Electric live long-poll hold
             // window (~20s on prod, up to ~60s per long-poll-canary.md), so
             // every idle shape poll died with "Request timeout has expired"
-            // (EXP-61: errors across all 15 shapes, sync frozen). Worse, the
+            // (EXP-61: errors across all 14 shapes, sync frozen). Worse, the
             // engine enforces it by CANCELLING the request job, which can kill
             // the shape run-loop outright. Installing HttpTimeout replaces that
             // path with a plugin-level typed exception; ShapeClient raises the

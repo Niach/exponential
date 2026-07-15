@@ -17,8 +17,7 @@ use domain::board::{
     build_filtered_issues, build_issue_label_ids_map, build_visible_issue_groups, IssueGroup,
 };
 use domain::filters::IssueFilters;
-use domain::rows::{Label, Release};
-use domain::IssueStatus;
+use domain::rows::Label;
 
 use crate::session::AuthContext;
 
@@ -416,111 +415,6 @@ pub fn remove_merged_pull(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Releases (EXP-56 — the Releases tool window + issue release picker)
-// ---------------------------------------------------------------------------
-
-/// A release's progress over its member issues (the cross-client contract):
-/// `cancelled`/`duplicate` issues are DROPPED work, not shipped work — they
-/// leave the denominator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ReleaseProgress {
-    /// Issues with `release_id == release.id` (before dropping).
-    pub total: usize,
-    /// `done` count.
-    pub done: usize,
-    /// `total − cancelled − duplicate`.
-    pub denominator: usize,
-}
-
-impl ReleaseProgress {
-    /// The "N of M done" row line; `None` when the release has no countable
-    /// issues (render a neutral placeholder instead of "0 of 0 done").
-    pub fn label(&self) -> Option<String> {
-        (self.denominator > 0).then(|| format!("{} of {} done", self.done, self.denominator))
-    }
-}
-
-/// Progress over one release's issues (pass [`release_issues`]).
-pub fn release_progress(issues: &[domain::rows::Issue]) -> ReleaseProgress {
-    let total = issues.len();
-    let done = issues
-        .iter()
-        .filter(|issue| issue.status == IssueStatus::Done)
-        .count();
-    let dropped = issues
-        .iter()
-        .filter(|issue| {
-            matches!(
-                issue.status,
-                IssueStatus::Cancelled | IssueStatus::Duplicate
-            )
-        })
-        .count();
-    ReleaseProgress {
-        total,
-        done,
-        denominator: total.saturating_sub(dropped),
-    }
-}
-
-/// The shared release display order (cross-client contract): unshipped before
-/// shipped; unshipped by `target_date` asc (nulls last) then `created_at`
-/// desc; shipped by `shipped_at` desc (most recently shipped first). ISO
-/// strings from one source compare lexicographically.
-pub fn compare_releases(a: &Release, b: &Release) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    match (a.shipped_at.as_deref(), b.shipped_at.as_deref()) {
-        (None, Some(_)) => Ordering::Less,
-        (Some(_), None) => Ordering::Greater,
-        (Some(a_shipped), Some(b_shipped)) => b_shipped.cmp(a_shipped),
-        (None, None) => match (a.target_date.as_deref(), b.target_date.as_deref()) {
-            (Some(a_date), Some(b_date)) => a_date
-                .cmp(b_date)
-                .then_with(|| b.created_at.cmp(&a.created_at)),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => b.created_at.cmp(&a.created_at),
-        },
-    }
-}
-
-/// The Releases tool-window read: a workspace's releases in the shared
-/// display order.
-pub fn workspace_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
-    let mut out: Vec<Release> = Store::global(cx)
-        .collections()
-        .releases
-        .read(cx)
-        .iter()
-        .filter(|release| release.workspace_id.as_deref() == Some(workspace_id))
-        .cloned()
-        .collect();
-    out.sort_by(compare_releases);
-    out
-}
-
-/// Releases with an OPEN release PR, in the shared display order — the
-/// Reviews tool's release section and the rail badge (EXP-73; web parity:
-/// `use-reviews-data.ts` `releasePulls`). Merged release PRs auto-ship via
-/// the webhook and leave the queue on the sync echo, mirroring
-/// [`review_issues`]'s open-only filter.
-pub fn releases_with_open_pr(releases: &[Release]) -> Vec<Release> {
-    let mut out: Vec<Release> = releases
-        .iter()
-        .filter(|release| release.pr_state.as_deref() == Some("open"))
-        .cloned()
-        .collect();
-    out.sort_by(compare_releases);
-    out
-}
-
-/// The Reviews tool window's release-PR section read:
-/// [`releases_with_open_pr`] over [`workspace_releases`].
-pub fn review_releases(cx: &App, workspace_id: &str) -> Vec<Release> {
-    releases_with_open_pr(&workspace_releases(cx, workspace_id))
-}
-
 /// Every non-archived issue in a workspace (issues ⨝ projects, shared sort
 /// order) — the add-issues picker's candidate pool (the dialog filters
 /// status/membership on top).
@@ -528,28 +422,6 @@ pub fn workspace_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue
     Store::global(cx)
         .collections()
         .issues_in_workspace(workspace_id, cx)
-}
-
-/// Every non-archived issue bundled into a release (feeds the progress line;
-/// unfiltered — the detail board applies filters on top).
-pub fn release_issues(cx: &App, release_id: &str) -> Vec<domain::rows::Issue> {
-    Store::global(cx)
-        .collections()
-        .issues
-        .read(cx)
-        .iter()
-        .filter(|issue| {
-            issue.release_id.as_deref() == Some(release_id) && issue.archived_at.is_none()
-        })
-        .cloned()
-        .collect()
-}
-
-/// The release detail's board: [`release_issues`], filtered + grouped by
-/// status like any other board.
-pub fn release_board(cx: &App, release_id: &str, filters: &IssueFilters) -> BoardData {
-    let issues = release_issues(cx, release_id);
-    board_data_from(cx, issues, filters)
 }
 
 // ---------------------------------------------------------------------------
@@ -589,38 +461,6 @@ pub(crate) async fn await_row_visible<T: 'static>(
 mod tests {
     use super::*;
     use serde_json::json;
-
-    fn release(id: &str, target: Option<&str>, shipped: Option<&str>, created: &str) -> Release {
-        serde_json::from_value(json!({
-            "id": id,
-            "workspace_id": "w-1",
-            "name": id,
-            "target_date": target,
-            "shipped_at": shipped,
-            "created_at": created,
-        }))
-        .unwrap()
-    }
-
-    fn release_with_pr(id: &str, target: Option<&str>, pr_state: Option<&str>) -> Release {
-        let mut row = release(id, target, None, "2026-07-01T00:00:00Z");
-        row.pr_state = pr_state.map(str::to_string);
-        row.pr_url = pr_state.map(|_| format!("https://github.com/acme/web/pull/{id}"));
-        row
-    }
-
-    fn issue(id: &str, status: &str) -> domain::rows::Issue {
-        serde_json::from_value(json!({
-            "id": id,
-            "project_id": "p-1",
-            "number": 1,
-            "identifier": "EXP-1",
-            "title": "t",
-            "status": status,
-            "priority": "none",
-        }))
-        .unwrap()
-    }
 
     fn pull(number: u64) -> api::repositories::OpenPull {
         serde_json::from_value(json!({
@@ -673,66 +513,4 @@ mod tests {
         assert_eq!(repos[1].pulls.len(), 1);
     }
 
-    #[test]
-    fn releases_with_open_pr_keeps_only_open_state_in_display_order() {
-        let rows = vec![
-            release_with_pr("merged", None, Some("merged")),
-            release_with_pr("open-aug", Some("2026-08-01"), Some("open")),
-            release_with_pr("closed", None, Some("closed")),
-            release_with_pr("open-jul", Some("2026-07-15"), Some("open")),
-            release_with_pr("no-pr", None, None),
-        ];
-        let open = releases_with_open_pr(&rows);
-        let order: Vec<&str> = open.iter().map(|r| r.id.as_str()).collect();
-        // Only open survives, in the shared display order (target asc).
-        assert_eq!(order, ["open-jul", "open-aug"]);
-    }
-
-    #[test]
-    fn releases_sort_unshipped_by_target_then_shipped_by_recency() {
-        let mut rows = vec![
-            release("shipped-old", None, Some("2026-06-01T00:00:00Z"), "2026-05-01T00:00:00Z"),
-            release("shipped-new", None, Some("2026-07-01T00:00:00Z"), "2026-05-01T00:00:00Z"),
-            release("no-target-new", None, None, "2026-07-02T00:00:00Z"),
-            release("no-target-old", None, None, "2026-07-01T00:00:00Z"),
-            release("target-aug", Some("2026-08-01"), None, "2026-05-01T00:00:00Z"),
-            release("target-jul", Some("2026-07-15"), None, "2026-05-01T00:00:00Z"),
-        ];
-        rows.sort_by(compare_releases);
-        let order: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
-        // Unshipped first (target asc, nulls last by created desc), then
-        // shipped by shipped_at desc.
-        assert_eq!(
-            order,
-            [
-                "target-jul",
-                "target-aug",
-                "no-target-new",
-                "no-target-old",
-                "shipped-new",
-                "shipped-old",
-            ]
-        );
-    }
-
-    #[test]
-    fn release_progress_drops_cancelled_and_duplicate_from_the_denominator() {
-        let issues = vec![
-            issue("i-1", "done"),
-            issue("i-2", "in_progress"),
-            issue("i-3", "cancelled"),
-            issue("i-4", "duplicate"),
-            issue("i-5", "todo"),
-        ];
-        let progress = release_progress(&issues);
-        assert_eq!(progress.total, 5);
-        assert_eq!(progress.done, 1);
-        assert_eq!(progress.denominator, 3);
-        assert_eq!(progress.label().as_deref(), Some("1 of 3 done"));
-
-        // All-dropped releases show no counter (never "0 of 0 done").
-        let dropped = vec![issue("i-1", "cancelled")];
-        assert_eq!(release_progress(&dropped).label(), None);
-        assert_eq!(release_progress(&[]).label(), None);
-    }
 }

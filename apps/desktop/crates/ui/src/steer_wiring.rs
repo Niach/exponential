@@ -50,7 +50,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
 use terminal::{RawSink, TabId, TerminalManager};
 
-use coding::{prepare, IssueLaunchOptions, LaunchOrigin, Prepared, PrepareRequest};
+use coding::{prepare, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest};
 use steer::publisher::{pty_writer_input_hook, term_geometry_hook};
 use steer::{
     spawn_activity_emitter, spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity,
@@ -198,7 +198,7 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 /// sequence the Start-coding dialog runs (`coding_flow::build_launch` →
 /// `coding::prepare` → `spawn_into_window`), only the [`LaunchOrigin`]
 /// differs (§7.1: there is no second, divergent remote-start implementation).
-/// ISSUE-only by design: remote RELEASE start is deferred (needs a release-
+/// ISSUE-only by design: remote BATCH start is deferred (needs a batch-
 /// aware `steer.startSession` + per-repo-group resolution — EXP-56 v2).
 fn handle_remote_start(issue_id: String, cx: &mut App) {
     // Dedup: never launch a second session for an issue this process is
@@ -231,9 +231,9 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
     // remote start must never park at a native plan-approval TUI menu on an
     // unattended desktop — nobody is at the keyboard to approve it.
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = IssueLaunchOptions {
+    let options = LaunchOptions {
         plan_mode: false,
-        ..IssueLaunchOptions::from_settings(&settings)
+        ..LaunchOptions::issue_defaults(&settings)
     };
     let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, cx) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
@@ -334,8 +334,8 @@ enum SteerUiEvent {
 
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
 /// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
-/// Spawned` — for BOTH subjects (issue sessions and EXP-56 release
-/// orchestrators; a release session publishes with `issue_id: None` and is
+/// Spawned` — for BOTH subjects (issue sessions and multi-issue batch
+/// runs; a batch session publishes with `issue_id: None` and is
 /// never publicly fanned). Best-effort and non-blocking: a disabled/
 /// unreachable relay ends the publisher task quietly and the session keeps
 /// running locally.
@@ -399,12 +399,12 @@ pub fn attach_publisher(
     });
     let spec = PublishSpec {
         session_id: session_id.to_string(),
-        // Release sessions publish an issue-less room (the field is already
+        // Batch sessions publish an issue-less room (the field is already
         // Option): no issue page ever surfaces them, viewers reach them by
         // session id only.
         issue_id: match subject {
             coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
-            coding_flow::SessionSubject::Release(_) => None,
+            coding_flow::SessionSubject::Batch(_) => None,
         },
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);

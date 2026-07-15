@@ -1,16 +1,15 @@
 import ExpUI
 import SwiftUI
 
-/// Linear-style floating bottom navigation: a glass pill with the five
-/// top-level destinations (Issues, My Work — with an unread dot — Releases,
-/// Agents — with a running-session dot — and Search; order per EXP-81) plus
+/// Linear-style floating bottom navigation: a glass pill with the four
+/// top-level destinations (Issues, My Work — with an unread dot — Agents —
+/// with a running-session dot — and Search; order per EXP-81) plus
 /// a detached circular compose button on the right. Attached via
 /// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
 /// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
 /// (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let issuesActive: Bool
-    let releasesActive: Bool
     let searchActive: Bool
     let agentsActive: Bool
     let myWorkActive: Bool
@@ -18,7 +17,6 @@ struct MobileTabBar: View {
     let agentsRunning: Bool
     let showsCompose: Bool
     let onIssues: () -> Void
-    let onReleases: () -> Void
     let onSearch: () -> Void
     let onAgents: () -> Void
     let onMyWork: () -> Void
@@ -47,8 +45,6 @@ struct MobileTabBar: View {
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
-                tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
-                    .accessibilityIdentifier("tab-releases")
                 tab(
                     glyph: .asset("tab-robot"),
                     label: "Agents",
@@ -102,7 +98,7 @@ struct MobileTabBar: View {
     ) -> some View {
         Button(action: action) {
             glyphImage(glyph, active: active)
-                // 44pt (HIG minimum) instead of the old 56pt: five tabs + the
+                // 44pt (HIG minimum) instead of the old 56pt: four tabs + the
                 // compose circle must fit a 375pt screen (SE/mini).
                 .frame(width: 44, height: 42)
                 .overlay(alignment: .topTrailing) {
