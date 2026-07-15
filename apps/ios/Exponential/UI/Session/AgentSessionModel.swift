@@ -49,20 +49,43 @@ final class AgentSessionModel {
         /// A human turn (EXP-78): the initial prompt or a steered message.
         case userMessage(id: Int, text: String)
         /// An interactive question (AskUserQuestion / plan approval, EXP-78).
-        case question(id: Int, text: String, options: [QuestionOption], multiSelect: Bool)
+        /// `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) —
+        /// presentation-only, absent on events from older desktops/relays.
+        case question(id: Int, text: String, options: [QuestionOption], multiSelect: Bool, planMode: Bool)
 
         var id: Int {
             switch self {
             case let .narration(id, _): id
             case let .tool(id, _, _): id
             case let .userMessage(id, _): id
-            case let .question(id, _, _, _): id
+            case let .question(id, _, _, _, _): id
             }
         }
 
         var isQuestion: Bool {
             if case .question = self { return true }
             return false
+        }
+
+        var isTool: Bool {
+            if case .tool = self { return true }
+            return false
+        }
+    }
+
+    /// One render row over the flat feed (EXP-97): a single item, or a run of
+    /// ≥2 CONSECUTIVE tool calls collapsed into one "N tool calls" row. A
+    /// run's id is the FIRST tool's id, so the row identity (and its expanded
+    /// state) stays stable while the trailing run keeps growing.
+    enum FeedRow: Identifiable, Equatable {
+        case single(FeedItem)
+        case toolRun([FeedItem])
+
+        var id: Int {
+            switch self {
+            case let .single(item): item.id
+            case let .toolRun(items): items.first?.id ?? -1
+            }
         }
     }
 
@@ -100,6 +123,26 @@ final class AgentSessionModel {
         }
         return ids
     }
+
+    /// Render rows: consecutive tool calls collapse into "N tool calls" runs
+    /// (EXP-97) — a projection only, the flat feed stays the state (and
+    /// `activeQuestionIds` keeps operating on it).
+    var rows: [FeedRow] {
+        let ranges = AgentFeedGrouping.toolRunRanges(isTool: feed.map(\.isTool))
+        var rows: [FeedRow] = []
+        var next = 0
+        for range in ranges {
+            for i in next..<range.lowerBound { rows.append(.single(feed[i])) }
+            rows.append(.toolRun(Array(feed[range])))
+            next = range.upperBound
+        }
+        for i in next..<feed.count { rows.append(.single(feed[i])) }
+        return rows
+    }
+
+    /// Live but blocked on a trailing question/plan — the session is waiting
+    /// for a human answer, not stuck (EXP-97).
+    var awaitingInput: Bool { phase == .live && !activeQuestionIds.isEmpty }
 
     private let accountId: String
     private let codingSessionId: String
@@ -425,7 +468,11 @@ final class AgentSessionModel {
             }
             guard !options.isEmpty else { return }
             let multiSelect = (event["multiSelect"] as? Bool) ?? false
-            append(.question(id: takeEventId(), text: text, options: options, multiSelect: multiSelect))
+            let planMode = (event["planMode"] as? Bool) ?? false
+            append(.question(
+                id: takeEventId(), text: text, options: options,
+                multiSelect: multiSelect, planMode: planMode
+            ))
         default:
             break
         }

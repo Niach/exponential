@@ -53,3 +53,32 @@ export function trailingQuestionIds(
   }
   return ids
 }
+
+/** A render row over the flat feed (EXP-97): either one feed item, or a run
+ *  of ≥2 CONSECUTIVE `tool` items collapsed into a single "N tool calls" row.
+ *  `id` of a run is the FIRST tool's id, so the row key (and its expanded
+ *  state) stays stable while the trailing run keeps growing. */
+export type FeedRow<T extends { id: number; kind: string }> =
+  | { kind: `single`; item: T }
+  | { kind: `toolRun`; id: number; items: T[] }
+
+/** Group consecutive runs of ≥2 `tool` items into `toolRun` rows — a pure
+ *  render-time projection: the flat feed (and `trailingQuestionIds` over it)
+ *  is never restructured, so answerability logic is unaffected. */
+export function groupToolRuns<T extends { id: number; kind: string }>(
+  feed: readonly T[]
+): FeedRow<T>[] {
+  const rows: FeedRow<T>[] = []
+  for (let i = 0; i < feed.length; i++) {
+    if (feed[i].kind !== `tool`) {
+      rows.push({ kind: `single`, item: feed[i] })
+      continue
+    }
+    let end = i
+    while (end + 1 < feed.length && feed[end + 1].kind === `tool`) end++
+    if (end === i) rows.push({ kind: `single`, item: feed[i] })
+    else rows.push({ kind: `toolRun`, id: feed[i].id, items: feed.slice(i, end + 1) })
+    i = end
+  }
+  return rows
+}

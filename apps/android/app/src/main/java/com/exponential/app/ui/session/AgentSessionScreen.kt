@@ -30,11 +30,14 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,6 +76,8 @@ import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
+import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -89,6 +94,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 private val LiveGreen = Color(0xFF34D399)
 private val ConnectingYellow = Color(0xFFFBBF24)
 private val LostGray = Color(0xFF71717A)
+/** Accent for the "Plan ready" card + header cue (EXP-97). */
+private val PlanAccent = DesignTokens.Semantic.Blue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,6 +122,10 @@ fun AgentSessionScreen(
     val steering = steererId != null && steererId == currentUserId
     val otherSteerer = viewers.firstOrNull { it.userId == steererId && it.userId != currentUserId }
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
+    // A trailing question/plan means the session is blocked on a human — the
+    // header flips to "Needs your input" so it never looks silently stuck.
+    val awaitingInput = phase == AgentPhase.Live &&
+        remember(feed) { trailingQuestionIds(feed) }.isNotEmpty()
 
     var diffSheetOpen by remember { mutableStateOf(false) }
 
@@ -122,7 +133,13 @@ fun AgentSessionScreen(
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { SessionStatusTitle(phase = phase, deviceLabel = session?.deviceLabel) },
+                title = {
+                    SessionStatusTitle(
+                        phase = phase,
+                        deviceLabel = session?.deviceLabel,
+                        awaitingInput = awaitingInput,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -174,6 +191,7 @@ fun AgentSessionScreen(
                         }
                     else -> ActivityFeed(
                         feed = feed,
+                        live = phase == AgentPhase.Live,
                         // Question cards are answerable while live + steerable
                         // (EXP-78); the card itself also checks the trailing run.
                         answerEnabled = perm == "steer" &&
@@ -318,10 +336,17 @@ fun AgentSessionScreen(
 // ── Header: status dot + "Live · <device>" ───────────────────────────────────
 
 @Composable
-private fun SessionStatusTitle(phase: AgentPhase, deviceLabel: String?) {
+private fun SessionStatusTitle(
+    phase: AgentPhase,
+    deviceLabel: String?,
+    /** Live but blocked on a trailing question/plan — waiting for a human
+     *  answer, not stuck (EXP-97). */
+    awaitingInput: Boolean = false,
+) {
     val connecting = phase == AgentPhase.Connecting || phase == AgentPhase.Starting
+    val awaiting = phase == AgentPhase.Live && awaitingInput
     val dotColor = when (phase) {
-        AgentPhase.Live -> LiveGreen
+        AgentPhase.Live -> if (awaiting) ConnectingYellow else LiveGreen
         AgentPhase.Connecting, AgentPhase.Starting -> ConnectingYellow
         else -> LostGray
     }
@@ -345,8 +370,9 @@ private fun SessionStatusTitle(phase: AgentPhase, deviceLabel: String?) {
         Text(
             when (phase) {
                 AgentPhase.Live -> {
+                    val prefix = if (awaiting) "Needs your input" else "Live"
                     val label = deviceLabel?.takeIf { it.isNotBlank() }
-                    if (label != null) "Live · $label" else "Live"
+                    if (label != null) "$prefix · $label" else prefix
                 }
                 AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
                 is AgentPhase.Ended -> "Session ended"
@@ -363,6 +389,7 @@ private fun SessionStatusTitle(phase: AgentPhase, deviceLabel: String?) {
 @Composable
 private fun ActivityFeed(
     feed: List<AgentFeedItem>,
+    live: Boolean,
     answerEnabled: Boolean,
     /** (key, submit) — single-select taps submit (digit + Enter); multi-select
      *  taps toggle with the digit alone and [onSubmit] sends the Enter. */
@@ -374,6 +401,9 @@ private fun ActivityFeed(
     // Only the trailing consecutive run of questions is still answerable —
     // any later event means the desktop TUI moved on (EXP-78).
     val activeQuestionIds = remember(feed) { trailingQuestionIds(feed) }
+    // Consecutive tool calls collapse into "N tool calls" rows (EXP-97) — a
+    // render-time projection only, the flat feed stays the state.
+    val rows = remember(feed) { groupToolRuns(feed) }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     LaunchedEffect(listState) {
@@ -383,8 +413,8 @@ private fun ActivityFeed(
                 if (dragging) follow = !canForward
             }
     }
-    LaunchedEffect(feed.size, follow) {
-        if (follow && feed.isNotEmpty()) listState.scrollToItem(feed.size - 1)
+    LaunchedEffect(rows.size, follow) {
+        if (follow && rows.isNotEmpty()) listState.scrollToItem(rows.size - 1)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -396,17 +426,24 @@ private fun ActivityFeed(
             verticalArrangement = Arrangement.Bottom,
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            items(feed, key = { it.id }) { item ->
-                when (item) {
-                    is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                    is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
-                    is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
-                    is AgentFeedItem.Question -> QuestionCard(
-                        item = item,
-                        answerable = answerEnabled && item.id in activeQuestionIds,
-                        onAnswer = onAnswer,
-                        onSubmit = onSubmit,
+            items(rows, key = { it.id }) { row ->
+                when (row) {
+                    is AgentFeedRow.ToolRun -> ToolGroupRow(
+                        items = row.items,
+                        liveTail = live && row.id == rows.last().id,
                     )
+                    is AgentFeedRow.Single -> when (val item = row.item) {
+                        is AgentFeedItem.Narration -> NarrationBubble(item.text)
+                        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
+                        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+                        is AgentFeedItem.Question -> QuestionCard(
+                            item = item,
+                            trailing = item.id in activeQuestionIds,
+                            answerEnabled = answerEnabled,
+                            onAnswer = onAnswer,
+                            onSubmit = onSubmit,
+                        )
+                    }
                 }
             }
         }
@@ -514,17 +551,25 @@ private fun UserMessageBubble(text: String) {
 // An interactive question (EXP-78): AskUserQuestion / plan approval. Option
 // buttons send the option's raw TUI keystroke while the question is still in
 // the trailing feed run; stale/view-only cards render options as plain rows.
-// Best-effort by design — the desktop TUI remains the source of truth.
+// planMode cards (EXP-97) get a dedicated "Plan ready" presentation with the
+// first option as the primary approve action and the plan rendered as
+// markdown on expand — labels/keys always come from the wire options, the
+// desktop owns the TUI key mapping. Best-effort by design — the desktop TUI
+// remains the source of truth.
 @Composable
 private fun QuestionCard(
     item: AgentFeedItem.Question,
-    answerable: Boolean,
+    /** Still the trailing feed run — the session is blocked on this card. */
+    trailing: Boolean,
+    /** Live + steer perm — whether this client may answer at all. */
+    answerEnabled: Boolean,
     onAnswer: (String, Boolean) -> Unit,
     onSubmit: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
     val folds = remember(item.text) { clampable(item.text) }
+    val answerable = trailing && answerEnabled
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -533,10 +578,10 @@ private fun QuestionCard(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            Icons.AutoMirrored.Filled.HelpOutline,
+            if (item.planMode) Icons.Filled.Checklist else Icons.AutoMirrored.Filled.HelpOutline,
             contentDescription = null,
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = ConnectingYellow,
+            tint = if (item.planMode) PlanAccent else ConnectingYellow,
         )
         Column(
             modifier = Modifier
@@ -545,23 +590,38 @@ private fun QuestionCard(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SelectionContainer {
+            if (item.planMode) {
                 Text(
-                    item.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
-                    overflow = TextOverflow.Ellipsis,
+                    "Plan ready",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                    color = PlanAccent,
                 )
+            }
+            if (item.planMode && expanded) {
+                // The plan is GFM markdown — render it properly once unfolded.
+                MarkdownView(item.text)
+            } else {
+                SelectionContainer {
+                    Text(
+                        item.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (folds) {
                 ShowMoreToggle(expanded) { expanded = !expanded }
             }
-            item.options.forEach { option ->
+            item.options.forEachIndexed { index, option ->
                 if (answerable) {
+                    // The wire's first option of a plan is the primary approve
+                    // action ("Approve — auto-accept edits") — promote it.
+                    val primary = item.planMode && index == 0
                     Row(
                         modifier = Modifier
-                            .glassButton(active = option.key in picked)
+                            .glassButton(active = primary || option.key in picked)
                             .clickable {
                                 onAnswer(option.key, !item.multiSelect)
                                 picked = if (item.multiSelect) {
@@ -575,7 +635,7 @@ private fun QuestionCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        QuestionOptionLabel(option)
+                        QuestionOptionLabel(option, showKey = !item.planMode)
                     }
                 } else {
                     Row(
@@ -597,17 +657,30 @@ private fun QuestionCard(
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
+            if (trailing && !answerable) {
+                Text(
+                    if (item.planMode) {
+                        "Waiting for approval — you're viewing read-only."
+                    } else {
+                        "Waiting for an answer — you're viewing read-only."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun QuestionOptionLabel(option: QuestionOption) {
-    Text(
-        option.key,
-        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-    )
+private fun QuestionOptionLabel(option: QuestionOption, showKey: Boolean = true) {
+    if (showKey) {
+        Text(
+            option.key,
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
     Text(
         option.label,
         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
@@ -645,6 +718,52 @@ private fun ToolRow(name: String, detail: String?) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+        }
+    }
+}
+
+// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
+// (EXP-97), expandable to the individual rows. While the run is the trailing
+// row of a live session, the latest call stays visible under the count so the
+// viewer still sees live progress.
+@Composable
+private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Icon(
+                Icons.Filled.Build,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Text(
+                "${items.size} tool calls",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        when {
+            expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                items.forEach { ToolRow(it.name, it.detail) }
+            }
+            liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
+                val latest = items.last()
+                ToolRow(latest.name, latest.detail)
+            }
         }
     }
 }

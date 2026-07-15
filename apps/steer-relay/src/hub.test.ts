@@ -577,6 +577,15 @@ describe(`member-only activity kinds (EXP-78)`, () => {
     ],
     multiSelect: true,
   }
+  const planQuestion = {
+    kind: `question`,
+    text: `## The plan`,
+    options: [
+      { label: `Approve — auto-accept edits`, key: `1` },
+      { label: `No, keep planning`, key: `3` },
+    ],
+    planMode: true,
+  }
 
   test(`user_message and question fan out to activity members with fields intact`, () => {
     const hub = new Hub()
@@ -588,6 +597,12 @@ describe(`member-only activity kinds (EXP-78)`, () => {
 
     activity(hub, pub, question)
     expect(member.lastFrame(`activity`)).toMatchObject({ event: question })
+
+    // The planMode marker must survive the schema parse + re-serialization
+    // (EXP-97) — a non-strict zod would silently strip an unlisted key.
+    activity(hub, pub, planQuestion)
+    const plan = member.lastFrame(`activity`).event as { planMode?: boolean }
+    expect(plan.planMode).toBe(true)
   })
 
   test(`replay preserves all kinds in order for members`, () => {
@@ -596,14 +611,18 @@ describe(`member-only activity kinds (EXP-78)`, () => {
     activity(hub, pub, userMessage)
     activity(hub, pub, { kind: `narration`, text: `working` })
     activity(hub, pub, question)
+    activity(hub, pub, planQuestion)
 
     const member = connectActivityMember(hub)
-    expect(
-      member
-        .frames()
-        .filter((f) => f.t === `activity`)
-        .map((f) => (f.event as { kind: string }).kind)
-    ).toEqual([`user_message`, `narration`, `question`])
+    const replayed = member.frames().filter((f) => f.t === `activity`)
+    expect(replayed.map((f) => (f.event as { kind: string }).kind)).toEqual([
+      `user_message`,
+      `narration`,
+      `question`,
+      `question`,
+    ])
+    // planMode survives the activityLog replay path too (EXP-97).
+    expect((replayed[3].event as { planMode?: boolean }).planMode).toBe(true)
   })
 
   test(`a question with an invalid shape is dropped by the schema`, () => {
