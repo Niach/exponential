@@ -1,6 +1,6 @@
 // user_notification_prefs access (SERVER-ONLY table — tRPC + the email digest
 // sweep read it; it is never an Electric shape). A missing row means all
-// defaults (email on, every type on, hourly digest); rows are minted lazily
+// defaults (email on, every type on, daily digest); rows are minted lazily
 // with a random unsubscribeToken on first read/write/send.
 
 import { randomUUID } from "node:crypto"
