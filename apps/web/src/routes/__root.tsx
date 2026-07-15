@@ -34,8 +34,9 @@ export const Route = createRootRoute({
         content: `Real-time issue tracker`,
       },
       {
-        // App pages are not indexable by default; server-bun.ts flips this to
-        // index,follow only for public feedback-board pages via injectMeta().
+        // No page of the app instance is indexable — public feedback boards
+        // included (EXP-99). server-bun.ts pairs this with an X-Robots-Tag
+        // header; the marketing site is the indexable surface.
         name: `robots`,
         content: `noindex`,
       },
