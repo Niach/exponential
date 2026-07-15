@@ -140,13 +140,16 @@ export const helpdeskRouter = router({
         .from(issues)
         .where(eq(issues.id, thread.issueId))
         .limit(1)
-      return { thread, messages, issue: issue ?? null }
+      // The magic-link token is the reporter's credential — it stays
+      // server-side (the reply email path reads it directly) and must never
+      // reach a member's browser.
+      const { token: _token, ...memberThread } = thread
+      return { thread: memberThread, messages, issue: issue ?? null }
     }),
 
-  // Public reply: insert the outbound message and email the reporter. The
-  // email's magic link needs the RAW token and only its hash is stored, so
-  // every reply email ROTATES the token — the freshest email always holds the
-  // working link, older links politely expire (the anonymous page explains).
+  // Public reply: insert the outbound message and email the reporter with the
+  // thread's one stable magic link (the raw token lives on the thread row;
+  // close revokes it, reopen reinstates it — the link itself never changes).
   reply: authedProcedure
     .input(
       z.object({ threadId: z.string().uuid(), body: messageBodySchema })
@@ -298,8 +301,8 @@ export const helpdeskRouter = router({
       return { ok: true as const, txId: result.txId }
     }),
 
-  // Reopen: issue back to todo + a FRESH magic link (the revoked one stays
-  // dead). The new link reaches the reporter with the next reply email.
+  // Reopen: issue back to todo + reinstate the revoked magic link — the
+  // reporter's existing emails work again (the token never changes).
   reopen: authedProcedure
     .input(z.object({ threadId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

@@ -98,9 +98,7 @@ function SupportConversationPage() {
         setSendError(`This conversation has been closed.`)
         await load()
       } else if (res.status === 404) {
-        setSendError(
-          `This link has been superseded — open the conversation from your newest email.`
-        )
+        setSendError(`This conversation no longer exists.`)
       } else if (res.status === 429) {
         setSendError(`Too many messages — please wait a moment and try again.`)
       } else {

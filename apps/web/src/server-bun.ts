@@ -218,10 +218,12 @@ function legacyWorkspaceRedirect(req: Request): Response | null {
   if (url.pathname !== `/w` && !url.pathname.startsWith(`/w/`)) return null
   const rest = url.pathname.slice(`/w`.length)
   // Not Response.redirect(): its headers are immutable and the security-header
-  // wrapper still decorates this response.
+  // wrapper still decorates this response. Relative location (RFC 9110) —
+  // behind Traefik TLS termination url.origin is http://, and an absolute
+  // http:// target would permanently cache a protocol downgrade.
   return new Response(null, {
     status: 301,
-    headers: { location: `${url.origin}/t${rest}${url.search}` },
+    headers: { location: `/t${rest}${url.search}` },
   })
 }
 

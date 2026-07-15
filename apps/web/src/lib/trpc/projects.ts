@@ -376,7 +376,7 @@ export const projectsRouter = router({
       if (attemptsArchiveOrFlip && current?.isProtected) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `This project is protected and cannot be archived or made private`,
+          message: `This project is protected and cannot be archived or have its visibility changed`,
         })
       }
 
@@ -486,6 +486,7 @@ export const projectsRouter = router({
         return { ok: true as const, txId }
       })
       invalidatePublicProjectCache()
+      invalidatePublicMetaCache()
       return result
     }),
 

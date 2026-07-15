@@ -171,6 +171,25 @@ describe(`injectMeta`, () => {
     expect(out).toContain(`&quot;onload=&quot;x`)
   })
 
+  // htmlEscape turns ' into &#39;, so a title containing $' becomes $&#39; —
+  // which a string replacement pattern reads as $& (the whole match), splicing
+  // </head> (and with $\` the entire document prefix) into the attribute.
+  it(`is immune to replace() $-pattern injection from titles`, () => {
+    const hostile: PublicPageMeta = {
+      ...meta,
+      title: `pay $\` up front and $' later`,
+      description: `also $& here`,
+    }
+    const out = injectMeta(baseHtml, hostile, `https://app.exponential.at`)
+    // The escaped title must land verbatim — no spliced document content.
+    expect(out).toContain(`pay $\` up front and $&#39; later`)
+    expect(out).toContain(`also $&amp; here`)
+    // No head-content duplication: exactly one </head>, one <title>.
+    expect(out.match(/<\/head>/g)).toHaveLength(1)
+    expect(out.match(/<title>/g)).toHaveLength(1)
+    expect(out).toMatch(/<\/head><body><\/body><\/html>$/)
+  })
+
   it(`leaves html without a head untouched`, () => {
     const noHead = `<html><body>no head</body></html>`
     expect(injectMeta(noHead, meta, `https://app.exponential.at`)).toBe(noHead)

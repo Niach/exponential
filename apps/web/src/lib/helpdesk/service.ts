@@ -83,9 +83,11 @@ export async function revokeThreadToken(
   tx: Tx,
   threadId: string
 ): Promise<void> {
+  // Explicit updatedAt: the support tables have no update_updated_at trigger,
+  // and the member inbox sorts by it — close/reopen must reorder the list.
   await tx
     .update(supportThreads)
-    .set({ tokenRevokedAt: new Date() })
+    .set({ tokenRevokedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(supportThreads.id, threadId),
@@ -102,7 +104,7 @@ export async function reinstateThreadToken(
 ): Promise<void> {
   await tx
     .update(supportThreads)
-    .set({ tokenRevokedAt: null })
+    .set({ tokenRevokedAt: null, updatedAt: new Date() })
     .where(eq(supportThreads.id, threadId))
 }
 

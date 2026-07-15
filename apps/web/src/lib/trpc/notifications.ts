@@ -82,7 +82,7 @@ export const notificationsRouter = router({
   // Email-notification prefs (user_notification_prefs is server-only — read
   // via tRPC, never synced). The row is auto-created with a random
   // unsubscribeToken on first read/write; a user who never touched the panel
-  // simply has the defaults (email on, all types on, hourly digest).
+  // simply has the defaults (email on, all types on, daily digest).
   // `transportConfigured` lets the web panel hide/disable email affordances on
   // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6).
   emailPrefs: authedProcedure.query(async ({ ctx }) => {
