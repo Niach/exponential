@@ -35,11 +35,14 @@ public struct CreateProjectInput: Encodable, Sendable {
     public let name: String
     public let prefix: String
     public var color: String?
-    // Board type: dev | tasks | feedback (DomainContract.projectType*). The
-    // server defaults to `dev` when omitted; sent explicitly here.
-    public let type: String
-    // Required for `dev` projects, optional for `tasks`/`feedback` (repo-less
-    // boards). The server rejects a `dev` project without a repository.
+    // The public-board switch (replaces the deprecated `type` alias) + the
+    // curated glyph name. The server derives the legacy `type` column from
+    // `isPublic` + repo presence, so iOS sends these instead of `type`.
+    public let isPublic: Bool
+    public let icon: String?
+    // Optional on EVERY project now (the type collapse): coding/PR affordances
+    // gate on repo presence, never on a required repo. The server no longer
+    // rejects a repo-less project.
     public let repository: ProjectRepositoryChoice?
 
     public init(
@@ -47,19 +50,21 @@ public struct CreateProjectInput: Encodable, Sendable {
         name: String,
         prefix: String,
         color: String? = nil,
-        type: String = DomainContract.projectTypeDev,
+        isPublic: Bool = false,
+        icon: String? = nil,
         repository: ProjectRepositoryChoice? = nil
     ) {
         self.workspaceId = workspaceId
         self.name = name
         self.prefix = prefix
         self.color = color
-        self.type = type
+        self.isPublic = isPublic
+        self.icon = icon
         self.repository = repository
     }
 
     enum CodingKeys: String, CodingKey {
-        case workspaceId, name, prefix, color, type, repository
+        case workspaceId, name, prefix, color, isPublic, icon, repository
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -68,7 +73,8 @@ public struct CreateProjectInput: Encodable, Sendable {
         try c.encode(name, forKey: .name)
         try c.encode(prefix, forKey: .prefix)
         try c.encodeIfPresent(color, forKey: .color)
-        try c.encode(type, forKey: .type)
+        try c.encode(isPublic, forKey: .isPublic)
+        try c.encodeIfPresent(icon, forKey: .icon)
         // Omit `repository` entirely when nil so the server's optional schema
         // sees an absent key (not JSON null, which the union would reject).
         try c.encodeIfPresent(repository, forKey: .repository)

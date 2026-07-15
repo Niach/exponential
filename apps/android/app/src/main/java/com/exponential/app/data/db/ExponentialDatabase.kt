@@ -62,9 +62,12 @@ import androidx.room.RoomDatabase
     // v16: releases removed (EXP-106 — releases table + shape dropped, back to
     //      14 shapes) + issues.release_id + coding_sessions.release_id gone
     //      (coding_sessions.issue_id stays nullable for batch multi-issue runs).
+    // v17: project-type collapse (EXP-121) — projects gained is_public + icon on
+    //      the existing shape (repository stays optional). `type` still syncs
+    //      (dual-written server-side) but no longer gates behavior.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,9 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ProjectRepositoryChoice
-import com.exponential.app.domain.DomainContract
-import com.exponential.app.ui.components.ProjectTypeInfo
-import com.exponential.app.ui.components.ProjectTypeInfos
+import com.exponential.app.ui.components.ProjectIconGlyphs
+import com.exponential.app.ui.components.ProjectTemplate
+import com.exponential.app.ui.components.ProjectTemplates
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
@@ -66,14 +68,18 @@ private fun derivePrefix(name: String): String =
         .uppercase()
         .take(5)
 
-// Reusable create-project form: name (auto-derives the prefix until the user
-// edits it), prefix, color, and the required backing repository. Used by
-// onboarding step 2 and the empty-state create sheets. Owns its own
-// [CreateProjectViewModel] for repo loading + the create call.
+// Reusable create-project form. Since the project-type collapse (EXP-121) every
+// project is the same shape: a template quickstart pre-sets the public toggle,
+// the stored icon and whether the repo section leads — then one form (name,
+// prefix, color, icon, optional repository, public toggle). A repository is
+// ALWAYS optional; coding/PR affordances gate on its presence, never on type.
+// The create call sends `isPublic` + `icon` (not the legacy `type`). Owns its
+// own [CreateProjectViewModel] for repo loading + the create call.
 //
 // `minimal` (the onboarding wizard, per the shared iOS/Android onboarding spec)
-// reduces the form to name + repository: the prefix keeps auto-deriving from
-// the name and the color stays at the default — both editable later.
+// reduces the form to template + name + repository: the prefix keeps
+// auto-deriving from the name, the color/icon stay at the template default and
+// the public toggle is hidden — all editable later.
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateProjectForm(
@@ -92,25 +98,33 @@ fun CreateProjectForm(
     // Once the user hand-edits the prefix, stop auto-deriving from the name.
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(DEFAULT_COLOR) }
-    var type by remember { mutableStateOf(DomainContract.projectTypeDev) }
+    // The selected template only seeds isPublic/icon/repo-visibility; those are
+    // then independently editable, so they live in their own state.
+    var template by remember { mutableStateOf(ProjectTemplates.first()) }
+    var isPublic by remember { mutableStateOf(template.isPublic) }
+    var iconName by remember { mutableStateOf(template.iconName) }
+    var showRepo by remember { mutableStateOf(template.suggestsRepo) }
     var repository by remember { mutableStateOf<ProjectRepositoryChoice?>(null) }
-
-    val repoRequired = type == DomainContract.projectTypeDev
 
     LaunchedEffect(workspaceId) { viewModel.loadRepos(workspaceId) }
 
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    val canCreate = name.isNotBlank() && prefix.isNotBlank() &&
-        (!repoRequired || repository != null) && !state.submitting
+    // Repo is always optional now, so creation only needs a name + prefix.
+    val canCreate = name.isNotBlank() && prefix.isNotBlank() && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Board type", style = MaterialTheme.typography.labelMedium, color = secondary)
-            ProjectTypeInfos.forEach { info ->
-                ProjectTypeCard(
+            Text("Start from", style = MaterialTheme.typography.labelMedium, color = secondary)
+            ProjectTemplates.forEach { info ->
+                ProjectTemplateCard(
                     info = info,
-                    selected = info.type == type,
-                    onClick = { type = info.type },
+                    selected = info === template,
+                    onClick = {
+                        template = info
+                        isPublic = info.isPublic
+                        iconName = info.iconName
+                        showRepo = info.suggestsRepo
+                    },
                 )
             }
         }
@@ -167,13 +181,45 @@ fun CreateProjectForm(
                     }
                 }
             }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ProjectIconGlyphs.forEach { (glyphName, glyph) ->
+                        val selected = glyphName == iconName
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected) parseColor(color)
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                                    RoundedCornerShape(10.dp),
+                                )
+                                .clickable { iconName = glyphName },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                glyph,
+                                contentDescription = glyphName,
+                                tint = if (selected) parseColor(color)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
 
-        // Repo picker is dev-only — task/feedback boards are repo-optional, so
-        // it's hidden entirely for them (the server requires a repo iff dev).
-        if (repoRequired) {
+        // Repository is optional on every project. The section leads for the Dev
+        // template; other templates can reveal it with the connect button.
+        if (showRepo) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Repository (required)", style = MaterialTheme.typography.labelMedium, color = secondary)
+                Text("Repository (optional)", style = MaterialTheme.typography.labelMedium, color = secondary)
                 // A failed registry load must not read as "no repos connected" —
                 // show the error with a retry instead of the selector's empty
                 // state (EXP-46).
@@ -201,6 +247,25 @@ fun CreateProjectForm(
                     )
                 }
             }
+        } else if (!minimal) {
+            TextButton(onClick = { showRepo = true }) {
+                Text("Connect a GitHub repository")
+            }
+        }
+
+        if (!minimal) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Public board", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Anyone with the link can read issues and comments.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = isPublic, onCheckedChange = { isPublic = it })
+            }
         }
 
         state.error?.let { message ->
@@ -218,10 +283,10 @@ fun CreateProjectForm(
 
         Button(
             onClick = {
-                // Dev boards must carry a repo (guarded by canCreate); task and
-                // feedback boards send no repository.
-                val repo = if (repoRequired) (repository ?: return@Button) else null
-                viewModel.create(workspaceId, name, prefix, color, type, repo, onCreated)
+                // Repo is optional — send whatever (if any) is selected, only
+                // meaningful while the repo section is shown.
+                val repo = if (showRepo) repository else null
+                viewModel.create(workspaceId, name, prefix, color, isPublic, iconName, repo, onCreated)
             },
             enabled = canCreate,
             modifier = Modifier.fillMaxWidth(),
@@ -237,11 +302,11 @@ fun CreateProjectForm(
     }
 }
 
-// One selectable board-type card: icon + label + one-line description, with a
+// One selectable template card: icon + label + one-line description, with a
 // primary-colored border + check when selected (mirrors the color swatches).
 @Composable
-private fun ProjectTypeCard(
-    info: ProjectTypeInfo,
+private fun ProjectTemplateCard(
+    info: ProjectTemplate,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -254,7 +319,7 @@ private fun ProjectTypeCard(
             .border(
                 if (selected) 2.dp else 1.dp,
                 borderColor,
-                androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                RoundedCornerShape(12.dp),
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),

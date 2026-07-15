@@ -12,13 +12,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-// Mirrors apps/web/src/lib/trpc/projects.ts `create`. v4: a project IS a repo, so
-// create always carries a `repository` — either an existing workspace-registry
+// Mirrors apps/web/src/lib/trpc/projects.ts `create`. A repository is OPTIONAL on
+// every project (EXP-121); when supplied it's either an existing workspace-registry
 // repo (`repositoryId`) or a brand-new repo connected inline by `fullName` (the
 // server validates the GitHub-App install and upserts the registry row in the
 // same transaction). Modeled after iOS `ProjectRepositoryChoice`.
 
-/** The required backing-repo choice for `projects.create`. */
+/** The optional backing-repo choice for `projects.create`. */
 sealed interface ProjectRepositoryChoice {
     /** Target an existing registry repo (same-workspace, not archived). */
     data class Registry(val repositoryId: String) : ProjectRepositoryChoice
@@ -63,11 +63,11 @@ class ProjectsApi @Inject constructor(
 
     /**
      * Create a project. The server uppercases `prefix` and defaults `color` to
-     * `#6366f1` when omitted. `type` is one of dev|tasks|feedback: `dev`
-     * requires a `repository` (server rejects otherwise); tasks/feedback boards
-     * are repo-optional, so `repository` may be null. The inline-connect path
-     * needs owner/admin (repo management). Returns the new project id plus the
-     * full row when decodable (see [CreatedProjectResult]).
+     * `#6366f1` when omitted. Since the project-type collapse (EXP-121) we send
+     * `isPublic` (public board) + `icon` (curated contract name) instead of the
+     * legacy `type`; a `repository` is OPTIONAL on every project. The
+     * inline-connect path needs owner/admin (repo management). Returns the new
+     * project id plus the full row when decodable (see [CreatedProjectResult]).
      */
     suspend fun create(
         accountId: String,
@@ -75,7 +75,8 @@ class ProjectsApi @Inject constructor(
         name: String,
         prefix: String,
         color: String?,
-        type: String,
+        isPublic: Boolean,
+        icon: String,
         repository: ProjectRepositoryChoice?,
     ): CreatedProjectResult {
         // Built as a raw JsonObject so the `repository` union encodes exactly as
@@ -85,7 +86,8 @@ class ProjectsApi @Inject constructor(
             put("name", name)
             put("prefix", prefix)
             color?.let { put("color", it) }
-            put("type", type)
+            put("isPublic", isPublic)
+            put("icon", icon)
             repository?.let { put("repository", it.toJson()) }
         }
         val project = trpc.mutation(

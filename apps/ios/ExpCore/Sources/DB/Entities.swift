@@ -93,10 +93,19 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     // workspace). Now nullable at the source too: only `dev` projects require a
     // repo; `tasks`/`feedback` boards can exist without one.
     public let repositoryId: String?
-    // Board type: dev | tasks | feedback (DomainContract.projectType*). Drives
-    // the type icon + the repo-required gate on creation. Defaults to `dev`.
+    // Legacy board type: dev | tasks | feedback (DomainContract.projectType*).
+    // The server dual-writes it from `is_public` + repo presence and will drop
+    // it in a later release — clients still parse/store it (tolerance) but must
+    // NOT gate behavior on it. Publicness lives in `isPublic`; coding/repo
+    // affordances gate on `repositoryId != nil`. Defaults to `dev`.
     public let type: String
-    // Anonymous-visitor visibility toggles — only meaningful on `feedback`
+    // The public-board switch (replaces type=='feedback'). Source of truth for
+    // the public/globe badge and read-only-visitor semantics.
+    public let isPublic: Bool
+    // Curated glyph name (DomainContract.projectIconValues) — nil means fall
+    // back to the type-derived icon. Rendered to an SF Symbol client-side.
+    public let icon: String?
+    // Anonymous-visitor visibility toggles — only meaningful on public
     // boards, inert otherwise.
     public let publicShowComments: Bool
     public let publicShowActivity: Bool
@@ -122,6 +131,8 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         githubRepo: String?,
         repositoryId: String?,
         type: String = DomainContract.projectTypeDev,
+        isPublic: Bool = false,
+        icon: String? = nil,
         publicShowComments: Bool = true,
         publicShowActivity: Bool = false,
         isProtected: Bool = false,
@@ -140,6 +151,8 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.githubRepo = githubRepo
         self.repositoryId = repositoryId
         self.type = type
+        self.isPublic = isPublic
+        self.icon = icon
         self.publicShowComments = publicShowComments
         self.publicShowActivity = publicShowActivity
         self.isProtected = isProtected
@@ -148,16 +161,14 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.updatedAt = updatedAt
     }
 
-    /// True for `feedback` boards (public, read-only for anonymous visitors).
-    public var isFeedbackBoard: Bool { type == DomainContract.projectTypeFeedback }
-
     enum CodingKeys: String, CodingKey {
-        case id, name, slug, prefix, color, type
+        case id, name, slug, prefix, color, type, icon
         case workspaceId = "workspace_id"
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
         case githubRepo = "github_repo"
         case repositoryId = "repository_id"
+        case isPublic = "is_public"
         case publicShowComments = "public_show_comments"
         case publicShowActivity = "public_show_activity"
         case isProtected = "is_protected"
@@ -167,10 +178,11 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     }
 }
 
-// Custom Codable: the type + public-visibility columns land in the one-time
-// shape rotation; a pre-rotation snapshot (or a partial update touching other
-// columns) may omit them, so decode each permissively with the schema default
-// instead of throwing. `public_show_*` may arrive as JSON bool or 0/1.
+// Custom Codable: the type / is_public / icon / public-visibility columns land
+// in a shape rotation; a pre-rotation snapshot (or a partial update touching
+// other columns) may omit them, so decode each permissively with the schema
+// default instead of throwing. `is_public`/`public_show_*` may arrive as JSON
+// bool or 0/1.
 extension ProjectEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -186,6 +198,8 @@ extension ProjectEntity: Codable {
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         type = (try? c.decodeIfPresent(String.self, forKey: .type))
             .flatMap { $0 } ?? DomainContract.projectTypeDev
+        isPublic = Self.decodeBool(c, .isPublic, default: false)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
         publicShowComments = Self.decodeBool(c, .publicShowComments, default: true)
         publicShowActivity = Self.decodeBool(c, .publicShowActivity, default: false)
         isProtected = Self.decodeBool(c, .isProtected, default: false)

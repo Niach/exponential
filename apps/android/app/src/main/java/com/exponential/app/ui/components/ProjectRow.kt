@@ -37,7 +37,7 @@ fun ProjectRow(
     modifier: Modifier = Modifier,
 ) {
     val color = remember(project.color) { parseColor(project.color) }
-    val typeInfo = remember(project.type) { projectTypeInfo(project.type) }
+    val icon = remember(project.icon, project.type) { projectIcon(project) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -46,10 +46,10 @@ fun ProjectRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Board-type glyph tinted with the project color (replaces the plain dot).
+        // Project glyph tinted with the project color (replaces the plain dot).
         Icon(
-            typeInfo.icon,
-            contentDescription = typeInfo.label,
+            icon,
+            contentDescription = null,
             tint = color,
             modifier = Modifier.size(16.dp),
         )
@@ -62,7 +62,7 @@ fun ProjectRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (typeInfo.isPublic) {
+        if (project.isPublic) {
             Spacer(Modifier.width(8.dp))
             Icon(
                 Icons.Filled.Public,

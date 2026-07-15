@@ -31,6 +31,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
+    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,46 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 
 /// Web default project color (`create-project-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
+
+/// A quickstart template: `(key, title, subtitle, icon, is_public, repo_leads)`.
+/// The key reuses the legacy `project_type` string purely for the card's glyph
+/// + identity; it is never sent to the server. Picking one seeds `is_public`,
+/// `icon`, and whether the repository picker leads the optional fields.
+struct Template {
+    key: &'static str,
+    title: &'static str,
+    subtitle: &'static str,
+    icon: &'static str,
+    is_public: bool,
+    repo_leads: bool,
+}
+
+const TEMPLATES: [Template; 3] = [
+    Template {
+        key: PROJECT_TYPE_DEV,
+        title: "Dev board",
+        subtitle: "Code with Claude on a connected repository.",
+        icon: "code",
+        is_public: false,
+        repo_leads: true,
+    },
+    Template {
+        key: PROJECT_TYPE_TASKS,
+        title: "Task board",
+        subtitle: "Plain issue tracking — a repository is optional.",
+        icon: "square-kanban",
+        is_public: false,
+        repo_leads: false,
+    },
+    Template {
+        key: PROJECT_TYPE_FEEDBACK,
+        title: "Feedback board",
+        subtitle: "Public board — anyone with the link can read it.",
+        icon: "megaphone",
+        is_public: true,
+        repo_leads: false,
+    },
+];
 
 /// A registry repo the new project can target (v4 §3.1 — every project is
 /// backed by exactly one repository). Slim mirror of a `repositories.list`
@@ -167,9 +208,18 @@ pub struct CreateProjectDialogView {
     workspace_id: String,
     name: Entity<InputState>,
     prefix: Entity<InputState>,
-    /// `dev` / `tasks` / `feedback` (v7). Only `dev` requires a repository —
-    /// the repo picker is hidden for the other two.
-    project_type: String,
+    /// The selected quickstart template (`dev` / `tasks` / `feedback`) — drives
+    /// the card highlight and the default `is_public`/`icon`/`repo_leads`. It is
+    /// NOT sent to the server (the create sends `is_public` + `icon`); picking a
+    /// template just seeds those.
+    template: &'static str,
+    /// Whether the new board is public — seeded by the template, then owned by
+    /// the "Public" toggle. Sent as `isPublic`.
+    is_public: bool,
+    /// Curated icon name seeded by the template. Sent as `icon`.
+    icon: &'static str,
+    /// Whether the repository picker leads the optional fields (dev template).
+    repo_leads: bool,
     color: String,
     /// The chosen backing repository (v4 §3.1 — required to submit).
     repo_choice: Option<RepoChoice>,
@@ -229,11 +279,16 @@ impl CreateProjectDialogView {
             },
         ));
 
+        // Default to the Dev quickstart (repo picker leads).
+        let default = &TEMPLATES[0];
         let mut this = Self {
             workspace_id,
             name,
             prefix,
-            project_type: PROJECT_TYPE_DEV.to_string(),
+            template: default.key,
+            is_public: default.is_public,
+            icon: default.icon,
+            repo_leads: default.repo_leads,
             color: DEFAULT_COLOR.to_string(),
             repo_choice: None,
             repos: RepoLoad::Loading,
@@ -296,13 +351,6 @@ impl CreateProjectDialogView {
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let name = self.name.read(cx).value().trim().to_string();
         let prefix = self.prefix.read(cx).value().trim().to_string();
-        let is_dev = self.project_type == PROJECT_TYPE_DEV;
-        // Only dev projects need a backing repo (v7); tasks/feedback are
-        // repo-less. Guard the dev case even though submit is disabled without
-        // a pick.
-        if is_dev && self.repo_choice.is_none() {
-            return;
-        }
         if name.is_empty() || prefix.is_empty() || self.submitting {
             return;
         }
@@ -317,18 +365,15 @@ impl CreateProjectDialogView {
         self.submitting = true;
         cx.notify();
 
-        // The repo picker is only shown for dev projects, so a non-dev create
-        // sends no repository at all.
-        let repository = if is_dev {
-            self.repo_choice.as_ref().map(RepoChoice::to_input)
-        } else {
-            None
-        };
+        // A repository is optional on every board now — send whatever was
+        // picked, or nothing.
+        let repository = self.repo_choice.as_ref().map(RepoChoice::to_input);
         let input = api::projects::ProjectsCreateInput {
             workspace_id: self.workspace_id.clone(),
             name,
             prefix,
-            project_type: self.project_type.clone(),
+            is_public: self.is_public,
+            icon: Some(self.icon.to_string()),
             color: Some(self.color.clone()),
             repository,
         };
@@ -415,36 +460,22 @@ impl CreateProjectDialogView {
 }
 
 impl CreateProjectDialogView {
-    /// The project-type picker (v7): three selectable cards — Dev / Task /
-    /// Feedback board — each with a type glyph, title, and one-liner. Only the
-    /// dev card requires a repository (the repo field is hidden otherwise).
-    fn type_selector(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // (type, title, one-liner)
-        const OPTIONS: [(&str, &str, &str); 3] = [
-            (
-                PROJECT_TYPE_DEV,
-                "Dev board",
-                "Code with Claude on a connected repository.",
-            ),
-            (
-                PROJECT_TYPE_TASKS,
-                "Task board",
-                "Plain issue tracking — no repository needed.",
-            ),
-            (
-                PROJECT_TYPE_FEEDBACK,
-                "Feedback board",
-                "Public board — anyone with the link can read it.",
-            ),
-        ];
-
+    /// The quickstart-template picker: three selectable cards — Dev / Task /
+    /// Feedback board — each with a glyph, title, and one-liner. Picking one
+    /// seeds `is_public` + `icon` + `repo_leads`; the repository stays optional
+    /// on every template and the "Public" toggle can still override the seed.
+    fn template_selector(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let mut grid = v_flex().gap_2();
-        for (project_type, title, subtitle) in OPTIONS {
-            let selected = self.project_type == project_type;
+        for template in &TEMPLATES {
+            let key = template.key;
+            let icon = template.icon;
+            let is_public = template.is_public;
+            let repo_leads = template.repo_leads;
+            let selected = self.template == key;
             let view = cx.entity().clone();
             grid = grid.child(
                 h_flex()
-                    .id(SharedString::from(format!("project-type-{project_type}")))
+                    .id(SharedString::from(format!("project-template-{key}")))
                     .w_full()
                     .gap_3()
                     .items_center()
@@ -459,7 +490,7 @@ impl CreateProjectDialogView {
                     })
                     .cursor_pointer()
                     .child(
-                        crate::icons::project_type_glyph(project_type)
+                        crate::icons::project_icon_name_glyph(template.icon, key)
                             .small()
                             .flex_shrink_0()
                             .text_color(if selected {
@@ -471,18 +502,26 @@ impl CreateProjectDialogView {
                     .child(
                         v_flex()
                             .gap_0p5()
-                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(template.title),
+                            )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(subtitle),
+                                    .child(template.subtitle),
                             ),
                     )
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
-                            if this.project_type != project_type {
-                                this.project_type = project_type.to_string();
+                            if this.template != key {
+                                this.template = key;
+                                this.icon = icon;
+                                this.is_public = is_public;
+                                this.repo_leads = repo_leads;
                                 cx.notify();
                             }
                         });
@@ -492,8 +531,38 @@ impl CreateProjectDialogView {
 
         v_flex()
             .gap_2()
-            .child(field_label(cx, "Type"))
+            .child(field_label(cx, "Template"))
             .child(grid)
+    }
+
+    /// The "Public" toggle: a public board is readable by anyone with the link.
+    /// Seeded by the template, but the user can flip it independently.
+    fn public_toggle(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let view = cx.entity().clone();
+        v_flex().gap_2().child(field_label(cx, "Visibility")).child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    Switch::new("project-public")
+                        .small()
+                        .checked(self.is_public)
+                        .disabled(self.submitting)
+                        .on_click(move |checked: &bool, _, cx| {
+                            let checked = *checked;
+                            view.update(cx, |this, cx| {
+                                this.is_public = checked;
+                                cx.notify();
+                            });
+                        }),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Public — anyone with the link can read it"),
+                ),
+        )
     }
 
     /// The "Repository" field: a dropdown offering the workspace's connected
@@ -792,23 +861,25 @@ impl Render for CreateProjectDialogView {
 
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let prefix_empty = self.prefix.read(cx).value().trim().is_empty();
-        let is_dev = self.project_type == PROJECT_TYPE_DEV;
-        // v7: only dev projects must be backed by a repository — block submit
-        // until one is picked (the server would otherwise reject the create).
-        // Tasks/feedback boards are repo-less.
-        let disabled = name_empty
-            || prefix_empty
-            || (is_dev && self.repo_choice.is_none())
-            || self.submitting;
+        // A repository is optional on every board now — only name + prefix gate
+        // submit.
+        let disabled = name_empty || prefix_empty || self.submitting;
 
         let mut form = v_flex()
             .gap_4()
-            .child(self.type_selector(cx))
+            .child(self.template_selector(cx))
             .child(labeled(cx, "Name", Input::new(&self.name).small()))
             .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()));
-        // The repo picker only applies to dev projects.
-        if is_dev {
-            form = form.child(self.repository_field(cx));
+        // Repository (always optional) + public toggle. The dev template leads
+        // with the repo picker; the others surface the toggle first.
+        if self.repo_leads {
+            form = form
+                .child(self.repository_field(cx))
+                .child(self.public_toggle(cx));
+        } else {
+            form = form
+                .child(self.public_toggle(cx))
+                .child(self.repository_field(cx));
         }
         form = form.child(
             v_flex()
