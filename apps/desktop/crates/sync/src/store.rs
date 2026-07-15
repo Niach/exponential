@@ -322,6 +322,15 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// Bring an existing table up to the current [`ShapeSpec::columns`] set by
 /// adding any missing columns as `TEXT` (see the §5.4 wedge note at the call
 /// site). Purely additive — never drops or retypes.
+///
+/// When a column is actually added it starts as SQL NULL on every
+/// pre-existing row, and incremental sync never backfills it (Electric only
+/// sends rows that CHANGE) — so the shape's `needs_refetch` marker is stamped
+/// in the same breath, forcing a full re-snapshot that repopulates real
+/// values (the iOS v9 projects-migration parity; reuses the 409 refetch
+/// path, so stale rows stay readable until the atomic swap). Without this, a
+/// self-updated build hydrated e.g. `is_public` as explicit JSON null on
+/// every old row indefinitely.
 fn heal_missing_columns(conn: &Connection, spec: &ShapeSpec) -> Result<()> {
     let existing: Vec<String> = {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info(\"{}\")", spec.name))?;
@@ -330,13 +339,20 @@ fn heal_missing_columns(conn: &Connection, spec: &ShapeSpec) -> Result<()> {
             .collect::<std::result::Result<Vec<String>, _>>()?;
         names
     };
+    let mut added_any = false;
     for col in spec.columns {
         if !existing.iter().any(|name| name == col) {
             conn.execute_batch(&format!(
                 "ALTER TABLE \"{}\" ADD COLUMN \"{col}\" TEXT",
                 spec.name
             ))?;
+            added_any = true;
         }
+    }
+    if added_any {
+        // No replacement handle: `request_params` then sends a bare
+        // `offset=-1` — a brand-new snapshot of the same shape.
+        upsert_state(conn, spec.name, &ShapeState::refetch_marker(None))?;
     }
     Ok(())
 }

@@ -167,6 +167,16 @@ fn open_heals_missing_columns_from_an_older_schema() {
     let old = row_by_id(&rows, "old");
     assert_eq!(old.get("title").and_then(Value::as_str), Some("Old row"));
     assert_eq!(old.get("status"), Some(&Value::Null));
+
+    // Healing must also stamp the shape's refetch marker: the healed columns
+    // are NULL on every pre-existing row and incremental sync never backfills
+    // them (Electric only sends rows that change), so the next poll must be a
+    // full re-snapshot — the 0.8.4→0.8.5 vanishing-projects upgrade bug.
+    let st = store.shape_state("issues").unwrap().unwrap();
+    assert!(st.needs_refetch, "healed shape must force a re-snapshot");
+    // A freshly created table (full column set from ddl()) heals nothing and
+    // gets NO marker — a clean first open starts a plain initial snapshot.
+    assert!(store.shape_state("projects").unwrap().is_none());
 }
 
 // ---------------------------------------------------------------------------

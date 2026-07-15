@@ -43,11 +43,40 @@ pub fn session_row_is_ended(row: Option<&CodingSession>) -> bool {
         .is_some_and(|status| status == CODING_SESSION_STATUS_ENDED)
 }
 
+/// Whether an ended row may actually fire the kill (EXP-105 F3). After the
+/// server's staleness sweep DELETEs a live session's row (laptop-suspend
+/// case), any workspace member can resurrect the id via the scoped heartbeat
+/// — the server re-inserts with THE SENDER as owner — then flip it to
+/// `ended`, remote-killing a run they never owned. The original owner is
+/// unknowable server-side (the row was deleted), so the desktop enforces it:
+/// a row whose `user_id` differs from the signed-in user's id never fires.
+/// Legit kills (`steer.killSession` by a workspace owner) flip status WITHOUT
+/// changing the row's owner, so they still pass. An unknowable owner on
+/// either side degrades to firing (the server always stamps `user_id`; this
+/// only covers partial/legacy rows).
+pub fn session_row_fires_kill(row: Option<&CodingSession>, own_user_id: Option<&str>) -> bool {
+    if !session_row_is_ended(row) {
+        return false;
+    }
+    match (own_user_id, row.and_then(|session| session.user_id.as_deref())) {
+        (Some(own), Some(owner)) => own == owner,
+        _ => true,
+    }
+}
+
+/// One registered watch: the teardown callback plus the signed-in user's id
+/// at registration time (the row's expected owner — see
+/// [`session_row_fires_kill`]).
+struct Watched {
+    own_user_id: Option<String>,
+    on_ended: OnSessionEnded,
+}
+
 /// The watch registry. Install ONCE per app (after [`Store::open`]) and share
 /// the entity with the coding flow.
 pub struct KillWatch {
     sessions: Entity<Collection<CodingSession>>,
-    watched: HashMap<String, OnSessionEnded>,
+    watched: HashMap<String, Watched>,
 }
 
 impl KillWatch {
@@ -67,23 +96,35 @@ impl KillWatch {
         })
     }
 
-    /// Watch a session this desktop started. If the row is ALREADY `ended`
-    /// (the kill raced the registration), the callback fires immediately —
-    /// the §8.8 gate must hold even when Electric beats the local wiring.
+    /// Watch a session this desktop started. `own_user_id` is the signed-in
+    /// user's id — the row's expected owner ([`session_row_fires_kill`]). If
+    /// the row is ALREADY `ended` (the kill raced the registration), the
+    /// callback fires immediately — the §8.8 gate must hold even when
+    /// Electric beats the local wiring.
     pub fn watch(
         &mut self,
         session_id: impl Into<String>,
+        own_user_id: Option<String>,
         on_ended: OnSessionEnded,
         cx: &Context<Self>,
     ) {
         let session_id = session_id.into();
-        let already_ended = session_row_is_ended(self.sessions.read(cx).get(&session_id));
+        let already_ended = session_row_fires_kill(
+            self.sessions.read(cx).get(&session_id),
+            own_user_id.as_deref(),
+        );
         if already_ended {
             log::info!("kill-watch: session {session_id} already ended at register");
             on_ended();
             return;
         }
-        self.watched.insert(session_id, on_ended);
+        self.watched.insert(
+            session_id,
+            Watched {
+                own_user_id,
+                on_ended,
+            },
+        );
     }
 
     /// Drop a watch WITHOUT firing — locally-initiated teardown (child
@@ -105,14 +146,16 @@ impl KillWatch {
         let collection = sessions.read(cx);
         let fired: Vec<String> = self
             .watched
-            .keys()
-            .filter(|id| session_row_is_ended(collection.get(id)))
-            .cloned()
+            .iter()
+            .filter(|(id, watched)| {
+                session_row_fires_kill(collection.get(id.as_str()), watched.own_user_id.as_deref())
+            })
+            .map(|(id, _)| id.clone())
             .collect();
         for session_id in fired {
-            if let Some(on_ended) = self.watched.remove(&session_id) {
+            if let Some(watched) = self.watched.remove(&session_id) {
                 log::info!("kill-watch: session {session_id} ended remotely — aborting");
-                on_ended();
+                (watched.on_ended)();
             }
         }
     }
@@ -131,6 +174,15 @@ mod tests {
         .unwrap()
     }
 
+    fn owned_session(status: &str, user_id: &str) -> CodingSession {
+        serde_json::from_value(json!({
+            "id": "sess-1",
+            "status": status,
+            "user_id": user_id,
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn only_an_explicit_ended_status_counts() {
         assert!(session_row_is_ended(Some(&session("ended"))));
@@ -141,5 +193,25 @@ mod tests {
         // Partial row without a status: not ended.
         let bare: CodingSession = serde_json::from_value(json!({"id": "sess-1"})).unwrap();
         assert!(!session_row_is_ended(Some(&bare)));
+    }
+
+    #[test]
+    fn foreign_owner_ended_flip_never_fires() {
+        // EXP-105 F3: a swept-then-resurrected row carries the resurrector as
+        // owner — its `ended` flip must NOT kill the real owner's run.
+        let foreign = owned_session("ended", "attacker");
+        assert!(!session_row_fires_kill(Some(&foreign), Some("me")));
+        // A legit kill keeps the original owner on the row and still fires.
+        let own = owned_session("ended", "me");
+        assert!(session_row_fires_kill(Some(&own), Some("me")));
+        // Not-ended rows never fire regardless of owner.
+        assert!(!session_row_fires_kill(
+            Some(&owned_session("running", "me")),
+            Some("me")
+        ));
+        assert!(!session_row_fires_kill(None, Some("me")));
+        // Unknowable owner on either side degrades to the plain ended check.
+        assert!(session_row_fires_kill(Some(&session("ended")), Some("me")));
+        assert!(session_row_fires_kill(Some(&foreign), None));
     }
 }

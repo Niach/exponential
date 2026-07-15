@@ -32,8 +32,10 @@ use crate::error::{from_ureq_unauthed, ApiError};
 
 /// Tag a request with the client-version header (EXP-104) so the server can
 /// 426-gate stale builds — applied to every `AuthClient` request, including
-/// the unauthenticated auth-config / sign-in / oauth-exchange calls (the gate
-/// fires before login too).
+/// the unauthenticated auth-config / sign-in / oauth-exchange calls, for
+/// uniformity. The server does NOT gate auth routes (only tRPC and shape
+/// requests answer 426), so the blocking update screen latches once sync
+/// starts, not at login.
 fn versioned(request: ureq::Request) -> ureq::Request {
     request.set(CLIENT_VERSION_HEADER, &client_version_header_value())
 }

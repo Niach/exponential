@@ -123,7 +123,7 @@ impl TopBar {
         // marker keys off publicness. Without an active project fall back to the
         // neutral color dot.
         let type_glyph = active.map(crate::icons::project_icon);
-        let is_public = active.map(|p| p.is_public).unwrap_or(false);
+        let is_public = active.and_then(|p| p.is_public).unwrap_or(false);
 
         // Captured snapshot for the menu builder (menus render lazily in the
         // overlay; they must not read `self`): one group per workspace

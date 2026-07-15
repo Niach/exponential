@@ -22,8 +22,7 @@ use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::hydrate::{
-    tolerant_bool, tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64,
-    tolerant_opt_json,
+    tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
 };
 
 /// `workspaces` shape row.
@@ -66,10 +65,13 @@ pub struct Project {
     pub project_type: Option<String>,
     /// Whether this is a public board — anyone with the link can read it. The
     /// canonical publicness signal (replaces the `type == feedback` check).
-    /// NOT NULL default false server-side; an absent column on a legacy local
-    /// row degrades to `false`.
-    #[serde(default, deserialize_with = "tolerant_bool")]
-    pub is_public: bool,
+    /// NOT NULL default false server-side, but `Option` locally: a store-healed
+    /// column is SQL NULL on pre-existing rows (explicit JSON null at hydrate,
+    /// which `serde(default)` does NOT cover), and a not-yet-updated
+    /// self-hosted server never serves the column — a required bool would drop
+    /// the whole row (§5.5). Read sites default to `false`.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub is_public: Option<bool>,
     /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
     /// create time. `None` on legacy rows and pre-icon boards — consumers fall
     /// back to the legacy type-derived glyph.
@@ -483,7 +485,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(public.project_type.as_deref(), Some("feedback"));
-        assert!(public.is_public);
+        assert_eq!(public.is_public, Some(true));
         assert_eq!(public.icon.as_deref(), Some("megaphone"));
         assert_eq!(public.public_show_comments, Some(true));
 
@@ -492,19 +494,35 @@ mod tests {
             "type": "tasks", "is_public": false, "icon": "square-kanban"
         }))
         .unwrap();
-        assert!(!private.is_public);
+        assert_eq!(private.is_public, Some(false));
         assert_eq!(private.icon.as_deref(), Some("square-kanban"));
 
         // A legacy row (deployed before the columns existed) has no `type`,
-        // `is_public`, or `icon` — publicness degrades to false and the glyph
-        // to None (the type-derived fallback).
+        // `is_public`, or `icon` — publicness degrades to None (read sites
+        // default to false) and the glyph to None (the type-derived fallback).
         let legacy: Project = serde_json::from_value(json!({
             "id": "p-3", "workspace_id": "w-1", "name": "Legacy"
         }))
         .unwrap();
         assert_eq!(legacy.project_type, None);
-        assert!(!legacy.is_public);
+        assert_eq!(legacy.is_public, None);
         assert_eq!(legacy.icon, None);
+    }
+
+    #[test]
+    fn project_with_null_is_public_hydrates_not_dropped() {
+        // The 0.8.4→0.8.5 upgrade regression: `heal_missing_columns` ALTERs
+        // `is_public` in as TEXT NULL on pre-existing rows, and the store's
+        // hydrate read re-wraps SQL NULL as EXPLICIT JSON null — which
+        // `serde(default)` does not cover. A required bool here made every
+        // pre-upgrade project row fail hydration and silently vanish from the
+        // project list (§5.5: a partial row degrades, never drops).
+        let healed: Project = serde_json::from_value(json!({
+            "id": "p-1", "workspace_id": "w-1", "name": "Healed",
+            "is_public": null
+        }))
+        .expect("explicit-null is_public must not drop the row");
+        assert_eq!(healed.is_public, None);
     }
 
     #[test]

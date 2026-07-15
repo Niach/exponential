@@ -456,12 +456,17 @@ pub fn attach_publisher(
 
     // §8.8 own-row kill-switch: end the session when the synced row flips to
     // `ended` even if the relay is unreachable. The callback is cx-free, so it
-    // routes the teardown through the same foreground drain.
+    // routes the teardown through the same foreground drain. The signed-in
+    // user's id pins the row's expected owner (EXP-105 F3): a swept-then-
+    // resurrected row carries the resurrector as owner, and its `ended` flip
+    // must never kill this run.
     if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
+        let own_user_id = queries::active_account(cx).map(|account| account.user_id);
         let teardown_tx = ui_tx.clone();
         kill_watch.update(cx, |watch, cx| {
             watch.watch(
                 session_id.to_string(),
+                own_user_id,
                 Box::new(move || {
                     let _ = teardown_tx.send(SteerUiEvent::Teardown);
                 }),
