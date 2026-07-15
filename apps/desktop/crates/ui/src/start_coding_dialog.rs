@@ -10,11 +10,14 @@
 //!   ONE combined PR (`PrepareRequest::Batch`). Deliberately loose — no
 //!   per-issue subagent definitions, no waves; Claude organizes the work.
 //!
-//! The multi-issue PICKER is always present: a searchable checklist over the
-//! workspace's issues (`done`/`cancelled`/`duplicate`/PR-merged rows
-//! pre-uncheck but stay checkable; pre-seeded ids force-check). Repo probes
-//! (`repositories.forIssue`, background executor, generation-guarded) run
-//! LAZILY for checked issues only — ONE repository per run is enforced.
+//! The multi-issue PICKER is always present: a searchable checklist scoped to
+//! the pre-seeded issues' project(s), OPEN issues only (EXP-119 —
+//! `done`/`cancelled`/`duplicate`/PR-merged rows are hidden; other projects'
+//! issues too). Pre-seeded ids are exempt from both filters and force-check:
+//! the explicit pick wins, which keeps the Play-button re-run of a done issue
+//! working. Repo probes (`repositories.forIssue`, background executor,
+//! generation-guarded) run LAZILY for checked issues only — ONE repository
+//! per run is enforced.
 //!
 //! Options: Model + Effort [`ChoiceSelect`]s, the ULTRACODE switch
 //! (`--effort ultracode`, model-independent; disables the Effort select) and
@@ -30,14 +33,15 @@ use std::collections::{HashMap, HashSet};
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputEvent, InputState},
-    scroll::ScrollableElement as _,
+    scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
@@ -127,9 +131,10 @@ struct IssueRow {
     identifier: String,
     title: String,
     description: Option<String>,
-    /// The pre-uncheck reason (`done`/`cancelled`/`duplicate`/PR-merged rows
-    /// start unchecked but stay checkable for a re-run), shown muted next to
-    /// the title. `None` = plain row.
+    /// The closed-state note (`done`/`cancelled`/`duplicate`/PR-merged),
+    /// shown muted next to the title. Only pre-seeded rows can carry one
+    /// (EXP-119 filters closed rows out of the pool) — it flags a re-run.
+    /// `None` = plain row.
     state_hint: Option<&'static str>,
 }
 
@@ -162,6 +167,9 @@ pub struct StartCodingDialogView {
     probe_generation: u64,
     checked: HashSet<String>,
     search: Entity<InputState>,
+    /// Scroll position of the checklist (view state so it survives
+    /// re-renders — the EXP-67 scroll-pane idiom, bounded by `max_h`).
+    list_scroll: ScrollHandle,
     model: ChoiceSelect,
     effort: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — any model, no pin.
@@ -184,10 +192,46 @@ impl StartCodingDialogView {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
 
-        // Snapshot the workspace's issues (stable order: project, then
-        // number) — the picker's candidate pool.
+        // Snapshot the picker's candidate pool (EXP-119): the pre-seeded
+        // issues' project(s) only, OPEN issues only — unrelated projects and
+        // closed rows just buried the launchable ones. Pre-seeded ids are
+        // exempt from both filters: the explicit pick wins (the Play-button
+        // re-run of a done issue), and a checked id MUST keep its row —
+        // `batch_request`/`launch_blocker` iterate `rows` and would silently
+        // drop it from the run otherwise.
         let preselected: HashSet<String> = preselected.into_iter().collect();
         let mut issues = queries::workspace_issues(cx, &workspace_id);
+        // `workspace_issues` hides ARCHIVED rows, but the Play button resolves
+        // its seed from the raw collection — re-read any missing seed raw so
+        // an archived pick shows up force-checked instead of silently
+        // vanishing from the run (`batch_request` iterates `rows`).
+        for seed in &preselected {
+            if !issues.iter().any(|issue| &issue.id == seed) {
+                if let Some(issue) = Store::global(cx).collections().issues.read(cx).get(seed) {
+                    issues.push(issue.clone());
+                }
+            }
+        }
+        let scope_projects: HashSet<String> = issues
+            .iter()
+            .filter(|issue| preselected.contains(&issue.id))
+            .map(|issue| issue.project_id.clone())
+            .collect();
+        issues.retain(|issue| {
+            if preselected.contains(&issue.id) {
+                return true;
+            }
+            // No resolvable seed (racing a delete) → keep the whole
+            // workspace pool rather than an empty picker.
+            if !scope_projects.is_empty() && !scope_projects.contains(&issue.project_id) {
+                return false;
+            }
+            let closed = matches!(
+                issue.status,
+                IssueStatus::Done | IssueStatus::Cancelled | IssueStatus::Duplicate
+            ) || issue.pr_state.as_deref() == Some("merged");
+            !closed
+        });
         issues.sort_by(|a, b| {
             a.project_id
                 .cmp(&b.project_id)
@@ -251,6 +295,7 @@ impl StartCodingDialogView {
             probe_generation: 0,
             checked,
             search,
+            list_scroll: ScrollHandle::new(),
             model: choice_select(&MODEL_CHOICES, &settings.claude_model, window, cx),
             effort: choice_select(&EFFORT_CHOICES, &settings.claude_effort, window, cx),
             ultracode,
@@ -708,6 +753,7 @@ impl Render for StartCodingDialogView {
             }
         }
         let hidden = match_ixs.len().saturating_sub(MAX_UNCHECKED_ROWS);
+        let no_matches = !query.is_empty() && match_ixs.is_empty() && !self.rows.is_empty();
         match_ixs.truncate(MAX_UNCHECKED_ROWS);
 
         let mut checklist = v_flex().gap_1();
@@ -716,7 +762,7 @@ impl Render for StartCodingDialogView {
                 div()
                     .text_sm()
                     .text_color(theme_muted)
-                    .child("This workspace has no issues."),
+                    .child("No open issues in this project."),
             );
         }
         for ix in checked_ixs {
@@ -724,6 +770,16 @@ impl Render for StartCodingDialogView {
         }
         for ix in match_ixs {
             checklist = checklist.child(self.issue_row(ix, cx));
+        }
+        if no_matches {
+            // Without this the scoped pool renders a silently blank list —
+            // the filter (open issues, this project only) is invisible.
+            checklist = checklist.child(
+                div()
+                    .text_xs()
+                    .text_color(theme_muted)
+                    .child("No matches — only open issues from this project are shown."),
+            );
         }
         if hidden > 0 {
             checklist = checklist.child(
@@ -804,12 +860,35 @@ impl Render for StartCodingDialogView {
             .gap_3()
             .child(div().text_xs().text_color(theme_muted).child(intro))
             .child(Input::new(&self.search).small())
+            // Bounded, actually-scrollable checklist (EXP-119): compose the
+            // EXP-67 scroll-pane primitives directly — gpui-component's
+            // `overflow_y_scrollbar` wrapper drops the wrapped element's
+            // `max_h`, so the 240px bound never constrained the list and it
+            // pushed the dialog body instead of scrolling.
             .child(
                 div()
-                    .id("sc-issues-scroll")
-                    .max_h(px(240.))
-                    .overflow_y_scrollbar()
-                    .child(checklist),
+                    .relative()
+                    .max_h(px(320.))
+                    .child(
+                        div()
+                            .id("sc-issues-scroll")
+                            .max_h(px(320.))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.list_scroll)
+                            .child(checklist),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(
+                                Scrollbar::new(&self.list_scroll)
+                                    .axis(ScrollbarAxis::Vertical),
+                            ),
+                    ),
             )
             .child(main_row)
             .child(toggles);
