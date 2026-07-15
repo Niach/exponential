@@ -165,7 +165,7 @@ async function resolveUncached(
     .select({
       id: projects.id,
       name: projects.name,
-      type: projects.type,
+      isPublic: projects.isPublic,
       archivedAt: projects.archivedAt,
       deletedAt: projects.deletedAt,
       workspaceName: workspaces.name,
@@ -182,7 +182,7 @@ async function resolveUncached(
 
   if (
     !project ||
-    project.type !== `feedback` ||
+    !project.isPublic ||
     project.archivedAt !== null ||
     // A trashed feedback board must not get OG meta or the noindex→index flip
     // during its retention window.

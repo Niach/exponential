@@ -23,7 +23,7 @@ import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 const FEEDBACK_WORKSPACE_SLUG = `feedback`
 const FEEDBACK_WORKSPACE_NAME = `Exponential Feedback`
 // The feedback workspace holds exactly ONE project: the dogfood "Exponential"
-// project — a PUBLIC feedback board (type='feedback') since v7; the workspace
+// project — a PUBLIC feedback board (is_public) since v7; the workspace
 // itself is a normal private workspace. Feedback (widget + /feedback route)
 // and dogfood coding share it — a separate `feedback` project only split the
 // same triage board in two.
@@ -105,19 +105,18 @@ export function getFeedbackWorkspaceId(): Promise<string | null> {
 }
 
 // The feedback workspace's single canonical `exponential` project — the
-// public dogfood feedback board (type='feedback', repo-backed). Runs on every
+// public dogfood feedback board (is_public, repo-backed). Runs on every
 // boot and is deliberately INDEPENDENT of DOGFOOD_REPO: the /feedback route
 // redirects to this slug unconditionally, the widget config targets it, and
 // collapseLegacyFeedbackProject folds the legacy project into it — all of
 // which must work on already-bootstrapped pre-collapse DBs where the project
 // was never seeded. Idempotent; returns the project id. Also idempotently
-// re-aligns the type on pre-v7 rows (replacing the old workspace-flag
+// re-aligns publicness on pre-v7 rows (replacing the old workspace-flag
 // forcing).
 async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
   const [existing] = await db
     .select({
       id: projects.id,
-      type: projects.type,
       isPublic: projects.isPublic,
       isProtected: projects.isProtected,
     })
@@ -130,15 +129,13 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
     )
     .limit(1)
   if (existing) {
-    // Idempotently re-align publicness (+ the dual-written legacy type) AND
-    // stamp the non-deletable marker — this is what marks the ops-restored
+    // Idempotently re-align publicness AND stamp the non-deletable marker — this is what marks the ops-restored
     // prod row protected on first boot.
     const patch: Partial<typeof projects.$inferInsert> = {}
     if (!existing.isPublic) {
       patch.isPublic = true
       patch.publicShowComments = true
     }
-    if (existing.type !== `feedback`) patch.type = `feedback`
     if (!existing.isProtected) patch.isProtected = true
     if (Object.keys(patch).length > 0) {
       await db.update(projects).set(patch).where(eq(projects.id, existing.id))
@@ -159,7 +156,6 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
       name: PUBLIC_PROJECT_NAME,
       slug: PUBLIC_PROJECT_SLUG,
       prefix: PUBLIC_PROJECT_PREFIX,
-      type: `feedback`,
       isPublic: true,
       publicShowComments: true,
       isProtected: true,

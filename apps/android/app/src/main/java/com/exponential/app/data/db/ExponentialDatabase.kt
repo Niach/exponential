@@ -65,9 +65,12 @@ import androidx.room.RoomDatabase
     // v17: project-type collapse (EXP-121) — projects gained is_public + icon on
     //      the existing shape (repository stays optional). `type` still syncs
     //      (dual-written server-side) but no longer gates behavior.
+    // v18: projects.type dropped entirely (EXP-129 — the column, pg enum and
+    //      shape column are gone server-side); the entity field is removed. The
+    //      icon fallback now derives from is_public / repository_id instead.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

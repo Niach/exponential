@@ -15,9 +15,6 @@
   "workspaceRole": {
     "values": ["owner", "member"]
   },
-  "projectType": {
-    "values": ["dev", "tasks", "feedback"]
-  },
   "projectIcon": {
     "values": [
       "code",

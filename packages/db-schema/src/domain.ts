@@ -22,16 +22,10 @@ export const issuePriorityValues = [
 
 export const workspaceRoleValues = [`owner`, `member`] as const
 
-// LEGACY project taxonomy (projects.type) — being collapsed into the
-// orthogonal `is_public` + `icon` + repo-presence fields. The column is
-// dual-written (derived from is_public/repository) for one release so shipped
-// native clients keep working, then dropped. Do not add new gates on it.
-export const projectTypeValues = [`dev`, `tasks`, `feedback`] as const
-
 // Curated project icon set (projects.icon) — lucide names on the web; the
 // native clients carry their own per-platform glyph mapping keyed by these
-// values (via the domain contract). NULL icon = fall back to the legacy
-// type-derived icon. Mirrors packages/domain-contract/contract.json.
+// values (via the domain contract). NULL icon = clients derive a fallback
+// from publicness/repo presence. Mirrors packages/domain-contract/contract.json.
 export const projectIconValues = [
   `code`,
   `square-kanban`,
@@ -152,7 +146,6 @@ export const issueEventTypeValues = [
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
-export type ProjectType = (typeof projectTypeValues)[number]
 export type ProjectIcon = (typeof projectIconValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
@@ -169,7 +162,6 @@ export type SupportMessageVisibility =
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
-export const projectTypeSchema = z.enum(projectTypeValues)
 export const projectIconSchema = z.enum(projectIconValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)

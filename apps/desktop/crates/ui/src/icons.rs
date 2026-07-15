@@ -69,30 +69,6 @@ pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
     glyph_icon(option.icon).text_color(token_color(option.color, cx))
 }
 
-/// The type glyph for a raw `project_type` string (mirrors web `Code2` /
-/// `SquareKanban` / `Megaphone`, masterplan v7): dev boards get code brackets,
-/// task boards a kanban, feedback boards a megaphone. Unknown resolves to dev.
-pub fn project_type_glyph(project_type: &str) -> Icon {
-    let glyph = if project_type == domain::contract::PROJECT_TYPE_FEEDBACK {
-        ExpIcon::Megaphone
-    } else if project_type == domain::contract::PROJECT_TYPE_TASKS {
-        ExpIcon::SquareKanban
-    } else {
-        ExpIcon::Code
-    };
-    Icon::from(glyph)
-}
-
-/// A project row's type glyph. Absent/unknown `project_type` resolves to dev.
-pub fn project_type_icon(project: &Project) -> Icon {
-    project_type_glyph(
-        project
-            .project_type
-            .as_deref()
-            .unwrap_or(domain::contract::PROJECT_TYPE_DEV),
-    )
-}
-
 /// One curated icon name (`domain::contract::PROJECT_ICON_VALUES`) → its glyph.
 /// The bundled Lucide set doesn't ship every curated name, so several map to the
 /// closest available glyph (collisions are fine — the stored name is the source
@@ -120,17 +96,31 @@ fn project_icon_glyph(name: &str) -> Option<ExpIcon> {
     Some(glyph)
 }
 
-/// The glyph of a raw curated icon name, falling back to the type-derived glyph
-/// (used by the create-project template cards, where there's no `Project` yet).
-pub fn project_icon_name_glyph(name: &str, project_type: &str) -> Icon {
-    match project_icon_glyph(name) {
-        Some(glyph) => Icon::from(glyph),
-        None => project_type_glyph(project_type),
+/// The glyph of a raw curated icon name, falling back to the code glyph for an
+/// unknown name (used by the create-project template cards, where there's no
+/// `Project` yet — every template ships a known curated icon).
+pub fn project_icon_name_glyph(name: &str) -> Icon {
+    project_icon_glyph(name)
+        .map(Icon::from)
+        .unwrap_or_else(|| Icon::from(ExpIcon::Code))
+}
+
+/// A project's fallback glyph when it carries no stored `icon`: a public board
+/// gets the megaphone, a repo-backed board the code brackets, and a plain board
+/// a kanban. The drop migration backfills `icon`, so this is a cosmetic safety
+/// net for rows synced before the backfill.
+fn project_fallback_glyph(project: &Project) -> ExpIcon {
+    if project.is_public.unwrap_or(false) {
+        ExpIcon::Megaphone
+    } else if project.repository_id.is_some() {
+        ExpIcon::Code
+    } else {
+        ExpIcon::SquareKanban
     }
 }
 
 /// A project row's rendered glyph: the stored curated `icon` when present and
-/// known, otherwise the legacy type-derived fallback (`is_public`/repo columns
+/// known, otherwise the attribute-derived fallback (`is_public`/repo columns
 /// drive behavior; the glyph is cosmetic).
 pub fn project_icon(project: &Project) -> Icon {
     project
@@ -138,7 +128,7 @@ pub fn project_icon(project: &Project) -> Icon {
         .as_deref()
         .and_then(project_icon_glyph)
         .map(Icon::from)
-        .unwrap_or_else(|| project_type_icon(project))
+        .unwrap_or_else(|| Icon::from(project_fallback_glyph(project)))
 }
 
 /// The public-board marker glyph (a globe) — appended next to feedback-board

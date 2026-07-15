@@ -48,7 +48,7 @@ public enum ProjectTypeDisplay {
     /// The three quickstart templates, in display order (Dev first — the default).
     public static let templates: [ProjectTemplate] = [
         ProjectTemplate(
-            id: DomainContract.projectTypeDev,
+            id: "dev",
             symbol: "chevron.left.forwardslash.chevron.right",
             label: "Dev board",
             summary: "Code with Claude, PRs and coding sessions. Connect a GitHub repo.",
@@ -57,7 +57,7 @@ public enum ProjectTypeDisplay {
             showsRepository: true
         ),
         ProjectTemplate(
-            id: DomainContract.projectTypeTasks,
+            id: "tasks",
             symbol: "square.grid.2x2",
             label: "Task board",
             summary: "Plain issue tracking. No repository required.",
@@ -66,7 +66,7 @@ public enum ProjectTypeDisplay {
             showsRepository: false
         ),
         ProjectTemplate(
-            id: DomainContract.projectTypeFeedback,
+            id: "feedback",
             symbol: "megaphone",
             label: "Feedback board",
             summary: "A public, read-only roadmap. Visitors can't sign in to write.",
@@ -76,26 +76,20 @@ public enum ProjectTypeDisplay {
         ),
     ]
 
-    /// SF Symbol for a stored curated icon name (nil/unknown → the type
-    /// fallback via `typeSymbol`).
+    /// SF Symbol for a stored curated icon name (nil/unknown → the caller's
+    /// fallback in `symbol(for:)`).
     public static func iconSymbol(for icon: String?) -> String? {
         guard let icon else { return nil }
         return iconSymbols[icon]
     }
 
-    /// Fallback SF Symbol derived from the legacy `type` when a project carries
-    /// no stored icon. Kept only for that fallback — never a behavior gate.
-    public static func typeSymbol(for type: String) -> String {
-        switch type {
-        case DomainContract.projectTypeTasks: return "square.grid.2x2"
-        case DomainContract.projectTypeFeedback: return "megaphone"
-        default: return "chevron.left.forwardslash.chevron.right"
-        }
-    }
-
-    /// The glyph for a project: its stored curated `icon`, else the
-    /// type-derived fallback.
+    /// The glyph for a project: its stored curated `icon`, else a fallback
+    /// derived from its shape — public boards read as a megaphone, repo-backed
+    /// projects as the code glyph, everything else as the task-board grid.
     public static func symbol(for project: ProjectEntity) -> String {
-        iconSymbol(for: project.icon) ?? typeSymbol(for: project.type)
+        if let symbol = iconSymbol(for: project.icon) { return symbol }
+        if project.isPublic { return "megaphone" }
+        if project.repositoryId != nil { return "chevron.left.forwardslash.chevron.right" }
+        return "square.grid.2x2"
     }
 }

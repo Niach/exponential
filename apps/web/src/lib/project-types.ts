@@ -17,7 +17,7 @@ import {
   Zap,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import type { ProjectIcon, ProjectType } from "@exp/db-schema/domain"
+import type { ProjectIcon } from "@exp/db-schema/domain"
 import { projectIconValues } from "@exp/db-schema/domain"
 
 // Creation templates (the old dev/tasks/feedback project TYPES survive only
@@ -27,7 +27,7 @@ import { projectIconValues } from "@exp/db-schema/domain"
 // per-platform glyph mapping against the same curated icon names from the
 // domain contract.
 export type ProjectTemplate = {
-  key: ProjectType
+  key: `dev` | `tasks` | `feedback`
   label: string
   description: string
   icon: LucideIcon
@@ -90,21 +90,17 @@ export const PROJECT_ICON_OPTIONS = projectIconValues.map((name) => ({
   icon: PROJECT_ICON_COMPONENTS[name],
 }))
 
-// Resolve a project's display icon: the stored `icon` when set, else the
-// legacy type-derived fallback (pre-collapse rows have icon = NULL).
+// Resolve a project's display icon: the stored `icon` when set (the drop-type
+// migration backfilled every row, so the fallback is a cosmetic safety net
+// derived from publicness/repo presence).
 export function getProjectIcon(project: {
   icon?: string | null
-  type?: ProjectType | string | null
+  isPublic?: boolean
+  repositoryId?: string | null
 }): LucideIcon {
   if (project.icon && project.icon in PROJECT_ICON_COMPONENTS) {
     return PROJECT_ICON_COMPONENTS[project.icon as ProjectIcon]
   }
-  switch (project.type) {
-    case `tasks`:
-      return SquareKanban
-    case `feedback`:
-      return Megaphone
-    default:
-      return Code2
-  }
+  if (project.isPublic) return Megaphone
+  return project.repositoryId ? Code2 : SquareKanban
 }

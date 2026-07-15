@@ -56,15 +56,8 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// Legacy `project_type` (`dev` / `tasks` / `feedback`) — server
-    /// dual-written from `is_public`/repo presence and scheduled for removal.
-    /// Kept purely for tolerance (parsing + the icon fallback in
-    /// [`crate::rows`]'s consumers); no behavior gates on it anymore. `type` is
-    /// a Rust keyword, so this renames onto the snake_case column `type`.
-    #[serde(default, rename = "type")]
-    pub project_type: Option<String>,
     /// Whether this is a public board — anyone with the link can read it. The
-    /// canonical publicness signal (replaces the `type == feedback` check).
+    /// canonical publicness signal.
     /// NOT NULL default false server-side, but `Option` locally: a store-healed
     /// column is SQL NULL on pre-existing rows (explicit JSON null at hydrate,
     /// which `serde(default)` does NOT cover), and a not-yet-updated
@@ -73,13 +66,13 @@ pub struct Project {
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub is_public: Option<bool>,
     /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
-    /// create time. `None` on legacy rows and pre-icon boards — consumers fall
-    /// back to the legacy type-derived glyph.
+    /// create time. `None` on pre-icon boards — consumers fall back to an
+    /// attribute-derived glyph.
     #[serde(default)]
     pub icon: Option<String>,
     /// `projects.repository_id` (v4 §3.1, nullable) — the one repository this
     /// project clones/branches against, or `None` for a repo-less board. Coding
-    /// affordances gate purely on this presence, never on `project_type`.
+    /// affordances gate purely on this presence, never on board type.
     #[serde(default)]
     pub repository_id: Option<String>,
     /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
@@ -470,43 +463,39 @@ mod tests {
     }
 
     #[test]
-    fn project_public_and_icon_hydrate_with_legacy_type_tolerance() {
-        // The wire column is `type` (a Rust keyword) — it still lands on
-        // `project_type` for tolerance, but publicness now comes from
-        // `is_public` and the glyph from `icon`.
+    fn project_public_and_icon_hydrate() {
+        // Publicness comes from `is_public` and the glyph from `icon`; the
+        // dropped `type` column no longer arrives (a stray one is simply
+        // ignored — no field models it).
         let public: Project = serde_json::from_value(json!({
             "id": "p-1",
             "workspace_id": "w-1",
             "name": "Feedback",
-            "type": "feedback",
             "is_public": "t",
             "icon": "megaphone",
             "public_show_comments": "t"
         }))
         .unwrap();
-        assert_eq!(public.project_type.as_deref(), Some("feedback"));
         assert_eq!(public.is_public, Some(true));
         assert_eq!(public.icon.as_deref(), Some("megaphone"));
         assert_eq!(public.public_show_comments, Some(true));
 
         let private: Project = serde_json::from_value(json!({
             "id": "p-2", "workspace_id": "w-1", "name": "Tasks",
-            "type": "tasks", "is_public": false, "icon": "square-kanban"
+            "is_public": false, "icon": "square-kanban"
         }))
         .unwrap();
         assert_eq!(private.is_public, Some(false));
         assert_eq!(private.icon.as_deref(), Some("square-kanban"));
 
-        // A legacy row (deployed before the columns existed) has no `type`,
-        // `is_public`, or `icon` — publicness degrades to None (read sites
-        // default to false) and the glyph to None (the type-derived fallback).
-        let legacy: Project = serde_json::from_value(json!({
-            "id": "p-3", "workspace_id": "w-1", "name": "Legacy"
+        // A row missing the new columns degrades: publicness to None (read
+        // sites default to false), glyph to None (attribute-derived fallback).
+        let sparse: Project = serde_json::from_value(json!({
+            "id": "p-3", "workspace_id": "w-1", "name": "Sparse"
         }))
         .unwrap();
-        assert_eq!(legacy.project_type, None);
-        assert_eq!(legacy.is_public, None);
-        assert_eq!(legacy.icon, None);
+        assert_eq!(sparse.is_public, None);
+        assert_eq!(sparse.icon, None);
     }
 
     #[test]

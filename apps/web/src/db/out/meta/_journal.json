@@ -183,6 +183,13 @@
       "when": 1784156443822,
       "tag": "0025_wide_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784156734752,
+      "tag": "0026_far_scream",
+      "breakpoints": true
     }
   ]
 }
