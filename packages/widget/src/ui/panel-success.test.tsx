@@ -16,6 +16,11 @@ const renderSuccess = (args: {
   render(
     <Panel
       phase="success"
+      view="feedback"
+      canGoBack={false}
+      onPickMode={noop}
+      onBack={noop}
+      successFlavor="feedback"
       successIdentifier={args.identifier}
       successUrl={args.url}
       position="bottom-right"
@@ -25,10 +30,12 @@ const renderSuccess = (args: {
       identityEmail={null}
       emailRequired={false}
       onClose={noop}
+      onCapture={noop}
       onRetake={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}
       onSubmit={async () => null}
+      onSubmitSupport={async () => null}
     />,
     container
   )
@@ -41,7 +48,7 @@ describe(`success card`, () => {
   })
 
   it(`links the identifier to the public issue when a url is present`, () => {
-    const url = `https://app.exponential.test/w/feedback/projects/exponential/issues/EXP-7`
+    const url = `https://app.exponential.test/t/feedback/projects/exponential/issues/EXP-7`
     const container = renderSuccess({ identifier: `EXP-7`, url })
     const link = container.querySelector<HTMLAnchorElement>(`a.exp-success-link`)
     expect(link).toBeTruthy()
@@ -54,13 +61,17 @@ describe(`success card`, () => {
 
   it(`renders plain text when the url is null`, () => {
     const container = renderSuccess({ identifier: `EXP-7`, url: null })
-    expect(container.querySelector(`a`)).toBeNull()
+    // The powered-by footer's anchor is always present — only the
+    // issue-link anchor must be absent.
+    expect(container.querySelector(`a.exp-success-link`)).toBeNull()
     expect(container.textContent).toContain(`Filed as EXP-7.`)
   })
 
   it(`falls back to the generic line without an identifier`, () => {
     const container = renderSuccess({ identifier: null, url: null })
-    expect(container.querySelector(`a`)).toBeNull()
+    // The powered-by footer's anchor is always present — only the
+    // issue-link anchor must be absent.
+    expect(container.querySelector(`a.exp-success-link`)).toBeNull()
     expect(container.textContent).toContain(`Your feedback has been sent.`)
   })
 })

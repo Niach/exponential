@@ -158,7 +158,7 @@ export function IssueDetailView({
   const navigateToIssue = (identifier: string | null) => {
     if (!identifier) return
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
       params: {
         workspaceSlug,
         projectSlug: project.slug,
@@ -456,7 +456,7 @@ export function IssueDetailView({
   const handleDeleteIssue = async () => {
     await trpc.issues.delete.mutate({ id: issue.id })
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      to: `/t/$workspaceSlug/projects/$projectSlug`,
       params: { workspaceSlug, projectSlug: project.slug },
       search: {
         status: filterSearch?.status,
@@ -552,7 +552,7 @@ export function IssueDetailView({
           await trpc.issues.move.mutate({ id: issue.id, projectId })
         await issueCollection.utils.awaitTxId(txId)
         void navigate({
-          to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+          to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
           params: {
             workspaceSlug,
             projectSlug,
@@ -568,7 +568,7 @@ export function IssueDetailView({
   const breadcrumb = (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-4 py-2 border-b border-border min-w-0">
       <Link
-        to="/w/$workspaceSlug/projects/$projectSlug"
+        to="/t/$workspaceSlug/projects/$projectSlug"
         params={{ workspaceSlug, projectSlug: project.slug }}
         // Link back to the board WITH the carried filters, so the round trip
         // lands on the exact view the user navigated from.
@@ -629,7 +629,7 @@ export function IssueDetailView({
             if (typeof navigator === `undefined` || !navigator.clipboard) {
               return
             }
-            const url = `${window.location.origin}/w/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
+            const url = `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
             navigator.clipboard.writeText(url).then(
               () => {
                 setLinkCopied(true)

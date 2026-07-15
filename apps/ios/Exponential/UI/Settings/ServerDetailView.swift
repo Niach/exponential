@@ -76,7 +76,7 @@ struct ServerDetailView: View {
                 Task { await deleteAccount() }
             }
         } message: {
-            Text("This permanently deletes your account on \(account?.displayName ?? "this server"), including your personal workspaces, issues, and comments. This cannot be undone.")
+            Text("This permanently deletes your account on \(account?.displayName ?? "this server"), including your personal teams, issues, and comments. This cannot be undone.")
         }
         .alert(
             "Couldn't delete account",

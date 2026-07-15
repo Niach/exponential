@@ -379,7 +379,7 @@ impl Panel for ScreensPanel {
     }
 
     fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Workspace"
+        "Team"
     }
 
     /// The screens ARE the center — closing them would leave an empty center

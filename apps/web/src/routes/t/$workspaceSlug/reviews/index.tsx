@@ -31,7 +31,7 @@ import {
 // through the GitHub App server-side. Deliberately filter-free — the queue
 // should be short. Open PRs WITHOUT any link (manual PRs, external
 // contributors) are listed last, grouped by repository, straight from GitHub.
-export const Route = createFileRoute(`/w/$workspaceSlug/reviews/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/reviews/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
       throw redirect({
@@ -79,7 +79,7 @@ function ReviewsPage() {
 
   const openIssue = (projectSlug: string, issueIdentifier: string) => {
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
       params: { workspaceSlug, projectSlug, issueIdentifier },
     })
   }

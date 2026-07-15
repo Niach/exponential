@@ -31,19 +31,19 @@ const MOBILE_DEEP_LINK = githubConnectedDeepLink()
 const ERROR_COPY: Record<string, { title: string; body: string }> = {
   session: {
     title: `Sign-in didn't match`,
-    body: `This connect link expired or was started from a different session. Go back to workspace settings → Repositories and click Connect again.`,
+    body: `This connect link expired or was started from a different session. Go back to team settings → Repositories and click Connect again.`,
   },
   exchange: {
     title: `GitHub authorization failed`,
-    body: `GitHub didn't complete the authorization. Restart the connect flow from workspace settings → Repositories.`,
+    body: `GitHub didn't complete the authorization. Restart the connect flow from team settings → Repositories.`,
   },
   none: {
     title: `No installations found`,
-    body: `That GitHub account has no Exponential App installations to connect. Use "Install on GitHub" from workspace settings → Repositories to install the App first.`,
+    body: `That GitHub account has no Exponential App installations to connect. Use "Install on GitHub" from team settings → Repositories to install the App first.`,
   },
   forbidden: {
     title: `Not allowed`,
-    body: `Only workspace owners can connect GitHub accounts to this workspace.`,
+    body: `Only team owners can connect GitHub accounts to this team.`,
   },
 }
 
@@ -200,7 +200,7 @@ function GithubClaim() {
             <CardDescription>
               {ticket
                 ? `Loading your GitHub accounts.`
-                : `Missing claim ticket — restart the connect flow from workspace settings.`}
+                : `Missing claim ticket — restart the connect flow from team settings.`}
             </CardDescription>
           </CardHeader>
         ) : (

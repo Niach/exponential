@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, Copy, Github, GitBranch, Globe, Trash2 } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { Github, GitBranch, Globe, LifeBuoy, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { getProjectTypeOption } from "@/lib/project-types"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
+import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -21,6 +23,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  buildPublicBoardUrl,
+  PublicBoardLinkRow,
+} from "@/components/workspace/public-board-share"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
@@ -70,6 +76,9 @@ export function WorkspaceProjectsSection({
   // Live row so toggle writes reflect immediately via Electric sync.
   const publicTarget =
     visibleProjects.find((p) => p.id === publicTargetId) ?? null
+  const [helpdeskTargetId, setHelpdeskTargetId] = useState<string | null>(null)
+  const helpdeskTarget =
+    visibleProjects.find((p) => p.id === helpdeskTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -94,13 +103,13 @@ export function WorkspaceProjectsSection({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Manage projects in this workspace.
+            Manage projects in this team.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {visibleProjects.length === 0 ? (
             <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-              No projects in this workspace yet.
+              No projects in this team yet.
             </div>
           ) : (
             <div className="divide-y rounded-md border">
@@ -108,9 +117,8 @@ export function WorkspaceProjectsSection({
                 const repo = project.repositoryId
                   ? repoMap.get(project.repositoryId)
                   : undefined
-                const TypeIcon = getProjectTypeOption(project.type).icon
-                const isDev = project.type === `dev`
-                const isFeedback = project.type === `feedback`
+                const TypeIcon = getProjectIcon(project)
+                const isPublicBoard = project.isPublic
                 return (
                   <div
                     key={project.id}
@@ -123,7 +131,7 @@ export function WorkspaceProjectsSection({
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {project.name}
                     </span>
-                    {(isDev || repo) && (
+                    {repo && (
                       <Badge
                         variant="outline"
                         className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
@@ -144,7 +152,7 @@ export function WorkspaceProjectsSection({
                     >
                       <GitBranch className="h-3.5 w-3.5" />
                     </Button>
-                    {isFeedback && (
+                    {isPublicBoard && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -155,6 +163,19 @@ export function WorkspaceProjectsSection({
                         <Globe className="h-3.5 w-3.5" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-7 w-7 shrink-0 ${
+                        project.helpdeskEnabled
+                          ? `text-indigo-400`
+                          : `text-muted-foreground`
+                      }`}
+                      title="Helpdesk settings"
+                      onClick={() => setHelpdeskTargetId(project.id)}
+                    >
+                      <LifeBuoy className="h-3.5 w-3.5" />
+                    </Button>
                     <Badge
                       variant="outline"
                       className="hidden shrink-0 font-mono text-xs sm:inline-flex"
@@ -244,6 +265,14 @@ export function WorkspaceProjectsSection({
           if (!open) setPublicTargetId(null)
         }}
       />
+
+      <HelpdeskDialog
+        project={helpdeskTarget}
+        workspaceSlug={workspaceSlug}
+        onOpenChange={(open) => {
+          if (!open) setHelpdeskTargetId(null)
+        }}
+      />
     </>
   )
 }
@@ -321,7 +350,7 @@ function PendingDeletionCard({
       <CardContent>
         <div className="divide-y rounded-md border">
           {trashed.map((project) => {
-            const TypeIcon = getProjectTypeOption(project.type).icon
+            const TypeIcon = getProjectIcon(project)
             return (
               <div
                 key={project.id}
@@ -373,15 +402,10 @@ function PublicBoardDialog({
   workspaceSlug: string
   onOpenChange: (open: boolean) => void
 }) {
-  const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    setCopied(false)
-  }, [project?.id])
-
   const publicUrl = project
-    ? `${window.location.origin}/w/${workspaceSlug}/projects/${project.slug}`
+    ? buildPublicBoardUrl(workspaceSlug, project.slug)
     : ``
 
   const update = async (
@@ -417,27 +441,7 @@ function PublicBoardDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 min-w-0 flex-1 items-center rounded-md border px-3 text-xs text-muted-foreground">
-            <span className="truncate">{publicUrl}</span>
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            title="Copy public link"
-            onClick={() => {
-              void navigator.clipboard.writeText(publicUrl)
-              setCopied(true)
-            }}
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-primary" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
+        <PublicBoardLinkRow url={publicUrl} />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -471,6 +475,92 @@ function PublicBoardDialog({
             />
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Owner control for a project's helpdesk switch (Pro-gated on cloud — the
+// server throws the plan-limit error, surfaced here as an upgrade nudge).
+// Live `project` row from Electric so the switch reflects the write.
+function HelpdeskDialog({
+  project,
+  workspaceSlug,
+  onOpenChange,
+}: {
+  project: Project | null
+  workspaceSlug: string
+  onOpenChange: (open: boolean) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setError(null)
+  }, [project?.id])
+
+  const toggle = async (enabled: boolean) => {
+    if (!project) return
+    setBusy(true)
+    setError(null)
+    try {
+      await trpc.projects.update.mutate({
+        id: project.id,
+        helpdeskEnabled: enabled,
+      })
+    } catch (err) {
+      setError(
+        isPlanLimitError(err)
+          ? `The helpdesk is available on Pro and Business plans.`
+          : `Could not update the helpdesk setting.`
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={project !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <LifeBuoy className="h-4 w-4" />
+            Helpdesk
+          </DialogTitle>
+          <DialogDescription>
+            Let people who reach out through the widget continue the
+            conversation over email + a private reply page. Conversations for
+            {` `}
+            <span className="font-medium text-foreground">
+              {project?.name}
+            </span>{` `}
+            land in the team&apos;s Support inbox.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <Label className="text-sm">Enable helpdesk</Label>
+            <p className="text-xs text-muted-foreground">
+              Pro and Business plans.
+            </p>
+          </div>
+          <Switch
+            checked={project?.helpdeskEnabled ?? false}
+            disabled={busy}
+            onCheckedChange={(checked) => void toggle(checked)}
+          />
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        {project?.helpdeskEnabled && (
+          <Button variant="outline" size="sm" asChild className="w-fit">
+            <Link to="/t/$workspaceSlug/support" params={{ workspaceSlug }}>
+              Open Support inbox
+            </Link>
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
   )

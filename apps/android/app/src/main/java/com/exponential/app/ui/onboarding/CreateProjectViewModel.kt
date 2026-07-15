@@ -71,7 +71,7 @@ class CreateProjectViewModel @Inject constructor(
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 workspace.id
             }.onSuccess { _workspaceId.value = it }
-                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Failed to prepare workspace") }
+                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Failed to prepare team") }
         }
     }
 
@@ -106,7 +106,8 @@ class CreateProjectViewModel @Inject constructor(
         name: String,
         prefix: String,
         color: String,
-        type: String,
+        isPublic: Boolean,
+        icon: String,
         repository: ProjectRepositoryChoice?,
         onCreated: (projectId: String) -> Unit,
     ) {
@@ -121,7 +122,8 @@ class CreateProjectViewModel @Inject constructor(
                     name = name.trim(),
                     prefix = prefix.trim(),
                     color = color,
-                    type = type,
+                    isPublic = isPublic,
+                    icon = icon,
                     repository = repository,
                 )
             }.onSuccess { created ->

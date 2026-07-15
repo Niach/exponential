@@ -199,10 +199,15 @@ public final class DatabaseManager: @unchecked Sendable {
                 // The repo backing this project (Electric ride-along on the
                 // projects shape). Nullable — only `dev` projects require a repo.
                 t.column("repository_id", .text)
-                // Board type: dev | tasks | feedback. Drives type icons + the
-                // repo-required gate. Defaults to `dev` (matches the server).
+                // Legacy board type: dev | tasks | feedback. Server dual-writes
+                // it from is_public + repo presence (dropped in a later release);
+                // clients tolerate it but gate on is_public / repository_id.
                 t.column("type", .text).notNull().defaults(to: "dev")
-                // Anonymous-visitor visibility toggles (feedback boards only).
+                // The public-board switch (replaces type=='feedback') + the
+                // curated glyph name (nullable — nil falls back to a type icon).
+                t.column("is_public", .boolean).notNull().defaults(to: false)
+                t.column("icon", .text)
+                // Anonymous-visitor visibility toggles (public boards only).
                 t.column("public_show_comments", .boolean).notNull().defaults(to: true)
                 t.column("public_show_activity", .boolean).notNull().defaults(to: false)
                 // Display-only mirror of the preview run targets + feedback target.
@@ -612,6 +617,39 @@ public final class DatabaseManager: @unchecked Sendable {
                 try db.alter(table: "coding_sessions") { t in
                     t.drop(column: "release_id")
                 }
+            }
+        }
+
+        // v9 (EXP-121 project-type collapse): `projects` gains `is_public` (the
+        // public-board switch, replacing type=='feedback') and `icon` (curated
+        // glyph name). Both ride along on the projects shape — the server-side
+        // column add rotates the shape handle, but mirror the v5 must-refetch
+        // reset below so existing local rows re-snapshot with the values instead
+        // of keeping the ALTER defaults. Additive + column-guarded exactly like
+        // v3/v4/v5 — never bump the `-v4` file suffix.
+        migrator.registerMigration("v9_project_is_public_icon") { db in
+            // Same table-existence guard as v3-v8: minimal-v1 fixture DBs that
+            // carry only electric_offsets don't have `projects`.
+            guard try db.tableExists("projects") else { return }
+            let existing = Set(try db.columns(in: "projects").map(\.name))
+            guard !existing.contains("is_public") || !existing.contains("icon") else { return }
+            try db.alter(table: "projects") { t in
+                if !existing.contains("is_public") {
+                    t.add(column: "is_public", .boolean).notNull().defaults(to: false)
+                }
+                if !existing.contains("icon") {
+                    t.add(column: "icon", .text)
+                }
+            }
+            // Force the projects shape to re-snapshot so the new columns arrive
+            // populated (matching ShapeClient's must-refetch write). A fresh
+            // install has no offset row yet and snapshots from scratch anyway.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'projects'
+                    """)
             }
         }
 

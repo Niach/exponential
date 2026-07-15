@@ -118,11 +118,12 @@ impl TopBar {
         let label: SharedString = active
             .map(|p| SharedString::from(p.name.clone()))
             .unwrap_or_else(|| "Select project".into());
-        // The active project's type drives the leading glyph (code / kanban /
-        // megaphone, color-tinted) and the feedback globe marker. Without an
-        // active project fall back to the neutral color dot.
-        let type_glyph = active.map(crate::icons::project_type_icon);
-        let is_feedback = active.map(|p| p.is_feedback()).unwrap_or(false);
+        // The active project's stored icon (falling back to the legacy
+        // type-derived glyph) drives the leading glyph, color-tinted; the globe
+        // marker keys off publicness. Without an active project fall back to the
+        // neutral color dot.
+        let type_glyph = active.map(crate::icons::project_icon);
+        let is_public = active.map(|p| p.is_public).unwrap_or(false);
 
         // Captured snapshot for the menu builder (menus render lazily in the
         // overlay; they must not read `self`): one group per workspace
@@ -182,7 +183,7 @@ impl TopBar {
                     .text_ellipsis()
                     .child(label),
             );
-        if is_feedback {
+        if is_public {
             trigger_inner = trigger_inner.child(
                 crate::icons::public_board_icon()
                     .xsmall()
@@ -223,7 +224,7 @@ impl TopBar {
                                 // Keep project-less workspaces reachable now
                                 // that the footer workspace switcher is gone.
                                 menu = menu.menu(
-                                    "Switch to workspace",
+                                    "Switch to team",
                                     Box::new(SwitchWorkspace {
                                         workspace_id: group.workspace_id.clone(),
                                     }),

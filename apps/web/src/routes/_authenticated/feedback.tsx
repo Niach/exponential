@@ -23,7 +23,7 @@ export const Route = createFileRoute(`/_authenticated/feedback`)({
         .join(`\n\n`) || undefined
 
     throw redirect({
-      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      to: `/t/$workspaceSlug/projects/$projectSlug`,
       params: { workspaceSlug: `feedback`, projectSlug: `exponential` },
       search: {
         new: 1 as const,

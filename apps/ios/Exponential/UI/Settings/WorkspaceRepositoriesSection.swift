@@ -140,7 +140,7 @@ struct WorkspaceRepositoriesSection: View {
                 }
             }
         } message: {
-            Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the workspace.")
+            Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the team.")
         }
     }
 

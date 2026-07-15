@@ -62,6 +62,64 @@
   font-weight: 600;
 }
 
+.exp-header-lead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exp-back {
+  all: initial;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: -6px;
+  border-radius: 6px;
+  color: var(--exp-muted-foreground);
+  cursor: pointer;
+}
+.exp-back:hover { background: var(--exp-secondary); color: var(--exp-foreground); }
+.exp-back:focus-visible { outline: 2px solid var(--exp-foreground); }
+.exp-back svg { width: 15px; height: 15px; }
+
+/* Mode home screen (both modes enabled): greeting + one card per entry. */
+.exp-home-sub {
+  font-size: 13px;
+  color: var(--exp-muted-foreground);
+  padding: 2px 0 4px;
+}
+
+.exp-mode-card {
+  all: initial;
+  font-family: inherit;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--exp-border);
+  border-radius: 10px;
+  background: var(--exp-background);
+  cursor: pointer;
+}
+.exp-mode-card:hover { border-color: var(--exp-accent); background: var(--exp-secondary); }
+.exp-mode-card:focus-visible { outline: 2px solid var(--exp-foreground); outline-offset: 2px; }
+
+.exp-mode-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--exp-foreground);
+}
+
+.exp-mode-sub {
+  font-size: 12px;
+  color: var(--exp-muted-foreground);
+}
+
 .exp-close {
   all: initial;
   font-family: inherit;
@@ -244,6 +302,22 @@
   justify-content: center;
 }
 .exp-success-icon svg { width: 18px; height: 18px; }
+
+.exp-powered {
+  padding: 7px 16px;
+  border-top: 1px solid var(--exp-border);
+  text-align: center;
+}
+
+.exp-powered a {
+  color: var(--exp-muted-foreground);
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.exp-powered a strong { font-weight: 600; }
+.exp-powered a:hover { color: var(--exp-foreground); }
+.exp-powered a:focus-visible { outline: 2px solid var(--exp-foreground); }
 
 .exp-success-title { font-size: 14px; font-weight: 600; }
 .exp-success-sub { font-size: 12.5px; color: var(--exp-muted-foreground); }

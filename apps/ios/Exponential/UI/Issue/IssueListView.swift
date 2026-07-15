@@ -168,7 +168,7 @@ struct IssueListView: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(.white)
-            Text("Syncing workspace…")
+            Text("Syncing team…")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()

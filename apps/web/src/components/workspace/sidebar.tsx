@@ -11,6 +11,8 @@ import {
   GitPullRequest,
   Globe,
   Inbox,
+  LifeBuoy,
+  Link2,
   LogIn,
   LogOut,
   Plus,
@@ -23,7 +25,7 @@ import {
   issueCollection,
 } from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
-import { getProjectTypeOption } from "@/lib/project-types"
+import { getProjectIcon } from "@/lib/project-types"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -38,8 +40,15 @@ import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
+import { copyPublicBoardUrl } from "@/components/workspace/public-board-share"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,7 +173,7 @@ export function WorkspaceSidebar({
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
                   className="w-full h-10"
-                  aria-label="Workspace switcher"
+                  aria-label="Team switcher"
                 >
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
                     {workspace?.name?.[0]?.toUpperCase() ??
@@ -184,7 +193,7 @@ export function WorkspaceSidebar({
                       key={ws.id}
                       onClick={() =>
                         navigate({
-                          to: `/w/$workspaceSlug`,
+                          to: `/t/$workspaceSlug`,
                           params: { workspaceSlug: ws.slug },
                         })
                       }
@@ -204,20 +213,20 @@ export function WorkspaceSidebar({
                 {isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="h-4 w-4" />
-                    New workspace
+                    New team
                   </DropdownMenuItem>
                 )}
                 {isAuthed && (
                   <DropdownMenuItem
                     onClick={() =>
                       navigate({
-                        to: `/w/$workspaceSlug/settings`,
+                        to: `/t/$workspaceSlug/settings`,
                         params: { workspaceSlug },
                       })
                     }
                   >
                     <Settings className="h-4 w-4" />
-                    Workspace settings
+                    Team settings
                   </DropdownMenuItem>
                 )}
                 {!isAuthed && (
@@ -268,7 +277,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/my-issues"
+                          to="/t/$workspaceSlug/my-issues"
                           params={{ workspaceSlug }}
                         >
                           <CircleUser className="h-4 w-4" />
@@ -280,7 +289,7 @@ export function WorkspaceSidebar({
                   {isAuthed && (
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
-                        <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
+                        <Link to="/t/$workspaceSlug/inbox" params={{ workspaceSlug }}>
                           <Inbox className="h-4 w-4" />
                           <span>Inbox</span>
                         </Link>
@@ -292,7 +301,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/reviews"
+                          to="/t/$workspaceSlug/reviews"
                           params={{ workspaceSlug }}
                         >
                           <GitPullRequest className="h-4 w-4" />
@@ -306,7 +315,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/agents"
+                          to="/t/$workspaceSlug/agents"
                           params={{ workspaceSlug }}
                         >
                           <Bot className="h-4 w-4" />
@@ -316,6 +325,20 @@ export function WorkspaceSidebar({
                       <AgentsRunningBadge workspaceId={workspace?.id} />
                     </SidebarMenuItem>
                   )}
+                  {isAuthed &&
+                    (projects ?? []).some((p) => p.helpdeskEnabled) && (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <Link
+                            to="/t/$workspaceSlug/support"
+                            params={{ workspaceSlug }}
+                          >
+                            <LifeBuoy className="h-4 w-4" />
+                            <span>Support</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -345,27 +368,53 @@ export function WorkspaceSidebar({
                   </SidebarMenuItem>
                 ) : (
                   projects.map((project) => {
-                    const TypeIcon = getProjectTypeOption(project.type).icon
+                    const TypeIcon = getProjectIcon(project)
+                    const link = (
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/t/$workspaceSlug/projects/$projectSlug"
+                          params={{
+                            workspaceSlug,
+                            projectSlug: project.slug,
+                          }}
+                        >
+                          <TypeIcon
+                            className="h-4 w-4 shrink-0"
+                            style={{ color: project.color }}
+                          />
+                          <span>{project.name}</span>
+                          {project.isPublic && (
+                            <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                        </Link>
+                      </SidebarMenuButton>
+                    )
                     return (
                       <SidebarMenuItem key={project.id}>
-                        <SidebarMenuButton asChild>
-                          <Link
-                            to="/w/$workspaceSlug/projects/$projectSlug"
-                            params={{
-                              workspaceSlug,
-                              projectSlug: project.slug,
-                            }}
-                          >
-                            <TypeIcon
-                              className="h-4 w-4 shrink-0"
-                              style={{ color: project.color }}
-                            />
-                            <span>{project.name}</span>
-                            {project.type === `feedback` && (
-                              <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            )}
-                          </Link>
-                        </SidebarMenuButton>
+                        {/* The link is public by definition, so the copy
+                            affordance isn't owner-gated. */}
+                        {project.isPublic ? (
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              {link}
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  copyPublicBoardUrl(
+                                    workspaceSlug,
+                                    project.slug
+                                  )
+                                }
+                              >
+                                <Link2 className="h-4 w-4" />
+                                Copy public link
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        ) : (
+                          link
+                        )}
                       </SidebarMenuItem>
                     )
                   })
@@ -417,7 +466,7 @@ export function WorkspaceSidebar({
                   <DropdownMenuItem
                     onClick={() =>
                       navigate({
-                        to: `/w/$workspaceSlug/settings`,
+                        to: `/t/$workspaceSlug/settings`,
                         params: { workspaceSlug },
                       })
                     }
@@ -435,7 +484,7 @@ export function WorkspaceSidebar({
                 {!showChrome && isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    New workspace
+                    New team
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

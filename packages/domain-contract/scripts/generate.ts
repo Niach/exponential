@@ -27,6 +27,7 @@ interface Contract {
   recurrenceUnit: Section
   workspaceRole: Section
   projectType: Section
+  projectIcon: Section
   commentKind: Section
   notificationType: Section
   prState: Section
@@ -125,6 +126,7 @@ ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOr
 ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("projectTypeValues", contract.projectType.values)}
+${swiftStringArray("projectIconValues", contract.projectIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
@@ -154,6 +156,7 @@ ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayO
 ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("projectTypeValues", contract.projectType.values)}
+${kotlinStringArray("projectIconValues", contract.projectIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
@@ -185,6 +188,7 @@ ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder 
 ${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
 ${rustStrSlice("projectTypeValues", contract.projectType.values)}
+${rustStrSlice("projectIconValues", contract.projectIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}

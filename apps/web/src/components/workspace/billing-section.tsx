@@ -136,7 +136,7 @@ export function WorkspaceBillingSection({
             <div>
               <CardTitle className="text-base">Plan & Billing</CardTitle>
               <CardDescription>
-                Manage your workspace subscription
+                Manage your team subscription
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -191,7 +191,7 @@ export function WorkspaceBillingSection({
               <div className="space-y-1.5">
                 <p className="text-muted-foreground">
                   {usage.members > limits.seats
-                    ? `This workspace has ${usage.members} members but only ${limits.seats} seat${
+                    ? `This team has ${usage.members} members but only ${limits.seats} seat${
                         limits.seats === 1 ? `` : `s`
                       }. New invites are blocked until you add seats.`
                     : `All ${limits.seats} seat${

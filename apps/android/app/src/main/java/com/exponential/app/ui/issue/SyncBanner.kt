@@ -57,7 +57,7 @@ fun SyncBannerRow(banner: SyncBanner, modifier: Modifier = Modifier) {
         Text(
             when (banner) {
                 SyncBanner.Stalled -> "Sync stalled — open Settings → Sync diagnostics"
-                else -> "Syncing workspace…"
+                else -> "Syncing team…"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

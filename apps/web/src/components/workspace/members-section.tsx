@@ -76,7 +76,7 @@ export function WorkspaceMembersSection({
     // clause and drops your read access — hard-navigate home so all Electric
     // collections restart cleanly.
     if (isSelf) {
-      window.location.assign(`/w/default`)
+      window.location.assign(`/t/default`)
     }
   }
 
@@ -89,7 +89,7 @@ export function WorkspaceMembersSection({
         <CardDescription>
           {solo
             ? `Invite someone to collaborate. Shared projects unlock team features.`
-            : `${members.length} member${members.length !== 1 ? `s` : ``} in this workspace`}
+            : `${members.length} member${members.length !== 1 ? `s` : ``} in this team`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -182,7 +182,7 @@ export function WorkspaceMembersSection({
                             className="text-destructive"
                           >
                             <UserMinus className="mr-2 h-4 w-4" />
-                            Leave workspace
+                            Leave team
                           </DropdownMenuItem>
                         ) : (
                           canManageMembers && (
@@ -353,7 +353,7 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
         open={upgradeOpen}
         onOpenChange={setUpgradeOpen}
         title="Out of seats"
-        description="Everyone on your plan's seats is already in this workspace. Add seats to invite more teammates."
+        description="Everyone on your plan's seats is already in this team. Add seats to invite more teammates."
         proProductId={productIds.pro}
         businessProductId={productIds.business}
         businessYearlyProductId={productIds.businessYearly}

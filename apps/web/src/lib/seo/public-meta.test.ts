@@ -8,13 +8,27 @@ import {
 
 describe(`matchPublicPath`, () => {
   it(`matches a board path`, () => {
-    expect(matchPublicPath(`/w/feedback/projects/exponential`)).toEqual({
+    expect(matchPublicPath(`/t/feedback/projects/exponential`)).toEqual({
       workspaceSlug: `feedback`,
       projectSlug: `exponential`,
     })
   })
 
   it(`matches an issue path`, () => {
+    expect(
+      matchPublicPath(`/t/feedback/projects/exponential/issues/EXP-42`)
+    ).toEqual({
+      workspaceSlug: `feedback`,
+      projectSlug: `exponential`,
+      issueIdentifier: `EXP-42`,
+    })
+  })
+
+  it(`still matches the legacy /w/ prefix`, () => {
+    expect(matchPublicPath(`/w/feedback/projects/exponential`)).toEqual({
+      workspaceSlug: `feedback`,
+      projectSlug: `exponential`,
+    })
     expect(
       matchPublicPath(`/w/feedback/projects/exponential/issues/EXP-42`)
     ).toEqual({
@@ -25,31 +39,32 @@ describe(`matchPublicPath`, () => {
   })
 
   it(`rejects trailing slashes`, () => {
-    expect(matchPublicPath(`/w/feedback/projects/exponential/`)).toBeNull()
+    expect(matchPublicPath(`/t/feedback/projects/exponential/`)).toBeNull()
     expect(
-      matchPublicPath(`/w/feedback/projects/exponential/issues/EXP-1/`)
+      matchPublicPath(`/t/feedback/projects/exponential/issues/EXP-1/`)
     ).toBeNull()
   })
 
   it(`rejects unrelated and deeper paths`, () => {
     expect(matchPublicPath(`/`)).toBeNull()
-    expect(matchPublicPath(`/w/feedback`)).toBeNull()
-    expect(matchPublicPath(`/w/feedback/projects`)).toBeNull()
-    expect(matchPublicPath(`/w/feedback/settings`)).toBeNull()
+    expect(matchPublicPath(`/t/feedback`)).toBeNull()
+    expect(matchPublicPath(`/t/feedback/projects`)).toBeNull()
+    expect(matchPublicPath(`/t/feedback/settings`)).toBeNull()
     expect(
-      matchPublicPath(`/w/feedback/projects/exp/issues/EXP-1/extra`)
+      matchPublicPath(`/t/feedback/projects/exp/issues/EXP-1/extra`)
     ).toBeNull()
+    expect(matchPublicPath(`/x/feedback/projects/exponential`)).toBeNull()
   })
 
   it(`decodes percent-encoded segments`, () => {
-    expect(matchPublicPath(`/w/my%20ws/projects/proj`)).toEqual({
+    expect(matchPublicPath(`/t/my%20ws/projects/proj`)).toEqual({
       workspaceSlug: `my ws`,
       projectSlug: `proj`,
     })
   })
 
   it(`returns null on malformed encoding`, () => {
-    expect(matchPublicPath(`/w/%E0%A4%A/projects/proj`)).toBeNull()
+    expect(matchPublicPath(`/t/%E0%A4%A/projects/proj`)).toBeNull()
   })
 })
 
@@ -97,7 +112,7 @@ describe(`injectMeta`, () => {
   const meta: PublicPageMeta = {
     title: `EXP-1: Fix login · Exponential`,
     description: `A login bug`,
-    url: `/w/feedback/projects/exponential/issues/EXP-1`,
+    url: `/t/feedback/projects/exponential/issues/EXP-1`,
     imagePath: `/og-card.png`,
   }
 
@@ -105,7 +120,7 @@ describe(`injectMeta`, () => {
     const out = injectMeta(baseHtml, meta, `https://app.exponential.at`)
     expect(out).toContain(`<meta property="og:type" content="website" />`)
     expect(out).toContain(
-      `<meta property="og:url" content="https://app.exponential.at/w/feedback/projects/exponential/issues/EXP-1" />`
+      `<meta property="og:url" content="https://app.exponential.at/t/feedback/projects/exponential/issues/EXP-1" />`
     )
     expect(out).toContain(
       `<meta property="og:image" content="https://app.exponential.at/og-card.png" />`
@@ -114,7 +129,7 @@ describe(`injectMeta`, () => {
       `<meta name="twitter:card" content="summary_large_image" />`
     )
     expect(out).toContain(
-      `<link rel="canonical" href="https://app.exponential.at/w/feedback/projects/exponential/issues/EXP-1" />`
+      `<link rel="canonical" href="https://app.exponential.at/t/feedback/projects/exponential/issues/EXP-1" />`
     )
     expect(out).toContain(`</head>`)
   })
@@ -139,9 +154,9 @@ describe(`injectMeta`, () => {
   it(`strips a trailing slash from the origin`, () => {
     const out = injectMeta(baseHtml, meta, `https://app.exponential.at/`)
     expect(out).toContain(
-      `content="https://app.exponential.at/w/feedback/projects/exponential/issues/EXP-1"`
+      `content="https://app.exponential.at/t/feedback/projects/exponential/issues/EXP-1"`
     )
-    expect(out).not.toContain(`.at//w/`)
+    expect(out).not.toContain(`.at//t/`)
   })
 
   it(`HTML-escapes hostile titles so they cannot break out of the attribute`, () => {

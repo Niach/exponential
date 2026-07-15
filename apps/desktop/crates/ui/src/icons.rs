@@ -93,6 +93,54 @@ pub fn project_type_icon(project: &Project) -> Icon {
     )
 }
 
+/// One curated icon name (`domain::contract::PROJECT_ICON_VALUES`) → its glyph.
+/// The bundled Lucide set doesn't ship every curated name, so several map to the
+/// closest available glyph (collisions are fine — the stored name is the source
+/// of truth). An unknown/uncurated name yields `None`.
+fn project_icon_glyph(name: &str) -> Option<ExpIcon> {
+    let glyph = match name {
+        "code" => ExpIcon::Code,
+        "square-kanban" => ExpIcon::SquareKanban,
+        "megaphone" => ExpIcon::Megaphone,
+        "bug" => ExpIcon::CircleDot,
+        "rocket" => ExpIcon::Rocket,
+        "book-open" => ExpIcon::List,
+        "globe" => ExpIcon::Globe,
+        "heart" => ExpIcon::Circle,
+        "star" => ExpIcon::Sparkles,
+        "zap" => ExpIcon::SignalHigh,
+        "wrench" => ExpIcon::Pencil,
+        "shield" => ExpIcon::CircleCheck,
+        "package" => ExpIcon::Square,
+        "terminal" => ExpIcon::Code,
+        "lightbulb" => ExpIcon::Sparkles,
+        "message-circle" => ExpIcon::MessageSquare,
+        _ => return None,
+    };
+    Some(glyph)
+}
+
+/// The glyph of a raw curated icon name, falling back to the type-derived glyph
+/// (used by the create-project template cards, where there's no `Project` yet).
+pub fn project_icon_name_glyph(name: &str, project_type: &str) -> Icon {
+    match project_icon_glyph(name) {
+        Some(glyph) => Icon::from(glyph),
+        None => project_type_glyph(project_type),
+    }
+}
+
+/// A project row's rendered glyph: the stored curated `icon` when present and
+/// known, otherwise the legacy type-derived fallback (`is_public`/repo columns
+/// drive behavior; the glyph is cosmetic).
+pub fn project_icon(project: &Project) -> Icon {
+    project
+        .icon
+        .as_deref()
+        .and_then(project_icon_glyph)
+        .map(Icon::from)
+        .unwrap_or_else(|| project_type_icon(project))
+}
+
 /// The public-board marker glyph (a globe) — appended next to feedback-board
 /// projects, which are readable by anyone with the link.
 pub fn public_board_icon() -> Icon {

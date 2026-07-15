@@ -5,6 +5,7 @@ import { z } from "zod"
 import { db } from "@/db/connection"
 import {
   attachments,
+  emailDeliveries,
   issues,
   issueSubscribers,
   projects,
@@ -12,13 +13,18 @@ import {
   widgetSubmissions,
   workspaces,
 } from "@/db/schema"
-import type { ProjectType } from "@/lib/domain"
 import { generateTxId } from "@/lib/trpc"
 import {
   appBaseUrl,
   buildIssueDeepLinkPath,
 } from "@/lib/notification-email-policy"
-import { assertWithinStorageLimit } from "@/lib/billing"
+import { assertCanUseHelpdesk, assertWithinStorageLimit } from "@/lib/billing"
+import {
+  createSupportThreadInTx,
+  MAX_SUPPORT_MESSAGE_CHARS,
+  supportThreadUrl,
+} from "@/lib/helpdesk/service"
+import { sendSupportConfirmationEmail } from "@/lib/email"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -37,7 +43,11 @@ import { corsHeaders, jsonResponse } from "./cors"
 
 // Screenshots are widget-generated (canvas encodes), so the accepted set is a
 // deliberate subset of acceptedImageContentTypes — no gif/avif uploads here.
-const screenshotContentTypes = new Set([`image/png`, `image/jpeg`, `image/webp`])
+const screenshotContentTypes = new Set([
+  `image/png`,
+  `image/jpeg`,
+  `image/webp`,
+])
 
 // Screenshot cap (10 MB) + headroom for the multipart text fields.
 export const maxSubmitRequestBytes = maxImageUploadBytes + 2 * 1024 * 1024
@@ -56,7 +66,9 @@ export class WidgetRequestError extends Error {
 // board as unavailable and submit can mint the public issue URL (EXP-42a).
 export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
   projectSlug: string | null
-  projectType: ProjectType | null
+  projectName: string | null
+  projectIsPublic: boolean | null
+  projectHelpdeskEnabled: boolean | null
   projectDeletedAt: Date | null
   projectArchivedAt: Date | null
   workspaceSlug: string | null
@@ -72,7 +84,9 @@ export async function loadWidgetConfigByKey(
     .select({
       config: widgetConfigs,
       projectSlug: projects.slug,
-      projectType: projects.type,
+      projectName: projects.name,
+      projectIsPublic: projects.isPublic,
+      projectHelpdeskEnabled: projects.helpdeskEnabled,
       projectDeletedAt: projects.deletedAt,
       projectArchivedAt: projects.archivedAt,
       workspaceSlug: workspaces.slug,
@@ -88,11 +102,65 @@ export async function loadWidgetConfigByKey(
   return {
     ...row.config,
     projectSlug: row.projectSlug,
-    projectType: row.projectType,
+    projectName: row.projectName,
+    projectIsPublic: row.projectIsPublic,
+    projectHelpdeskEnabled: row.projectHelpdeskEnabled,
     projectDeletedAt: row.projectDeletedAt,
     projectArchivedAt: row.projectArchivedAt,
     workspaceSlug: row.workspaceSlug,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Widget modes: which entry points the panel offers. Stored on
+// form_config.modes; absent = feedback-only (every pre-modes config).
+// ---------------------------------------------------------------------------
+
+export type WidgetMode = `feedback` | `support`
+
+export function requestedWidgetModes(
+  config: WidgetConfigWithProject
+): WidgetMode[] {
+  const raw = config.formConfig?.modes
+  const modes = Array.isArray(raw)
+    ? [
+        ...new Set(
+          raw.filter(
+            (mode): mode is WidgetMode =>
+              mode === `feedback` || mode === `support`
+          )
+        ),
+      ]
+    : []
+  return modes.length > 0 ? modes : [`feedback`]
+}
+
+// Support mode is served (and accepted) only while the target project's
+// helpdesk is on AND the workspace plan still covers it — the owner-side
+// write gate can go stale (helpdesk toggled off, plan lapsed), so both the
+// config response and raw submits re-check dynamically.
+async function widgetSupportAvailable(
+  config: WidgetConfigWithProject
+): Promise<boolean> {
+  if (config.projectHelpdeskEnabled !== true) return false
+  try {
+    await assertCanUseHelpdesk(config.workspaceId)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Never returns an empty list: a support-only widget whose support became
+// unavailable degrades to the feedback form instead of a dead launcher.
+export async function effectiveWidgetModes(
+  config: WidgetConfigWithProject
+): Promise<WidgetMode[]> {
+  const modes = requestedWidgetModes(config)
+  if (!modes.includes(`support`)) return modes
+  if (await widgetSupportAvailable(config)) return modes
+  const withoutSupport = modes.filter((mode) => mode !== `support`)
+  return withoutSupport.length > 0 ? withoutSupport : [`feedback`]
 }
 
 const submitFieldsSchema = z.object({
@@ -166,6 +234,12 @@ export async function createWidgetSubmission(args: {
   // the project may be purged); restore brings it back automatically.
   if (config.projectDeletedAt != null) {
     throw new WidgetRequestError(403, `This feedback board is unavailable`)
+  }
+
+  // A support-only widget must not accept feedback via raw POSTs — the UI
+  // gate (which cards the panel offers) is advisory only.
+  if (!(await effectiveWidgetModes(config)).includes(`feedback`)) {
+    throw new WidgetRequestError(403, `Feedback is not enabled for this widget`)
   }
 
   const fields = submitFieldsSchema.safeParse({
@@ -253,7 +327,7 @@ export async function createWidgetSubmission(args: {
   // segment — legacy prefixes predate the letter-led-alphanumeric floor, so
   // identifiers can contain path-breaking characters like `#`.
   const publicIssueUrl = (identifier: string): string | null =>
-    config.projectType === `feedback` &&
+    config.projectIsPublic === true &&
     config.projectArchivedAt == null &&
     config.workspaceSlug &&
     config.projectSlug
@@ -384,6 +458,171 @@ export async function createWidgetSubmission(args: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Support mode (EXP-130): the widget's "Get help" form files a helpdesk
+// ticket — an ordinary issue + support thread + magic-link token — and the
+// reporter gets a confirmation email carrying the conversation link.
+// ---------------------------------------------------------------------------
+
+const supportFieldsSchema = z.object({
+  message: z.string().trim().min(1).max(MAX_SUPPORT_MESSAGE_CHARS),
+  // Required: the email is the reply channel — a support ticket without one
+  // is a dead end.
+  email: z.string().trim().email().max(320),
+  name: z.string().trim().max(255).optional(),
+  userId: z.string().trim().max(255).optional(),
+})
+
+// Tickets ride ordinary issues, which need a title: the message's first line,
+// clamped. Members retitle from the inbox when it reads poorly.
+export function supportTicketTitle(message: string): string {
+  const firstLine = (message.split(`\n`, 1)[0] ?? ``).trim()
+  if (!firstLine) return `Support request`
+  return firstLine.length > 120
+    ? `${firstLine.slice(0, 119).trimEnd()}…`
+    : firstLine
+}
+
+export async function createWidgetSupportSubmission(args: {
+  config: WidgetConfigWithProject
+  formData: FormData
+  userAgent: string | null
+}): Promise<WidgetSubmitResult> {
+  const { config, formData } = args
+
+  if (config.projectDeletedAt != null) {
+    throw new WidgetRequestError(403, `This board is unavailable`)
+  }
+  // Re-checked per submit (not just at config time): the helpdesk toggle or
+  // the plan may have changed since the widget cached its config.
+  if (!(await effectiveWidgetModes(config)).includes(`support`)) {
+    throw new WidgetRequestError(403, `Support is not enabled for this widget`)
+  }
+
+  const fields = supportFieldsSchema.safeParse({
+    message: formData.get(`message`) ?? ``,
+    email: formData.get(`email`) ?? ``,
+    name: formData.get(`name`) ?? undefined,
+    userId: formData.get(`userId`) ?? undefined,
+  })
+  if (!fields.success) {
+    throw new WidgetRequestError(400, `Invalid submission fields`)
+  }
+
+  const customData = parseJsonField(
+    formData.get(`customData`),
+    8 * 1024,
+    `customData`
+  )
+  const metaRaw = parseJsonField(formData.get(`meta`), 4 * 1024, `meta`) ?? {}
+  const meta = envMetaSchema.safeParse(metaRaw)
+  if (!meta.success) {
+    throw new WidgetRequestError(400, `Invalid meta`)
+  }
+
+  const soleMemberId = await getSoleHumanMemberId(config.workspaceId)
+
+  const { result, rawToken } = await db.transaction(async (tx) => {
+    await generateTxId(tx)
+    // The opening message lives on the thread; the issue description carries
+    // it too so the ticket reads normally on the board views.
+    const [issue] = await tx
+      .insert(issues)
+      .values({
+        projectId: config.projectId,
+        title: supportTicketTitle(fields.data.message),
+        status: `backlog`,
+        priority: `none`,
+        description: fields.data.message,
+        assigneeId: soleMemberId,
+        creatorId: config.widgetUserId,
+      })
+      .returning({ id: issues.id, identifier: issues.identifier })
+
+    if (soleMemberId) {
+      await ensureSubscribed(tx, {
+        issueId: issue.id,
+        userId: soleMemberId,
+        workspaceId: config.workspaceId,
+        source: `assignee`,
+      })
+    }
+
+    // widget_reporter subscriber: the helpdesk close flow's resolution email
+    // resolves the reporter through these rows.
+    await tx.insert(issueSubscribers).values({
+      issueId: issue.id,
+      userId: null,
+      email: fields.data.email,
+      workspaceId: config.workspaceId,
+      projectId: config.projectId,
+      source: `widget_reporter`,
+      unsubscribed: false,
+    })
+
+    const { rawToken } = await createSupportThreadInTx(tx, {
+      issueId: issue.id,
+      projectId: config.projectId,
+      reporterEmail: fields.data.email,
+      reporterName: fields.data.name ?? null,
+      body: fields.data.message,
+    })
+
+    await tx.insert(widgetSubmissions).values({
+      widgetConfigId: config.id,
+      issueId: issue.id,
+      reporterEmail: fields.data.email,
+      reporterName: fields.data.name ?? null,
+      reporterExternalId: fields.data.userId ?? null,
+      pageUrl: meta.data.url ?? null,
+      userAgent: args.userAgent,
+      viewportWidth: meta.data.viewportWidth ?? null,
+      viewportHeight: meta.data.viewportHeight ?? null,
+      screenWidth: meta.data.screenWidth ?? null,
+      screenHeight: meta.data.screenHeight ?? null,
+      devicePixelRatio: meta.data.devicePixelRatio ?? null,
+      customData,
+    })
+
+    // Support tickets never mint a public issue URL — the magic-link page is
+    // the reporter's view of the conversation.
+    return {
+      result: { issueId: issue.id, identifier: issue.identifier, url: null },
+      rawToken,
+    }
+  })
+
+  // Members learn of the new ticket through the same issue_created fan-out as
+  // feedback submissions. Fire-and-forget — never fails the submit.
+  fireAndForgetNewIssueNotify({ issueId: result.issueId })
+
+  // Confirmation email with the magic conversation link (the thread's one
+  // stable URL). A failed send doesn't fail the (already committed) ticket:
+  // every member reply email repeats the same link. The ledger row stores no
+  // thread URL — the token lives only on the thread row.
+  try {
+    const sendResult = await sendSupportConfirmationEmail({
+      to: fields.data.email,
+      projectName: config.projectName ?? config.name,
+      threadUrl: supportThreadUrl(rawToken),
+    })
+    await db.insert(emailDeliveries).values({
+      userId: null,
+      toEmail: fields.data.email,
+      issueId: result.issueId,
+      kind: `support_confirmation`,
+      status: sendResult.delivered ? `sent` : `failed`,
+      provider: sendResult.provider,
+      providerMessageId: sendResult.messageId,
+      sentAt: sendResult.delivered ? new Date() : null,
+    })
+  } catch (error) {
+    console.error(`widget support confirmation email failed`, error)
+  }
+
+  return result
+}
+
 // The whole GET /api/widget/config pipeline lives here (not in the route
 // file) so the route module's import surface stays identical to submit.ts —
 // route files with a wider server-only import graph have failed to register
@@ -424,6 +663,9 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     200,
     {
       enabled: true,
+      // Which entry points the panel offers (EXP-130). ADDITIVE — cached
+      // pre-modes widget bundles ignore it and render feedback-only.
+      modes: await effectiveWidgetModes(config),
       form: {
         buttonLabel:
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,

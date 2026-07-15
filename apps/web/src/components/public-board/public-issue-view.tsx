@@ -158,7 +158,7 @@ function BackLink({
 }) {
   return (
     <Link
-      to="/w/$workspaceSlug/projects/$projectSlug"
+      to="/t/$workspaceSlug/projects/$projectSlug"
       params={{ workspaceSlug, projectSlug }}
       className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
     >

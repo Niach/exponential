@@ -31,7 +31,7 @@ import { PublicIssueView } from "./public-issue-view"
 // (anonymous or signed-in) of a workspace that hosts a public feedback-board
 // project. Data comes from the publicBoard tRPC router — one-shot reads, no
 // Electric sync (a signed-in non-member's shapes are membership-scoped and
-// would deliver nothing here). This component owns the whole /w/$slug subtree
+// would deliver nothing here). This component owns the whole /t/$slug subtree
 // in public mode: it switches between board and issue rendering off the URL
 // params instead of the normal Outlet.
 
@@ -119,7 +119,7 @@ function usePublicBoard(workspaceSlug: string, projectSlug?: string) {
       try {
         let slug = projectSlug
         if (!slug) {
-          // Bare /w/$slug — resolve to the workspace's (first) public board.
+          // Bare /t/$slug — resolve to the workspace's (first) public board.
           const boards = await trpc.publicBoard.boards.query({ workspaceSlug })
           slug = boards[0]?.projectSlug
           if (!slug) {
@@ -224,7 +224,7 @@ function PublicBoard({
             {groupIssues.map((issue) => (
               <li key={issue.id}>
                 <Link
-                  to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+                  to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
                   params={{
                     workspaceSlug,
                     projectSlug: data.board.projectSlug,
@@ -348,7 +348,7 @@ function PublicCreateIssueDialog({
             <p className="text-sm text-muted-foreground">
               Thanks! Your issue was filed as{` `}
               <Link
-                to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+                to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
                 params={{
                   workspaceSlug,
                   projectSlug,

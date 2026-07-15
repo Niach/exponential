@@ -1,16 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { isOriginAllowed } from "@/lib/widget/origin"
-import {
-  corsHeaders,
-  jsonResponse,
-  preflightResponse,
-} from "@/lib/widget/cors"
+import { corsHeaders, jsonResponse, preflightResponse } from "@/lib/widget/cors"
 import {
   clientIpFromRequest,
   getWidgetRateLimiters,
 } from "@/lib/widget/rate-limit"
 import {
   createWidgetSubmission,
+  createWidgetSupportSubmission,
   loadWidgetConfigByKey,
   maxSubmitRequestBytes,
   WidgetRequestError,
@@ -87,7 +84,14 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await createWidgetSubmission({
+    // mode=support files a helpdesk ticket (EXP-130); everything else is the
+    // classic feedback submission — absent mode keeps old cached bundles
+    // working unchanged.
+    const submit =
+      formData.get(`mode`) === `support`
+        ? createWidgetSupportSubmission
+        : createWidgetSubmission
+    const result = await submit({
       config,
       formData,
       userAgent: request.headers.get(`user-agent`),

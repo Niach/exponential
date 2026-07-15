@@ -156,7 +156,7 @@ function ConsentPage() {
             <div className="space-y-0.5">
               <Label htmlFor="all-workspaces">Everything</Label>
               <p className="text-xs text-muted-foreground">
-                All workspaces and projects, including ones created later.
+                All teams and projects, including ones created later.
               </p>
             </div>
             <Switch
@@ -170,7 +170,7 @@ function ConsentPage() {
             <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
               {tree.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  You aren&apos;t a member of any workspace yet.
+                  You aren&apos;t a member of any team yet.
                 </p>
               )}
               {tree.map((workspace) => {
@@ -197,7 +197,7 @@ function ConsentPage() {
                         {workspace.name}
                       </Label>
                       <span className="text-xs text-muted-foreground">
-                        whole workspace
+                        whole team
                       </span>
                     </div>
                     <div className="ml-6 space-y-1">

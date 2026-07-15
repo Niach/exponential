@@ -149,10 +149,10 @@ fun SettingsScreen(
                 // selects it (and switches the active account for cross-server
                 // taps) before opening that workspace's settings.
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader("Workspaces")
+                    SectionHeader("Teams")
                     if (serverGroups.isEmpty()) {
                         Text(
-                            "No workspaces synced yet.",
+                            "No teams synced yet.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),

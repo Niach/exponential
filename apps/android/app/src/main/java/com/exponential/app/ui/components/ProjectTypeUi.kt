@@ -1,51 +1,105 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Lightbulb
+
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.domain.DomainContract
 
 /**
- * Presentation metadata for the three project board types (contract
- * projectTypeValues). Shared by the create form, project rows and switcher so
- * the icon/label/description stay consistent. Mirrors the web `Code2` /
- * `SquareKanban` / `Megaphone` mapping with Material equivalents.
+ * Creation-template presentation metadata (the old dev/tasks/feedback project
+ * TYPES survive only here, mirroring web `PROJECT_TEMPLATES`): each pre-sets the
+ * public toggle + stored icon and whether the create form leads with the repo
+ * picker. Every resulting project is the same shape — repo optional, publicness
+ * a toggle.
  */
-data class ProjectTypeInfo(
-    val type: String,
+data class ProjectTemplate(
     val label: String,
     val description: String,
     val icon: ImageVector,
-    /** True for feedback boards — they carry a public affordance. */
+    /** Pre-set publicness — feedback boards are anonymously readable. */
     val isPublic: Boolean,
+    /** Curated icon name (contract projectIconValues) stored on the project. */
+    val iconName: String,
+    /** Whether the form opens with the repository section shown (repo optional). */
+    val suggestsRepo: Boolean,
 )
 
-val ProjectTypeInfos: List<ProjectTypeInfo> = listOf(
-    ProjectTypeInfo(
-        type = DomainContract.projectTypeDev,
+val ProjectTemplates: List<ProjectTemplate> = listOf(
+    ProjectTemplate(
         label = "Dev board",
-        description = "Code with agents, PRs and a GitHub repository.",
+        description = "Connect a GitHub repo — branches, PRs and coding sessions.",
         icon = Icons.Filled.Code,
         isPublic = false,
+        iconName = "code",
+        suggestsRepo = true,
     ),
-    ProjectTypeInfo(
-        type = DomainContract.projectTypeTasks,
+    ProjectTemplate(
         label = "Task board",
         description = "Plain issue tracking — no repository needed.",
         icon = Icons.Filled.ViewKanban,
         isPublic = false,
+        iconName = "square-kanban",
+        suggestsRepo = false,
     ),
-    ProjectTypeInfo(
-        type = DomainContract.projectTypeFeedback,
+    ProjectTemplate(
         label = "Feedback board",
-        description = "A public, read-only board for collecting feedback.",
+        description = "Public, read-only board — collect feedback with the widget.",
         icon = Icons.Filled.Campaign,
         isPublic = true,
+        iconName = "megaphone",
+        suggestsRepo = false,
     ),
 )
 
-/** The presentation info for a raw type string, defaulting to Dev for unknowns. */
-fun projectTypeInfo(type: String?): ProjectTypeInfo =
-    ProjectTypeInfos.firstOrNull { it.type == type } ?: ProjectTypeInfos.first()
+/**
+ * Curated icon set (contract projectIconValues) → Material glyphs, in the
+ * picker's display order. Mirrors web `PROJECT_ICON_COMPONENTS` with Material
+ * equivalents. Every contract name maps.
+ */
+val ProjectIconGlyphs: Map<String, ImageVector> = linkedMapOf(
+    "code" to Icons.Filled.Code,
+    "square-kanban" to Icons.Filled.ViewKanban,
+    "megaphone" to Icons.Filled.Campaign,
+    "bug" to Icons.Filled.BugReport,
+    "rocket" to Icons.Filled.RocketLaunch,
+    "book-open" to Icons.AutoMirrored.Filled.MenuBook,
+    "globe" to Icons.Filled.Public,
+    "heart" to Icons.Filled.Favorite,
+    "star" to Icons.Filled.Star,
+    "zap" to Icons.Filled.Bolt,
+    "wrench" to Icons.Filled.Build,
+    "shield" to Icons.Filled.Shield,
+    "package" to Icons.Filled.Inventory2,
+    "terminal" to Icons.Filled.Terminal,
+    "lightbulb" to Icons.Filled.Lightbulb,
+    "message-circle" to Icons.Filled.ChatBubble,
+)
+
+/**
+ * Resolve a project's display glyph: the stored `icon` when it's a known
+ * curated name, else the legacy type-derived fallback (pre-collapse rows have
+ * icon = NULL). Mirrors web `getProjectIcon`.
+ */
+fun projectIcon(project: ProjectEntity): ImageVector =
+    project.icon?.let { ProjectIconGlyphs[it] } ?: when (project.type) {
+        DomainContract.projectTypeTasks -> Icons.Filled.ViewKanban
+        DomainContract.projectTypeFeedback -> Icons.Filled.Campaign
+        else -> Icons.Filled.Code
+    }

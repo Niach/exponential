@@ -23,7 +23,7 @@ import {
   useWorkspaceProjects,
 } from "@/hooks/use-workspace-data"
 
-export const Route = createFileRoute(`/w/$workspaceSlug`)({
+export const Route = createFileRoute(`/t/$workspaceSlug`)({
   beforeLoad: async ({ params }) => {
     const slug = params.workspaceSlug
     const sessionData = await fetchSessionOnce()
@@ -41,7 +41,7 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
       const { workspace } = await trpc.workspaces.ensureDefault.mutate()
       if (workspace.slug !== `default`) {
         throw redirect({
-          to: `/w/$workspaceSlug`,
+          to: `/t/$workspaceSlug`,
           params: { workspaceSlug: workspace.slug },
         })
       }

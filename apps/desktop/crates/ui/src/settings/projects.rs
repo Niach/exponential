@@ -95,7 +95,7 @@ impl Render for ProjectsPane {
 
         let mut body = card(cx).child(card_header(
             format!("Projects · {}", projects.len()),
-            "Manage projects in this workspace.",
+            "Manage projects in this team.",
             cx,
         ));
 
@@ -109,7 +109,7 @@ impl Render for ProjectsPane {
                     .border_color(cx.theme().border)
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("No projects in this workspace yet."),
+                    .child("No projects in this team yet."),
             );
         } else {
             let mut list = v_flex().gap_2();

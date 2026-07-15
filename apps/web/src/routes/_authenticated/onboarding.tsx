@@ -21,7 +21,7 @@ function OnboardingPage() {
   useEffect(() => {
     if (!session?.user) return
     if (hasCompletedOnboarding(session.user)) {
-      navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug: `default` } })
+      navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug: `default` } })
       return
     }
     void trpc.workspaces.ensureDefault

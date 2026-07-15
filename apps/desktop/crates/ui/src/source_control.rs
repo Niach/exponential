@@ -1262,7 +1262,7 @@ impl SourceControlView {
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .child(
-                    "No repository connected to this workspace — connect one in workspace settings.",
+                    "No repository connected to this team — connect one in team settings.",
                 )
                 .into_any_element();
         }

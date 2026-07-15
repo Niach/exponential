@@ -53,6 +53,58 @@ function parseDomains(value: string): string[] {
     .filter((domain) => domain.length > 0)
 }
 
+// Mirrors the widget bundle's theme.defaultAccent / pickForeground so the
+// launcher preview matches what embedders actually see.
+const DEFAULT_ACCENT = `#e5e5e5`
+
+function previewForeground(color: string): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(color.trim())
+  if (!match) return `#171717`
+  const value = Number.parseInt(match[1], 16)
+  const luminance =
+    0.2126 * ((value >> 16) & 0xff) +
+    0.7152 * ((value >> 8) & 0xff) +
+    0.0722 * (value & 0xff)
+  return luminance > 140 ? `#171717` : `#fafafa`
+}
+
+type WidgetPosition = `bottom-left` | `bottom-right`
+// The settings-facing shape of formConfig.modes: a single pick instead of a
+// multi-select (there are only three valid combinations).
+type WidgetModeChoice = `feedback` | `support` | `both`
+
+// The styling knobs stored in widget_configs.form_config (jsonb) — read
+// defensively, rows may predate any of the fields.
+function readFormConfig(raw: Record<string, unknown> | null): {
+  buttonLabel: string
+  accentColor: string
+  position: WidgetPosition
+  emailRequired: boolean
+  mode: WidgetModeChoice
+} {
+  const modes = Array.isArray(raw?.modes) ? raw.modes : []
+  const hasSupport = modes.includes(`support`)
+  const hasFeedback = modes.includes(`feedback`) || !hasSupport
+  return {
+    buttonLabel: typeof raw?.buttonLabel === `string` ? raw.buttonLabel : ``,
+    accentColor:
+      typeof raw?.accentColor === `string` &&
+      /^#[0-9a-fA-F]{6}$/.test(raw.accentColor)
+        ? raw.accentColor
+        : ``,
+    position: raw?.position === `bottom-right` ? `bottom-right` : `bottom-left`,
+    emailRequired: raw?.emailRequired === true,
+    mode: hasSupport ? (hasFeedback ? `both` : `support`) : `feedback`,
+  }
+}
+
+function modesForChoice(
+  choice: WidgetModeChoice
+): Array<`feedback` | `support`> {
+  if (choice === `both`) return [`feedback`, `support`]
+  return [choice]
+}
+
 export function WorkspaceWidgetSection({
   workspaceId,
 }: {
@@ -76,6 +128,13 @@ export function WorkspaceWidgetSection({
   const [formName, setFormName] = useState(``)
   const [formProjectId, setFormProjectId] = useState<string>(``)
   const [formDomains, setFormDomains] = useState(``)
+  const [formButtonLabel, setFormButtonLabel] = useState(``)
+  // Empty string = "use the widget default" (the accentColor key is omitted).
+  const [formAccent, setFormAccent] = useState(``)
+  const [formPosition, setFormPosition] =
+    useState<WidgetPosition>(`bottom-left`)
+  const [formEmailRequired, setFormEmailRequired] = useState(false)
+  const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -84,7 +143,7 @@ export function WorkspaceWidgetSection({
       setWidgets(await trpc.widgets.list.query({ workspaceId }))
       setError(null)
     } catch {
-      setError(`Couldn't load widgets — are you an owner of this workspace?`)
+      setError(`Couldn't load widgets — are you an owner of this team?`)
     } finally {
       setLoading(false)
     }
@@ -100,18 +159,37 @@ export function WorkspaceWidgetSection({
     setFormName(``)
     setFormProjectId(projects[0]?.id ?? ``)
     setFormDomains(``)
+    setFormButtonLabel(``)
+    setFormAccent(``)
+    setFormPosition(`bottom-left`)
+    setFormEmailRequired(false)
+    setFormMode(`feedback`)
     setFormError(null)
     setDialogOpen(true)
   }
 
   const openEdit = (widget: WidgetList[number]) => {
+    const config = readFormConfig(widget.formConfig)
     setEditTarget(widget)
     setFormName(widget.name)
     setFormProjectId(widget.projectId)
     setFormDomains(widget.allowedDomains.join(`\n`))
+    setFormButtonLabel(config.buttonLabel)
+    setFormAccent(config.accentColor)
+    setFormPosition(config.position)
+    setFormEmailRequired(config.emailRequired)
+    setFormMode(config.mode)
     setFormError(null)
     setDialogOpen(true)
   }
+
+  const buildFormConfig = () => ({
+    ...(formButtonLabel.trim() ? { buttonLabel: formButtonLabel.trim() } : {}),
+    ...(formAccent ? { accentColor: formAccent } : {}),
+    position: formPosition,
+    emailRequired: formEmailRequired,
+    modes: modesForChoice(formMode),
+  })
 
   const save = async () => {
     if (!formName.trim() || !formProjectId) {
@@ -127,6 +205,7 @@ export function WorkspaceWidgetSection({
           name: formName.trim(),
           projectId: formProjectId,
           allowedDomains: parseDomains(formDomains),
+          formConfig: buildFormConfig(),
         })
       } else {
         const created = await trpc.widgets.create.mutate({
@@ -134,6 +213,7 @@ export function WorkspaceWidgetSection({
           projectId: formProjectId,
           name: formName.trim(),
           allowedDomains: parseDomains(formDomains),
+          formConfig: buildFormConfig(),
         })
         setSnippetTarget({
           ...created,
@@ -196,17 +276,21 @@ export function WorkspaceWidgetSection({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquarePlus className="h-4 w-4" />
-          Feedback widget
+          Exponential widget
         </CardTitle>
         <CardDescription>
-          Embed a feedback widget on your own site: visitors capture a
-          screenshot, describe the problem, and it lands here as an issue —
-          with reporter email and page context attached.
+          Embed the Exponential widget on your own site: visitors capture a
+          screenshot, describe the problem, and it lands here as an issue — with
+          reporter email and page context attached.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex justify-end">
-          <Button size="sm" onClick={openCreate} disabled={projects.length === 0}>
+          <Button
+            size="sm"
+            onClick={openCreate}
+            disabled={projects.length === 0}
+          >
             New widget
           </Button>
         </div>
@@ -243,7 +327,8 @@ export function WorkspaceWidgetSection({
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                     <span>
-                      {widget.submissionCount}{` `}
+                      {widget.submissionCount}
+                      {` `}
                       {widget.submissionCount === 1
                         ? `submission`
                         : `submissions`}
@@ -309,11 +394,11 @@ export function WorkspaceWidgetSection({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editTarget ? `Edit widget` : `New feedback widget`}
+              {editTarget ? `Edit widget` : `New widget`}
             </DialogTitle>
             <DialogDescription>
-              Submissions create issues in the selected project. The key in
-              the snippet is public; restrict it to your domains.
+              Submissions create issues in the selected project. The key in the
+              snippet is public; restrict it to your domains.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -342,6 +427,31 @@ export function WorkspaceWidgetSection({
               </Select>
             </div>
             <div className="space-y-2">
+              <Label>Modes</Label>
+              <Select
+                value={formMode}
+                onValueChange={(value) =>
+                  setFormMode(value as WidgetModeChoice)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="feedback">Feedback</SelectItem>
+                  <SelectItem value="support">Support</SelectItem>
+                  <SelectItem value="both">Feedback + support</SelectItem>
+                </SelectContent>
+              </Select>
+              {formMode !== `feedback` && (
+                <p className="text-xs text-muted-foreground">
+                  Support files helpdesk tickets — visitors get a reply-by-email
+                  conversation. Requires the helpdesk to be enabled on the
+                  selected project.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="widget-domains">Allowed domains</Label>
               <Textarea
                 id="widget-domains"
@@ -354,6 +464,85 @@ export function WorkspaceWidgetSection({
                 One per line. `*.example.com` matches subdomains only. Leave
                 empty to allow any website (not recommended).
               </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="widget-button-label">Button label</Label>
+                <Input
+                  id="widget-button-label"
+                  placeholder="Feedback"
+                  maxLength={40}
+                  value={formButtonLabel}
+                  onChange={(event) => setFormButtonLabel(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="widget-accent">Accent color</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="widget-accent"
+                    type="color"
+                    value={formAccent || DEFAULT_ACCENT}
+                    onChange={(event) => setFormAccent(event.target.value)}
+                    className="h-9 w-14 cursor-pointer p-1"
+                  />
+                  {formAccent ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFormAccent(``)}
+                    >
+                      Reset
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Default
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Position</Label>
+                <Select
+                  value={formPosition}
+                  onValueChange={(value) =>
+                    setFormPosition(value as WidgetPosition)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bottom-left">Bottom left</SelectItem>
+                    <SelectItem value="bottom-right">Bottom right</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="widget-email-required">Require email</Label>
+                <div className="flex h-9 items-center">
+                  <Switch
+                    id="widget-email-required"
+                    checked={formEmailRequired}
+                    onCheckedChange={setFormEmailRequired}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
+              <span className="text-xs text-muted-foreground">
+                Launcher preview
+              </span>
+              <span
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold shadow"
+                style={{
+                  backgroundColor: formAccent || DEFAULT_ACCENT,
+                  color: previewForeground(formAccent || DEFAULT_ACCENT),
+                }}
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+                {formButtonLabel.trim() || `Feedback`}
+              </span>
             </div>
             {formError && (
               <p className="text-sm text-destructive">{formError}</p>

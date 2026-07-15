@@ -62,7 +62,7 @@ export function AdjustSeatsDialog({
       })
       invalidateBillingCache()
       toast.success(
-        `Workspace updated to ${result.seats} seat${result.seats === 1 ? `` : `s`}`
+        `Team updated to ${result.seats} seat${result.seats === 1 ? `` : `s`}`
       )
       onOpenChange(false)
     } catch (err) {
@@ -135,7 +135,7 @@ export function AdjustSeatsDialog({
 
         {belowMembers && (
           <p className="text-xs text-amber-500">
-            This workspace has {memberCount} members. Reducing below that
+            This team has {memberCount} members. Reducing below that
             blocks new invites — existing members keep working.
           </p>
         )}

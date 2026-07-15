@@ -40,7 +40,7 @@ import {
   type RuntimeConfig,
 } from "@/lib/runtime-config"
 
-export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/settings/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
       throw redirect({
@@ -99,7 +99,7 @@ function WorkspaceSettings() {
     <div className="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">
-          {solo ? `Settings` : `Workspace Settings`}
+          {solo ? `Settings` : `Team Settings`}
         </h1>
         <p className="text-sm text-muted-foreground">
           {solo
@@ -168,7 +168,7 @@ function WorkspaceSettings() {
                 Danger Zone
               </CardTitle>
               <CardDescription>
-                Permanently delete this workspace and all its data.
+                Permanently delete this team and all its data.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -177,7 +177,7 @@ function WorkspaceSettings() {
                 disabled={isOnlyWorkspace}
                 onClick={() => setShowDeleteWorkspace(true)}
               >
-                Delete workspace
+                Delete team
               </Button>
               {isOnlyWorkspace && (
                 <p className="text-sm text-muted-foreground">
@@ -198,7 +198,7 @@ function WorkspaceSettings() {
           >
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Delete workspace</DialogTitle>
+                <DialogTitle>Delete team</DialogTitle>
                 <DialogDescription>
                   This will permanently delete{` `}
                   <span className="font-semibold text-foreground">
@@ -241,7 +241,7 @@ function WorkspaceSettings() {
                 >
                   {deletingWorkspace
                     ? `Deleting...`
-                    : `Delete workspace`}
+                    : `Delete team`}
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -49,7 +49,7 @@ function validatedCsv(
   return cleaned.length ? cleaned.join(`,`) : undefined
 }
 
-export const Route = createFileRoute(`/w/$workspaceSlug/my-issues/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/my-issues/`)({
   validateSearch: (search: Record<string, unknown>): MyIssuesSearch => ({
     status: validatedCsv(search.status, STATUS_VALUES),
     priority: validatedCsv(search.priority, PRIORITY_VALUES),
@@ -88,7 +88,7 @@ function MyIssuesPage() {
 
   const setFilters = (next: IssueFilters) => {
     void navigate({
-      to: `/w/$workspaceSlug/my-issues`,
+      to: `/t/$workspaceSlug/my-issues`,
       params: { workspaceSlug },
       search: {
         status: next.statuses.length ? next.statuses.join(`,`) : undefined,
@@ -149,7 +149,7 @@ function MyIssuesPage() {
               const project = projectMap.get(issue.projectId)
               if (!project) return
               void navigate({
-                to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+                to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
                 params: {
                   workspaceSlug,
                   projectSlug: project.slug,

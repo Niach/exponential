@@ -4,8 +4,10 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { projects, repositories } from "@/db/schema"
 import { and, eq, isNotNull, isNull } from "drizzle-orm"
 import {
+  projectIconSchema,
   projectTypeSchema,
   PROJECT_TRASH_RETENTION_MS,
+  type ProjectType,
 } from "@exp/db-schema/domain"
 import {
   assertProjectMember,
@@ -19,14 +21,14 @@ import {
   assertCanManageRepos,
   connectRepositoryInTx,
 } from "@/lib/trpc/repositories"
+import { assertCanUseHelpdesk } from "@/lib/billing"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
-// A `dev` project is backed by exactly one repo; `tasks`/`feedback` projects
-// may have one (the dogfood feedback board does) but don't need one (v7 —
-// this is what unlocks project creation on instances without a GitHub App).
-// Create either points at an existing registry repo (`repositoryId`) or
-// connects one inline (`fullName`, same validation as repositories.add).
+// A repository is OPTIONAL on every project (the type collapse): coding
+// features gate purely on repo presence. Create either points at an existing
+// registry repo (`repositoryId`) or connects one inline (`fullName`, same
+// validation as repositories.add).
 const fullNameSchema = z
   .string()
   .min(1)
@@ -77,6 +79,25 @@ function isUniqueViolation(err: unknown): boolean {
   return isUniqueViolation(candidate.cause)
 }
 
+// Dual-write of the legacy `type` column while shipped native clients still
+// read it (dropped in the min-version-gated finale): public → feedback, else
+// repo-backed → dev, else tasks.
+function deriveLegacyType(
+  isPublic: boolean,
+  repositoryId: string | null
+): ProjectType {
+  return isPublic ? `feedback` : repositoryId ? `dev` : `tasks`
+}
+
+// The deprecated `type` input survives as an alias for external MCP clients:
+// only 'feedback' ever mapped to publicness.
+function isPublicFromInput(
+  isPublic: boolean | undefined,
+  type: ProjectType | undefined
+): boolean | undefined {
+  return isPublic ?? (type === undefined ? undefined : type === `feedback`)
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -109,14 +130,18 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        type: projectTypeSchema.default(`dev`),
-        // Anonymous-visitor visibility toggles (feedback boards only; inert on
-        // other types).
+        // Public-board switch (replaces type='feedback'). The deprecated
+        // `type` alias below still maps for external MCP clients.
+        isPublic: z.boolean().optional(),
+        icon: projectIconSchema.nullish(),
+        type: projectTypeSchema.optional(),
+        // Anonymous-visitor visibility toggles (public boards only; inert on
+        // private projects).
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
-        // Required for `dev` projects, optional otherwise. Either target an
-        // existing registry repo or connect one inline in the same transaction
-        // (onboarding/create dialogs stay a single call).
+        // Always optional (coding features gate on repo presence). Either
+        // target an existing registry repo or connect one inline in the same
+        // transaction (onboarding/create dialogs stay a single call).
         repository: repositoryInputSchema.optional(),
       })
     )
@@ -126,12 +151,7 @@ export const projectsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
-      if (input.type === `dev` && !input.repository) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `Dev projects require a repository`,
-        })
-      }
+      const isPublic = isPublicFromInput(input.isPublic, input.type) ?? false
       const repositoryInput = input.repository
       const inlineConnect =
         repositoryInput != null && `fullName` in repositoryInput
@@ -141,7 +161,7 @@ export const projectsRouter = router({
         // every tier now (v5 per-seat model), so there is no plan cap here.
         await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
       }
-      if (input.type === `feedback`) {
+      if (isPublic) {
         // Flipping content public is a privacy-significant act — owner-only,
         // mirroring the update path. (Free on every tier — no plan gate.)
         await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
@@ -181,7 +201,9 @@ export const projectsRouter = router({
               slug,
               prefix: input.prefix.toUpperCase(),
               color: input.color ?? `#6366f1`,
-              type: input.type,
+              isPublic,
+              icon: input.icon ?? null,
+              type: deriveLegacyType(isPublic, repositoryId),
               publicShowComments: input.publicShowComments ?? true,
               publicShowActivity: input.publicShowActivity ?? false,
               repositoryId,
@@ -215,7 +237,7 @@ export const projectsRouter = router({
         throw error
       }
 
-      if (input.type === `feedback`) invalidatePublicProjectCache()
+      if (isPublic) invalidatePublicProjectCache()
       return result
     }),
 
@@ -256,19 +278,13 @@ export const projectsRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        if (input.repositoryId === null) {
-          const [current] = await tx
-            .select({ type: projects.type })
-            .from(projects)
-            .where(eq(projects.id, input.projectId))
-            .limit(1)
-          if (current?.type === `dev`) {
-            throw new TRPCError({
-              code: `BAD_REQUEST`,
-              message: `Dev projects require a repository — switch the project type first`,
-            })
-          }
-        }
+        // Repos attach/detach freely on any project; only the dual-written
+        // legacy `type` needs the current publicness to stay consistent.
+        const [row] = await tx
+          .select({ isPublic: projects.isPublic })
+          .from(projects)
+          .where(eq(projects.id, input.projectId))
+          .limit(1)
         const repositoryId =
           input.repositoryId === null
             ? null
@@ -279,7 +295,10 @@ export const projectsRouter = router({
               )
         const [project] = await tx
           .update(projects)
-          .set({ repositoryId })
+          .set({
+            repositoryId,
+            type: deriveLegacyType(row?.isPublic ?? false, repositoryId),
+          })
           .where(eq(projects.id, input.projectId))
           .returning()
         return { project, txId }
@@ -295,9 +314,14 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
+        // Public-board switch; the deprecated `type` alias still maps for
+        // external MCP clients (only 'feedback' ever meant public).
+        isPublic: z.boolean().optional(),
+        icon: projectIconSchema.nullable().optional(),
         type: projectTypeSchema.optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
+        helpdeskEnabled: z.boolean().optional(),
         archivedAt: z
           .string()
           .datetime()
@@ -307,61 +331,63 @@ export const projectsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updates } = input
+      const { id, type: legacyType, ...updates } = input
+      const isPublicUpdate = isPublicFromInput(updates.isPublic, legacyType)
+      updates.isPublic = isPublicUpdate
 
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
-      // Archiving, type changes and public-visibility toggles are
-      // privacy/structure-significant — workspace-owner-only. Name/color stay
-      // member-editable.
+      // Archiving, publicness flips, public-visibility toggles and the
+      // helpdesk switch are privacy/structure-significant —
+      // workspace-owner-only. Name/color/icon stay member-editable.
       const ownerGated =
         Object.hasOwn(updates, `archivedAt`) ||
-        updates.type !== undefined ||
+        isPublicUpdate !== undefined ||
         updates.publicShowComments !== undefined ||
-        updates.publicShowActivity !== undefined
+        updates.publicShowActivity !== undefined ||
+        updates.helpdeskEnabled !== undefined
       if (ownerGated) {
         await assertWorkspaceOwner(
           ctx.session.user.id,
           projectRecord.workspaceId
         )
       }
+      // The helpdesk is Pro+ on cloud; disabling is always allowed (a
+      // downgraded workspace must be able to turn it off).
+      if (updates.helpdeskEnabled === true) {
+        await assertCanUseHelpdesk(projectRecord.workspaceId)
+      }
 
-      // Protected projects (the dogfood board) can't be archived or retyped;
-      // name/color stay editable.
-      const attemptsArchiveOrRetype =
+      const [current] = await ctx.db
+        .select({
+          isProtected: projects.isProtected,
+          isPublic: projects.isPublic,
+          repositoryId: projects.repositoryId,
+        })
+        .from(projects)
+        .where(eq(projects.id, id))
+        .limit(1)
+
+      // Protected projects (the dogfood board) can't be archived or have
+      // their publicness flipped; name/color/icon stay editable.
+      const attemptsArchiveOrFlip =
         (Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null) ||
-        updates.type !== undefined
-      if (attemptsArchiveOrRetype) {
-        const [current] = await ctx.db
-          .select({ isProtected: projects.isProtected })
-          .from(projects)
-          .where(eq(projects.id, id))
-          .limit(1)
-        if (current?.isProtected) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `This project is protected and cannot be archived or retyped`,
-          })
-        }
+        (isPublicUpdate !== undefined && isPublicUpdate !== current?.isPublic)
+      if (attemptsArchiveOrFlip && current?.isProtected) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This project is protected and cannot be archived or made private`,
+        })
       }
 
-      if (updates.type === `dev`) {
-        const [current] = await ctx.db
-          .select({ repositoryId: projects.repositoryId })
-          .from(projects)
-          .where(eq(projects.id, id))
-          .limit(1)
-        if (!current?.repositoryId) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Connect a repository before switching to a dev project`,
-          })
-        }
-      }
-
+      // Dual-write the legacy type while natives still read it.
+      const nextIsPublic = isPublicUpdate ?? current?.isPublic ?? false
       const [project] = await ctx.db
         .update(projects)
-        .set(updates)
+        .set({
+          ...updates,
+          type: deriveLegacyType(nextIsPublic, current?.repositoryId ?? null),
+        })
         .where(eq(projects.id, id))
         .returning()
 
@@ -478,6 +504,8 @@ export const projectsRouter = router({
           prefix: projects.prefix,
           color: projects.color,
           type: projects.type,
+          icon: projects.icon,
+          isPublic: projects.isPublic,
           deletedAt: projects.deletedAt,
         })
         .from(projects)

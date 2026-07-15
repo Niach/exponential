@@ -23,7 +23,10 @@ describe(`buildAppleAppSiteAssociation`, () => {
       `V6W7BVCSM8.at.exponential`,
       `V6W7BVCSM8.at.exponential.staging`,
     ])
+    // Both prefixes stay claimed forever: /t/ is the current form, /w/ the
+    // legacy one — old links live in the wild and must keep opening the apps.
     expect(detail.components).toEqual([
+      { "/": `/t/*/projects/*/issues/*` },
       { "/": `/w/*/projects/*/issues/*` },
       { "/": `/invite/*` },
     ])

@@ -118,10 +118,10 @@ struct ProjectSwitcherSheet: View {
     @ViewBuilder
     private func projectRow(_ project: ProjectEntity, isCurrent: Bool) -> some View {
         HStack(spacing: 12) {
-            // Type glyph tinted with the project color (replaces the plain
-            // color dot). Feedback boards get a small globe suffix to flag
-            // their public affordance.
-            Image(systemName: ProjectTypeDisplay.symbol(for: project.type))
+            // Project glyph (stored icon, else a type fallback) tinted with the
+            // project color (replaces the plain color dot). Public boards get a
+            // small globe suffix to flag their public affordance.
+            Image(systemName: ProjectTypeDisplay.symbol(for: project))
                 .font(.caption)
                 .foregroundStyle(Color(hex: project.color ?? "#888888") ?? .gray)
                 .frame(width: 16, height: 16)
@@ -130,7 +130,7 @@ struct ProjectSwitcherSheet: View {
                 .font(.body)
                 .foregroundStyle(.white)
 
-            if project.isFeedbackBoard {
+            if project.isPublic {
                 Image(systemName: "globe")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))

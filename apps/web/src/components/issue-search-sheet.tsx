@@ -134,7 +134,7 @@ export function IssueSearchSheet({
     onOpenChange(false)
     setQuery(``)
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
       params: {
         workspaceSlug,
         projectSlug: project.slug,

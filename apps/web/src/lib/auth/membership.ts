@@ -41,13 +41,13 @@ export function assertWorkspaceAccess(
   }
 }
 
-// The instance-wide public surface: every unarchived feedback-board project
-// (projects.type = 'feedback') plus per-toggle sub-lists. Anonymous shape
+// The instance-wide public surface: every unarchived public project
+// (projects.is_public) plus per-toggle sub-lists. Anonymous shape
 // requests resolve against this scope; authed members never do (their where
 // clauses stay membership-derived and byte-identical). Cached per process —
 // invalidated by projects.create/update/delete and bootstrap.
 export type PublicProjectScope = {
-  // All public (feedback-type, unarchived) project ids.
+  // All public (is_public, unarchived) project ids.
   projectIds: string[]
   // Distinct workspaces hosting at least one public project (the host row's
   // name/slug must sync for board routing/header).
@@ -75,9 +75,9 @@ export async function getPublicProjectScope(): Promise<PublicProjectScope> {
     .from(projects)
     .where(
       and(
-        eq(projects.type, `feedback`),
+        eq(projects.isPublic, true),
         isNull(projects.archivedAt),
-        // Trashed feedback boards leave the public surface immediately (heals
+        // Trashed public boards leave the public surface immediately (heals
         // every anonymous shape scope).
         isNull(projects.deletedAt)
       )
@@ -343,10 +343,10 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
       contentType: attachments.contentType,
       filename: attachments.filename,
       sizeBytes: attachments.sizeBytes,
-      // Public feedback-board read path: anonymous byte reads are allowed for
-      // unarchived feedback projects (comment attachments only where comments
+      // Public-board read path: anonymous byte reads are allowed for
+      // unarchived public projects (comment attachments only where comments
       // are public).
-      projectType: projects.type,
+      projectIsPublic: projects.isPublic,
       projectPublicShowComments: projects.publicShowComments,
       projectArchivedAt: projects.archivedAt,
     })

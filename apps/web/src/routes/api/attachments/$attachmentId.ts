@@ -33,7 +33,7 @@ async function getAttachment({
   // additionally require the board to show comments publicly. Same predicate
   // as the attachments shape's anonymous where clause.
   const publiclyReadable =
-    attachment.projectType === `feedback` &&
+    attachment.projectIsPublic &&
     attachment.projectArchivedAt === null &&
     (attachment.commentId === null || attachment.projectPublicShowComments)
 

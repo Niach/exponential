@@ -2,11 +2,11 @@
 //! settings Projects pane). Verified against
 //! `apps/web/src/lib/trpc/projects.ts`:
 //!
-//! - `projects.create({workspaceId, name, prefix, color?, repository})` →
-//!   `{project, txId}` — `repository` is the `{repositoryId}` OR
-//!   `{fullName, …}` union ([`ProjectRepositoryInput`]).
-//!   (slug is server-derived — there is no slug field, §4.2; prefix is
-//!   uppercased server-side).
+//! - `projects.create({workspaceId, name, prefix, isPublic, icon?, color?,
+//!   repository?})` → `{project, txId}` — `repository` (optional on every
+//!   board now) is the `{repositoryId}` OR `{fullName, …}` union
+//!   ([`ProjectRepositoryInput`]). (slug is server-derived — there is no slug
+//!   field, §4.2; prefix is uppercased server-side.)
 //! - `projects.update({id, name?, color?, archivedAt?})` → `{project}` (no txId).
 //! - `projects.delete({projectId})` → `{ok, txId}` (owner-only).
 //!
@@ -72,15 +72,18 @@ pub struct ProjectsCreateInput {
     /// ≤10 chars; server uppercases (web derives it from the name but keeps
     /// it editable — `derivePrefix`, §4.2).
     pub prefix: String,
-    /// `dev` / `tasks` / `feedback` (v7). `type` is a Rust keyword so this
-    /// renames onto the JSON field `type`; the server defaults to `dev`.
-    #[serde(rename = "type")]
-    pub project_type: String,
+    /// Whether this is a public board (replaces the legacy `type` selector; the
+    /// server dual-writes `type` from it for now). Defaults to false.
+    pub is_public: bool,
+    /// Curated icon name (`domain::contract::PROJECT_ICON_VALUES`); omitted when
+    /// unset so the server picks a default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// `#rrggbb`; server defaults to `#6366f1` when omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
-    /// The project's backing repository. Required for `dev` projects; omitted
-    /// for repo-less `tasks`/`feedback` boards (v7 — nullable `repository_id`).
+    /// The project's backing repository. Optional on every board now (nullable
+    /// `repository_id`) — omitted for a repo-less board.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<ProjectRepositoryInput>,
 }
@@ -206,7 +209,8 @@ mod tests {
                 workspace_id: "w-1".to_string(),
                 name: "Gate".to_string(),
                 prefix: "gate".to_string(),
-                project_type: "dev".to_string(),
+                is_public: false,
+                icon: Some("code".to_string()),
                 color: None,
                 repository: Some(ProjectRepositoryInput::Registry {
                     repository_id: "repo-1".to_string(),
@@ -219,10 +223,10 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/projects.create HTTP/1.1"));
         // No slug in the input (server-derived, §4.2) and no null color noise;
-        // the dev project sends its `type` and the required repository as the
-        // `{repositoryId}` registry arm.
+        // the project sends `isPublic` + `icon` (not the legacy `type`) and the
+        // repository as the `{repositoryId}` registry arm.
         assert!(request.ends_with(
-            r#"{"workspaceId":"w-1","name":"Gate","prefix":"gate","type":"dev","repository":{"repositoryId":"repo-1"}}"#
+            r#"{"workspaceId":"w-1","name":"Gate","prefix":"gate","isPublic":false,"icon":"code","repository":{"repositoryId":"repo-1"}}"#
         ));
     }
 

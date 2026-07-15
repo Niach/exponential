@@ -34,7 +34,7 @@ test(`creates a recurring issue and shows the Repeat icon in the list`, async ({
   await registerUser(page, app.owner)
   await createProject(page, app)
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()
@@ -102,7 +102,7 @@ test(`marks a recurring issue done and spawns a clone in Todo`, async ({
   await registerUser(page, app.owner)
   await createProject(page, app)
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   // Create the recurring issue (interval=2, unit=day)
@@ -182,7 +182,7 @@ test(`does not spawn a clone when a non-recurring issue is marked done`, async (
   await registerUser(page, app.owner)
   await createProject(page, app)
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   // Create a plain (non-recurring) issue
@@ -236,7 +236,7 @@ test(`shows overdue issues first within the Todo status group`, async ({
   await registerUser(page, app.owner)
   await createProject(page, app)
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   // Resolve the creator and project IDs from the DB

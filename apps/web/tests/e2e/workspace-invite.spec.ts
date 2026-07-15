@@ -66,7 +66,7 @@ test(`generates an invite and accepts it with a second user`, async ({
     ).toBeVisible()
     await memberPage.getByRole(`button`, { name: `Accept Invite` }).click()
 
-    await expect(memberPage).toHaveURL(new RegExp(`/w/${workspaceSlug}/?$`))
+    await expect(memberPage).toHaveURL(new RegExp(`/t/${workspaceSlug}/?$`))
 
     await openWorkspaceSettings(memberPage)
     await expect(

@@ -22,7 +22,8 @@ use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::hydrate::{
-    tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
+    tolerant_bool, tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64,
+    tolerant_opt_json,
 };
 
 /// `workspaces` shape row.
@@ -56,16 +57,27 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// `project_type` (v7) — `dev` / `tasks` / `feedback`. `type` is a Rust
-    /// keyword, so this renames onto the snake_case column `type`. `None` on
-    /// legacy rows (deployed before the column existed) — treated as `dev`
-    /// everywhere via [`Project::is_dev`], matching the server default.
+    /// Legacy `project_type` (`dev` / `tasks` / `feedback`) — server
+    /// dual-written from `is_public`/repo presence and scheduled for removal.
+    /// Kept purely for tolerance (parsing + the icon fallback in
+    /// [`crate::rows`]'s consumers); no behavior gates on it anymore. `type` is
+    /// a Rust keyword, so this renames onto the snake_case column `type`.
     #[serde(default, rename = "type")]
     pub project_type: Option<String>,
-    /// `projects.repository_id` (v4 §3.1, nullable since v7) — the one
-    /// repository this project clones/branches against. `None` for repo-less
-    /// `tasks`/`feedback` boards and legacy rows until the server backfill
-    /// lands.
+    /// Whether this is a public board — anyone with the link can read it. The
+    /// canonical publicness signal (replaces the `type == feedback` check).
+    /// NOT NULL default false server-side; an absent column on a legacy local
+    /// row degrades to `false`.
+    #[serde(default, deserialize_with = "tolerant_bool")]
+    pub is_public: bool,
+    /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
+    /// create time. `None` on legacy rows and pre-icon boards — consumers fall
+    /// back to the legacy type-derived glyph.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// `projects.repository_id` (v4 §3.1, nullable) — the one repository this
+    /// project clones/branches against, or `None` for a repo-less board. Coding
+    /// affordances gate purely on this presence, never on `project_type`.
     #[serde(default)]
     pub repository_id: Option<String>,
     /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
@@ -88,26 +100,6 @@ pub struct Project {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
-}
-
-impl Project {
-    /// Whether this is a repo-backed `dev` board. An absent/unknown
-    /// `project_type` counts as `dev` — the server default and the type every
-    /// legacy row predates. Drives the coding affordances (a non-dev repo-less
-    /// board never shows Start coding) and the picker glyph.
-    pub fn is_dev(&self) -> bool {
-        match self.project_type.as_deref() {
-            Some(crate::contract::PROJECT_TYPE_TASKS)
-            | Some(crate::contract::PROJECT_TYPE_FEEDBACK) => false,
-            _ => true,
-        }
-    }
-
-    /// Whether this is a public `feedback` board.
-    pub fn is_feedback(&self) -> bool {
-        self.project_type.as_deref() == Some(crate::contract::PROJECT_TYPE_FEEDBACK)
-    }
-
 }
 
 /// `issues` shape row (§5.5's exemplar struct plus the full column set).
@@ -476,37 +468,43 @@ mod tests {
     }
 
     #[test]
-    fn project_type_renames_from_type_column_and_classifies() {
-        // The wire column is `type` (a Rust keyword) — it must land on
-        // `project_type` and drive is_dev/is_feedback.
-        let feedback: Project = serde_json::from_value(json!({
+    fn project_public_and_icon_hydrate_with_legacy_type_tolerance() {
+        // The wire column is `type` (a Rust keyword) — it still lands on
+        // `project_type` for tolerance, but publicness now comes from
+        // `is_public` and the glyph from `icon`.
+        let public: Project = serde_json::from_value(json!({
             "id": "p-1",
             "workspace_id": "w-1",
             "name": "Feedback",
             "type": "feedback",
+            "is_public": "t",
+            "icon": "megaphone",
             "public_show_comments": "t"
         }))
         .unwrap();
-        assert_eq!(feedback.project_type.as_deref(), Some("feedback"));
-        assert!(feedback.is_feedback());
-        assert!(!feedback.is_dev());
-        assert_eq!(feedback.public_show_comments, Some(true));
+        assert_eq!(public.project_type.as_deref(), Some("feedback"));
+        assert!(public.is_public);
+        assert_eq!(public.icon.as_deref(), Some("megaphone"));
+        assert_eq!(public.public_show_comments, Some(true));
 
-        let tasks: Project = serde_json::from_value(json!({
-            "id": "p-2", "workspace_id": "w-1", "name": "Tasks", "type": "tasks"
+        let private: Project = serde_json::from_value(json!({
+            "id": "p-2", "workspace_id": "w-1", "name": "Tasks",
+            "type": "tasks", "is_public": false, "icon": "square-kanban"
         }))
         .unwrap();
-        assert!(!tasks.is_dev());
-        assert!(!tasks.is_feedback());
+        assert!(!private.is_public);
+        assert_eq!(private.icon.as_deref(), Some("square-kanban"));
 
-        // A legacy row (deployed before the column existed) has no `type` —
-        // it must classify as dev, matching the server default.
+        // A legacy row (deployed before the columns existed) has no `type`,
+        // `is_public`, or `icon` — publicness degrades to false and the glyph
+        // to None (the type-derived fallback).
         let legacy: Project = serde_json::from_value(json!({
             "id": "p-3", "workspace_id": "w-1", "name": "Legacy"
         }))
         .unwrap();
         assert_eq!(legacy.project_type, None);
-        assert!(legacy.is_dev());
+        assert!(!legacy.is_public);
+        assert_eq!(legacy.icon, None);
     }
 
     #[test]

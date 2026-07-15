@@ -45,13 +45,15 @@
     <main>
       <div class="card">
         <span class="pill">bug</span><span class="pill">feedback</span>
-        <p>Hover the tiny feedback button (bottom-left by default — it scales up
-        and reveals its label). The screenshot should show this page without
-        the widget itself.</p>
+        <p>Hover the tiny widget button (bottom-left by default — it scales up
+        and reveals its label). Screenshots are on demand: the panel opens on
+        the plain form, and <b>Take screenshot</b> captures this page (without
+        the widget itself) and drops into the annotation editor.</p>
         <p>Add <code>?position=bottom-right</code> to flip the launcher side.
-        Open the panel → <b>Annotate</b> → pick the <b>Crop</b> tool and drag a
-        rectangle: the dimmed region is trimmed on submit, annotations stay
-        editable and offset correctly, and <b>Remove crop</b> undoes it.</p>
+        In the editor, pick the <b>Crop</b> tool and drag a rectangle: the
+        dimmed region is trimmed on submit, annotations stay editable and
+        offset correctly, and <b>Remove crop</b> undoes it. Cancelling straight
+        out of a fresh capture discards it.</p>
       </div>
       <button id="open-above" style="position:relative;z-index:5;padding:8px 12px">
         Simulate a modal (pointer-events:none on body) — launcher must stay clickable

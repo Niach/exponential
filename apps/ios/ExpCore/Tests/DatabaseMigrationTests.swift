@@ -206,6 +206,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(projectCols.contains("public_show_coding"))
         // v5 protection flag.
         XCTAssertTrue(projectCols.contains("is_protected"))
+        // v9 public-board switch + curated icon (project-type collapse).
+        XCTAssertTrue(projectCols.contains("is_public"))
+        XCTAssertTrue(projectCols.contains("icon"))
         // v6: the invite bearer token is no longer synced (server allowlist),
         // so the local column must be nullable on every path.
         let inviteToken = try pool.read { db in

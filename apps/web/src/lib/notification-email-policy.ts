@@ -177,11 +177,11 @@ export function buildUnsubscribeUrl(baseUrl: string, token: string): string {
 }
 
 // The stable issue deep link shared by push (identifier) and email (URL):
-// /w/{workspaceSlug}/projects/{projectSlug}/issues/{identifier}
+// /t/{workspaceSlug}/projects/{projectSlug}/issues/{identifier}
 export function buildIssueDeepLinkPath(args: {
   workspaceSlug: string
   projectSlug: string
   identifier: string
 }): string {
-  return `/w/${encodeURIComponent(args.workspaceSlug)}/projects/${encodeURIComponent(args.projectSlug)}/issues/${encodeURIComponent(args.identifier)}`
+  return `/t/${encodeURIComponent(args.workspaceSlug)}/projects/${encodeURIComponent(args.projectSlug)}/issues/${encodeURIComponent(args.identifier)}`
 }

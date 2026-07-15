@@ -900,7 +900,7 @@ impl StartCodingControl {
             RepoProbe::Idle | RepoProbe::Loading => Some("Checking linked repository…".into()),
             // §7.1's exact helper copy for the repo-less state.
             RepoProbe::Ready(None) => {
-                Some("Link a repository to this project in workspace settings.".into())
+                Some("Link a repository to this project in team settings.".into())
             }
             RepoProbe::Ready(Some(_)) => None,
             // A probe transport error never falsely blocks — the
@@ -922,15 +922,13 @@ impl Render for StartCodingControl {
         let Some(issue_id) = self.issue_id.clone() else {
             return div().into_any_element();
         };
-        // A repo-less non-dev board (a task/feedback project that never runs
-        // coding sessions) shows NO Start-coding affordance — not even the
-        // disabled "link a repository" nudge, which only makes sense for dev
-        // projects (they REQUIRE a repo). A non-dev board WITH a repo (the
-        // dogfood feedback board) keeps the button: coding gates on repo
-        // presence, not type. Hidden here before the probe so it never fetches.
+        // Coding gates purely on repository presence, never on type: a
+        // repo-less board (any type) shows NO Start-coding affordance, while any
+        // repo-backed board (incl. the dogfood public feedback board) keeps the
+        // button. Hidden here before the probe so it never fetches.
         let project = issue_project(&issue_id, cx);
         if let Some(project) = &project {
-            if !project.is_dev() && project.repository_id.is_none() {
+            if project.repository_id.is_none() {
                 return div().into_any_element();
             }
         }

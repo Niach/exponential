@@ -323,6 +323,6 @@ describe(`url builders`, () => {
         projectSlug: `web`,
         identifier: `MET-12`,
       })
-    ).toBe(`/w/metric/projects/web/issues/MET-12`)
+    ).toBe(`/t/metric/projects/web/issues/MET-12`)
   })
 })

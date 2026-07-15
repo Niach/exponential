@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { ArrowLeft, Check, Github, Globe } from "lucide-react"
-import type { ProjectType } from "@exp/db-schema/domain"
-import { PROJECT_TYPE_OPTIONS } from "@/lib/project-types"
+import type { ProjectIcon } from "@exp/db-schema/domain"
+import { PROJECT_TEMPLATES, type ProjectTemplate } from "@/lib/project-types"
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -37,10 +39,15 @@ export function CreateProjectDialog({
   workspaceId: string
 }) {
   const { createProject } = useCreateProject()
-  const [type, setType] = useState<ProjectType | null>(null)
+  // Templates only pre-set the toggles below — every project has the same
+  // shape (repo optional, publicness a switch).
+  const [template, setTemplate] = useState<ProjectTemplate | null>(null)
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
+  const [icon, setIcon] = useState<ProjectIcon>(`code`)
+  const [isPublic, setIsPublic] = useState(false)
+  const [showRepo, setShowRepo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
@@ -63,12 +70,22 @@ export function CreateProjectDialog({
   }, [])
 
   const resetAll = () => {
-    setType(null)
+    setTemplate(null)
     setName(``)
     setPrefix(``)
     setColor(`#6366f1`)
+    setIcon(`code`)
+    setIsPublic(false)
+    setShowRepo(false)
     setSelection(null)
     setError(null)
+  }
+
+  const applyTemplate = (next: ProjectTemplate) => {
+    setTemplate(next)
+    setIcon(next.defaults.icon)
+    setIsPublic(next.defaults.isPublic)
+    setShowRepo(next.defaults.suggestsRepo)
   }
 
   const handleNameChange = (value: string) => {
@@ -80,17 +97,11 @@ export function CreateProjectDialog({
     setSelection({ kind: `inline`, repo })
   }
 
-  // A dev board needs a repo; task/feedback boards don't.
-  const needsRepo = type === `dev`
-  const canSubmit =
-    Boolean(name.trim()) &&
-    Boolean(prefix.trim()) &&
-    (!needsRepo || selection !== null)
+  const canSubmit = Boolean(name.trim()) && Boolean(prefix.trim())
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!type || !name.trim() || !prefix.trim()) return
-    if (needsRepo && !selection) return
+    if (!template || !name.trim() || !prefix.trim()) return
 
     setSubmitting(true)
     setError(null)
@@ -108,7 +119,8 @@ export function CreateProjectDialog({
       name,
       prefix,
       color,
-      type,
+      icon,
+      isPublic,
       repository,
     })
     setSubmitting(false)
@@ -140,13 +152,13 @@ export function CreateProjectDialog({
         <DialogContent className="sm:max-w-[26rem]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {type !== null && (
+              {template !== null && (
                 <Button
                   type="button"
                   variant="ghost"
                   className="h-6 w-6 p-0"
-                  onClick={() => setType(null)}
-                  aria-label="Back to project type"
+                  onClick={() => setTemplate(null)}
+                  aria-label="Back to templates"
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
@@ -155,20 +167,20 @@ export function CreateProjectDialog({
             </DialogTitle>
           </DialogHeader>
 
-          {type === null ? (
+          {template === null ? (
             <div className="space-y-2">
-              {PROJECT_TYPE_OPTIONS.map((option) => (
+              {PROJECT_TEMPLATES.map((option) => (
                 <button
-                  key={option.value}
+                  key={option.key}
                   type="button"
-                  onClick={() => setType(option.value)}
+                  onClick={() => applyTemplate(option)}
                   className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-accent/40"
                 >
                   <option.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5 text-sm font-medium">
                       {option.label}
-                      {option.value === `feedback` && (
+                      {option.defaults.isPublic && (
                         <Globe className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                     </span>
@@ -208,44 +220,81 @@ export function CreateProjectDialog({
               />
             </div>
             <div className="space-y-2">
+              <Label>Icon</Label>
+              <IconSwatchGrid value={icon} onChange={setIcon} color={color} />
+            </div>
+            <div className="space-y-2">
               <Label>Color</Label>
               <ColorSwatchGrid value={color} onChange={setColor} />
             </div>
 
-            {needsRepo && (
             <div className="space-y-2">
-              <Label>Repository</Label>
-              <ConnectedRepoPicker
-                workspaceId={workspaceId}
-                value={
-                  selection?.kind === `registry` ? selection.repositoryId : null
-                }
-                onSelectRegistry={(repo) =>
-                  setSelection({
-                    kind: `registry`,
-                    repositoryId: repo.id,
-                    fullName: repo.fullName,
-                  })
-                }
-                onConnectNew={handlePickerSelect}
-                appendedRow={
-                  selectedInlineName ? (
-                    <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
-                      <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{selectedInlineName}</span>
-                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
-                    </div>
-                  ) : undefined
-                }
+              <Label>Repository (optional)</Label>
+              {showRepo ? (
+                <ConnectedRepoPicker
+                  workspaceId={workspaceId}
+                  value={
+                    selection?.kind === `registry`
+                      ? selection.repositoryId
+                      : null
+                  }
+                  onSelectRegistry={(repo) =>
+                    setSelection({
+                      kind: `registry`,
+                      repositoryId: repo.id,
+                      fullName: repo.fullName,
+                    })
+                  }
+                  onConnectNew={handlePickerSelect}
+                  appendedRow={
+                    selectedInlineName ? (
+                      <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
+                        <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{selectedInlineName}</span>
+                        <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                      </div>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start text-muted-foreground"
+                  onClick={() => setShowRepo(true)}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  Connect a GitHub repository
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="min-w-0">
+                <Label
+                  htmlFor="project-public"
+                  className="flex items-center gap-1.5 text-sm"
+                >
+                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                  Public board
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Anyone with the link can read it.
+                </p>
+              </div>
+              <Switch
+                id="project-public"
+                checked={isPublic}
+                onCheckedChange={setIsPublic}
               />
             </div>
-            )}
 
-            {type === `feedback` && (
+            {isPublic && (
               <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
-                Feedback boards are public: issues, comments and @mentions in
-                them are visible to anyone with the link. The workspace name is
-                shown on the board.
+                Public boards are readable by anyone: issues, comments and
+                @mentions in them are visible to anyone with the link. The
+                workspace name is shown on the board.
               </p>
             )}
 

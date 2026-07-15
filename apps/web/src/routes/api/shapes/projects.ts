@@ -20,6 +20,8 @@ const PROJECT_COLUMNS = [
   `prefix`,
   `color`,
   `type`,
+  `is_public`,
+  `icon`,
   `public_show_comments`,
   `public_show_activity`,
   `repository_id`,
@@ -27,6 +29,7 @@ const PROJECT_COLUMNS = [
   `archived_at`,
   `deleted_at`,
   `is_protected`,
+  `helpdesk_enabled`,
   `created_at`,
   `updated_at`,
 ]

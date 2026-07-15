@@ -43,7 +43,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
         let busy = view.read(cx).submitting;
         dialog
             .w(px(416.)) // web sm:max-w-[26rem]
-            .title("Create workspace")
+            .title("Create team")
             .overlay_closable(!busy)
             .keyboard(!busy)
             .on_ok({
@@ -196,7 +196,7 @@ impl Render for CreateWorkspaceDialogView {
                         .label(if self.submitting {
                             "Creating..."
                         } else {
-                            "Create workspace"
+                            "Create team"
                         })
                         .disabled(disabled)
                         .loading(self.submitting)

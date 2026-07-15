@@ -122,7 +122,7 @@ export function IssueRefProvider({
         const ref = byIdentifier.get(identifier.toUpperCase())
         if (!ref) return
         void navigate({
-          to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+          to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
           params: {
             workspaceSlug,
             projectSlug: ref.projectSlug,

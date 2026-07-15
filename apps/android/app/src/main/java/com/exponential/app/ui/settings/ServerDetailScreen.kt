@@ -273,7 +273,7 @@ fun ServerDetailScreen(
             text = {
                 Text(
                     "This permanently deletes your account on ${account?.displayHost ?: "this server"}, " +
-                        "including your personal workspaces, issues, and comments. This cannot be undone.",
+                        "including your personal teams, issues, and comments. This cannot be undone.",
                 )
             },
             confirmButton = {

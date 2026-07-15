@@ -374,7 +374,7 @@ impl Render for LabelsPane {
         let mut body = card(cx).child(card_header(
             "Labels",
             format!(
-                "{} label{} in this workspace. Deleting a label removes it from all issues.",
+                "{} label{} in this team. Deleting a label removes it from all issues.",
                 labels.len(),
                 if labels.len() == 1 { "" } else { "s" }
             ),

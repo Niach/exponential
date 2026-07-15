@@ -191,6 +191,40 @@ async function withPublicMeta(req: Request, response: Response): Promise<Respons
   return new Response(rewritten, { status, statusText, headers })
 }
 
+// The helpdesk magic-link page: the /support/<token> URL IS the credential,
+// so the page must never leak it through the Referer header (the SPA also
+// sets a same-named meta tag; this covers direct navigations before hydration
+// and wins over the global strict-origin policy). Set unconditionally — the
+// header is harmless on the API siblings.
+function withSupportPageHeaders(req: Request, response: Response): Response {
+  const pathname = new URL(req.url).pathname
+  if (pathname !== `/support` && !pathname.startsWith(`/support/`)) {
+    return response
+  }
+  response.headers.set(`Referrer-Policy`, `no-referrer`)
+  response.headers.set(`X-Robots-Tag`, `noindex, nofollow`)
+  return response
+}
+
+// Workspaces → teams rename: the app lives under /t/, but /w/ links live in
+// the wild forever (old emails, bookmarks, chat messages). Permanent-redirect
+// them server-side so crawlers consolidate onto /t/ and unfurlers follow.
+// ONLY the page namespace is touched — /w/ has no API siblings, but the guard
+// stays surgical anyway. The client-side `routes/w/$.tsx` splat covers dev
+// (the nitro-alpha bridge never reaches this file) and SPA-internal entries.
+function legacyWorkspaceRedirect(req: Request): Response | null {
+  if (req.method !== `GET` && req.method !== `HEAD`) return null
+  const url = new URL(req.url)
+  if (url.pathname !== `/w` && !url.pathname.startsWith(`/w/`)) return null
+  const rest = url.pathname.slice(`/w`.length)
+  // Not Response.redirect(): its headers are immutable and the security-header
+  // wrapper still decorates this response.
+  return new Response(null, {
+    status: 301,
+    headers: { location: `${url.origin}/t${rest}${url.search}` },
+  })
+}
+
 // h3 (inside the nitro chunk) can hand back its lazy NodeResponse wrapper —
 // it masquerades as a Response via Symbol.hasInstance/prototype games, but
 // Bun.serve requires the real native class and otherwise logs "Expected a
@@ -207,13 +241,17 @@ function ensureNativeResponse(res: Response): Response {
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
   withNoindexHeader(
     withSecurityHeaders(
-      withWidgetAssetHeaders(
-        req,
-        await withPublicMeta(
+      legacyWorkspaceRedirect(req) ??
+        withSupportPageHeaders(
           req,
-          ensureNativeResponse(await nitroApp.fetch(req))
+          withWidgetAssetHeaders(
+            req,
+            await withPublicMeta(
+              req,
+              ensureNativeResponse(await nitroApp.fetch(req))
+            )
+          )
         )
-      )
     )
   )
 const ws = hasWebSocket
@@ -232,13 +270,19 @@ if (hasWebSocket && ws) {
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>
     }
-    return withSecurityHeaders(
-      withWidgetAssetHeaders(
-        req,
-        await withPublicMeta(
-          req,
-          ensureNativeResponse(await nitroApp.fetch(req))
-        )
+    return withNoindexHeader(
+      withSecurityHeaders(
+        legacyWorkspaceRedirect(req) ??
+          withSupportPageHeaders(
+            req,
+            withWidgetAssetHeaders(
+              req,
+              await withPublicMeta(
+                req,
+                ensureNativeResponse(await nitroApp.fetch(req))
+              )
+            )
+          )
       )
     )
   }

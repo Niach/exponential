@@ -789,7 +789,7 @@ impl Panel for CenterPanel {
     }
 
     fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Workspace"
+        "Team"
     }
 
     /// The split IS the center — closing it would leave an empty center

@@ -44,7 +44,7 @@ export function WorkspaceMobileTopbar({
           className="ml-auto size-9 text-muted-foreground"
         >
           <Link
-            to="/w/$workspaceSlug/projects/$projectSlug"
+            to="/t/$workspaceSlug/projects/$projectSlug"
             params={{ workspaceSlug, projectSlug: activeProject.slug }}
             search={{ new: 1 }}
             aria-label="New issue"

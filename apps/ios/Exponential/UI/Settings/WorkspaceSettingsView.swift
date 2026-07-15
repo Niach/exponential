@@ -91,7 +91,7 @@ struct WorkspaceSettingsView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: "trash")
-                                    Text("Delete Workspace")
+                                    Text("Delete Team")
                                 }
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.red.opacity(isOnlyWorkspace ? 0.4 : 1))
@@ -105,7 +105,7 @@ struct WorkspaceSettingsView: View {
                             .disabled(isOnlyWorkspace)
 
                             if isOnlyWorkspace {
-                                Text("This is your only workspace, so it can't be deleted.")
+                                Text("This is your only team, so it can't be deleted.")
                                     .font(.caption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             }
@@ -126,14 +126,14 @@ struct WorkspaceSettingsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObserving() }
         .onDisappear { observationTask?.cancel() }
-        .alert("Delete Workspace", isPresented: $showDeleteWorkspace) {
+        .alert("Delete Team", isPresented: $showDeleteWorkspace) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 Task { await deleteWorkspace() }
             }
             .disabled(deletingWorkspace)
         } message: {
-            Text("This will permanently delete \(workspace?.name ?? "this workspace") and all its projects, issues, and data. This cannot be undone.")
+            Text("This will permanently delete \(workspace?.name ?? "this team") and all its projects, issues, and data. This cannot be undone.")
         }
         .alert("Delete Project", isPresented: Binding(
             get: { deleteProjectTarget != nil },
@@ -147,7 +147,7 @@ struct WorkspaceSettingsView: View {
             }
             .disabled(deletingProject)
         } message: {
-            Text("Move \(deleteProjectTarget?.name ?? "this project") and all its issues, comments and attachments to trash? You can restore it from workspace settings for 48 hours; after that it is permanently deleted.")
+            Text("Move \(deleteProjectTarget?.name ?? "this project") and all its issues, comments and attachments to trash? You can restore it from team settings for 48 hours; after that it is permanently deleted.")
         }
     }
 

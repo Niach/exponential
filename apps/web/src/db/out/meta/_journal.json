@@ -176,6 +176,13 @@
       "when": 1784145284310,
       "tag": "0024_equal_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784156443822,
+      "tag": "0025_wide_namor",
+      "breakpoints": true
     }
   ]
 }

@@ -699,7 +699,7 @@ impl IssueListView {
                         .check_side(Side::Right);
                     let labels = queries::workspace_labels(cx, &workspace_id);
                     if labels.is_empty() {
-                        return menu.item(PopupMenuItem::label("No labels in this workspace"));
+                        return menu.item(PopupMenuItem::label("No labels in this team"));
                     }
                     // Tri-state per web: checked when the label is on ALL
                     // selected issues; toggling removes from all, else adds
@@ -1473,7 +1473,7 @@ fn build_row_context_menu(
                     .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             });
             if labels.is_empty() {
-                return menu.item(PopupMenuItem::label("No labels in this workspace"));
+                return menu.item(PopupMenuItem::label("No labels in this team"));
             }
             let selected: HashSet<String> = collections
                 .issue_labels

@@ -65,7 +65,7 @@ export function DeleteAccountSection() {
             Danger Zone
           </CardTitle>
           <CardDescription>
-            Permanently delete your account, including your personal workspaces
+            Permanently delete your account, including your personal teams
             and everything you created.
           </CardDescription>
         </CardHeader>
@@ -86,7 +86,7 @@ export function DeleteAccountSection() {
           <DialogHeader>
             <DialogTitle>Delete your account</DialogTitle>
             <DialogDescription>
-              This permanently deletes your account, your personal workspaces,
+              This permanently deletes your account, your personal teams,
               and all issues and comments you created. This cannot be undone.
             </DialogDescription>
           </DialogHeader>

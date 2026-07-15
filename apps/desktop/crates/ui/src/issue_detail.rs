@@ -1061,7 +1061,7 @@ impl Render for IssueDetailView {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Issue not found in this workspace."),
+                            .child("Issue not found in this team."),
                     ),
                 )
                 .into_any_element();

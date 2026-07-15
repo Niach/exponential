@@ -100,7 +100,7 @@ fun InviteAcceptScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Workspace invite") },
+                title = { Text("Team invite") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

@@ -18,6 +18,24 @@ class WebLinksTest {
         )
     }
 
+    // The web moved /w/ → /t/ (workspaces → teams rename, EXP-122). Both prefixes
+    // must resolve identically — /t/ is the new mint, /w/ stays valid forever.
+    @Test
+    fun parsesTeamPrefixedIssueUrl() {
+        assertEquals(
+            WebLinks.Parsed.IssueRef("acme", "web", "EXP-42"),
+            WebLinks.parsePath("/t/acme/projects/web/issues/EXP-42"),
+        )
+    }
+
+    @Test
+    fun toleratesTrailingSlashOnTeamPrefix() {
+        assertEquals(
+            WebLinks.Parsed.IssueRef("acme", "web", "EXP-42"),
+            WebLinks.parsePath("/t/acme/projects/web/issues/EXP-42/"),
+        )
+    }
+
     @Test
     fun parsesInviteUrl() {
         assertEquals(WebLinks.Parsed.Invite("abc123"), WebLinks.parsePath("/invite/abc123"))
@@ -50,6 +68,9 @@ class WebLinksTest {
         for (path in listOf(
             null, "", "/", "/w/acme", "/w/acme/projects/web", "/w/acme/inbox",
             "/w/acme/projects/web/issues", "/w/acme/projects/web/issues/EXP-1/changes",
+            // The /t/ twin is claimed only at the exact issue depth, same as /w/.
+            "/t/acme", "/t/acme/projects/web", "/t/acme/inbox",
+            "/t/acme/projects/web/issues", "/t/acme/projects/web/issues/EXP-1/changes",
             "/invite", "/auth/login",
         )) {
             assertNull("expected null for $path", WebLinks.parsePath(path))

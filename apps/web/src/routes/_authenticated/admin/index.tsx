@@ -92,7 +92,7 @@ function AdminOverview() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Users" value={String(totals.users)} />
-        <StatCard label="Workspaces" value={String(totals.workspaces)} />
+        <StatCard label="Teams" value={String(totals.workspaces)} />
         <StatCard
           label="Issues"
           value={String(totals.issues)}
@@ -126,10 +126,10 @@ function AdminOverview() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">
-              Workspaces created — last 30 days
+              Teams created — last 30 days
             </CardTitle>
             <CardDescription className="text-xs">
-              {wsTotal} new {wsTotal === 1 ? `workspace` : `workspaces`}
+              {wsTotal} new {wsTotal === 1 ? `team` : `teams`}
             </CardDescription>
           </CardHeader>
           <CardContent>

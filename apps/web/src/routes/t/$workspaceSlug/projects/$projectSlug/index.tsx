@@ -4,6 +4,7 @@ import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
+import { PublicBoardShareButton } from "@/components/workspace/public-board-share"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import {
@@ -25,7 +26,7 @@ type ProjectSearch = IssueFilterSearch & {
 }
 
 export const Route = createFileRoute(
-  `/w/$workspaceSlug/projects/$projectSlug/`
+  `/t/$workspaceSlug/projects/$projectSlug/`
 )({
   validateSearch: (search: Record<string, unknown>): ProjectSearch => ({
     new: search.new === 1 || search.new === `1` ? 1 : undefined,
@@ -56,7 +57,7 @@ function ProjectPage() {
       })
       // Clear only the one-shot create keys; keep any active filter params.
       void navigate({
-        to: `/w/$workspaceSlug/projects/$projectSlug`,
+        to: `/t/$workspaceSlug/projects/$projectSlug`,
         params: { workspaceSlug, projectSlug },
         search: (prev) => ({
           ...prev,
@@ -76,7 +77,7 @@ function ProjectPage() {
 
   const setFilters = (next: IssueFilters) => {
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      to: `/t/$workspaceSlug/projects/$projectSlug`,
       params: { workspaceSlug, projectSlug },
       search: (prev) => ({
         ...prev,
@@ -126,6 +127,17 @@ function ProjectPage() {
         labels={labelList}
         onNewIssue={() => handleNewIssue()}
         canCreate={permissions.canCreate}
+        // Sharing a public board's link is any member's privilege, not an
+        // owner's — the owner-only knobs (publicness, privacy toggles) stay
+        // in workspace settings.
+        actions={
+          project.isPublic && permissions.isMember ? (
+            <PublicBoardShareButton
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+            />
+          ) : undefined
+        }
       />
 
       <div className="flex-1 overflow-auto">
@@ -138,7 +150,7 @@ function ProjectPage() {
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) =>
             void navigate({
-              to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+              to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
               params: {
                 workspaceSlug,
                 projectSlug,
@@ -169,7 +181,7 @@ function ProjectPage() {
             permissions.isMember ? (
               <GettingStartedSection
                 workspaceSlug={workspaceSlug}
-                projectType={project.type}
+                projectIsPublic={project.isPublic}
                 canManageWidgets={permissions.canManageWidgets}
               />
             ) : undefined

@@ -80,7 +80,7 @@ async function resolvePublicProject(
       projectSlug: projects.slug,
       prefix: projects.prefix,
       color: projects.color,
-      type: projects.type,
+      icon: projects.icon,
       publicShowComments: projects.publicShowComments,
       publicShowActivity: projects.publicShowActivity,
     })
@@ -90,7 +90,7 @@ async function resolvePublicProject(
       and(
         eq(workspaces.slug, workspaceSlug),
         eq(projects.slug, projectSlug),
-        eq(projects.type, `feedback`),
+        eq(projects.isPublic, true),
         isNull(projects.archivedAt),
         isNull(projects.deletedAt)
       )
@@ -239,7 +239,7 @@ async function resolvePublicReporterUserId(
 
 export const publicBoardRouter = router({
   // The public feedback boards a workspace hosts (name/slug only). Lets the
-  // bare /w/$slug URL resolve to the board without exposing sibling projects.
+  // bare /t/$slug URL resolve to the board without exposing sibling projects.
   boards: publicProcedure
     .input(z.object({ workspaceSlug: z.string().min(1).max(255) }))
     .query(async ({ ctx, input }) => {
@@ -253,7 +253,7 @@ export const publicBoardRouter = router({
         .where(
           and(
             eq(workspaces.slug, input.workspaceSlug),
-            eq(projects.type, `feedback`),
+            eq(projects.isPublic, true),
             isNull(projects.archivedAt),
             isNull(projects.deletedAt)
           )

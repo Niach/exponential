@@ -17,7 +17,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `desktop-apps`, num: `03`, label: `Desktop IDE` },
   { id: `start-coding`, num: `04`, label: `Start coding` },
   { id: `mobile`, num: `05`, label: `Mobile apps` },
-  { id: `feedback-widget`, num: `06`, label: `Feedback widget` },
+  { id: `feedback-widget`, num: `06`, label: `Exponential widget` },
   { id: `mcp`, num: `07`, label: `MCP & API` },
 ]
 
@@ -222,9 +222,9 @@ export function DocsPage() {
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 06 Feedback widget ── */}
-          <DocsSection id="feedback-widget" num="06" label="Feedback widget">
-            <h2>Feedback widget</h2>
+          {/* ── 06 Exponential widget ── */}
+          <DocsSection id="feedback-widget" num="06" label="Exponential widget">
+            <h2>Exponential widget</h2>
             <p>
               Embed a feedback button on any website. Visitors report a bug with
               a screenshot — captured in the browser, annotatable with
@@ -233,7 +233,7 @@ export function DocsPage() {
             </p>
             <p>
               Create a widget in{" "}
-              <strong>Workspace Settings → Feedback widget</strong> (workspace
+              <strong>Workspace Settings → Exponential widget</strong> (workspace
               owners only). Each config gets a public{` `}
               <code>expw_</code> key and a domain allowlist. Then paste the
               snippet:

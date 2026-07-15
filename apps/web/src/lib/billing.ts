@@ -349,6 +349,24 @@ export function assertWidgetCreatable(
   }
 }
 
+// Pure helpdesk gate: the support inbox is a Pro+ feature (no per-tier count —
+// it's a per-project boolean). Exported for unit tests.
+export function assertHelpdeskUsable(plan: PlanTier): void {
+  if (plan === `free`) {
+    throw planLimitError(
+      `the helpdesk on Pro and Business plans. Upgrade to enable support conversations.`
+    )
+  }
+}
+
+// Helpdesk gate (projects.update helpdesk_enabled flip + support-thread
+// creation). Self-hosted is unlimited.
+export async function assertCanUseHelpdesk(workspaceId: string): Promise<void> {
+  if (!isCloudInstance()) return
+  const { plan } = await getWorkspacePlan(workspaceId)
+  assertHelpdeskUsable(plan)
+}
+
 // Widget-create gate (widgets.create). Self-hosted is unlimited; the bootstrap
 // dogfood path inserts directly and is intentionally exempt.
 export async function assertCanCreateWidget(
