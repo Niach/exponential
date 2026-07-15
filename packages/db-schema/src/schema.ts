@@ -804,7 +804,7 @@ export const runConfigs = pgTable(
 )
 
 // Per-user notification delivery prefs (SERVER-ONLY). Missing row = all
-// defaults (email on, no digest). Email is a free delivery channel, never a
+// defaults (email on, daily digest). Email is a free delivery channel, never a
 // notification type and never plan-gated.
 export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   userId: text(`user_id`)
@@ -817,8 +817,9 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
     .$type<Partial<Record<NotificationType, boolean>>>()
     .notNull()
     .default(sql`'{}'::jsonb`),
-  // off|daily|weekly — documented varchar (server-only logic, no native picker).
-  digest: varchar({ length: 16 }).notNull().default(`off`),
+  // off (hourly) | daily — documented varchar (server-only logic, no native
+  // picker). Defaults to the quieter daily digest.
+  digest: varchar({ length: 16 }).notNull().default(`daily`),
   // Stable per-user secret embedded in one-click List-Unsubscribe links.
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 })
     .notNull()

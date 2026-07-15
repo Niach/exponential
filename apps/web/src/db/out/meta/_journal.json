@@ -169,6 +169,13 @@
       "when": 1784119934170,
       "tag": "0023_faithful_stark_industries",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784145284310,
+      "tag": "0024_equal_lilandra",
+      "breakpoints": true
     }
   ]
 }
