@@ -24,6 +24,7 @@ import {
   getSoleHumanMemberId,
 } from "@/lib/workspace-membership"
 import {
+  closePullRequest,
   fetchPullFiles,
   GitHubMergeError,
   mergePullRequest,
@@ -35,7 +36,10 @@ import {
 } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToWorkspace } from "@/lib/trpc/integrations"
 import { escapeLikePattern } from "@/lib/like-pattern"
-import { applyPrMergeState } from "@/lib/integrations/pr-sync"
+import {
+  applyPrClosedState,
+  applyPrMergeState,
+} from "@/lib/integrations/pr-sync"
 import {
   dateOnlySchema,
   getIssueDescriptionText,
@@ -1151,6 +1155,99 @@ export const issuesRouter = router({
       })
 
       return { merged: true }
+    }),
+
+  // Close the issue's open PR WITHOUT merging (EXP-100: the Reviews "reject"
+  // path — the work exists on a branch but the issue got dropped). Mirrors
+  // mergePr's guards/token resolution; the state flip goes through the shared
+  // applyPrClosedState writer, whose open→closed guard also absorbs the later
+  // webhook delivery for the same close. Issue status stays a human decision.
+  closePr: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }): Promise<{ closed: true }> => {
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          prUrl: issues.prUrl,
+          prState: issues.prState,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+      }
+      if (!row.prNumber || !row.prUrl) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This issue has no linked pull request`,
+        })
+      }
+      if (row.prState === `closed`) {
+        // Already closed (e.g. the webhook beat us) — idempotent no-op.
+        return { closed: true }
+      }
+      if (row.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is ${row.prState} — only open pull requests can be closed`,
+        })
+      }
+
+      // Close against the repo the PR actually lives in — derived from prUrl,
+      // never the project's CURRENT repository (same derivation as mergePr).
+      const repoFullName = repoFromPrUrl(row.prUrl)
+      if (!repoFullName) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The linked pull request URL is not a GitHub PR URL`,
+        })
+      }
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const token = await resolveRepoInstallationToken(repoFullName)
+      if (!token) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not installed on ${repoFullName}`,
+        })
+      }
+
+      try {
+        await closePullRequest({
+          repo: repoFullName,
+          prNumber: row.prNumber,
+          token,
+        })
+      } catch (err) {
+        if (err instanceof GitHubMergeError) {
+          if (err.status === 404) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Pull request not found on GitHub`,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `GitHub close failed: ${err.message}`,
+          })
+        }
+        throw err
+      }
+
+      await applyPrClosedState({
+        issueId: input.issueId,
+        prUrl: row.prUrl,
+      })
+
+      return { closed: true }
     }),
 
   // Changed files for the issue's PR (one issue = one PR), for the diff view.

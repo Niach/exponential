@@ -120,6 +120,39 @@ export async function mergePullRequest(opts: {
   return { merged: data.merged, sha: data.sha }
 }
 
+// Close a PR WITHOUT merging (the Reviews "reject" path — the work was done
+// but the issue got dropped). Same server-side posture as merge: the App
+// installation token acts, clients never touch git/gh. Throws
+// GitHubMergeError (shared error shape — the status mapping is identical).
+export async function closePullRequest(opts: {
+  repo: string
+  prNumber: number
+  token: string
+}): Promise<void> {
+  const res = await fetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+    {
+      method: `PATCH`,
+      headers: {
+        ...githubApiHeaders(opts.token),
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({ state: `closed` }),
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text.slice(0, 300)
+    try {
+      const parsed = JSON.parse(text) as { message?: string }
+      if (parsed.message) message = parsed.message
+    } catch {
+      // Non-JSON error body — surface the raw text.
+    }
+    throw new GitHubMergeError(res.status, message)
+  }
+}
+
 // Pull-request resolution state (for the merge poller).
 export interface PullState {
   state: `open` | `closed`

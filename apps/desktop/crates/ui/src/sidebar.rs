@@ -567,16 +567,18 @@ pub struct SidebarPanel {
     /// Scroll position of the flow graph's lane list (EXP-67: the full
     /// uncapped list scrolls instead of collapsing behind "+N more").
     flow_scroll: ScrollHandle,
-    /// Two-click merge confirm: the armed row's key — an issue id, or
-    /// `repo#number` for an unlinked pull (see [`pull_merge_key`]). Any other
-    /// click or ~5s of inactivity disarms.
+    /// Two-click merge/close confirm: the armed row's key — an issue id,
+    /// `close:<issue id>` for the issue row's close-without-merge button
+    /// (see [`close_pr_key`]), or `repo#number` for an unlinked pull (see
+    /// [`pull_merge_key`]). Any other click or ~5s of inactivity disarms.
     review_arm: Option<String>,
     /// Bumped on every arm/disarm — a stale disarm timer checks it before
     /// clearing so it never cancels a newer arm.
     review_arm_seq: u64,
-    /// Row keys with an in-flight merge call (`issues.mergePr` or
-    /// `repositories.mergePull`). Issue rows keep the id until the Electric
-    /// echo removes the row (render prunes it); pull rows clear on completion.
+    /// Row keys with an in-flight merge/close call (`issues.mergePr`,
+    /// `issues.closePr` under [`close_pr_key`], or `repositories.mergePull`).
+    /// Issue rows keep the key until the Electric echo removes the row
+    /// (render prunes it); pull rows clear on completion.
     review_merging: HashSet<String>,
     /// The last merge failure, `(row_key, message)` — a caption under the
     /// row, cleared on the next attempt.
@@ -603,6 +605,14 @@ pub struct SidebarPanel {
 /// UUIDs — `repo-uuid#number` can never collide with those.
 fn pull_merge_key(repository_id: &str, number: u64) -> String {
     format!("{repository_id}#{number}")
+}
+
+/// Arm/in-flight key for an issue row's close-without-merge action (EXP-100).
+/// Shares the `review_arm`/`review_merging` namespace with the merge keys —
+/// the `close:` prefix can never collide with an issue UUID or a
+/// `repo-uuid#number` pull key.
+fn close_pr_key(issue_id: &str) -> String {
+    format!("close:{issue_id}")
 }
 
 /// Latest-notification kind → the inbox row's leading type-badge glyph (the
@@ -1026,7 +1036,12 @@ impl SidebarPanel {
         {
             let mut live_ids: HashSet<String> = groups
                 .iter()
-                .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
+                .flat_map(|group| {
+                    group
+                        .issues
+                        .iter()
+                        .flat_map(|issue| [issue.id.clone(), close_pr_key(&issue.id)])
+                })
                 .collect();
             for repo in &pull_repos {
                 for pull in &repo.pulls {
@@ -1180,7 +1195,10 @@ impl SidebarPanel {
 
     /// One Reviews row: PR icon + identifier + title with a trailing Merge
     /// button, sub-line `#N · branch`, optional error caption. Clicking the
-    /// row opens the issue detail (its Changes tab shows the diff).
+    /// row opens the issue detail (its Changes tab shows the diff). A
+    /// deliberately subtle ghost `×` left of Merge closes the PR WITHOUT
+    /// merging (EXP-100: the reject path for issues that got dropped after
+    /// the work was done) — same two-click confirm, `issues.closePr`.
     fn review_row(
         &self,
         issue: &domain::rows::Issue,
@@ -1201,6 +1219,9 @@ impl SidebarPanel {
         );
         let merging = self.review_merging.contains(&issue.id);
         let armed = self.review_arm.as_deref() == Some(issue.id.as_str());
+        let close_key = close_pr_key(&issue.id);
+        let closing = self.review_merging.contains(&close_key);
+        let close_armed = self.review_arm.as_deref() == Some(close_key.as_str());
         let error: Option<String> = self
             .review_error
             .as_ref()
@@ -1223,12 +1244,38 @@ impl SidebarPanel {
             } else if armed {
                 button = button.label("Confirm merge").danger();
             } else {
-                button = button.label("Merge");
+                button = button.label("Merge").disabled(closing);
             }
             let click_id = issue.id.clone();
             button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 this.on_merge_click(click_id.clone(), cx);
+            }))
+        };
+
+        // The reject path — intentionally quiet next to Merge: a muted ghost
+        // `×` that only grows into a labeled danger confirm once armed.
+        let close_button = {
+            let mut button = Button::new(SharedString::from(format!("review-close-{}", issue.id)))
+                .xsmall()
+                .ghost();
+            if closing {
+                button = button
+                    .icon(Icon::new(IconName::Close))
+                    .loading(true)
+                    .disabled(true);
+            } else if close_armed {
+                button = button.label("Close PR").danger();
+            } else {
+                button = button
+                    .icon(Icon::new(IconName::Close).text_color(muted))
+                    .tooltip("Close PR without merging")
+                    .disabled(merging);
+            }
+            let click_id = issue.id.clone();
+            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.on_close_pr_click(click_id.clone(), cx);
             }))
         };
 
@@ -1281,6 +1328,7 @@ impl SidebarPanel {
                             .text_color(fg)
                             .child(SharedString::from(issue.title.clone())),
                     )
+                    .child(close_button)
                     .child(merge_button),
             )
             .child(
@@ -1406,7 +1454,10 @@ impl SidebarPanel {
     /// Failures come back to a caption under the row; success leaves the
     /// spinner until the Electric echo removes the row.
     fn on_merge_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if self.review_merging.contains(&issue_id) {
+        // Ignore while either action on this row is already in flight.
+        if self.review_merging.contains(&issue_id)
+            || self.review_merging.contains(&close_pr_key(&issue_id))
+        {
             return;
         }
         if self.review_arm.as_deref() != Some(issue_id.as_str()) {
@@ -1441,6 +1492,61 @@ impl SidebarPanel {
                         other => other.to_string(),
                     };
                     this.review_merging.remove(&issue_id);
+                    this.review_error = Some((issue_id.clone(), message));
+                    cx.notify();
+                }
+                // Success: nothing to do — the collection observer re-renders
+                // when the echo flips `pr_state` and the row leaves the list.
+            });
+        })
+        .detach();
+    }
+
+    /// The subtle Close-PR button's two-click flow (EXP-100): first click
+    /// arms (auto-disarm after ~5s), second click fires `issues.closePr` on
+    /// the background executor — closes the PR on GitHub WITHOUT merging.
+    /// Failures caption the row; success leaves the spinner until the
+    /// Electric echo flips `pr_state` to closed and the row leaves the list.
+    fn on_close_pr_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        let key = close_pr_key(&issue_id);
+        // Ignore while either action on this row is already in flight.
+        if self.review_merging.contains(&key) || self.review_merging.contains(&issue_id) {
+            return;
+        }
+        if self.review_arm.as_deref() != Some(key.as_str()) {
+            self.arm_merge_confirm(key, cx);
+            return;
+        }
+
+        // Confirmed — fire the server-side close.
+        self.review_arm = None;
+        self.review_arm_seq += 1;
+        self.review_error = None;
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("[ui] issues.closePr skipped: no active account");
+            cx.notify();
+            return;
+        };
+        self.review_merging.insert(key.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let call_id = issue_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::issues::close_pr(&trpc, &call_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(err) = result {
+                    log::warn!("[ui] issues.closePr({issue_id}) failed: {err}");
+                    // Show the server's user-facing message when there is
+                    // one; transport-level errors keep the full rendering.
+                    let message = match err {
+                        api::ApiError::Http { message, .. } => message,
+                        other => other.to_string(),
+                    };
+                    this.review_merging.remove(&key);
+                    // Error captions key on the ROW (the issue id), not the
+                    // close key — the caption renders under the row either way.
                     this.review_error = Some((issue_id.clone(), message));
                     cx.notify();
                 }
