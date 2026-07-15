@@ -18,13 +18,13 @@ CREATE TABLE "support_threads" (
 	"project_id" uuid NOT NULL,
 	"reporter_email" varchar(320) NOT NULL,
 	"reporter_name" varchar(255),
-	"token_hash" varchar(64) NOT NULL,
+	"token" varchar(64) NOT NULL,
 	"token_revoked_at" timestamp with time zone,
 	"last_reporter_seen_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "support_threads_issue_id_unique" UNIQUE("issue_id"),
-	CONSTRAINT "support_threads_token_hash_unique" UNIQUE("token_hash")
+	CONSTRAINT "support_threads_token_unique" UNIQUE("token")
 );
 --> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN "helpdesk_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint

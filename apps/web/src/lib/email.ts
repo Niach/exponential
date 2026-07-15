@@ -325,9 +325,8 @@ export async function sendSupportReplyEmail(args: {
 }
 
 // Helpdesk ticket confirmation for the reporter (widget support mode): the
-// FIRST carrier of the magic conversation link — without this email the
-// reporter has no way back into the thread until a member reply re-mails a
-// rotated link.
+// FIRST carrier of the magic conversation link — the same stable link every
+// later reply email repeats.
 export async function sendSupportConfirmationEmail(args: {
   to: string
   projectName: string

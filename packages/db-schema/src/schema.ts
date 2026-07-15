@@ -979,11 +979,12 @@ export const supportThreads = pgTable(
       .references(() => projects.id, { onDelete: `cascade` }),
     reporterEmail: varchar(`reporter_email`, { length: 320 }).notNull(),
     reporterName: varchar(`reporter_name`, { length: 255 }),
-    // sha256 hex of the 32-byte magic-link token. The raw token exists only
-    // inside emailed URLs — never logged, never stored.
-    tokenHash: varchar(`token_hash`, { length: 64 }).notNull().unique(),
+    // The raw 32-byte base64url magic-link token — stored so every outbound
+    // email carries the SAME stable /support/<token> link. Never logged and
+    // never persisted anywhere else.
+    token: varchar(`token`, { length: 64 }).notNull().unique(),
     // Stamped on close: the transcript stays readable but replies are
-    // rejected. Reopen regenerates the token (fresh hash) and clears this.
+    // rejected. Reopen clears this — the link itself never changes.
     tokenRevokedAt: timestamp(`token_revoked_at`, { withTimezone: true }),
     // When the reporter last loaded the magic-link page — lets members see
     // whether their reply has been read.

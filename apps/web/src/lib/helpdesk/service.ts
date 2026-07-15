@@ -4,9 +4,8 @@ import { supportMessages, supportThreads } from "@/db/schema"
 import type { SupportThread } from "@/db/schema"
 import {
   generateSupportToken,
-  hashSupportToken,
   isValidSupportTokenShape,
-  supportTokenHashMatches,
+  supportTokensMatch,
 } from "@/lib/helpdesk/token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { TokenBucketLimiter, envInt } from "@/lib/widget/rate-limit"
@@ -23,9 +22,10 @@ export function supportThreadUrl(rawToken: string): string {
 
 // Create the conversation for a (freshly created) ticket issue: the thread
 // row + the reporter's opening inbound message. Returns the raw token so the
-// caller can embed it in the confirmation email — the only place it may go.
-// Callers are responsible for the Pro gate (assertCanUseHelpdesk) and for
-// checking projects.helpdesk_enabled.
+// caller can embed it in the confirmation email. The token is STABLE for the
+// thread's whole life — every email carries the same link. Callers are
+// responsible for the Pro gate (assertCanUseHelpdesk) and for checking
+// projects.helpdesk_enabled.
 export async function createSupportThreadInTx(
   tx: Tx,
   args: {
@@ -44,7 +44,7 @@ export async function createSupportThreadInTx(
       projectId: args.projectId,
       reporterEmail: args.reporterEmail,
       reporterName: args.reporterName ?? null,
-      tokenHash: hashSupportToken(rawToken),
+      token: rawToken,
     })
     .returning({ id: supportThreads.id })
 
@@ -60,7 +60,7 @@ export async function createSupportThreadInTx(
   return { threadId: thread.id, rawToken }
 }
 
-// Resolve a raw magic-link token to its thread. Lookup by hash; the
+// Resolve a magic-link token to its thread. Lookup by equality; the
 // constant-time recheck is defense in depth. Returns null for anything that
 // doesn't resolve — callers answer 404 without distinguishing why.
 export async function findThreadByToken(
@@ -70,14 +70,14 @@ export async function findThreadByToken(
   const [thread] = await db
     .select()
     .from(supportThreads)
-    .where(eq(supportThreads.tokenHash, hashSupportToken(rawToken)))
+    .where(eq(supportThreads.token, rawToken))
     .limit(1)
   if (!thread) return null
-  if (!supportTokenHashMatches(rawToken, thread.tokenHash)) return null
+  if (!supportTokensMatch(rawToken, thread.token)) return null
   return thread
 }
 
-// Close-time revocation: the transcript stays readable through the old link
+// Close-time revocation: the transcript stays readable through the link
 // (losing it would read as data loss), but replies are rejected.
 export async function revokeThreadToken(
   tx: Tx,
@@ -94,23 +94,16 @@ export async function revokeThreadToken(
     )
 }
 
-// Mint a FRESH token for the thread (older emailed links stop resolving).
-// Reply emails rotate with `clearRevocation: false` — a closed thread's new
-// link stays read-only until an explicit reopen (which passes true).
-export async function regenerateThreadToken(
+// Reopen: replies are accepted again through the SAME link (the token never
+// changes; revocation is the only lever).
+export async function reinstateThreadToken(
   tx: Tx,
-  threadId: string,
-  opts: { clearRevocation: boolean }
-): Promise<{ rawToken: string }> {
-  const rawToken = generateSupportToken()
+  threadId: string
+): Promise<void> {
   await tx
     .update(supportThreads)
-    .set({
-      tokenHash: hashSupportToken(rawToken),
-      ...(opts.clearRevocation ? { tokenRevokedAt: null } : {}),
-    })
+    .set({ tokenRevokedAt: null })
     .where(eq(supportThreads.id, threadId))
-  return { rawToken }
 }
 
 // The newest message of each given thread (snippet + unread source for the

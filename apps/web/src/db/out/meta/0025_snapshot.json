@@ -3197,12 +3197,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
         "token_revoked_at": {
           "name": "token_revoked_at",
           "type": "timestamp with time zone",
@@ -3228,6 +3222,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -3284,11 +3284,11 @@
             "issue_id"
           ]
         },
-        "support_threads_token_hash_unique": {
-          "name": "support_threads_token_hash_unique",
+        "support_threads_token_unique": {
+          "name": "support_threads_token_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "token_hash"
+            "token"
           ]
         }
       },

@@ -39,8 +39,7 @@ async function handleThreadRead(request: Request): Promise<Response> {
 
   const thread = await findThreadByToken(token)
   if (!thread) {
-    // One indistinguishable answer for unknown, malformed and rotated-away
-    // tokens.
+    // One indistinguishable answer for unknown and malformed tokens.
     return jsonResponse(404, { error: `Conversation not found` })
   }
 

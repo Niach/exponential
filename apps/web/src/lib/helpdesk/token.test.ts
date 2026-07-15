@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   generateSupportToken,
-  hashSupportToken,
   isValidSupportTokenShape,
-  supportTokenHashMatches,
+  supportTokensMatch,
 } from "./token"
 
 // The magic-link token is the reporter's only credential — these lock the
 // shape contract (validation gate for the anonymous endpoints) and the
-// hash-then-compare lookup path.
+// constant-time comparison path.
 
 describe(`generateSupportToken`, () => {
   it(`emits 43-char base64url tokens that pass the shape gate`, () => {
@@ -19,7 +18,7 @@ describe(`generateSupportToken`, () => {
     }
   })
 
-  it(`never repeats (32 bytes of entropy)`, () => {
+  it(`emits unique tokens`, () => {
     const seen = new Set(
       Array.from({ length: 100 }, () => generateSupportToken())
     )
@@ -28,42 +27,35 @@ describe(`generateSupportToken`, () => {
 })
 
 describe(`isValidSupportTokenShape`, () => {
-  it(`rejects wrong lengths, padding and non-base64url characters`, () => {
+  it(`rejects wrong lengths`, () => {
     expect(isValidSupportTokenShape(``)).toBe(false)
-    expect(isValidSupportTokenShape(`short`)).toBe(false)
+    expect(isValidSupportTokenShape(`abc`)).toBe(false)
     expect(isValidSupportTokenShape(`${generateSupportToken()}x`)).toBe(false)
-    expect(isValidSupportTokenShape(`a`.repeat(42) + `=`)).toBe(false)
-    expect(isValidSupportTokenShape(`a`.repeat(42) + `/`)).toBe(false)
-    expect(isValidSupportTokenShape(`a`.repeat(42) + `+`)).toBe(false)
   })
 
-  it(`accepts the full base64url alphabet at the right length`, () => {
-    expect(isValidSupportTokenShape(`Az9_-`.repeat(8) + `Az9`)).toBe(true)
+  it(`rejects characters outside the base64url alphabet`, () => {
+    const almost = generateSupportToken().slice(0, 42)
+    expect(isValidSupportTokenShape(`${almost}=`)).toBe(false)
+    expect(isValidSupportTokenShape(`${almost}/`)).toBe(false)
+    expect(isValidSupportTokenShape(`${almost}+`)).toBe(false)
   })
 })
 
-describe(`supportTokenHashMatches`, () => {
-  it(`matches a token against its own sha256`, () => {
+describe(`supportTokensMatch`, () => {
+  it(`matches an identical token`, () => {
     const token = generateSupportToken()
-    expect(supportTokenHashMatches(token, hashSupportToken(token))).toBe(true)
+    expect(supportTokensMatch(token, token)).toBe(true)
   })
 
   it(`rejects a different token`, () => {
-    const stored = hashSupportToken(generateSupportToken())
-    expect(supportTokenHashMatches(generateSupportToken(), stored)).toBe(false)
+    expect(
+      supportTokensMatch(generateSupportToken(), generateSupportToken())
+    ).toBe(false)
   })
 
-  it(`rejects malformed stored hashes without throwing`, () => {
+  it(`rejects length mismatches without throwing`, () => {
     const token = generateSupportToken()
-    expect(supportTokenHashMatches(token, ``)).toBe(false)
-    expect(supportTokenHashMatches(token, `zz`)).toBe(false)
-    expect(supportTokenHashMatches(token, `abcd`)).toBe(false)
-  })
-
-  it(`hashes are stable hex sha256`, () => {
-    expect(hashSupportToken(`fixed-input`)).toBe(
-      hashSupportToken(`fixed-input`)
-    )
-    expect(hashSupportToken(`fixed-input`)).toMatch(/^[0-9a-f]{64}$/)
+    expect(supportTokensMatch(token, token.slice(0, 20))).toBe(false)
+    expect(supportTokensMatch(token, ``)).toBe(false)
   })
 })

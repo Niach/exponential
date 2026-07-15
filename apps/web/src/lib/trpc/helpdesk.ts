@@ -23,7 +23,7 @@ import { sendSupportReplyEmail } from "@/lib/email"
 import {
   MAX_SUPPORT_MESSAGE_CHARS,
   latestMessagesByThread,
-  regenerateThreadToken,
+  reinstateThreadToken,
   revokeThreadToken,
   supportThreadUrl,
 } from "@/lib/helpdesk/service"
@@ -157,7 +157,7 @@ export const helpdeskRouter = router({
         input.threadId
       )
 
-      const { message, rawToken } = await ctx.db.transaction(async (tx) => {
+      const message = await ctx.db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(supportMessages)
           .values({
@@ -169,16 +169,11 @@ export const helpdeskRouter = router({
             body: input.body,
           })
           .returning()
-        // Rotation preserves revocation: a reply on a closed thread mails a
-        // readable (but still read-only) link — reopening is explicit.
-        const { rawToken } = await regenerateThreadToken(tx, thread.id, {
-          clearRevocation: false,
-        })
         await tx
           .update(supportThreads)
           .set({ updatedAt: new Date() })
           .where(eq(supportThreads.id, thread.id))
-        return { message: inserted, rawToken }
+        return inserted
       })
 
       const [projectRow] = await ctx.db
@@ -188,14 +183,14 @@ export const helpdeskRouter = router({
         .limit(1)
 
       // Email outside the transaction; a failed send never loses the message.
-      // The delivery ledger row deliberately stores NO thread URL (the raw
-      // token must not be persisted anywhere).
+      // Every reply carries the thread's one stable link. The delivery ledger
+      // row stores no thread URL — the token lives only on the thread row.
       try {
         const result = await sendSupportReplyEmail({
           to: thread.reporterEmail,
           projectName: projectRow?.name ?? `the team`,
           replyText: input.body,
-          threadUrl: supportThreadUrl(rawToken),
+          threadUrl: supportThreadUrl(thread.token),
         })
         const [delivery] = await ctx.db
           .insert(emailDeliveries)
@@ -337,7 +332,8 @@ export const helpdeskRouter = router({
           })
           statusChange = { from: current.status, to: `todo` }
         }
-        await regenerateThreadToken(tx, thread.id, { clearRevocation: true })
+        // The reporter's existing link starts accepting replies again.
+        await reinstateThreadToken(tx, thread.id)
         return { txId, statusChange }
       })
       if (result.statusChange) {

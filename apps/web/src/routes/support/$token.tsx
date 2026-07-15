@@ -133,7 +133,7 @@ function SupportConversationPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {state.kind === `notFound`
-              ? `This link may have expired. Conversation links are refreshed with every reply — open the newest email from support to pick up where you left off.`
+              ? `This link doesn't match any conversation. Check that the URL from your email was copied completely.`
               : `Please try again in a moment.`}
           </p>
         </div>

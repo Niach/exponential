@@ -596,10 +596,10 @@ export async function createWidgetSupportSubmission(args: {
   // feedback submissions. Fire-and-forget — never fails the submit.
   fireAndForgetNewIssueNotify({ issueId: result.issueId })
 
-  // Confirmation email with the magic conversation link — the ONLY carrier of
-  // the raw token. A failed send doesn't fail the (already committed) ticket:
-  // the first member reply rotates the token and emails a fresh link. The
-  // ledger row stores no thread URL (the raw token is never persisted).
+  // Confirmation email with the magic conversation link (the thread's one
+  // stable URL). A failed send doesn't fail the (already committed) ticket:
+  // every member reply email repeats the same link. The ledger row stores no
+  // thread URL — the token lives only on the thread row.
   try {
     const sendResult = await sendSupportConfirmationEmail({
       to: fields.data.email,
