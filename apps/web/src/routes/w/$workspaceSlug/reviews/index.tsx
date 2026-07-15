@@ -6,6 +6,7 @@ import {
   GitPullRequest,
   Loader2,
   Rocket,
+  X,
 } from "lucide-react"
 import type { Issue } from "@/db/schema"
 import type { OpenPull } from "@/lib/integrations/github-pr"
@@ -75,6 +76,11 @@ function ReviewsPage() {
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
+  // The reject path (EXP-100): close WITHOUT merging — deliberately subtle
+  // (hover-revealed ghost ×); merge stays the primary action. Same spinner
+  // semantics as merge: success waits for the Electric echo to drop the row.
+  const [closeTarget, setCloseTarget] = useState<Issue | null>(null)
+  const [closingIds, setClosingIds] = useState<Set<string>>(new Set())
 
   const openIssue = (projectSlug: string, issueIdentifier: string) => {
     void navigate({
@@ -99,6 +105,22 @@ function ReviewsPage() {
       // The global mutation toast already surfaced the error; just unstick
       // the row spinner so the merge can be retried.
       setMergingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(issue.id)
+        return next
+      })
+    })
+  }
+
+  const confirmClose = () => {
+    const issue = closeTarget
+    if (!issue) return
+    setCloseTarget(null)
+    setClosingIds((prev) => new Set(prev).add(issue.id))
+    trpc.issues.closePr.mutate({ issueId: issue.id }).catch(() => {
+      // The global mutation toast already surfaced the error; just unstick
+      // the row spinner so the close can be retried.
+      setClosingIds((prev) => {
         const next = new Set(prev)
         next.delete(issue.id)
         return next
@@ -191,6 +213,7 @@ function ReviewsPage() {
                   ? userMap.get(issue.assigneeId)
                   : undefined
                 const merging = mergingIds.has(issue.id)
+                const closing = closingIds.has(issue.id)
                 return (
                   <div
                     key={issue.id}
@@ -248,9 +271,31 @@ function ReviewsPage() {
                         </Avatar>
                       )}
                       <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 text-muted-foreground ${
+                          closing
+                            ? ``
+                            : `md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100`
+                        }`}
+                        aria-label="Close pull request without merging"
+                        title="Close PR without merging"
+                        disabled={merging || closing}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setCloseTarget(issue)
+                        }}
+                      >
+                        {closing ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                      <Button
                         size="sm"
                         variant="outline"
-                        disabled={merging}
+                        disabled={merging || closing}
                         onClick={(e) => {
                           e.stopPropagation()
                           setMergeTarget(issue)
@@ -445,6 +490,30 @@ function ReviewsPage() {
               Cancel
             </Button>
             <Button onClick={confirmMerge}>Merge pull request</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={closeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setCloseTarget(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{`Close ${closeTarget?.identifier}'s pull request?`}</DialogTitle>
+            <DialogDescription>
+              {`Closes pull request #${closeTarget?.prNumber} (${closeTarget?.branch}) on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCloseTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmClose}>
+              Close pull request
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

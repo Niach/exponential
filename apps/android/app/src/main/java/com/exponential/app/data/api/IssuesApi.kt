@@ -51,6 +51,9 @@ data class UpdateIssueInput(
 @Serializable
 data class DeleteIssueInput(val id: String)
 
+@Serializable
+data class ClosePrInput(@SerialName("issueId") val issueId: String)
+
 /**
  * `issues.move` (EXP-57): same-workspace project move. The server renumbers
  * the issue in the target project (EXP-42 → ABC-17) and re-points the
@@ -126,6 +129,20 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "issues.delete",
             input = DeleteIssueInput(id),
             inputSerializer = DeleteIssueInput.serializer(),
+        )
+    }
+
+    /**
+     * Close the issue's open PR WITHOUT merging (EXP-100 — the reject path
+     * for an issue that got dropped after the work was done). Server-side via
+     * the GitHub App; the `prState` flip arrives through Electric sync.
+     */
+    suspend fun closePr(accountId: String, issueId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "issues.closePr",
+            input = ClosePrInput(issueId),
+            inputSerializer = ClosePrInput.serializer(),
         )
     }
 

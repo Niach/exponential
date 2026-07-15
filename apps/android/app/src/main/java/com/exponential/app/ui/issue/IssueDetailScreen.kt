@@ -154,6 +154,8 @@ fun IssueDetailScreen(
 
     // Surface a failed move (EXP-57) — otherwise the issue silently stays put.
     val moveError by viewModel.moveError.collectAsStateWithLifecycle()
+    val prClosing by viewModel.prClosing.collectAsStateWithLifecycle()
+    val prCloseError by viewModel.prCloseError.collectAsStateWithLifecycle()
     LaunchedEffect(moveError) {
         moveError?.let {
             snackbarHostState.showSnackbar(it)
@@ -470,13 +472,17 @@ fun IssueDetailScreen(
                 ChangesSection(
                     prUrl = issue.prUrl,
                     branch = issue.branch,
+                    prState = issue.prState,
                     runningSessionId = runningSession?.id,
                     runningSessionDeviceLabel = runningSession?.deviceLabel,
                     steerEnabled = steerEnabled == true,
                     isMember = permissions.isMember,
+                    prClosing = prClosing,
+                    prCloseError = prCloseError,
                     loadBranchDiff = { viewModel.loadBranchDiff() },
                     onOpenChanges = onOpenChanges,
                     onWatch = onOpenSteer,
+                    onClosePr = viewModel::closePr,
                 )
             }
 
