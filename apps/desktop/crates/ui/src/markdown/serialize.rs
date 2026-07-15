@@ -470,4 +470,86 @@ mod tests {
     fn unicode_round_trips() {
         assert_stable("Grüße **münchen** 🚀 *ünïcodé*");
     }
+
+    // --- Soft breaks: READ semantics keep GFM's space (all four clients
+    //     render a stored lone `\n` as a space — parity locked). ---
+
+    #[test]
+    fn read_path_soft_break_is_a_space() {
+        assert_eq!(round_trip("line1\nline2"), "line1 line2");
+    }
+
+    // --- EXP-118: EDITOR-INPUT canonicalization — a plain Enter (a lone
+    //     `\n` in the raw source blocks) means a paragraph break, matching
+    //     what Enter produces on web (TipTap), iOS and Android. ---
+
+    use super::super::parse::{markdown_to_blocks_with, SoftBreakMode};
+
+    fn editor_round_trip(md: &str) -> String {
+        blocks_to_markdown(&markdown_to_blocks_with(md, SoftBreakMode::ParagraphBreak))
+    }
+
+    #[test]
+    fn editor_single_newline_becomes_paragraph_break() {
+        assert_eq!(editor_round_trip("line1\nline2"), "line1\n\nline2");
+    }
+
+    #[test]
+    fn editor_double_newline_stays_one_paragraph_break() {
+        assert_eq!(editor_round_trip("line1\n\nline2"), "line1\n\nline2");
+    }
+
+    #[test]
+    fn editor_code_fence_content_untouched() {
+        assert_eq!(
+            editor_round_trip("```js\nconst a = 1\nconst b = 2\n```"),
+            "```js\nconst a = 1\nconst b = 2\n```"
+        );
+    }
+
+    #[test]
+    fn editor_tight_list_untouched() {
+        assert_eq!(editor_round_trip("- one\n- two\n- three"), "- one\n- two\n- three");
+    }
+
+    // A lazy continuation (Enter inside a list item WITHOUT typing a marker)
+    // keeps GFM's join — splitting would mint a bullet/ordinal the user
+    // never wrote.
+    #[test]
+    fn editor_list_lazy_continuation_joins() {
+        assert_eq!(editor_round_trip("- one\ntwo"), "- one two");
+        assert_eq!(editor_round_trip("1. one\ntwo"), "1. one two");
+    }
+
+    // Hard breaks inside ORDERED items must split into canonically numbered
+    // siblings — a cloned index (`1. one\n1. two`) phantom-diffs on every
+    // client's next re-save (read path shares the LineBreak arm).
+    #[test]
+    fn hard_break_in_ordered_item_renumbers_canonically() {
+        assert_eq!(round_trip("1. one  \ntwo"), "1. one\n2. two");
+        let once = round_trip("1. one  \ntwo\n2. three");
+        assert_eq!(once, round_trip(&once), "hard-break split must be idempotent");
+    }
+
+    #[test]
+    fn editor_blockquote_lines_split() {
+        assert_eq!(editor_round_trip("> a\n> b"), "> a\n\n> b");
+    }
+
+    #[test]
+    fn editor_marks_survive_the_split() {
+        assert_eq!(
+            editor_round_trip("**bold\nstill bold**"),
+            "**bold**\n\n**still bold**"
+        );
+    }
+
+    #[test]
+    fn editor_canonical_output_is_idempotent() {
+        let once = editor_round_trip("# T\n\nline1\nline2\n\n- a\n- b\n\n```js\nx\ny\n```");
+        assert_eq!(once, editor_round_trip(&once));
+        // And the READ path must not change it further — what the editor
+        // saves is exactly what every client re-serializes.
+        assert_eq!(once, round_trip(&once));
+    }
 }

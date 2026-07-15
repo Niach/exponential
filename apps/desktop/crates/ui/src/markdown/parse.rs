@@ -24,8 +24,31 @@ use super::blocks::{
     RichText, THEMATIC_BREAK_GLYPH,
 };
 
-/// Parse GFM markdown into the normalized block model.
+/// How a GFM SOFT break (a lone `\n` inside a paragraph) is interpreted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SoftBreakMode {
+    /// GFM read semantics — a space. The default for every render/read path:
+    /// all four clients render stored soft breaks as spaces, and that parity
+    /// must hold (CLAUDE.md interchange contract).
+    #[default]
+    Space,
+    /// Editor-input semantics (EXP-118): a paragraph boundary. The desktop
+    /// editor's text blocks hold raw GFM source where a plain Enter inserts a
+    /// lone `\n` — a soft break GFM would collapse to a space at save time,
+    /// silently discarding the user's line break. Enter means "new paragraph"
+    /// on web (TipTap), iOS and Android (block editors both), so the save
+    /// path splits here and serializes the canonical `\n\n` instead.
+    ParagraphBreak,
+}
+
+/// Parse GFM markdown into the normalized block model (read semantics).
 pub fn markdown_to_blocks(markdown: &str) -> Vec<ContentBlock> {
+    markdown_to_blocks_with(markdown, SoftBreakMode::Space)
+}
+
+/// [`markdown_to_blocks`] with an explicit [`SoftBreakMode`] — only the
+/// editor's save path passes [`SoftBreakMode::ParagraphBreak`].
+pub fn markdown_to_blocks_with(markdown: &str, soft_breaks: SoftBreakMode) -> Vec<ContentBlock> {
     if markdown.trim().is_empty() {
         let mut blocks = vec![ContentBlock::text(RichText::empty())];
         normalize_blocks(&mut blocks);
@@ -38,7 +61,10 @@ pub fn markdown_to_blocks(markdown: &str) -> Vec<ContentBlock> {
     let doc = parse_document(&arena, markdown, &options);
 
     let mut collector = BlockCollector::default();
-    let mut ctx = RenderContext::default();
+    let mut ctx = RenderContext {
+        soft_breaks,
+        ..RenderContext::default()
+    };
     render_children(doc, &mut collector, &mut ctx);
     collector.finalize()
 }
@@ -84,6 +110,8 @@ struct RenderContext {
     pending_item_attrs: Option<ParagraphAttrs>,
     /// Strip the `[ ] `/`[x] ` task marker from the next `Text` literal.
     strip_task_prefix: bool,
+    /// Soft-break interpretation (see [`SoftBreakMode`]).
+    soft_breaks: SoftBreakMode,
 }
 
 #[derive(Default)]
@@ -243,6 +271,23 @@ fn render_children<'a>(
     }
 }
 
+/// Attrs for the paragraph created by splitting the current one at a line
+/// break. Clones the current attrs; for an ORDERED list item the clone's
+/// `ordered_index` is advanced (and the open list frame bumped past it) so
+/// the split serializes as canonically numbered sibling items — a duplicated
+/// index (`1. one\n1. two`) would be renumbered by the next parse on any
+/// client, phantom-diffing untouched content.
+fn split_attrs(collector: &mut BlockCollector, ctx: &mut RenderContext) -> ParagraphAttrs {
+    let mut attrs = collector.current_para().attrs.clone();
+    if attrs.kind == BlockKind::ListItem && attrs.list_type == Some(ListType::Ordered) {
+        attrs.ordered_index += 1;
+        if let Some(frame) = ctx.list_stack.last_mut() {
+            frame.item_index = frame.item_index.max(attrs.ordered_index + 1);
+        }
+    }
+    attrs
+}
+
 fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut RenderContext) {
     let value = &node.data.borrow().value;
     match value {
@@ -284,13 +329,31 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
             collector.append(literal);
         }
 
-        NodeValue::SoftBreak => collector.append(" "),
+        NodeValue::SoftBreak => match ctx.soft_breaks {
+            SoftBreakMode::Space => collector.append(" "),
+            // EXP-118: the LineBreak treatment below — a paragraph boundary
+            // carrying the same attrs. Fence content is safe (comrak never
+            // emits SoftBreak inside a CodeBlock literal) and marker-ed lists
+            // (`- a\n- b`) parse as Items, not soft breaks. A soft break
+            // INSIDE a list item (a lazy continuation — the user pressed
+            // Enter without typing a marker) keeps GFM's join instead:
+            // splitting would silently mint a new bullet/checkbox/ordinal out
+            // of continuation text, a worse mutation than the joined line.
+            SoftBreakMode::ParagraphBreak => {
+                if collector.current_para().attrs.kind == BlockKind::ListItem {
+                    collector.append(" ");
+                } else {
+                    let attrs = split_attrs(collector, ctx);
+                    collector.break_para_preserving_marks(attrs);
+                }
+            }
+        },
 
         NodeValue::LineBreak => {
             // A hard break becomes a paragraph boundary carrying the same
             // attrs, matching how iOS re-splits the run by line at serialize
             // time.
-            let attrs = collector.current_para().attrs.clone();
+            let attrs = split_attrs(collector, ctx);
             collector.break_para_preserving_marks(attrs);
         }
 
