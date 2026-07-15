@@ -355,6 +355,32 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
+    // ── Close PR without merging (EXP-100) ────────────────────────────────────
+
+    // The Changes section's reject path: in-flight flag + error caption. On
+    // success no local state changes — the Electric echo flips prState to
+    // 'closed' and the close affordance disappears with it.
+    private val _prClosing = MutableStateFlow(false)
+    val prClosing: StateFlow<Boolean> = _prClosing
+    private val _prCloseError = MutableStateFlow<String?>(null)
+    val prCloseError: StateFlow<String?> = _prCloseError
+
+    fun closePr() {
+        if (_prClosing.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _prClosing.value = true
+            _prCloseError.value = null
+            runCatching { issuesApi.closePr(accountId, issueId) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _prCloseError.value =
+                        trpcErrorMessage(t, "The pull request could not be closed")
+                }
+            _prClosing.value = false
+        }
+    }
+
     // ── Issue-reference pills (masterplan §5e) ────────────────────────────────
 
     /**

@@ -24,6 +24,12 @@ struct ChangesSection: View {
     @State private var branchLoaded = false
     @State private var watchingSession: CodingSessionEntity?
     @State private var steerEnabled = false
+    // Close-without-merge (EXP-100): confirm sheet + in-flight flag + error
+    // caption. On success nothing updates locally — the Electric echo flips
+    // prState to 'closed' and the affordance disappears with it.
+    @State private var closeConfirmOpen = false
+    @State private var closingPr = false
+    @State private var closeError: String?
 
     private var session: CodingSessionEntity? {
         runningSessions.max { $0.startedAt < $1.startedAt }
@@ -109,12 +115,62 @@ struct ChangesSection: View {
                         .clipShape(Capsule())
                         .foregroundStyle(.white)
                 }
+                // Close-without-merge (EXP-100) — deliberately subtle next to
+                // the primary surfaces: tertiary-opacity text, confirm-gated,
+                // OPEN PRs only (membership is implicit — non-members never
+                // sync pr fields).
+                if issue.prState == DomainContract.prStateOpen {
+                    if closingPr {
+                        ProgressView().controlSize(.mini).tint(.white)
+                    } else {
+                        Button {
+                            closeConfirmOpen = true
+                        } label: {
+                            Text("Close PR")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 Spacer()
                 if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
                     Link("Open PR on GitHub", destination: url).font(.caption)
                 }
             }
+            if let closeError {
+                Text(closeError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
             viewChangesRow
+        }
+        .confirmationDialog(
+            "Close pull request?",
+            isPresented: $closeConfirmOpen,
+            titleVisibility: .visible
+        ) {
+            Button("Close PR without merging", role: .destructive) { closePr() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Closes the pull request on GitHub without merging — use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
+        }
+    }
+
+    /// Fire `issues.closePr` (EXP-100). Success needs no local write — the
+    /// Electric echo flips `prState`; failures caption the section.
+    private func closePr() {
+        guard !closingPr else { return }
+        closingPr = true
+        closeError = nil
+        let issueId = issue.id
+        Task {
+            do {
+                try await deps.issuesApi.closePr(accountId: accountId, issueId: issueId)
+            } catch {
+                closeError = error.localizedDescription
+            }
+            closingPr = false
         }
     }
 

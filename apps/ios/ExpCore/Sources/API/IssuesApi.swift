@@ -138,6 +138,16 @@ public struct DeleteIssueInput: Encodable, Sendable {
     }
 }
 
+/// Input for `issues.closePr` (EXP-100): close the issue's open PR WITHOUT
+/// merging (the reject path — the work exists but the issue got dropped).
+public struct ClosePrInput: Encodable, Sendable {
+    public let issueId: String
+
+    public init(issueId: String) {
+        self.issueId = issueId
+    }
+}
+
 /// Input for `issues.move` (EXP-57): move an issue to another project in the
 /// SAME workspace. The server renumbers the issue in the target project
 /// (Linear-style, EXP-42 → ABC-17) — the issue keeps its id but changes
@@ -247,6 +257,13 @@ public final class IssuesApi: Sendable {
 
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.delete", input: DeleteIssueInput(id: id))
+    }
+
+    /// Close the issue's open PR WITHOUT merging (EXP-100 — the reject path
+    /// for an issue that got dropped after the work was done). Server-side
+    /// via the GitHub App; the `prState` flip arrives through Electric sync.
+    public func closePr(accountId: String, issueId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.closePr", input: ClosePrInput(issueId: issueId))
     }
 
     /// Move the issue to another project in the same workspace (EXP-57). The

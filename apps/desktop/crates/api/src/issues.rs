@@ -366,6 +366,30 @@ pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiErr
 }
 
 // ---------------------------------------------------------------------------
+// issues.closePr (EXP-100)
+// ---------------------------------------------------------------------------
+
+/// Output of `issues.closePr` — `{"closed": true}` on success. The server is
+/// idempotent: an already-closed PR also returns `closed: true` (no error).
+#[derive(Debug, Deserialize)]
+pub struct CloseResult {
+    pub closed: bool,
+}
+
+/// `issues.closePr` — closes the issue's open PR WITHOUT merging, server-side
+/// through the GitHub App installation token (the Reviews "reject" path).
+/// Guard failures surface as [`ApiError::Http`] with the server's user-facing
+/// message, like [`merge_pr`]. Blocking; background executor only (§3.5).
+pub fn close_pr(trpc: &TrpcClient, issue_id: &str) -> Result<CloseResult, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    trpc.mutation("issues.closePr", &Input { issue_id })
+}
+
+// ---------------------------------------------------------------------------
 // issues.search (EXP-3)
 // ---------------------------------------------------------------------------
 
@@ -705,6 +729,35 @@ mod tests {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("no linked pull request"));
+            }
+            other => panic!("expected Http error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn close_pr_posts_camel_case_input_and_decodes_result() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"closed":true}}}"#);
+        let out = close_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        assert!(out.closed);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.closePr HTTP/1.1"));
+        assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
+        assert!(request.contains("Authorization: Bearer tok-1"));
+    }
+
+    #[test]
+    fn close_pr_guard_failure_surfaces_the_server_message() {
+        // Same guard mapping as mergePr — PRECONDITION_FAILED with a
+        // user-facing message the panel shows verbatim.
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"The pull request is merged — only open pull requests can be closed","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        let result = close_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
+        match result {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 412);
+                assert!(message.contains("only open pull requests can be closed"));
             }
             other => panic!("expected Http error, got {other:?}"),
         }
