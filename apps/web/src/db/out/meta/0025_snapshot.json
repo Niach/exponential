@@ -1,6 +1,6 @@
 {
-  "id": "234f05b5-f06c-451d-afac-0dd73974f9c7",
-  "prevId": "f12d9bef-e51b-4029-b523-9f4abee56f7e",
+  "id": "aabb50bb-244b-4ea9-b741-99f8c9833aae",
+  "prevId": "4bdb44bc-ac4c-408c-8890-10049ba40a6f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3197,6 +3197,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "token": {
+          "name": "token",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "token_revoked_at": {
           "name": "token_revoked_at",
           "type": "timestamp with time zone",
@@ -3222,12 +3228,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "token": {
-          "name": "token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "indexes": {
@@ -3325,7 +3325,7 @@
           "type": "varchar(16)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'off'"
+          "default": "'daily'"
         },
         "unsubscribe_token": {
           "name": "unsubscribe_token",

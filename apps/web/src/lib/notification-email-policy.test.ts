@@ -108,14 +108,21 @@ describe(`isDigestDue`, () => {
   })
 
   it(`hourly (off) cadence: not due right after a digest, due ~an hour later`, () => {
-    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(10), NOW)).toBe(false)
-    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(55), NOW)).toBe(true)
+    const prefs = { ...defaultEmailPrefs(), digest: `off` }
+    expect(isDigestDue(prefs, minutesAgo(10), NOW)).toBe(false)
+    expect(isDigestDue(prefs, minutesAgo(55), NOW)).toBe(true)
   })
 
   it(`daily cadence: at most one digest per ~day`, () => {
     const prefs = { ...defaultEmailPrefs(), digest: `daily` }
     expect(isDigestDue(prefs, minutesAgo(60 * 5), NOW)).toBe(false)
     expect(isDigestDue(prefs, minutesAgo(60 * 23), NOW)).toBe(true)
+  })
+
+  it(`defaults to daily: a missing row is not due 5h after a digest`, () => {
+    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(60 * 5), NOW)).toBe(false)
+    expect(isDigestDue(null, minutesAgo(60 * 5), NOW)).toBe(false)
+    expect(isDigestDue(null, minutesAgo(60 * 23), NOW)).toBe(true)
   })
 })
 

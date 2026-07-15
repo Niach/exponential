@@ -115,6 +115,20 @@ function withSecurityHeaders(response: Response): Response {
   return response
 }
 
+// Nothing served by an app instance belongs in a search index — public feedback
+// boards included (EXP-99): the board content is user-submitted feedback, and
+// the indexable product surface is the marketing site. The `noindex` meta from
+// __root.tsx only reaches crawlers that parse the HTML head; this header also
+// covers attachments, API JSON, and crawlers that never render. Ungated
+// (unlike SECURITY_HEADERS_ENABLED) — self-hosted instances must not be indexed
+// either. Unfurlers ignore robots directives, so OG previews still work.
+function withNoindexHeader(response: Response): Response {
+  if (!response.headers.has(`X-Robots-Tag`)) {
+    response.headers.set(`X-Robots-Tag`, `noindex`)
+  }
+  return response
+}
+
 // The embeddable widget artifacts (apps/web/public/widget/, built by
 // packages/widget) are loaded by third-party pages. Stable filenames with
 // moderate TTLs instead of hashed bundles: a hashed widget.js would 404 for
@@ -136,7 +150,8 @@ function withWidgetAssetHeaders(req: Request, response: Response): Response {
 // Social-preview rewrite for public feedback boards. The app renders
 // client-side, so unfurlers only ever see the generic __root.tsx head; for the
 // two public routes we buffer the HTML shell and inject route-specific
-// OG/Twitter/canonical meta (and flip noindex → index,follow). Only GET +
+// OG/Twitter/canonical meta. This is for LINK PREVIEWS only — the page stays
+// noindex (EXP-99), which unfurlers ignore. Only GET +
 // text/html + 200 responses on a matching path are touched; everything else
 // passes through untouched. NOTE: dev runs through the nitro-alpha bridge,
 // which never reaches this file — this is prod-only (server-bun.ts/srvx).
@@ -224,18 +239,20 @@ function ensureNativeResponse(res: Response): Response {
 }
 
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
-  withSecurityHeaders(
-    legacyWorkspaceRedirect(req) ??
-      withSupportPageHeaders(
-        req,
-        withWidgetAssetHeaders(
+  withNoindexHeader(
+    withSecurityHeaders(
+      legacyWorkspaceRedirect(req) ??
+        withSupportPageHeaders(
           req,
-          await withPublicMeta(
+          withWidgetAssetHeaders(
             req,
-            ensureNativeResponse(await nitroApp.fetch(req))
+            await withPublicMeta(
+              req,
+              ensureNativeResponse(await nitroApp.fetch(req))
+            )
           )
         )
-      )
+    )
   )
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
@@ -253,18 +270,20 @@ if (hasWebSocket && ws) {
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>
     }
-    return withSecurityHeaders(
-      legacyWorkspaceRedirect(req) ??
-        withSupportPageHeaders(
-          req,
-          withWidgetAssetHeaders(
+    return withNoindexHeader(
+      withSecurityHeaders(
+        legacyWorkspaceRedirect(req) ??
+          withSupportPageHeaders(
             req,
-            await withPublicMeta(
+            withWidgetAssetHeaders(
               req,
-              ensureNativeResponse(await nitroApp.fetch(req))
+              await withPublicMeta(
+                req,
+                ensureNativeResponse(await nitroApp.fetch(req))
+              )
             )
           )
-        )
+      )
     )
   }
 }

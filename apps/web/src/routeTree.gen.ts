@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
@@ -81,11 +80,6 @@ import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_aut
 import { Route as TWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/index'
 import { Route as TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
   path: '/robots.txt',
@@ -463,7 +457,6 @@ const TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
@@ -535,7 +528,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
@@ -607,7 +599,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
@@ -681,7 +672,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/admin'
     | '/t/$workspaceSlug'
     | '/.well-known/apple-app-site-association'
@@ -753,7 +743,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
@@ -824,7 +813,6 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/_authenticated/admin'
     | '/t/$workspaceSlug'
     | '/.well-known/apple-app-site-association'
@@ -898,7 +886,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   RobotsDottxtRoute: typeof RobotsDottxtRoute
-  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TWorkspaceSlugRouteRoute: typeof TWorkspaceSlugRouteRouteWithChildren
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
@@ -950,13 +937,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/robots.txt': {
       id: '/robots.txt'
       path: '/robots.txt'
@@ -1531,7 +1511,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   RobotsDottxtRoute: RobotsDottxtRoute,
-  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TWorkspaceSlugRouteRoute: TWorkspaceSlugRouteRouteWithChildren,
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute:
     Char91DotwellKnownChar93AppleAppSiteAssociationRoute,

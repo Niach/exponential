@@ -6,13 +6,13 @@
 import type { IssueStatus, NotificationType } from "@/lib/domain"
 
 // Digest cadence. Email is push-first: NOTHING is emailed per-event anymore.
-// `off` (the default) means the standard hourly digest of still-unread
-// notifications; `daily` batches at most one digest email per day.
+// `off` means the standard hourly digest of still-unread notifications;
+// `daily` (the default) batches at most one digest email per day.
 export const digestValues = [`off`, `daily`] as const
 export type DigestCadence = (typeof digestValues)[number]
 
 // The prefs shape the policy functions consume. A missing row (`null` /
-// `undefined`) means ALL defaults: email on, every type on, no digest.
+// `undefined`) means ALL defaults: email on, every type on, daily digest.
 export interface EmailPrefsLike {
   emailEnabled: boolean
   // Per-type opt-outs; a type absent from the map defaults to ON.
@@ -21,7 +21,7 @@ export interface EmailPrefsLike {
 }
 
 export function defaultEmailPrefs(): EmailPrefsLike {
-  return { emailEnabled: true, typePrefs: {}, digest: `off` }
+  return { emailEnabled: true, typePrefs: {}, digest: `daily` }
 }
 
 // Is email allowed at all for this notification type (ignoring digest)?
@@ -58,10 +58,12 @@ const DIGEST_MIN_GAP_MS: Record<DigestCadence, number> = {
   daily: 22 * 60 * 60 * 1000,
 }
 
+// Only an explicit `off` opts into the hourly cadence — a missing row or an
+// unrecognised value resolves to the `daily` default.
 export function digestCadence(
   prefs: EmailPrefsLike | null | undefined
 ): DigestCadence {
-  return prefs?.digest === `daily` ? `daily` : `off`
+  return prefs?.digest === `off` ? `off` : `daily`
 }
 
 // Is this user due a digest email now, given when their last one was sent?

@@ -27,6 +27,8 @@ CREATE TABLE "support_threads" (
 	CONSTRAINT "support_threads_token_unique" UNIQUE("token")
 );
 --> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "is_public" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "icon" text;--> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN "helpdesk_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_thread_id_support_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."support_threads"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_issue_id_issues_id_fk" FOREIGN KEY ("issue_id") REFERENCES "public"."issues"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -36,4 +38,9 @@ ALTER TABLE "support_threads" ADD CONSTRAINT "support_threads_issue_id_issues_id
 ALTER TABLE "support_threads" ADD CONSTRAINT "support_threads_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_support_messages_thread" ON "support_messages" USING btree ("thread_id");--> statement-breakpoint
 CREATE INDEX "idx_support_messages_issue" ON "support_messages" USING btree ("issue_id");--> statement-breakpoint
-CREATE INDEX "idx_support_threads_project" ON "support_threads" USING btree ("project_id");
+CREATE INDEX "idx_support_threads_project" ON "support_threads" USING btree ("project_id");--> statement-breakpoint
+CREATE INDEX "idx_projects_public" ON "projects" USING btree ("is_public") WHERE is_public;--> statement-breakpoint
+-- Backfill in the SAME migration: the public-scope query keys on is_public the
+-- moment the new server boots, so pre-existing feedback boards must already
+-- carry it when the column lands.
+UPDATE "projects" SET "is_public" = true WHERE "type" = 'feedback';

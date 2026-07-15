@@ -78,7 +78,7 @@ export async function getPublicProjectScope(): Promise<PublicProjectScope> {
         eq(projects.isPublic, true),
         isNull(projects.archivedAt),
         // Trashed public boards leave the public surface immediately (heals
-        // every anonymous shape scope + the sitemap).
+        // every anonymous shape scope).
         isNull(projects.deletedAt)
       )
     )

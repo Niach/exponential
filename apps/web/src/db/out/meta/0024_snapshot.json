@@ -1,5 +1,5 @@
 {
-  "id": "f12d9bef-e51b-4029-b523-9f4abee56f7e",
+  "id": "4bdb44bc-ac4c-408c-8890-10049ba40a6f",
   "prevId": "92571456-01a7-43a6-a3ae-383cc36c1d87",
   "version": "7",
   "dialect": "postgresql",
@@ -2558,19 +2558,6 @@
           "notNull": true,
           "default": "'dev'"
         },
-        "is_public": {
-          "name": "is_public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "icon": {
-          "name": "icon",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "public_show_comments": {
           "name": "public_show_comments",
           "type": "boolean",
@@ -2660,22 +2647,6 @@
           ],
           "isUnique": false,
           "where": "type = 'feedback'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_projects_public": {
-          "name": "idx_projects_public",
-          "columns": [
-            {
-              "expression": "is_public",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "is_public",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3023,7 +2994,7 @@
           "type": "varchar(16)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'off'"
+          "default": "'daily'"
         },
         "unsubscribe_token": {
           "name": "unsubscribe_token",

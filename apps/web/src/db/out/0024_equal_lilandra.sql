@@ -1,0 +1,1 @@
+ALTER TABLE "user_notification_prefs" ALTER COLUMN "digest" SET DEFAULT 'daily';

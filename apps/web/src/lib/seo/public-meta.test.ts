@@ -134,19 +134,21 @@ describe(`injectMeta`, () => {
     expect(out).toContain(`</head>`)
   })
 
-  it(`flips the default noindex to index,follow`, () => {
+  // EXP-99: OG meta is for link unfurlers, never an invitation to index. A
+  // public board must stay out of search results.
+  it(`preserves the default noindex`, () => {
     const out = injectMeta(baseHtml, meta, `https://app.exponential.at`)
-    expect(out).toContain(`<meta name="robots" content="index,follow" />`)
-    expect(out).not.toContain(`content="noindex"`)
+    expect(out).toContain(`content="noindex"`)
+    expect(out).not.toContain(`index,follow`)
   })
 
-  it(`adds a robots tag when none is present`, () => {
+  it(`adds a noindex robots tag when none is present`, () => {
     const out = injectMeta(
       `<html><head><title>x</title></head><body></body></html>`,
       meta,
       `https://app.exponential.at`
     )
-    expect(out).toContain(`<meta name="robots" content="index,follow" />`)
+    expect(out).toContain(`<meta name="robots" content="noindex" />`)
   })
 
   it(`strips a trailing slash from the origin`, () => {
