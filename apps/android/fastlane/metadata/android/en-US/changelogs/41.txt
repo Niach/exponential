@@ -1,0 +1,1 @@
+Projects get custom icons and public boards, team links open right in the app, and out-of-date builds now show an update prompt.

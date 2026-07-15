@@ -1,3 +1,4 @@
-• Cleaner issue timelines
-• Streamlined coding workflow (releases replaced by batch runs)
+• Custom project icons and public feedback boards
+• Team links open directly in the app
+• Update prompt when your build is out of date
 • Reliability improvements
