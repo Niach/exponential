@@ -900,7 +900,7 @@ impl StartCodingControl {
             RepoProbe::Idle | RepoProbe::Loading => Some("Checking linked repository…".into()),
             // §7.1's exact helper copy for the repo-less state.
             RepoProbe::Ready(None) => {
-                Some("Link a repository to this project in workspace settings.".into())
+                Some("Link a repository to this project in team settings.".into())
             }
             RepoProbe::Ready(Some(_)) => None,
             // A probe transport error never falsely blocks — the

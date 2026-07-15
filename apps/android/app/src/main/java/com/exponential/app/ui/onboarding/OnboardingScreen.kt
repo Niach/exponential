@@ -196,7 +196,7 @@ private fun CreateProjectStep(
                     ) {
                         CircularProgressIndicator()
                         Text(
-                            "Setting up your workspace…",
+                            "Setting up your team…",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )

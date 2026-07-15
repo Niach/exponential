@@ -156,10 +156,10 @@ struct SettingsView: View {
     }
 
     private var workspacesSection: some View {
-        sectionStack(title: "Workspaces") {
+        sectionStack(title: "Teams") {
             let groups = workspaceLoader?.groups ?? []
             if groups.isEmpty {
-                Text("No workspaces synced yet.")
+                Text("No teams synced yet.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.horizontal, 4)

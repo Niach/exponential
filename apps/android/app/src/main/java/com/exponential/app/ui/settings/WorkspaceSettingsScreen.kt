@@ -110,7 +110,7 @@ private fun SettingsConfirmDialog(
         is SettingsConfirm.DeleteProject -> ConfirmCopy(
             title = "Delete project?",
             message = "Move \"${confirm.project.name}\" and all its issues, comments and " +
-                "attachments to trash? You can restore it from workspace settings for 48 " +
+                "attachments to trash? You can restore it from team settings for 48 " +
                 "hours; after that it is permanently deleted.",
             button = "Delete",
         )
@@ -121,8 +121,8 @@ private fun SettingsConfirmDialog(
         )
         is SettingsConfirm.RemoveMember -> if (confirm.isSelf) {
             ConfirmCopy(
-                title = "Leave workspace?",
-                message = "You will lose access to \"${state.workspace?.name ?: "this workspace"}\". " +
+                title = "Leave team?",
+                message = "You will lose access to \"${state.workspace?.name ?: "this team"}\". " +
                     "An owner must invite you back.",
                 button = "Leave",
             )
@@ -130,7 +130,7 @@ private fun SettingsConfirmDialog(
             val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
             ConfirmCopy(
                 title = "Remove member?",
-                message = "Remove $name from this workspace? They immediately lose access.",
+                message = "Remove $name from this team? They immediately lose access.",
                 button = "Remove",
             )
         }
@@ -139,7 +139,7 @@ private fun SettingsConfirmDialog(
             if (confirm.newRole == DomainContract.workspaceRoleOwner) {
                 ConfirmCopy(
                     title = "Make $name an owner?",
-                    message = "Owners can delete projects, manage members and billing, and delete the workspace.",
+                    message = "Owners can delete projects, manage members and billing, and delete the team.",
                     button = "Change role",
                     destructive = false,
                 )
@@ -215,7 +215,7 @@ fun WorkspaceSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.workspace?.name ?: "Workspace") },
+                title = { Text(state.workspace?.name ?: "Team") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -329,14 +329,14 @@ private fun DangerZone(
                 // Disabled content is auto-dimmed — only tint the label red
                 // while the action is actually available.
                 if (state.isOnlyWorkspace) {
-                    Text("Delete workspace")
+                    Text("Delete team")
                 } else {
-                    Text("Delete workspace", color = MaterialTheme.colorScheme.error)
+                    Text("Delete team", color = MaterialTheme.colorScheme.error)
                 }
             }
             if (state.isOnlyWorkspace) {
                 Text(
-                    "This is your only workspace, so it can't be deleted.",
+                    "This is your only team, so it can't be deleted.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 )
@@ -347,8 +347,8 @@ private fun DangerZone(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete workspace?") },
-            text = { Text("This permanently deletes the workspace and all its issues. This cannot be undone.") },
+            title = { Text("Delete team?") },
+            text = { Text("This permanently deletes the team and all its issues. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -413,7 +413,7 @@ private fun RepositoriesSection(
                 val connectUrl = github.connectUrl ?: github.installUrl
                 if (github.installations.any { it.needsReauth }) {
                     Text(
-                        "GitHub needs to be reconnected to load this workspace's repositories.",
+                        "GitHub needs to be reconnected to load this team's repositories.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
@@ -685,7 +685,7 @@ private fun MembersSection(
                                     if (!isLastOwner) {
                                         if (isOwner) HorizontalDivider()
                                         DropdownMenuItem(
-                                            text = { Text("Leave workspace", color = MaterialTheme.colorScheme.error) },
+                                            text = { Text("Leave team", color = MaterialTheme.colorScheme.error) },
                                             onClick = {
                                                 rowMenu = false
                                                 onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
@@ -728,7 +728,7 @@ private fun InviteSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Invite members")
         Text(
-            "Generate a link to invite someone to this workspace.",
+            "Generate a link to invite someone to this team.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )

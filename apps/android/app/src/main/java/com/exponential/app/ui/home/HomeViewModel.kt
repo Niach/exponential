@@ -103,7 +103,7 @@ class HomeViewModel @Inject constructor(
                 if (error is TrpcException && error.status == HttpStatusCode.Unauthorized) {
                     auth.clearToken()
                 }
-                _error.value = error.message ?: "Failed to load workspace"
+                _error.value = error.message ?: "Failed to load team"
             } finally {
                 // Always clear the spinner — the success path, the
                 // null-accountId early `return@launch`, and the catch block

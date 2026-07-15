@@ -183,7 +183,7 @@ impl Render for RepositoriesPane {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("No workspace selected."),
+                    .child("No team selected."),
             );
         };
         self.ensure_loaded(&workspace_id, cx);

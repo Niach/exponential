@@ -48,7 +48,7 @@ struct WorkspaceProjectsSection: View {
             }
 
             if projects.isEmpty {
-                Text("No projects in this workspace yet.")
+                Text("No projects in this team yet.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.horizontal, 12)
@@ -157,7 +157,7 @@ private struct ChangeRepositorySheet: View {
                             HStack { Spacer(); ProgressView().tint(.white); Spacer() }
                                 .padding(.vertical, 24)
                         } else if repos.isEmpty {
-                            Text("No repositories connected. Connect one in the workspace settings on the web first.")
+                            Text("No repositories connected. Connect one in the team settings on the web first.")
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         } else {

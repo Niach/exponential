@@ -353,7 +353,7 @@ impl RailView {
                         Box::new(crate::actions::OpenAccount),
                     )
                     .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback))
-                    .menu_with_icon("New workspace", IconName::Plus, Box::new(CreateWorkspace))
+                    .menu_with_icon("New team", IconName::Plus, Box::new(CreateWorkspace))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))
             })

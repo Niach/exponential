@@ -70,7 +70,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${appLinkHost}" />
+                <!-- Both board prefixes are claimed: the web moved /w/ → /t/
+                     (workspaces → teams rename, EXP-122) but /w/ stays valid
+                     permanently for old links. -->
                 <data android:pathPattern="/w/.*/projects/.*/issues/.*" />
+                <data android:pathPattern="/t/.*/projects/.*/issues/.*" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

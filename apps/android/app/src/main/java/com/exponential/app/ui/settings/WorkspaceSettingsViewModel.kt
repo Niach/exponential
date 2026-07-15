@@ -298,7 +298,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { workspacesApi.delete(accountId, workspaceId) }
             .onSuccess { _workspaceDeleted.value = true }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the workspace") }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the team") }
     }
 
     fun deleteProject(projectId: String) = viewModelScope.launch {

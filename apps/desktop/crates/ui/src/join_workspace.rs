@@ -53,7 +53,7 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
         let busy = view.read(cx).accepting;
         dialog
             .w(px(416.))
-            .title("Join a workspace")
+            .title("Join a team")
             .overlay_closable(!busy)
             .keyboard(!busy)
             .on_ok({
@@ -267,7 +267,7 @@ impl JoinWorkspaceView {
         let name = invite
             .workspace_name
             .clone()
-            .unwrap_or_else(|| "a workspace".to_string());
+            .unwrap_or_else(|| "a team".to_string());
         let role = invite.role.clone().unwrap_or_else(|| "member".to_string());
         let used = invite.accepted_at.is_some();
 
@@ -351,11 +351,11 @@ impl Render for JoinWorkspaceView {
                 let card = self.render_preview_card(&invite.clone(), cx);
                 form = form.child(card);
                 if used {
-                    ("Join workspace", true)
+                    ("Join team", true)
                 } else if self.accepting {
                     ("Joining…", true)
                 } else {
-                    ("Join workspace", false)
+                    ("Join team", false)
                 }
             }
         };
@@ -434,5 +434,22 @@ mod tests {
         assert_eq!(extract_token("not a token"), None);
         assert_eq!(extract_token(""), None);
         assert_eq!(extract_token("https://x/invite/"), None);
+    }
+
+    #[test]
+    fn extract_token_is_agnostic_to_the_teams_path_rename() {
+        // The invite link lives at the web root (`/invite/<token>`), so the
+        // `/w/` → `/t/` team-slug rename never touches it — extraction keys on
+        // the `/invite/` segment wherever it appears. Both the legacy `/w/`
+        // form and the new `/t/` form (should either ever wrap an invite) still
+        // resolve; `/w/` acceptance is permanent.
+        assert_eq!(
+            extract_token("https://app.exponential.at/w/acme/invite/tok123"),
+            Some("tok123".to_string())
+        );
+        assert_eq!(
+            extract_token("https://app.exponential.at/t/acme/invite/tok123"),
+            Some("tok123".to_string())
+        );
     }
 }

@@ -338,7 +338,7 @@ struct AgentSessionView: View {
                     }
                     inputRow(model)
                 } else if watching {
-                    steerCaption("Watching — only workspace owners or the session owner can steer.")
+                    steerCaption("Watching — only team owners or the session owner can steer.")
                 }
             }
             .padding(.horizontal, 14)

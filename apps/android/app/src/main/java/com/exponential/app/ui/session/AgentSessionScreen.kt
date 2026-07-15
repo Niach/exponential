@@ -319,7 +319,7 @@ fun AgentSessionScreen(
                     onSend = viewModel::sendMessage,
                 )
             } else if (perm == "view" && phase == AgentPhase.Live) {
-                SteerCaption("Watching — only workspace owners or the session owner can steer.")
+                SteerCaption("Watching — only team owners or the session owner can steer.")
             }
             Spacer(Modifier.height(8.dp))
         }

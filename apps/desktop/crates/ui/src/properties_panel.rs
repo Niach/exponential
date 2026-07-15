@@ -442,7 +442,7 @@ impl PropertiesPanel {
                     .scrollable(true)
                     .max_h(px(320.));
                 if labels.is_empty() {
-                    return menu.item(PopupMenuItem::label("No labels in this workspace"));
+                    return menu.item(PopupMenuItem::label("No labels in this team"));
                 }
                 for label in &labels {
                     let checked = selected.contains(&label.id);

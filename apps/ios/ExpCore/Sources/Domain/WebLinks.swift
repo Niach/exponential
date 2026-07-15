@@ -4,6 +4,12 @@ import Foundation
 /// route shape:
 ///   issue:  {base}/w/{workspaceSlug}/projects/{projectSlug}/issues/{identifier}
 ///
+/// The web is renaming workspaces → teams and moving `/w/…` to `/t/…` (EXP-122).
+/// Construction still emits `/w/` for now — old links live in the wild forever
+/// and the web redirects `/w/` → `/t/`, so there's no rush to flip emission —
+/// while PARSING accepts both `/w/` and `/t/` so freshly-minted `/t/` universal
+/// links open in the app too.
+///
 /// `base` is the account's `instanceUrl` (per `AuthRepository`); any trailing
 /// slash is trimmed first (precedent: WorkspaceRepositoriesSection.webSettingsURL).
 /// Slug/identifier path segments are percent-encoded defensively even though the
@@ -41,14 +47,16 @@ public enum WebLinks {
         case invite(token: String)
     }
 
-    /// Parse `{base}/w/{ws}/projects/{proj}/issues/{identifier}` and
-    /// `{base}/invite/{token}`. Splitting `url.path` (already percent-decoded)
-    /// on "/" drops empty segments, so a trailing slash is tolerated while
-    /// deeper paths (e.g. an issue's sub-tab) fail the exact-length match —
-    /// deliberate: the app should only claim what it can render.
+    /// Parse `{base}/w/{ws}/projects/{proj}/issues/{identifier}` (and its `/t/`
+    /// twin, EXP-122) plus `{base}/invite/{token}`. Splitting `url.path`
+    /// (already percent-decoded) on "/" drops empty segments, so a trailing
+    /// slash is tolerated while deeper paths (e.g. an issue's sub-tab) fail the
+    /// exact-length match — deliberate: the app should only claim what it can
+    /// render. Both `/w/` (legacy, permanent) and `/t/` (post-rename) resolve.
     public static func parse(_ url: URL) -> Parsed? {
         let parts = url.path.split(separator: "/").map(String.init)
-        if parts.count == 6, parts[0] == "w", parts[2] == "projects", parts[4] == "issues" {
+        if parts.count == 6, parts[0] == "w" || parts[0] == "t",
+           parts[2] == "projects", parts[4] == "issues" {
             return .issue(workspaceSlug: parts[1], projectSlug: parts[3], identifier: parts[5])
         }
         if parts.count == 2, parts[0] == "invite" {

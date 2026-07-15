@@ -431,7 +431,7 @@ impl RunBar {
     ) -> Result<(), SharedString> {
         let Some(repo) = self.repo_full_name.clone() else {
             return Err(
-                "Link a repository to this project in workspace settings to run configurations."
+                "Link a repository to this project in team settings to run configurations."
                     .into(),
             );
         };
@@ -524,7 +524,7 @@ impl RunBar {
         let Some(repo) = self.repo_full_name.clone() else {
             window.push_notification(
                 Notification::error(
-                    "Link a repository to this project in workspace settings first.",
+                    "Link a repository to this project in team settings first.",
                 ),
                 cx,
             );
@@ -1363,7 +1363,7 @@ mod run_configs_editor {
                             .child(if self.is_owner {
                                 "No run configurations yet — add one to launch it from the board's run widget."
                             } else {
-                                "No run configurations yet. Workspace owners can add them."
+                                "No run configurations yet. Team owners can add them."
                             }),
                     )
                 })

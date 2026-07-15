@@ -54,7 +54,7 @@ impl GeneralPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
+        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Team name"));
         let delete_input = cx.new(|cx| InputState::new(window, cx));
 
         let collections = Store::global(cx).collections().clone();
@@ -177,7 +177,7 @@ impl GeneralPane {
             let content_input = delete_input.clone();
             let ok_input = delete_input.clone();
             dialog
-                .title("Delete workspace")
+                .title("Delete team")
                 .content(move |content, _, cx| {
                     content
                         .child(
@@ -206,7 +206,7 @@ impl GeneralPane {
                 })
                 .button_props(
                     DialogButtonProps::default()
-                        .ok_text("Delete workspace")
+                        .ok_text("Delete team")
                         .ok_variant(ButtonVariant::Danger)
                         .show_cancel(true)
                         .on_ok({
@@ -237,7 +237,7 @@ impl Render for GeneralPane {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("No workspace selected."),
+                    .child("No team selected."),
             );
         };
         let solo = !show_workspace_chrome(cx, &workspace.id);
@@ -252,7 +252,7 @@ impl Render for GeneralPane {
         let saving = self.saving;
 
         let mut general = card(cx)
-            .child(card_header("General", "Workspace name", cx))
+            .child(card_header("General", "Team name", cx))
             .child(
                 v_flex()
                     .gap_1()
@@ -317,7 +317,7 @@ impl Render for GeneralPane {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Permanently delete this workspace and all its data."),
+                                    .child("Permanently delete this team and all its data."),
                             ),
                     )
                     .child(
@@ -325,7 +325,7 @@ impl Render for GeneralPane {
                             Button::new("workspace-delete")
                                 .danger()
                                 .small()
-                                .label("Delete workspace")
+                                .label("Delete team")
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.open_delete_dialog(
                                         workspace_id.clone(),
@@ -344,7 +344,7 @@ impl Render for GeneralPane {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Only workspace owners can change these settings."),
+                    .child("Only team owners can change these settings."),
             )
         })
     }

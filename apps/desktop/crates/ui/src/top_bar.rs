@@ -224,7 +224,7 @@ impl TopBar {
                                 // Keep project-less workspaces reachable now
                                 // that the footer workspace switcher is gone.
                                 menu = menu.menu(
-                                    "Switch to workspace",
+                                    "Switch to team",
                                     Box::new(SwitchWorkspace {
                                         workspace_id: group.workspace_id.clone(),
                                     }),

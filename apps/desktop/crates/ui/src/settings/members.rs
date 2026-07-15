@@ -305,7 +305,7 @@ fn member_actions_menu(
                 if is_self || i_am_owner {
                     let member_id = member_id.clone();
                     let label = if is_self {
-                        "Leave workspace".to_string()
+                        "Leave team".to_string()
                     } else {
                         format!("Remove {name}")
                     };
@@ -332,7 +332,7 @@ impl Render for MembersPane {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("No workspace selected."),
+                    .child("No team selected."),
             );
         };
         let my_user_id = queries::active_account(cx)
@@ -353,7 +353,7 @@ impl Render for MembersPane {
                 "Invite someone to collaborate. Shared projects unlock team features.".to_string()
             } else {
                 format!(
-                    "{} member{} in this workspace",
+                    "{} member{} in this team",
                     rows.len(),
                     if rows.len() == 1 { "" } else { "s" }
                 )

@@ -35,11 +35,17 @@ object WebLinks {
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
+     *
+     * The board prefix is accepted as BOTH `/w/…` and `/t/…` (the workspaces →
+     * teams URL rename, EXP-122): the web now emits `/t/`, but `/w/` acceptance
+     * is permanent so old links and older-client-minted URLs keep resolving.
+     * Only the URL segment changed — every code identifier stays `workspace`.
      */
     fun parsePath(path: String?): Parsed? {
         val parts = path.orEmpty().split('/').filter { it.isNotEmpty() }
         return when {
-            parts.size == 6 && parts[0] == "w" && parts[2] == "projects" && parts[4] == "issues" ->
+            parts.size == 6 && (parts[0] == "w" || parts[0] == "t") &&
+                parts[2] == "projects" && parts[4] == "issues" ->
                 Parsed.IssueRef(parts[1], parts[3], parts[5])
             parts.size == 2 && parts[0] == "invite" -> Parsed.Invite(parts[1])
             else -> null

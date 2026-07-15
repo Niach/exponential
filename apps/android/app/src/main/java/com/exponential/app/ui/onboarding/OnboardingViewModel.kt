@@ -85,7 +85,7 @@ class OnboardingViewModel @Inject constructor(
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 workspace.id
             }.onSuccess { _workspaceId.value = it }
-                .onFailure { _error.value = it.message ?: "Failed to prepare workspace" }
+                .onFailure { _error.value = it.message ?: "Failed to prepare team" }
             _preparing.value = false
         }
     }

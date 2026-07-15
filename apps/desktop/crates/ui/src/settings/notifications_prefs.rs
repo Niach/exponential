@@ -46,7 +46,7 @@ const TYPE_ROWS: [(&str, &str, &str); 7] = [
     (
         NOTIFICATION_TYPE_ISSUE_CREATED,
         "New feedback",
-        "A new issue is filed in your workspace via the feedback widget.",
+        "A new issue is filed in your team via the feedback widget.",
     ),
     (
         NOTIFICATION_TYPE_ISSUE_ASSIGNED,

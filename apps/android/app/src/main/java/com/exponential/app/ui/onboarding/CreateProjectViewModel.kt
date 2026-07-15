@@ -71,7 +71,7 @@ class CreateProjectViewModel @Inject constructor(
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 workspace.id
             }.onSuccess { _workspaceId.value = it }
-                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Failed to prepare workspace") }
+                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Failed to prepare team") }
         }
     }
 

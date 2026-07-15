@@ -181,7 +181,7 @@ struct WorkspaceMembersSection: View {
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.white)
 
-        Text("Generate a link to invite someone to this workspace.")
+        Text("Generate a link to invite someone to this team.")
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
@@ -283,7 +283,7 @@ struct WorkspaceMembersSection: View {
     private var confirmTitle: String {
         guard let confirm else { return "" }
         switch confirm {
-        case let .remove(_, isSelf): return isSelf ? "Leave Workspace" : "Remove Member"
+        case let .remove(_, isSelf): return isSelf ? "Leave Team" : "Remove Member"
         case let .changeRole(_, role): return role == DomainContract.workspaceRoleOwner ? "Make Owner" : "Make Member"
         case .revokeInvite: return "Revoke Invite"
         }
@@ -293,14 +293,14 @@ struct WorkspaceMembersSection: View {
         switch c {
         case let .remove(member, isSelf):
             if isSelf {
-                return "You will lose access to this workspace. An owner must invite you back."
+                return "You will lose access to this team. An owner must invite you back."
             }
             let name = memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
-            return "Remove \(name) from this workspace? They immediately lose access."
+            return "Remove \(name) from this team? They immediately lose access."
         case let .changeRole(member, role):
             let name = memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
             if role == DomainContract.workspaceRoleOwner {
-                return "Make \(name) an owner? Owners can delete projects, manage members and billing, and delete the workspace."
+                return "Make \(name) an owner? Owners can delete projects, manage members and billing, and delete the team."
             }
             return "Change \(name) to member? They will no longer be able to manage members, repositories, or delete projects."
         case .revokeInvite:

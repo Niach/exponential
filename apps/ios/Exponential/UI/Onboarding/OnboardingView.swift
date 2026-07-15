@@ -109,7 +109,7 @@ struct OnboardingView: View {
                 } else {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small).tint(.white.opacity(0.6))
-                        Text("Preparing your workspace…")
+                        Text("Preparing your team…")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }

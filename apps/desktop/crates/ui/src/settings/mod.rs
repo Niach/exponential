@@ -130,7 +130,7 @@ impl Render for SettingsView {
                 .map(|workspace| workspace.name)
                 .unwrap_or_default();
             (
-                "Workspace Settings",
+                "Team Settings",
                 format!("Manage members, invites, and labels for {name}").into(),
             )
         };
