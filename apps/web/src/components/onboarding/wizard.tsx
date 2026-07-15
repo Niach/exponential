@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, FolderKanban, Github, Globe, Sparkles, X } from "lucide-react"
-import type { ProjectType } from "@exp/db-schema/domain"
-import { PROJECT_TYPE_OPTIONS, getProjectTypeOption } from "@/lib/project-types"
+import type { ProjectIcon } from "@exp/db-schema/domain"
+import { PROJECT_TEMPLATES, type ProjectTemplate } from "@/lib/project-types"
 import { trpc } from "@/lib/trpc-client"
 import { useCreateProject } from "@/hooks/use-create-project"
 import { Button } from "@/components/ui/button"
@@ -15,18 +15,21 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
 import { derivePrefix } from "@/lib/project"
 
-// v7 onboarding: pick a project type first (Dev board / Task board / Feedback
-// board), then name/prefix/color. A backing repository is required only for
-// dev boards — task and feedback boards need no GitHub App at all, which is
-// what makes onboarding possible on instances without one. Invited users never
-// reach onboarding (they land in the shared workspace).
+// Onboarding: pick a creation template first (Dev / Tasks / Feedback
+// quickstart — templates only pre-set the public toggle, icon and whether the
+// repo picker leads), then one form: name/prefix/icon/color, optional
+// repository, public-board switch. A repository is never required, which is
+// what makes onboarding possible on instances without a GitHub App. Invited
+// users never reach onboarding (they land in the shared workspace).
 export function OnboardingWizard({
   workspaceId,
   workspaceSlug,
@@ -36,10 +39,13 @@ export function OnboardingWizard({
 }) {
   const navigate = useNavigate()
   const { createProject } = useCreateProject()
-  const [type, setType] = useState<ProjectType | null>(null)
+  const [template, setTemplate] = useState<ProjectTemplate | null>(null)
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
+  const [icon, setIcon] = useState<ProjectIcon>(`code`)
+  const [isPublic, setIsPublic] = useState(false)
+  const [showRepo, setShowRepo] = useState(false)
   const [repo, setRepo] = useState<PickerRepo | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,13 +57,17 @@ export function OnboardingWizard({
     setPrefix(derivePrefix(value))
   }
 
-  const needsRepo = type === `dev`
-  const canCreate =
-    !!name.trim() && !!prefix.trim() && (!needsRepo || !!repo) && !saving
+  const applyTemplate = (next: ProjectTemplate) => {
+    setTemplate(next)
+    setIcon(next.defaults.icon)
+    setIsPublic(next.defaults.isPublic)
+    setShowRepo(next.defaults.suggestsRepo)
+  }
+
+  const canCreate = !!name.trim() && !!prefix.trim() && !saving
 
   const handleCreate = async () => {
-    if (!type || !name.trim() || !prefix.trim()) return
-    if (needsRepo && !repo) return
+    if (!template || !name.trim() || !prefix.trim()) return
     setSaving(true)
     setError(null)
     setLimitError(null)
@@ -66,7 +76,8 @@ export function OnboardingWizard({
       name,
       prefix,
       color,
-      type,
+      icon,
+      isPublic,
       repository: repo
         ? {
             fullName: repo.fullName,
@@ -88,7 +99,7 @@ export function OnboardingWizard({
     setSaving(false)
   }
 
-  if (type === null) {
+  if (template === null) {
     return (
       <div className="flex min-h-screen items-center justify-center p-6">
         <div className="w-full max-w-2xl">
@@ -101,23 +112,23 @@ export function OnboardingWizard({
                 What are you building?
               </CardTitle>
               <CardDescription>
-                Pick the kind of board for your first project — you can create
-                more of any kind later.
+                Pick a starting point for your first project — everything can
+                be changed later.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {PROJECT_TYPE_OPTIONS.map((option) => (
+              {PROJECT_TEMPLATES.map((option) => (
                 <button
-                  key={option.value}
+                  key={option.key}
                   type="button"
-                  onClick={() => setType(option.value)}
+                  onClick={() => applyTemplate(option)}
                   className="flex w-full items-start gap-4 rounded-lg border border-border p-4 text-left transition-colors hover:border-primary/60 hover:bg-accent/40"
                 >
                   <option.icon className="mt-1 h-6 w-6 shrink-0 text-primary" />
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5 font-medium">
                       {option.label}
-                      {option.value === `feedback` && (
+                      {option.defaults.isPublic && (
                         <Globe className="h-4 w-4 text-muted-foreground" />
                       )}
                     </span>
@@ -134,29 +145,27 @@ export function OnboardingWizard({
     )
   }
 
-  const typeOption = getProjectTypeOption(type)
-
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <typeOption.icon className="size-6 text-primary" />
+              <template.icon className="size-6 text-primary" />
             </div>
             <CardTitle className="text-xl">
-              Create your {typeOption.label.toLowerCase()}
+              Create your {template.label.toLowerCase()}
             </CardTitle>
-            <CardDescription>{typeOption.description}</CardDescription>
+            <CardDescription>{template.description}</CardDescription>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="mx-auto mt-1 h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => setType(null)}
+              onClick={() => setTemplate(null)}
             >
               <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-              Choose a different type
+              Choose a different template
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -191,41 +200,75 @@ export function OnboardingWizard({
             </div>
 
             <div className="space-y-2">
+              <Label>Icon</Label>
+              <IconSwatchGrid value={icon} onChange={setIcon} color={color} />
+            </div>
+
+            <div className="space-y-2">
               <Label>Color</Label>
               <ColorSwatchGrid value={color} onChange={setColor} />
             </div>
 
-            {needsRepo && (
-              <div className="space-y-2 border-t pt-4">
-                <Label>Repository (required)</Label>
-                {repo ? (
-                  <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                    <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {repo.fullName}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs text-muted-foreground"
-                      onClick={() => setRepo(null)}
-                    >
-                      <X className="mr-1 h-3.5 w-3.5" />
-                      Change
-                    </Button>
-                  </div>
-                ) : (
-                  <GithubRepoPicker workspaceId={workspaceId} onSelect={setRepo} />
-                )}
-              </div>
-            )}
+            <div className="space-y-2 border-t pt-4">
+              <Label>Repository (optional)</Label>
+              {repo ? (
+                <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                  <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {repo.fullName}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-muted-foreground"
+                    onClick={() => setRepo(null)}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    Change
+                  </Button>
+                </div>
+              ) : showRepo ? (
+                <GithubRepoPicker workspaceId={workspaceId} onSelect={setRepo} />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start text-muted-foreground"
+                  onClick={() => setShowRepo(true)}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  Connect a GitHub repository
+                </Button>
+              )}
+            </div>
 
-            {type === `feedback` && (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="min-w-0">
+                <Label
+                  htmlFor="onb-project-public"
+                  className="flex items-center gap-1.5 text-sm"
+                >
+                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                  Public board
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Anyone with the link can read it.
+                </p>
+              </div>
+              <Switch
+                id="onb-project-public"
+                checked={isPublic}
+                onCheckedChange={setIsPublic}
+              />
+            </div>
+
+            {isPublic && (
               <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
-                Feedback boards are public: issues, comments and @mentions in
-                them are visible to anyone with the link. The workspace name is
-                shown on the board.
+                Public boards are readable by anyone: issues, comments and
+                @mentions in them are visible to anyone with the link. The
+                workspace name is shown on the board.
               </p>
             )}
 

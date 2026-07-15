@@ -23,7 +23,6 @@ import {
 } from "@/lib/desktop-download"
 import { buildMcpServersConfig, buildWidgetSnippet } from "@/lib/widget-snippet"
 import { cn } from "@/lib/utils"
-import type { Project } from "@/db/schema"
 
 // The in-app "what to do next" cards (EXP-88) — the docs' Start coding /
 // Feedback widget / MCP sections condensed into actionable components, so a
@@ -37,7 +36,7 @@ type CardKey = `coding` | `widget` | `mcp`
 
 export interface GettingStartedCardsProps {
   workspaceSlug: string
-  projectType?: Project[`type`]
+  projectIsPublic?: boolean
   canManageWidgets: boolean
   layout?: `grid` | `stack`
 }
@@ -100,7 +99,7 @@ function GettingStartedCard({
 
 export function GettingStartedCards({
   workspaceSlug,
-  projectType,
+  projectIsPublic,
   canManageWidgets,
   layout = `grid`,
 }: GettingStartedCardsProps) {
@@ -196,7 +195,7 @@ export function GettingStartedCards({
     widget: widgetCard,
     mcp: mcpCard,
   }
-  const order = gettingStartedCardOrder(projectType)
+  const order = gettingStartedCardOrder(projectIsPublic)
 
   return (
     <div
@@ -211,12 +210,11 @@ export function GettingStartedCards({
   )
 }
 
-// A feedback board's most likely next step is the widget, so it leads there;
-// everywhere else the coding loop comes first. Exported for the unit test.
-export function gettingStartedCardOrder(
-  projectType?: Project[`type`]
-): CardKey[] {
-  return projectType === `feedback`
+// A public feedback board's most likely next step is the widget, so it leads
+// there; everywhere else the coding loop comes first. Exported for the unit
+// test.
+export function gettingStartedCardOrder(projectIsPublic?: boolean): CardKey[] {
+  return projectIsPublic
     ? [`widget`, `coding`, `mcp`]
     : [`coding`, `widget`, `mcp`]
 }

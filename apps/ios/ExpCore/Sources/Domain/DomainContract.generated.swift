@@ -11,6 +11,7 @@ public enum DomainContract {
     public static let recurrenceUnitValues: [String] = ["day", "week", "month"]
     public static let workspaceRoleValues: [String] = ["owner", "member"]
     public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
+    public static let projectIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
     public static let commentKindValues: [String] = ["regular"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]

@@ -18,6 +18,26 @@
   "projectType": {
     "values": ["dev", "tasks", "feedback"]
   },
+  "projectIcon": {
+    "values": [
+      "code",
+      "square-kanban",
+      "megaphone",
+      "bug",
+      "rocket",
+      "book-open",
+      "globe",
+      "heart",
+      "star",
+      "zap",
+      "wrench",
+      "shield",
+      "package",
+      "terminal",
+      "lightbulb",
+      "message-circle"
+    ]
+  },
   "commentKind": {
     "values": ["regular"]
   },

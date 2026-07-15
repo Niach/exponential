@@ -12,7 +12,6 @@ import {
   widgetSubmissions,
   workspaces,
 } from "@/db/schema"
-import type { ProjectType } from "@/lib/domain"
 import { generateTxId } from "@/lib/trpc"
 import {
   appBaseUrl,
@@ -56,7 +55,7 @@ export class WidgetRequestError extends Error {
 // board as unavailable and submit can mint the public issue URL (EXP-42a).
 export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
   projectSlug: string | null
-  projectType: ProjectType | null
+  projectIsPublic: boolean | null
   projectDeletedAt: Date | null
   projectArchivedAt: Date | null
   workspaceSlug: string | null
@@ -72,7 +71,7 @@ export async function loadWidgetConfigByKey(
     .select({
       config: widgetConfigs,
       projectSlug: projects.slug,
-      projectType: projects.type,
+      projectIsPublic: projects.isPublic,
       projectDeletedAt: projects.deletedAt,
       projectArchivedAt: projects.archivedAt,
       workspaceSlug: workspaces.slug,
@@ -88,7 +87,7 @@ export async function loadWidgetConfigByKey(
   return {
     ...row.config,
     projectSlug: row.projectSlug,
-    projectType: row.projectType,
+    projectIsPublic: row.projectIsPublic,
     projectDeletedAt: row.projectDeletedAt,
     projectArchivedAt: row.projectArchivedAt,
     workspaceSlug: row.workspaceSlug,
@@ -253,7 +252,7 @@ export async function createWidgetSubmission(args: {
   // segment — legacy prefixes predate the letter-led-alphanumeric floor, so
   // identifiers can contain path-breaking characters like `#`.
   const publicIssueUrl = (identifier: string): string | null =>
-    config.projectType === `feedback` &&
+    config.projectIsPublic === true &&
     config.projectArchivedAt == null &&
     config.workspaceSlug &&
     config.projectSlug

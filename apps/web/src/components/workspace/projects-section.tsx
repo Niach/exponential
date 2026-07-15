@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Check, Copy, Github, GitBranch, Globe, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { getProjectTypeOption } from "@/lib/project-types"
+import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -108,9 +108,8 @@ export function WorkspaceProjectsSection({
                 const repo = project.repositoryId
                   ? repoMap.get(project.repositoryId)
                   : undefined
-                const TypeIcon = getProjectTypeOption(project.type).icon
-                const isDev = project.type === `dev`
-                const isFeedback = project.type === `feedback`
+                const TypeIcon = getProjectIcon(project)
+                const isPublicBoard = project.isPublic
                 return (
                   <div
                     key={project.id}
@@ -123,7 +122,7 @@ export function WorkspaceProjectsSection({
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {project.name}
                     </span>
-                    {(isDev || repo) && (
+                    {repo && (
                       <Badge
                         variant="outline"
                         className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
@@ -144,7 +143,7 @@ export function WorkspaceProjectsSection({
                     >
                       <GitBranch className="h-3.5 w-3.5" />
                     </Button>
-                    {isFeedback && (
+                    {isPublicBoard && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -321,7 +320,7 @@ function PendingDeletionCard({
       <CardContent>
         <div className="divide-y rounded-md border">
           {trashed.map((project) => {
-            const TypeIcon = getProjectTypeOption(project.type).icon
+            const TypeIcon = getProjectIcon(project)
             return (
               <div
                 key={project.id}

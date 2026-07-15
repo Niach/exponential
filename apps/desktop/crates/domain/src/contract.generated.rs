@@ -8,6 +8,7 @@ pub const ISSUE_PRIORITY_DISPLAY_ORDER: &[&str] = &["urgent", "high", "medium", 
 pub const RECURRENCE_UNIT_VALUES: &[&str] = &["day", "week", "month"];
 pub const WORKSPACE_ROLE_VALUES: &[&str] = &["owner", "member"];
 pub const PROJECT_TYPE_VALUES: &[&str] = &["dev", "tasks", "feedback"];
+pub const PROJECT_ICON_VALUES: &[&str] = &["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"];
 pub const COMMENT_KIND_VALUES: &[&str] = &["regular"];
 pub const NOTIFICATION_TYPE_VALUES: &[&str] = &["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged"];
 pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];

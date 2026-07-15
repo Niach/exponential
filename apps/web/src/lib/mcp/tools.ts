@@ -30,6 +30,7 @@ import {
 import {
   issuePriorityValues,
   issueStatusValues,
+  projectIconValues,
   recurrenceUnitValues,
 } from "@/lib/domain"
 import {
@@ -173,6 +174,7 @@ async function getRunConfigContext(id: string) {
 
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
+const projectIconEnumSchema = z.enum(projectIconValues)
 const recurrenceUnitEnumSchema = z.enum(recurrenceUnitValues)
 const dateOnly = z
   .string()
@@ -323,7 +325,7 @@ export function registerExponentialTools(
     `exponential_projects_create`,
     {
       title: `Create project`,
-      description: `Create a project in a workspace. type: 'dev' (repo-backed coding project — repository REQUIRED), 'tasks' (plain issue tracking, no repo), or 'feedback' (PUBLIC read-only feedback board, repo optional; owner-only). For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
+      description: `Create a project in a workspace. isPublic: true makes it a PUBLIC read-only feedback board (owner-only); the repository is always optional (coding features gate on repo presence). icon is a curated display icon name. The legacy 'type' param is a DEPRECATED alias ('feedback' → isPublic: true; 'dev'/'tasks' → private) — prefer isPublic. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
@@ -340,7 +342,10 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        type: z.enum([`dev`, `tasks`, `feedback`]).default(`dev`),
+        isPublic: z.boolean().optional(),
+        icon: projectIconEnumSchema.optional(),
+        // Deprecated alias, kept until the type column drops.
+        type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
         repository: z
@@ -377,9 +382,12 @@ export function registerExponentialTools(
     `exponential_projects_update`,
     {
       title: `Update project`,
-      description: `Update a project's name, color, type ('dev' needs a connected repository), public-board visibility toggles (feedback boards; owner-only), or archive state.`,
+      description: `Update a project's name, color, icon, publicness (isPublic — owner-only), public-board visibility toggles (owner-only), or archive state. The legacy 'type' param is a DEPRECATED alias for isPublic ('feedback' → true).`,
       inputSchema: {
         id: z.string().uuid(),
+        isPublic: z.boolean().optional(),
+        icon: projectIconEnumSchema.nullable().optional(),
+        // Deprecated alias, kept until the type column drops.
         type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),

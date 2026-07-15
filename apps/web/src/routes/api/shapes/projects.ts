@@ -20,6 +20,8 @@ const PROJECT_COLUMNS = [
   `prefix`,
   `color`,
   `type`,
+  `is_public`,
+  `icon`,
   `public_show_comments`,
   `public_show_activity`,
   `repository_id`,

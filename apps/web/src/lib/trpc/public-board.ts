@@ -80,7 +80,7 @@ async function resolvePublicProject(
       projectSlug: projects.slug,
       prefix: projects.prefix,
       color: projects.color,
-      type: projects.type,
+      icon: projects.icon,
       publicShowComments: projects.publicShowComments,
       publicShowActivity: projects.publicShowActivity,
     })
@@ -90,7 +90,7 @@ async function resolvePublicProject(
       and(
         eq(workspaces.slug, workspaceSlug),
         eq(projects.slug, projectSlug),
-        eq(projects.type, `feedback`),
+        eq(projects.isPublic, true),
         isNull(projects.archivedAt),
         isNull(projects.deletedAt)
       )
@@ -253,7 +253,7 @@ export const publicBoardRouter = router({
         .where(
           and(
             eq(workspaces.slug, input.workspaceSlug),
-            eq(projects.type, `feedback`),
+            eq(projects.isPublic, true),
             isNull(projects.archivedAt),
             isNull(projects.deletedAt)
           )

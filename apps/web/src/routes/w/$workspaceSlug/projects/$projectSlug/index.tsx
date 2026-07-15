@@ -169,7 +169,7 @@ function ProjectPage() {
             permissions.isMember ? (
               <GettingStartedSection
                 workspaceSlug={workspaceSlug}
-                projectType={project.type}
+                projectIsPublic={project.isPublic}
                 canManageWidgets={permissions.canManageWidgets}
               />
             ) : undefined

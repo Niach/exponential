@@ -1,4 +1,5 @@
 import { useCallback } from "react"
+import type { ProjectIcon } from "@exp/db-schema/domain"
 import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
@@ -20,9 +21,10 @@ export type CreateProjectInput = {
   name: string
   prefix: string
   color: string
-  // dev | tasks | feedback — dev requires a repository; the others don't
-  // (feedback boards may still connect one).
-  type: `dev` | `tasks` | `feedback`
+  // Public boards are anonymously readable (owner-only to create).
+  isPublic: boolean
+  // Curated icon name from the domain contract.
+  icon: ProjectIcon
   repository?: CreateProjectRepository
 }
 
@@ -65,7 +67,8 @@ export function useCreateProject() {
             name: input.name.trim(),
             prefix: input.prefix.trim(),
             color: input.color,
-            type: input.type,
+            isPublic: input.isPublic,
+            icon: input.icon,
             repository: input.repository,
           },
           // Failures render inline at the call site; the global mutation-error

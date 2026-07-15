@@ -219,13 +219,19 @@ export const projects = pgTable(
     slug: varchar({ length: 255 }).notNull(),
     prefix: varchar({ length: 10 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
-    // What this project IS (v7): `dev` = repo-backed coding project (repository
-    // required), `tasks` = plain issue tracking (no repo), `feedback` = PUBLIC
-    // read-only board (anonymous browsing; writes only via the embedded
-    // widget). Coding features gate on repo presence, not type.
+    // LEGACY (being collapsed): dual-written from `is_public` + repo presence
+    // (public → feedback, else repo → dev, else tasks) so shipped native
+    // clients keep working for one release; dropped in the min-version-gated
+    // finale. Never gate new behavior on it — use `is_public` / repo presence.
     type: projectTypeEnum().notNull().default(`dev`),
+    // The project's public-board switch: true = anonymously readable feedback
+    // board (every public-scope query keys on this). Replaces type='feedback'.
+    isPublic: boolean(`is_public`).notNull().default(false),
+    // Curated display icon (projectIconValues in domain.ts / the domain
+    // contract). NULL = clients fall back to the legacy type-derived icon.
+    icon: text(),
     // Anonymous-visitor visibility toggles. Only meaningful when
-    // type='feedback' — every public-scope query gates on the type first, so
+    // is_public — every public-scope query gates on publicness first, so
     // stale values on private projects are inert.
     publicShowComments: boolean(`public_show_comments`).notNull().default(true),
     publicShowActivity: boolean(`public_show_activity`)
@@ -258,10 +264,14 @@ export const projects = pgTable(
   (table) => [
     unique().on(table.workspaceId, table.slug),
     index(`idx_projects_repository`).on(table.repositoryId),
-    // Serves the anonymous public-scope resolver (getPublicProjectScope).
+    // Legacy public-scope index; dies with the type column.
     index(`idx_projects_feedback`)
       .on(table.type)
       .where(sql`type = 'feedback'`),
+    // Serves the anonymous public-scope resolver (getPublicProjectScope).
+    index(`idx_projects_public`)
+      .on(table.isPublic)
+      .where(sql`is_public`),
     // Serves the purge sweep + trash-aware shape filter; near-empty in steady
     // state (only trashed rows are indexed).
     index(`idx_projects_deleted`)

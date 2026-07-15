@@ -15,7 +15,7 @@ import {
 // sidebar's Getting started entry stays as the re-entry point.
 export function GettingStartedSection({
   workspaceSlug,
-  projectType,
+  projectIsPublic,
   canManageWidgets,
 }: Omit<GettingStartedCardsProps, `layout`>) {
   const { data: session, isPending } = useSession()
@@ -53,7 +53,7 @@ export function GettingStartedSection({
       </div>
       <GettingStartedCards
         workspaceSlug={workspaceSlug}
-        projectType={projectType}
+        projectIsPublic={projectIsPublic}
         canManageWidgets={canManageWidgets}
         layout="grid"
       />

@@ -86,8 +86,8 @@ const config = {
   allowedDomains: [],
   formConfig: null,
   projectSlug: `board`,
-  // `tasks` keeps publicIssueUrl() out of play (no appBaseUrl dependence).
-  projectType: `tasks`,
+  // A private board keeps publicIssueUrl() out of play (no appBaseUrl dependence).
+  projectIsPublic: false,
   projectDeletedAt: null,
   projectArchivedAt: null,
   workspaceSlug: `acme`,

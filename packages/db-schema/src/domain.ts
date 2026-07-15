@@ -22,11 +22,34 @@ export const issuePriorityValues = [
 
 export const workspaceRoleValues = [`owner`, `member`] as const
 
-// What a project IS (projects.type). `dev` is repo-backed (repository required,
-// coding sessions/PRs); `tasks` is plain issue tracking with no repo; `feedback`
-// is a PUBLIC read-only board (anonymous browsing, writes only via the embedded
-// widget) with an optional repo. Coding features gate on repo presence, not type.
+// LEGACY project taxonomy (projects.type) — being collapsed into the
+// orthogonal `is_public` + `icon` + repo-presence fields. The column is
+// dual-written (derived from is_public/repository) for one release so shipped
+// native clients keep working, then dropped. Do not add new gates on it.
 export const projectTypeValues = [`dev`, `tasks`, `feedback`] as const
+
+// Curated project icon set (projects.icon) — lucide names on the web; the
+// native clients carry their own per-platform glyph mapping keyed by these
+// values (via the domain contract). NULL icon = fall back to the legacy
+// type-derived icon. Mirrors packages/domain-contract/contract.json.
+export const projectIconValues = [
+  `code`,
+  `square-kanban`,
+  `megaphone`,
+  `bug`,
+  `rocket`,
+  `book-open`,
+  `globe`,
+  `heart`,
+  `star`,
+  `zap`,
+  `wrench`,
+  `shield`,
+  `package`,
+  `terminal`,
+  `lightbulb`,
+  `message-circle`,
+] as const
 
 // How long a soft-deleted (trashed) project is retained before the purge sweep
 // hard-deletes it (with all its issues) and reclaims its attachment storage.
@@ -120,6 +143,7 @@ export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
 export type ProjectType = (typeof projectTypeValues)[number]
+export type ProjectIcon = (typeof projectIconValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
@@ -132,6 +156,7 @@ export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const projectTypeSchema = z.enum(projectTypeValues)
+export const projectIconSchema = z.enum(projectIconValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)

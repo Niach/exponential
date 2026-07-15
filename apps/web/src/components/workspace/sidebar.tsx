@@ -23,7 +23,7 @@ import {
   issueCollection,
 } from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
-import { getProjectTypeOption } from "@/lib/project-types"
+import { getProjectIcon } from "@/lib/project-types"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -345,7 +345,7 @@ export function WorkspaceSidebar({
                   </SidebarMenuItem>
                 ) : (
                   projects.map((project) => {
-                    const TypeIcon = getProjectTypeOption(project.type).icon
+                    const TypeIcon = getProjectIcon(project)
                     return (
                       <SidebarMenuItem key={project.id}>
                         <SidebarMenuButton asChild>
@@ -361,7 +361,7 @@ export function WorkspaceSidebar({
                               style={{ color: project.color }}
                             />
                             <span>{project.name}</span>
-                            {project.type === `feedback` && (
+                            {project.isPublic && (
                               <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             )}
                           </Link>
