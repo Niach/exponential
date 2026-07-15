@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  ClipboardList,
   Eye,
   Keyboard,
   Loader2,
@@ -28,10 +29,12 @@ import {
 } from "@/lib/collections"
 import {
   consumeEcho,
+  groupToolRuns,
   pushEcho,
   trailingQuestionIds,
   type EchoEntry,
 } from "@/lib/agent-feed"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -102,11 +105,14 @@ type ActivityEvent =
   // EXP-78 (member-only on the relay): a human turn from the transcript…
   | { kind: `user_message`; text: string; at?: number }
   // …and an interactive question (AskUserQuestion / plan approval).
+  // `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) — absent
+  // on generic questions and on events from older desktops/relays.
   | {
       kind: `question`
       text: string
       options: QuestionOption[]
       multiSelect?: boolean
+      planMode?: boolean
       at?: number
     }
 
@@ -429,6 +435,7 @@ type FeedItem =
       text: string
       options: QuestionOption[]
       multiSelect: boolean
+      planMode: boolean
     }
 
 /** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
@@ -535,6 +542,7 @@ export function AgentSessionView({
             text: event.text,
             options: event.options,
             multiSelect: event.multiSelect === true,
+            planMode: event.planMode === true,
           })
           return
         }
@@ -835,6 +843,12 @@ export function AgentSessionView({
    *  any later event means the TUI moved on. */
   const activeQuestionIds = useMemo(() => trailingQuestionIds(feed), [feed])
   const canAnswer = live && perm === `steer` && !sessionEnded
+  /** Render rows: consecutive tool calls collapse into "N tool calls" runs
+   *  (EXP-97) — a projection only, the flat feed stays the state. */
+  const rows = useMemo(() => groupToolRuns(feed), [feed])
+  /** A trailing question/plan means the session is blocked on a human — the
+   *  header flips to "Needs your input" so it never looks silently stuck. */
+  const awaitingInput = live && activeQuestionIds.size > 0
 
   const closePanel = () => {
     setAttempt(0)
@@ -859,7 +873,11 @@ export function AgentSessionView({
           </Button>
         )}
         {open && (
-          <PhaseIndicator phase={phase} deviceLabel={session.deviceLabel} />
+          <PhaseIndicator
+            phase={phase}
+            deviceLabel={session.deviceLabel}
+            awaitingInput={awaitingInput}
+          />
         )}
         {open && phase.kind === `closed` && (
           <Button
@@ -931,7 +949,19 @@ export function AgentSessionView({
                 </CenteredState>
               ) : (
                 <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
-                  {feed.map((item) => {
+                  {rows.map((row, index) => {
+                    if (row.kind === `toolRun`) {
+                      return (
+                        <ToolGroupRow
+                          key={row.id}
+                          items={
+                            row.items as Extract<FeedItem, { kind: `tool` }>[]
+                          }
+                          liveTail={live && index === rows.length - 1}
+                        />
+                      )
+                    }
+                    const item = row.item
                     switch (item.kind) {
                       case `narration`:
                         return <NarrationBubble key={item.id} text={item.text} />
@@ -954,9 +984,9 @@ export function AgentSessionView({
                             text={item.text}
                             options={item.options}
                             multiSelect={item.multiSelect}
-                            answerable={
-                              canAnswer && activeQuestionIds.has(item.id)
-                            }
+                            planMode={item.planMode}
+                            trailing={activeQuestionIds.has(item.id)}
+                            canAnswer={canAnswer}
                             onAnswer={sendAnswer}
                           />
                         )
@@ -1112,16 +1142,25 @@ export function AgentSessionView({
 function PhaseIndicator({
   phase,
   deviceLabel,
+  awaitingInput = false,
 }: {
   phase: ViewerPhase
   deviceLabel: string | null
+  /** Live but blocked on a trailing question/plan — the session is waiting
+   *  for a human, not stuck (EXP-97). */
+  awaitingInput?: boolean
 }) {
   const connecting = phase.kind === `connecting` || phase.kind === `starting`
+  const awaiting = phase.kind === `live` && awaitingInput
   const label =
     phase.kind === `live`
-      ? deviceLabel
-        ? `Live · ${deviceLabel}`
-        : `Live`
+      ? awaiting
+        ? deviceLabel
+          ? `Needs your input · ${deviceLabel}`
+          : `Needs your input`
+        : deviceLabel
+          ? `Live · ${deviceLabel}`
+          : `Live`
       : phase.kind === `starting`
         ? `Agent starting…`
         : phase.kind === `connecting` || phase.kind === `idle`
@@ -1134,12 +1173,14 @@ function PhaseIndicator({
       <span
         className={cn(
           `size-2 shrink-0 rounded-full`,
-          phase.kind === `live` && `bg-emerald-500`,
+          phase.kind === `live` && (awaiting ? `bg-amber-400` : `bg-emerald-500`),
           connecting && `animate-pulse bg-amber-400`,
           !connecting && phase.kind !== `live` && `bg-muted-foreground/40`
         )}
       />
-      <span className="truncate">{label}</span>
+      <span className={cn(`truncate`, awaiting && `text-amber-400`)}>
+        {label}
+      </span>
     </span>
   )
 }
@@ -1224,22 +1265,33 @@ function UserMessageBubble({ text }: { text: string }) {
 /** An interactive question (EXP-78): AskUserQuestion / plan approval. Option
  *  buttons send the option's raw TUI keystroke while the question is still the
  *  trailing feed item; stale/view-only cards render the options as plain rows.
- *  Best-effort by design — the desktop TUI remains the source of truth. */
+ *  `planMode` cards (EXP-97) get a dedicated "Plan ready" presentation with
+ *  the first option as the primary approve action and the plan rendered as
+ *  markdown on expand — labels/keys always come from the wire `options`, the
+ *  desktop owns the TUI key mapping. Best-effort by design — the desktop TUI
+ *  remains the source of truth. */
 function QuestionCard({
   text,
   options,
   multiSelect,
-  answerable,
+  planMode,
+  trailing,
+  canAnswer,
   onAnswer,
 }: {
   text: string
   options: QuestionOption[]
   multiSelect: boolean
-  answerable: boolean
+  planMode: boolean
+  /** Still the trailing feed run — the session is blocked on this card. */
+  trailing: boolean
+  /** Live + steer perm — whether this client may answer at all. */
+  canAnswer: boolean
   onAnswer: (key: string, submit?: boolean) => void
 }) {
   const { expanded, setExpanded, clampable } = useClampToggle(text)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const answerable = trailing && canAnswer
 
   const pick = (option: QuestionOption) => {
     // Single-select: digit + Enter submits. Multi-select: digit toggles; the
@@ -1258,41 +1310,85 @@ function QuestionCard({
   }
 
   return (
-    <div className="my-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+    <div
+      className={cn(
+        `my-1 rounded-md border px-3 py-2`,
+        planMode
+          ? `border-primary/40 bg-primary/5`
+          : `border-amber-500/40 bg-amber-500/5`
+      )}
+    >
       <div className="flex items-start gap-2">
-        <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        {planMode ? (
+          <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" />
+        ) : (
+          <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        )}
         <div className="min-w-0 flex-1">
-          <div
-            className={cn(
-              `whitespace-pre-wrap break-words text-sm text-foreground/90`,
-              clampable && !expanded && `line-clamp-6`
-            )}
-          >
-            {text}
-          </div>
+          {planMode && (
+            <div className="mb-1 text-xs font-medium text-primary">
+              Plan ready
+            </div>
+          )}
+          {planMode && expanded ? (
+            // The plan is GFM markdown — render it properly once unfolded
+            // (TipTap mounts only on expand; plans can be 16 KiB).
+            <div className="text-sm">
+              <MarkdownEditor
+                markdown={text}
+                editable={false}
+                onChange={() => {}}
+              />
+            </div>
+          ) : (
+            <div
+              className={cn(
+                `whitespace-pre-wrap break-words text-sm text-foreground/90`,
+                clampable && !expanded && `line-clamp-6`
+              )}
+            >
+              {text}
+            </div>
+          )}
           {clampable && (
             <ShowMoreButton
               expanded={expanded}
               onToggle={() => setExpanded((v) => !v)}
             />
           )}
-          <div className="mt-2 flex flex-col items-start gap-1">
-            {options.map((option) =>
+          <div
+            className={cn(
+              `mt-2 flex items-start gap-1`,
+              planMode && answerable
+                ? `flex-row flex-wrap items-center gap-1.5`
+                : `flex-col`
+            )}
+          >
+            {options.map((option, index) =>
               answerable ? (
                 <Button
                   key={option.key}
-                  variant="outline"
+                  // The wire's first option is the plan's primary approve
+                  // action ("Approve — auto-accept edits") — promote it.
+                  variant={planMode && index === 0 ? `default` : `outline`}
                   size="sm"
                   className={cn(
                     `h-7 justify-start text-xs`,
-                    picked.has(option.key) &&
-                      `border-amber-500/60 bg-amber-500/15`
+                    !planMode &&
+                      picked.has(option.key) &&
+                      `border-amber-500/60 bg-amber-500/15`,
+                    planMode &&
+                      picked.has(option.key) &&
+                      index !== 0 &&
+                      `border-primary/60 bg-primary/15`
                   )}
                   onClick={() => pick(option)}
                 >
-                  <span className="font-mono text-muted-foreground">
-                    {option.key}
-                  </span>
+                  {!planMode && (
+                    <span className="font-mono text-muted-foreground">
+                      {option.key}
+                    </span>
+                  )}
                   {option.label}
                 </Button>
               ) : (
@@ -1316,6 +1412,13 @@ function QuestionCard({
               Submit selection
             </Button>
           )}
+          {trailing && !canAnswer && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {planMode
+                ? `Waiting for approval — you're viewing read-only.`
+                : `Waiting for an answer — you're viewing read-only.`}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1335,6 +1438,53 @@ function ToolRow({ name, detail }: { name: string; detail?: string }) {
         >
           {detail}
         </span>
+      )}
+    </div>
+  )
+}
+
+/** A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
+ *  (EXP-97), expandable to the individual rows. While the run is the trailing
+ *  row of a live session, the latest call stays visible under the count so
+ *  the viewer still sees live progress. */
+function ToolGroupRow({
+  items,
+  liveTail,
+}: {
+  items: Extract<FeedItem, { kind: `tool` }>[]
+  liveTail: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const latest = items[items.length - 1]
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5 text-muted-foreground hover:text-foreground"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3 shrink-0" />
+        ) : (
+          <ChevronRight className="size-3 shrink-0" />
+        )}
+        <Wrench className="size-3 shrink-0 text-muted-foreground/60" />
+        <span className="shrink-0 text-xs font-medium">
+          {items.length} tool calls
+        </span>
+      </button>
+      {expanded ? (
+        <div className="ml-5">
+          {items.map((item) => (
+            <ToolRow key={item.id} name={item.name} detail={item.detail} />
+          ))}
+        </div>
+      ) : (
+        liveTail && (
+          <div className="ml-5">
+            <ToolRow name={latest.name} detail={latest.detail} />
+          </div>
+        )
       )}
     </div>
   )

@@ -141,6 +141,11 @@ pub enum ActivityEvent {
         options: Vec<QuestionOption>,
         #[serde(skip_serializing_if = "Option::is_none")]
         multi_select: Option<bool>,
+        /// `Some(true)` when this question is an `ExitPlanMode` plan-approval
+        /// picker (EXP-97) — clients render a dedicated "Plan ready" card.
+        /// Presentation-only: the options remain the source of the keystrokes.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        plan_mode: Option<bool>,
     },
 }
 
@@ -397,12 +402,13 @@ mod tests {
                         },
                     ],
                     multi_select: Some(true),
+                    plan_mode: None,
                 }
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true}}"#
         );
-        // multiSelect is omitted when absent.
+        // multiSelect and planMode are omitted when absent.
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::Question {
@@ -412,10 +418,27 @@ mod tests {
                         key: "1".into()
                     }],
                     multi_select: None,
+                    plan_mode: None,
                 }
             }
             .to_json(),
             r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}]}}"#
+        );
+        // A plan-approval question carries the planMode marker (EXP-97).
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "The plan".into(),
+                    options: vec![QuestionOption {
+                        label: "Approve — auto-accept edits".into(),
+                        key: "1".into()
+                    }],
+                    multi_select: None,
+                    plan_mode: Some(true),
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true}}"#
         );
     }
 

@@ -70,7 +70,10 @@ struct AgentSessionView: View {
     private var header: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
-                StatusDot(phase: model?.phase ?? .connecting)
+                StatusDot(
+                    phase: model?.phase ?? .connecting,
+                    awaiting: model?.awaitingInput ?? false
+                )
                 Text(headerTitle)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -111,7 +114,12 @@ struct AgentSessionView: View {
         let label = (model?.session ?? session).deviceLabel
         let device = (label?.isEmpty == false) ? " · \(label!)" : ""
         switch model?.phase {
-        case .live: return "Live\(device)"
+        case .live:
+            // A trailing question/plan means the session is blocked on a
+            // human — say so instead of looking silently stuck (EXP-97).
+            return model?.awaitingInput == true
+                ? "Needs your input\(device)"
+                : "Live\(device)"
         case .ended: return "Session ended"
         case .closed: return "Disconnected"
         default: return "Connecting…"
@@ -172,8 +180,12 @@ struct AgentSessionView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.feed) { item in
-                            feedRow(item)
+                        // Consecutive tool calls collapse into "N tool calls"
+                        // rows (EXP-97) — a render projection; the flat feed
+                        // (and the trailing-question rule) stays the state.
+                        let rows = model.rows
+                        ForEach(rows) { row in
+                            feedRow(row, isLast: row.id == rows.last?.id)
                         }
                         Color.clear
                             .frame(height: 1)
@@ -233,32 +245,39 @@ struct AgentSessionView: View {
     }
 
     @ViewBuilder
-    private func feedRow(_ item: AgentSessionModel.FeedItem) -> some View {
-        switch item {
-        case let .narration(_, text):
-            NarrationBubble(text: text)
-        case let .tool(_, name, detail):
-            ToolRow(name: name, detail: detail)
-        case let .userMessage(_, text):
-            UserMessageBubble(text: text)
-        case let .question(id, text, options, multiSelect):
-            QuestionCard(
-                text: text,
-                options: options,
-                multiSelect: multiSelect,
-                answerable: answerable(id),
-                onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
-                onSubmit: { model?.sendSubmit() }
-            )
+    private func feedRow(_ row: AgentSessionModel.FeedRow, isLast: Bool) -> some View {
+        switch row {
+        case let .toolRun(items):
+            ToolGroupRow(items: items, liveTail: isLast && model?.phase == .live)
+        case let .single(item):
+            switch item {
+            case let .narration(_, text):
+                NarrationBubble(text: text)
+            case let .tool(_, name, detail):
+                ToolRow(name: name, detail: detail)
+            case let .userMessage(_, text):
+                UserMessageBubble(text: text)
+            case let .question(id, text, options, multiSelect, planMode):
+                QuestionCard(
+                    text: text,
+                    options: options,
+                    multiSelect: multiSelect,
+                    planMode: planMode,
+                    trailing: model?.activeQuestionIds.contains(id) ?? false,
+                    canAnswer: canAnswer,
+                    onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
+                    onSubmit: { model?.sendSubmit() }
+                )
+            }
         }
     }
 
-    /// A question is answerable while it sits in the trailing question run of
-    /// a live, steerable session (EXP-78).
-    private func answerable(_ itemId: Int) -> Bool {
-        guard let model, model.canSteer, model.phase == .live, !model.sessionEnded
-        else { return false }
-        return model.activeQuestionIds.contains(itemId)
+    /// Whether this client may answer questions at all — a question card is
+    /// answerable when this holds AND it sits in the trailing question run
+    /// (EXP-78).
+    private var canAnswer: Bool {
+        guard let model else { return false }
+        return model.canSteer && model.phase == .live && !model.sessionEnded
     }
 
     // MARK: - Status banners (feed retained above)
@@ -488,12 +507,19 @@ private struct UserMessageBubble: View {
 /// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
 /// buttons send the option's raw TUI keystroke while the question is still in
 /// the trailing feed run; stale/view-only cards render options as plain rows.
-/// Best-effort by design — the desktop TUI remains the source of truth.
+/// `planMode` cards (EXP-97) get a dedicated "Plan ready" presentation with
+/// the first option as the primary approve action — labels/keys always come
+/// from the wire options, the desktop owns the TUI key mapping. Best-effort
+/// by design — the desktop TUI remains the source of truth.
 private struct QuestionCard: View {
     let text: String
     let options: [AgentSessionModel.QuestionOption]
     let multiSelect: Bool
-    let answerable: Bool
+    let planMode: Bool
+    /// Still the trailing feed run — the session is blocked on this card.
+    let trailing: Bool
+    /// Live + steer perm — whether this client may answer at all.
+    let canAnswer: Bool
     /// (key, submit) — single-select taps submit (digit + Enter); multi-select
     /// taps toggle with the digit alone and `onSubmit` sends the Enter.
     let onAnswer: (String, Bool) -> Void
@@ -510,13 +536,20 @@ private struct QuestionCard: View {
             || text.filter { $0 == "\n" }.count >= Self.clampLines
     }
 
+    private var answerable: Bool { trailing && canAnswer }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "questionmark.circle")
+            Image(systemName: planMode ? "checklist" : "questionmark.circle")
                 .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.yellow)
+                .foregroundStyle(planMode ? DesignTokens.Semantic.blue : DesignTokens.Semantic.yellow)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 8) {
+                if planMode {
+                    Text("Plan ready")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(DesignTokens.Semantic.blue)
+                }
                 Text(text)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -531,16 +564,19 @@ private struct QuestionCard: View {
                     .buttonStyle(.plain)
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(options, id: \.key) { option in
+                    ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
                         if answerable {
+                            // The wire's first option of a plan is the primary
+                            // approve action ("Approve — auto-accept edits").
+                            let primary = planMode && index == 0
                             Button {
                                 pick(option)
                             } label: {
-                                optionLabel(option)
+                                optionLabel(option, showKey: !planMode)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
                             }
-                            .glassButton(isActive: picked.contains(option.key))
+                            .glassButton(isActive: primary || picked.contains(option.key))
                             .buttonStyle(.plain)
                         } else {
                             optionLabel(option)
@@ -557,6 +593,13 @@ private struct QuestionCard: View {
                     .padding(.vertical, 6)
                     .glassButton(isActive: true)
                     .buttonStyle(.plain)
+                }
+                if trailing, !canAnswer {
+                    Text(planMode
+                        ? "Waiting for approval — you're viewing read-only."
+                        : "Waiting for an answer — you're viewing read-only.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -580,11 +623,16 @@ private struct QuestionCard: View {
         }
     }
 
-    private func optionLabel(_ option: AgentSessionModel.QuestionOption) -> some View {
+    private func optionLabel(
+        _ option: AgentSessionModel.QuestionOption,
+        showKey: Bool = true
+    ) -> some View {
         HStack(spacing: 6) {
-            Text(option.key)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if showKey {
+                Text(option.key)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
             Text(option.label)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white)
@@ -629,12 +677,65 @@ private struct ToolRow: View {
     }
 }
 
+/// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
+/// (EXP-97), expandable to the individual rows. While the run is the trailing
+/// row of a live session, the latest call stays visible under the count so
+/// the viewer still sees live progress.
+private struct ToolGroupRow: View {
+    let items: [AgentSessionModel.FeedItem]
+    let liveTail: Bool
+
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Text("\(items.count) tool calls")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Collapse tool calls" : "Expand tool calls")
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { item in
+                        if case let .tool(_, name, detail) = item {
+                            ToolRow(name: name, detail: detail)
+                        }
+                    }
+                }
+                .padding(.leading, 20)
+            } else if liveTail, let last = items.last,
+                      case let .tool(_, name, detail) = last {
+                ToolRow(name: name, detail: detail)
+                    .padding(.leading, 20)
+            }
+        }
+    }
+}
+
 // MARK: - Status dot
 
 /// Header status dot: green live / pulsing yellow while connecting or the
 /// agent is starting / gray when ended or lost. Static under Reduce Motion.
 private struct StatusDot: View {
     let phase: AgentSessionModel.Phase
+    /// Live but blocked on a trailing question/plan — waiting for a human
+    /// answer, not stuck (EXP-97).
+    var awaiting: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
@@ -645,7 +746,7 @@ private struct StatusDot: View {
 
     private var color: Color {
         switch phase {
-        case .live: DesignTokens.Semantic.green
+        case .live: awaiting ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
         case .connecting, .starting, .idle: DesignTokens.Semantic.yellow
         default: DesignTokens.Semantic.neutral
         }

@@ -343,6 +343,7 @@ fn parse_ask_user_question(
             text: truncate(&redactor.redact(text), QUESTION_TEXT_MAX),
             options,
             multi_select,
+            plan_mode: None,
         });
     }
     (!events.is_empty()).then_some(events)
@@ -376,6 +377,9 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
             },
         ],
         multi_select: None,
+        // Marks the question as a plan-approval picker so clients can render
+        // a dedicated "Plan ready" card (EXP-97).
+        plan_mode: Some(true),
     }
 }
 
@@ -868,6 +872,7 @@ mod tests {
                         QuestionOption { label: "Session".into(), key: "3".into() },
                     ],
                     multi_select: None,
+                    plan_mode: None,
                 },
                 ActivityEvent::Question {
                     text: "Which features?".into(),
@@ -876,6 +881,7 @@ mod tests {
                         QuestionOption { label: "Email".into(), key: "2".into() },
                     ],
                     multi_select: Some(true),
+                    plan_mode: None,
                 },
             ]
         );
@@ -893,13 +899,14 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&line, &redactor)[..] {
-            [ActivityEvent::Question { text, options, multi_select }] => {
+            [ActivityEvent::Question { text, options, multi_select, plan_mode }] => {
                 assert_eq!(text, "## Plan\n1. Do the thing");
                 assert_eq!(
                     options.iter().map(|o| o.key.as_str()).collect::<Vec<_>>(),
                     vec!["1", "2", "3"]
                 );
                 assert_eq!(*multi_select, None);
+                assert_eq!(*plan_mode, Some(true));
             }
             other => panic!("expected one question, got {other:?}"),
         }
@@ -913,9 +920,10 @@ mod tests {
         })
         .to_string();
         match &parse_transcript_line(&bare, &redactor)[..] {
-            [ActivityEvent::Question { text, options, .. }] => {
+            [ActivityEvent::Question { text, options, plan_mode, .. }] => {
                 assert_eq!(text, "Plan ready for approval.");
                 assert_eq!(options.len(), 3);
+                assert_eq!(*plan_mode, Some(true));
             }
             other => panic!("expected one question, got {other:?}"),
         }

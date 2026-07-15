@@ -112,6 +112,10 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
       .min(1)
       .max(10),
     multiSelect: z.boolean().optional(),
+    // Marks an ExitPlanMode plan-approval picker (EXP-97) so clients can
+    // render a dedicated "Plan ready" card. Presentation-only; absent on
+    // AskUserQuestion events and on frames from older desktops.
+    planMode: z.boolean().optional(),
     at: z.number().optional(),
   }),
 ])

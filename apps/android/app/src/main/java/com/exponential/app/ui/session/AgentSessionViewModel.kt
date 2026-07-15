@@ -88,12 +88,15 @@ sealed interface AgentFeedItem {
     /** A human turn (EXP-78): the initial prompt or a steered message. */
     data class UserMessage(override val id: Long, val text: String) : AgentFeedItem
 
-    /** An interactive question (AskUserQuestion / plan approval, EXP-78). */
+    /** An interactive question (AskUserQuestion / plan approval, EXP-78).
+     *  [planMode] marks an ExitPlanMode plan-approval picker (EXP-97) —
+     *  presentation-only, absent on events from older desktops/relays. */
     data class Question(
         override val id: Long,
         val text: String,
         val options: List<QuestionOption>,
         val multiSelect: Boolean,
+        val planMode: Boolean = false,
     ) : AgentFeedItem
 }
 
@@ -108,6 +111,47 @@ fun trailingQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
         ids.add(item.id)
     }
     return ids
+}
+
+/** One render row over the flat feed (EXP-97): a single item, or a run of ≥2
+ *  CONSECUTIVE tool calls collapsed into one "N tool calls" row. A run's id is
+ *  the FIRST tool's id, so the row key (and its expanded state) stays stable
+ *  while the trailing run keeps growing. */
+sealed interface AgentFeedRow {
+    val id: Long
+
+    data class Single(val item: AgentFeedItem) : AgentFeedRow {
+        override val id get() = item.id
+    }
+
+    data class ToolRun(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        override val id get() = items.first().id
+    }
+}
+
+/** Group consecutive runs of ≥2 [AgentFeedItem.Tool] items into
+ *  [AgentFeedRow.ToolRun] rows — a pure render-time projection: the flat feed
+ *  (and [trailingQuestionIds] over it) is never restructured. */
+fun groupToolRuns(feed: List<AgentFeedItem>): List<AgentFeedRow> {
+    val rows = mutableListOf<AgentFeedRow>()
+    var i = 0
+    while (i < feed.size) {
+        val item = feed[i]
+        if (item !is AgentFeedItem.Tool) {
+            rows.add(AgentFeedRow.Single(item))
+            i++
+            continue
+        }
+        var end = i
+        while (end + 1 < feed.size && feed[end + 1] is AgentFeedItem.Tool) end++
+        if (end == i) {
+            rows.add(AgentFeedRow.Single(item))
+        } else {
+            rows.add(AgentFeedRow.ToolRun(feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }))
+        }
+        i = end + 1
+    }
+    return rows
 }
 
 sealed interface AgentPhase {
@@ -402,7 +446,8 @@ class AgentSessionViewModel @Inject constructor(
                 }.getOrDefault(emptyList())
                 if (options.isEmpty()) return
                 val multiSelect = (event["multiSelect"] as? JsonPrimitive)?.booleanOrNull == true
-                append(AgentFeedItem.Question(nextEventId++, text, options, multiSelect))
+                val planMode = (event["planMode"] as? JsonPrimitive)?.booleanOrNull == true
+                append(AgentFeedItem.Question(nextEventId++, text, options, multiSelect, planMode))
             }
         }
     }
