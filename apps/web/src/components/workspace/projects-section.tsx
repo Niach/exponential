@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, GitBranch, Globe, Trash2 } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { Github, GitBranch, Globe, LifeBuoy, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -74,6 +76,9 @@ export function WorkspaceProjectsSection({
   // Live row so toggle writes reflect immediately via Electric sync.
   const publicTarget =
     visibleProjects.find((p) => p.id === publicTargetId) ?? null
+  const [helpdeskTargetId, setHelpdeskTargetId] = useState<string | null>(null)
+  const helpdeskTarget =
+    visibleProjects.find((p) => p.id === helpdeskTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -158,6 +163,19 @@ export function WorkspaceProjectsSection({
                         <Globe className="h-3.5 w-3.5" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-7 w-7 shrink-0 ${
+                        project.helpdeskEnabled
+                          ? `text-indigo-400`
+                          : `text-muted-foreground`
+                      }`}
+                      title="Helpdesk settings"
+                      onClick={() => setHelpdeskTargetId(project.id)}
+                    >
+                      <LifeBuoy className="h-3.5 w-3.5" />
+                    </Button>
                     <Badge
                       variant="outline"
                       className="hidden shrink-0 font-mono text-xs sm:inline-flex"
@@ -245,6 +263,14 @@ export function WorkspaceProjectsSection({
         workspaceSlug={workspaceSlug}
         onOpenChange={(open) => {
           if (!open) setPublicTargetId(null)
+        }}
+      />
+
+      <HelpdeskDialog
+        project={helpdeskTarget}
+        workspaceSlug={workspaceSlug}
+        onOpenChange={(open) => {
+          if (!open) setHelpdeskTargetId(null)
         }}
       />
     </>
@@ -449,6 +475,92 @@ function PublicBoardDialog({
             />
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Owner control for a project's helpdesk switch (Pro-gated on cloud — the
+// server throws the plan-limit error, surfaced here as an upgrade nudge).
+// Live `project` row from Electric so the switch reflects the write.
+function HelpdeskDialog({
+  project,
+  workspaceSlug,
+  onOpenChange,
+}: {
+  project: Project | null
+  workspaceSlug: string
+  onOpenChange: (open: boolean) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setError(null)
+  }, [project?.id])
+
+  const toggle = async (enabled: boolean) => {
+    if (!project) return
+    setBusy(true)
+    setError(null)
+    try {
+      await trpc.projects.update.mutate({
+        id: project.id,
+        helpdeskEnabled: enabled,
+      })
+    } catch (err) {
+      setError(
+        isPlanLimitError(err)
+          ? `The helpdesk is available on Pro and Business plans.`
+          : `Could not update the helpdesk setting.`
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={project !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <LifeBuoy className="h-4 w-4" />
+            Helpdesk
+          </DialogTitle>
+          <DialogDescription>
+            Let people who reach out through the widget continue the
+            conversation over email + a private reply page. Conversations for
+            {` `}
+            <span className="font-medium text-foreground">
+              {project?.name}
+            </span>{` `}
+            land in the team&apos;s Support inbox.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <Label className="text-sm">Enable helpdesk</Label>
+            <p className="text-xs text-muted-foreground">
+              Pro and Business plans.
+            </p>
+          </div>
+          <Switch
+            checked={project?.helpdeskEnabled ?? false}
+            disabled={busy}
+            onCheckedChange={(checked) => void toggle(checked)}
+          />
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        {project?.helpdeskEnabled && (
+          <Button variant="outline" size="sm" asChild className="w-fit">
+            <Link to="/t/$workspaceSlug/support" params={{ workspaceSlug }}>
+              Open Support inbox
+            </Link>
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
   )

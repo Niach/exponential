@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   Globe,
   Inbox,
+  LifeBuoy,
   Link2,
   LogIn,
   LogOut,
@@ -324,6 +325,20 @@ export function WorkspaceSidebar({
                       <AgentsRunningBadge workspaceId={workspace?.id} />
                     </SidebarMenuItem>
                   )}
+                  {isAuthed &&
+                    (projects ?? []).some((p) => p.helpdeskEnabled) && (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <Link
+                            to="/t/$workspaceSlug/support"
+                            params={{ workspaceSlug }}
+                          >
+                            <LifeBuoy className="h-4 w-4" />
+                            <span>Support</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

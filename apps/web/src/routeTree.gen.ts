@@ -14,6 +14,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WSplatRouteImport } from './routes/w/$'
+import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
@@ -64,6 +65,7 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
+import { Route as TWorkspaceSlugSupportIndexRouteImport } from './routes/t/$workspaceSlug/support/index'
 import { Route as TWorkspaceSlugSettingsIndexRouteImport } from './routes/t/$workspaceSlug/settings/index'
 import { Route as TWorkspaceSlugReviewsIndexRouteImport } from './routes/t/$workspaceSlug/reviews/index'
 import { Route as TWorkspaceSlugMyIssuesIndexRouteImport } from './routes/t/$workspaceSlug/my-issues/index'
@@ -101,6 +103,11 @@ const IndexRoute = IndexRouteImport.update({
 const WSplatRoute = WSplatRouteImport.update({
   id: '/w/$',
   path: '/w/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportTokenRoute = SupportTokenRouteImport.update({
+  id: '/support/$token',
+  path: '/support/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
@@ -363,6 +370,12 @@ const AuthenticatedAccountNotificationsRoute =
     path: '/account/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const TWorkspaceSlugSupportIndexRoute =
+  TWorkspaceSlugSupportIndexRouteImport.update({
+    id: '/support/',
+    path: '/support/',
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
+  } as any)
 const TWorkspaceSlugSettingsIndexRoute =
   TWorkspaceSlugSettingsIndexRouteImport.update({
     id: '/settings/',
@@ -473,6 +486,7 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/support/$token': typeof SupportTokenRoute
   '/w/$': typeof WSplatRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -514,6 +528,7 @@ export interface FileRoutesByFullPath {
   '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
   '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
   '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/support/': typeof TWorkspaceSlugSupportIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
@@ -541,6 +556,7 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/support/$token': typeof SupportTokenRoute
   '/w/$': typeof WSplatRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -582,6 +598,7 @@ export interface FileRoutesByTo {
   '/t/$workspaceSlug/my-issues': typeof TWorkspaceSlugMyIssuesIndexRoute
   '/t/$workspaceSlug/reviews': typeof TWorkspaceSlugReviewsIndexRoute
   '/t/$workspaceSlug/settings': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/support': typeof TWorkspaceSlugSupportIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
@@ -613,6 +630,7 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/support/$token': typeof SupportTokenRoute
   '/w/$': typeof WSplatRoute
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -654,6 +672,7 @@ export interface FileRoutesById {
   '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
   '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
   '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/support/': typeof TWorkspaceSlugSupportIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
   '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
@@ -685,6 +704,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/support/$token'
     | '/w/$'
     | '/account/notifications'
     | '/admin/users'
@@ -726,6 +746,7 @@ export interface FileRouteTypes {
     | '/t/$workspaceSlug/my-issues/'
     | '/t/$workspaceSlug/reviews/'
     | '/t/$workspaceSlug/settings/'
+    | '/t/$workspaceSlug/support/'
     | '/t/$workspaceSlug/projects/$projectSlug/'
     | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
@@ -753,6 +774,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/support/$token'
     | '/w/$'
     | '/account/notifications'
     | '/admin/users'
@@ -794,6 +816,7 @@ export interface FileRouteTypes {
     | '/t/$workspaceSlug/my-issues'
     | '/t/$workspaceSlug/reviews'
     | '/t/$workspaceSlug/settings'
+    | '/t/$workspaceSlug/support'
     | '/t/$workspaceSlug/projects/$projectSlug'
     | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   id:
@@ -824,6 +847,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/support/$token'
     | '/w/$'
     | '/_authenticated/account/notifications'
     | '/_authenticated/admin/users'
@@ -865,6 +889,7 @@ export interface FileRouteTypes {
     | '/t/$workspaceSlug/my-issues/'
     | '/t/$workspaceSlug/reviews/'
     | '/t/$workspaceSlug/settings/'
+    | '/t/$workspaceSlug/support/'
     | '/t/$workspaceSlug/projects/$projectSlug/'
     | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
@@ -893,6 +918,7 @@ export interface RootRouteChildren {
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  SupportTokenRoute: typeof SupportTokenRoute
   WSplatRoute: typeof WSplatRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -957,6 +983,13 @@ declare module '@tanstack/react-router' {
       path: '/w/$'
       fullPath: '/w/$'
       preLoaderRoute: typeof WSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support/$token': {
+      id: '/support/$token'
+      path: '/support/$token'
+      fullPath: '/support/$token'
+      preLoaderRoute: typeof SupportTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$token': {
@@ -1309,6 +1342,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/t/$workspaceSlug/support/': {
+      id: '/t/$workspaceSlug/support/'
+      path: '/support'
+      fullPath: '/t/$workspaceSlug/support/'
+      preLoaderRoute: typeof TWorkspaceSlugSupportIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
+    }
     '/t/$workspaceSlug/settings/': {
       id: '/t/$workspaceSlug/settings/'
       path: '/settings'
@@ -1465,6 +1505,7 @@ interface TWorkspaceSlugRouteRouteChildren {
   TWorkspaceSlugMyIssuesIndexRoute: typeof TWorkspaceSlugMyIssuesIndexRoute
   TWorkspaceSlugReviewsIndexRoute: typeof TWorkspaceSlugReviewsIndexRoute
   TWorkspaceSlugSettingsIndexRoute: typeof TWorkspaceSlugSettingsIndexRoute
+  TWorkspaceSlugSupportIndexRoute: typeof TWorkspaceSlugSupportIndexRoute
   TWorkspaceSlugProjectsProjectSlugIndexRoute: typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
   TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
@@ -1476,6 +1517,7 @@ const TWorkspaceSlugRouteRouteChildren: TWorkspaceSlugRouteRouteChildren = {
   TWorkspaceSlugMyIssuesIndexRoute: TWorkspaceSlugMyIssuesIndexRoute,
   TWorkspaceSlugReviewsIndexRoute: TWorkspaceSlugReviewsIndexRoute,
   TWorkspaceSlugSettingsIndexRoute: TWorkspaceSlugSettingsIndexRoute,
+  TWorkspaceSlugSupportIndexRoute: TWorkspaceSlugSupportIndexRoute,
   TWorkspaceSlugProjectsProjectSlugIndexRoute:
     TWorkspaceSlugProjectsProjectSlugIndexRoute,
   TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute:
@@ -1513,6 +1555,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   InviteTokenRoute: InviteTokenRoute,
+  SupportTokenRoute: SupportTokenRoute,
   WSplatRoute: WSplatRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
