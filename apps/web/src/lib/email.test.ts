@@ -23,6 +23,7 @@ vi.mock(`@aws-sdk/client-sesv2`, () => {
 type SesInput = {
   FromEmailAddress: string
   Destination: { ToAddresses: string[] }
+  ReplyToAddresses?: string[]
   Content: {
     Simple: {
       Subject: { Data: string }
@@ -116,6 +117,26 @@ describe(`sendEmail with no transport`, () => {
     ).resolves.toMatchObject({ delivered: false })
 
     stderrSpy.mockRestore()
+  })
+})
+
+describe(`sendEmail over the SES transport (mocked)`, () => {
+  it(`maps replyTo to top-level ReplyToAddresses, never a custom header (SES rejects Reply-To there)`, async () => {
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+
+    await email.sendEmail({
+      to: `dennis@example.com`,
+      subject: `Contact form`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+      replyTo: `visitor@example.com`,
+    })
+
+    const input = sesCallInput()
+    expect(input.ReplyToAddresses).toEqual([`visitor@example.com`])
+    expect(input.Content.Simple.Headers ?? []).not.toContainEqual(
+      expect.objectContaining({ Name: `Reply-To` })
+    )
   })
 })
 

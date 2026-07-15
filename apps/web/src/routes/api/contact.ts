@@ -169,7 +169,7 @@ async function handleContact(request: Request): Promise<Response> {
       subject,
       html,
       text,
-      headers: { "Reply-To": email },
+      replyTo: email,
     })
     if (!result.delivered) {
       // No transport configured — tell the form so it can fall back to mailto.
