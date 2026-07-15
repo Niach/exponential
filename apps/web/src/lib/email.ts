@@ -73,6 +73,9 @@ export async function sendEmail(args: {
   subject: string
   html: string
   text: string
+  // SES rejects Reply-To (and other envelope fields) as a custom Simple
+  // header — reply-to must go through this dedicated field, never `headers`.
+  replyTo?: string
   headers?: Record<string, string>
 }): Promise<EmailSendResult> {
   if (process.env.AWS_SES_REGION) {
@@ -82,6 +85,7 @@ export async function sendEmail(args: {
       new SendEmailCommand({
         FromEmailAddress: fromAddress(),
         Destination: { ToAddresses: [args.to] },
+        ReplyToAddresses: args.replyTo ? [args.replyTo] : undefined,
         Content: {
           Simple: {
             Subject: { Data: args.subject, Charset: `UTF-8` },
@@ -114,6 +118,7 @@ export async function sendEmail(args: {
       subject: args.subject,
       html: args.html,
       text: args.text,
+      replyTo: args.replyTo,
       headers: args.headers,
     })
     return {
