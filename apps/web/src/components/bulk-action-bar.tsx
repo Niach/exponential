@@ -1,24 +1,17 @@
 import { useMemo, useState } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   Check,
   Flag,
   ListTodo,
   Minus,
-  Rocket,
   Tag,
   Trash2,
   UserRound,
   X,
 } from "lucide-react"
-import type { Issue, Label, Release, User } from "@/db/schema"
-import {
-  issueCollection,
-  issueLabelCollection,
-  releaseCollection,
-} from "@/lib/collections"
+import type { Issue, Label, User } from "@/db/schema"
+import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { compareReleases } from "@/lib/releases"
 import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
@@ -33,13 +26,12 @@ import {
 import { Separator } from "@/components/ui/separator"
 
 // Linear-style floating bulk action bar: shown while the issue list has a
-// multi-selection. Property edits (status/priority/assignee/labels/release)
+// multi-selection. Property edits (status/priority/assignee/labels)
 // keep the selection alive — only delete clears it (Linear semantics; the
 // desktop bar mirrors this). Every mutation goes through the bulk tRPC
 // procedures, chunked at the server's 200-id cap, awaiting the LAST txId so
 // Electric has echoed every row version before the UI settles.
 interface BulkActionBarProps {
-  workspaceId: string
   // Selected issues, in visible list order.
   issues: Issue[]
   issueLabelMap: Map<string, Label[]>
@@ -59,7 +51,6 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export function BulkActionBar({
-  workspaceId,
   issues,
   issueLabelMap,
   labels,
@@ -68,18 +59,6 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
-
-  const { data: releaseRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ releases: releaseCollection })
-        .where(({ releases }) => eq(releases.workspaceId, workspaceId)),
-    [workspaceId]
-  )
-  const releases = useMemo(
-    () => [...((releaseRows ?? []) as Release[])].sort(compareReleases),
-    [releaseRows]
-  )
 
   const orderedUsers = useMemo(
     () => [...users].sort((left, right) => left.name.localeCompare(right.name)),
@@ -157,13 +136,6 @@ export function BulkActionBar({
       (txId) => issueLabelCollection.utils.awaitTxId(txId)
     )
   }
-
-  const addToRelease = (releaseId: string) =>
-    runBulk(
-      (ids) =>
-        trpc.releases.addIssues.mutate({ releaseId, issueIds: ids }),
-      (txId) => issueCollection.utils.awaitTxId(txId)
-    )
 
   const deleteSelected = async () => {
     const ran = await runBulk(
@@ -331,35 +303,6 @@ export function BulkActionBar({
                 </DropdownMenuItem>
               )
             })
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={busy}
-          >
-            <Rocket className="size-4" />
-            Add to release
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[13rem]">
-          {releases.length === 0 ? (
-            <DropdownMenuItem disabled>No releases yet</DropdownMenuItem>
-          ) : (
-            releases.map((release) => (
-              <DropdownMenuItem
-                key={release.id}
-                onSelect={() => void addToRelease(release.id)}
-              >
-                <Rocket className="size-4 text-muted-foreground" />
-                <span className="truncate">{release.name}</span>
-              </DropdownMenuItem>
-            ))
           )}
         </DropdownMenuContent>
       </DropdownMenu>

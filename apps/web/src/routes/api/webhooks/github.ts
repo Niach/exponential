@@ -8,11 +8,7 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
-  applyReleasePrClosedState,
-  applyReleasePrMergeState,
-  applyReleasePrReopenedState,
   findIssueIdByBranch,
-  findReleaseIdByPrUrl,
 } from "@/lib/integrations/pr-sync"
 import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
@@ -36,25 +32,27 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
   return timingSafeEqual(a, b)
 }
 
-// Resolve the payload's PR to one of our issues: exact prUrl match first, then
-// a deterministic fallback that parses the `exp/<IDENTIFIER>` head branch and
-// resolves through the repositories registry — so PRs opened out-of-band still
-// link.
-async function resolveIssueForPr(args: {
+// Resolve the payload's PR to our issues: exact prUrl match first — plural,
+// because a batch coding run links ALL its issues to ONE combined PR — then a
+// deterministic single-issue fallback that parses the `exp/<IDENTIFIER>` head
+// branch and resolves through the repositories registry, so PRs opened
+// out-of-band still link. (Batch branches are `exp/batch-<hex>` — lowercase by
+// construction, so the branch parse can never mis-link them.)
+async function resolveIssuesForPr(args: {
   htmlUrl: string
   repoFullName?: string
   headRef?: string
-}): Promise<string | null> {
-  const [byUrl] = await db
+}): Promise<string[]> {
+  const byUrl = await db
     .select({ id: issues.id })
     .from(issues)
     .where(eq(issues.prUrl, args.htmlUrl))
-    .limit(1)
-  if (byUrl) return byUrl.id
+  if (byUrl.length > 0) return byUrl.map((row) => row.id)
   if (args.repoFullName && args.headRef) {
-    return findIssueIdByBranch(args.repoFullName, args.headRef)
+    const issueId = await findIssueIdByBranch(args.repoFullName, args.headRef)
+    return issueId ? [issueId] : []
   }
-  return null
+  return []
 }
 
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
@@ -218,24 +216,23 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     const repoFullName = payload.repository?.full_name
     const headRef = pr.head?.ref
 
-    // Merge: flip prState → merged, stamp prMergedAt, emit pr_merged (once).
-    // Release PRs (EXP-56) resolve by exact prUrl when no issue matches —
-    // merging one also AUTO-SHIPS the release (stamps shippedAt).
+    // Merge: flip prState → merged, stamp prMergedAt, emit pr_merged (once
+    // per issue). A batch PR resolves to every linked issue — merging it
+    // completes them all (each apply is idempotent per issue).
     if (payload.action === `closed` && pr.merged === true) {
       const mergedAt = pr.merged_at ? new Date(pr.merged_at) : new Date()
-      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
-      if (issueId) {
+      const issueIds = await resolveIssuesForPr({
+        htmlUrl,
+        repoFullName,
+        headRef,
+      })
+      for (const issueId of issueIds) {
         await applyPrMergeState({
           issueId,
           prUrl: htmlUrl,
           mergedAt,
           actorUserId: null,
         })
-        return jsonResponse(200, { ok: true })
-      }
-      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
-      if (releaseId) {
-        await applyReleasePrMergeState({ releaseId, prUrl: htmlUrl, mergedAt })
       }
       return jsonResponse(200, { ok: true })
     }
@@ -243,36 +240,38 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // Closed without merging: flip prState → closed so the issue leaves the
     // Reviews open-PR surfaces (state-only; no pr_closed event type exists).
     if (payload.action === `closed` && pr.merged !== true) {
-      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
-      if (issueId) {
+      const issueIds = await resolveIssuesForPr({
+        htmlUrl,
+        repoFullName,
+        headRef,
+      })
+      for (const issueId of issueIds) {
         await applyPrClosedState({ issueId, prUrl: htmlUrl })
-        return jsonResponse(200, { ok: true })
-      }
-      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
-      if (releaseId) {
-        await applyReleasePrClosedState({ releaseId, prUrl: htmlUrl })
       }
       return jsonResponse(200, { ok: true })
     }
 
     // Reopened after a close-without-merge: heal closed → open.
     if (payload.action === `reopened`) {
-      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
-      if (issueId) {
+      const issueIds = await resolveIssuesForPr({
+        htmlUrl,
+        repoFullName,
+        headRef,
+      })
+      for (const issueId of issueIds) {
         await applyPrReopenedState({ issueId, prUrl: htmlUrl })
-        return jsonResponse(200, { ok: true })
-      }
-      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
-      if (releaseId) {
-        await applyReleasePrReopenedState({ releaseId, prUrl: htmlUrl })
       }
       return jsonResponse(200, { ok: true })
     }
 
     // Opened out-of-band: link the PR to its issue if it has none yet.
     if (payload.action === `opened` && repoFullName && headRef && pr.number) {
-      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
-      if (issueId) {
+      const issueIds = await resolveIssuesForPr({
+        htmlUrl,
+        repoFullName,
+        headRef,
+      })
+      for (const issueId of issueIds) {
         await applyPrOpenedState({
           issueId,
           prUrl: htmlUrl,

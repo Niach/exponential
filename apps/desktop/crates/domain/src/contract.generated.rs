@@ -13,7 +13,7 @@ pub const NOTIFICATION_TYPE_VALUES: &[&str] = &["issue_assigned", "issue_comment
 pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
 pub const CODING_SESSION_STATUS_VALUES: &[&str] = &["running", "ended"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"];
-pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "release_added", "release_removed", "project_moved"];
+pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved"];
 pub const RECURRENCE_INTERVALS: &[i32] = &[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30];
 
 pub const WORKSPACE_ROLE_OWNER: &str = "owner";
@@ -47,6 +47,4 @@ pub const ISSUE_EVENT_TYPE_LABEL_ADDED: &str = "label_added";
 pub const ISSUE_EVENT_TYPE_LABEL_REMOVED: &str = "label_removed";
 pub const ISSUE_EVENT_TYPE_PR_OPENED: &str = "pr_opened";
 pub const ISSUE_EVENT_TYPE_PR_MERGED: &str = "pr_merged";
-pub const ISSUE_EVENT_TYPE_RELEASE_ADDED: &str = "release_added";
-pub const ISSUE_EVENT_TYPE_RELEASE_REMOVED: &str = "release_removed";
 pub const ISSUE_EVENT_TYPE_PROJECT_MOVED: &str = "project_moved";

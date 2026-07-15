@@ -1,5 +1,5 @@
 import { type ReactNode } from "react"
-import type { Issue, Label, Project, Release, User } from "@/db/schema"
+import type { Issue, Label, Project, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
@@ -28,7 +28,6 @@ import {
   LabelsSubmenu,
   PrioritySubmenu,
   ProjectSubmenu,
-  ReleaseSubmenu,
   StatusSubmenu,
 } from "./submenus"
 
@@ -38,9 +37,6 @@ interface IssueRowContextMenuProps {
   issueLabels: Label[]
   labels: Label[]
   onOpenIssue: () => void
-  // Workspace releases (sorted) for the add-to-release submenu; undefined
-  // hides the submenu (caller has no workspace scope).
-  releases?: Release[]
   // Workspace projects (sorted) for the move-to-project submenu (EXP-57);
   // undefined hides the submenu (caller has no workspace scope).
   projects?: Project[]
@@ -56,7 +52,6 @@ export function IssueRowContextMenu({
   issueLabels,
   labels,
   onOpenIssue,
-  releases,
   projects,
   userMap,
   users,
@@ -113,14 +108,6 @@ export function IssueRowContextMenu({
     await trpc.issueLabels.add.mutate({
       issueId: issue.id,
       labelId,
-    })
-  }
-
-  const setRelease = async (releaseId: string | null) => {
-    if (releaseId === issue.releaseId) return
-    await trpc.releases.setIssueRelease.mutate({
-      issueId: issue.id,
-      releaseId,
     })
   }
 
@@ -242,15 +229,6 @@ export function IssueRowContextMenu({
             topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
             onApplyDueDate={applyDueDate}
           />
-
-          {releases && (
-            <ReleaseSubmenu
-              releaseId={issue.releaseId}
-              releases={releases}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(releaseId) => void setRelease(releaseId)}
-            />
-          )}
 
           {projects && projects.length > 1 && (
             <ProjectSubmenu

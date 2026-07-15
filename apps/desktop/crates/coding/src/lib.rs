@@ -31,8 +31,9 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
-pub mod agents_json;
 pub mod argv;
+pub mod batch_launcher;
+pub mod batch_prompt;
 pub mod claude_task;
 pub mod clone_manager;
 pub mod doctor;
@@ -41,8 +42,6 @@ pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
 pub mod prompt;
-pub mod release_launcher;
-pub mod release_prompt;
 pub mod run_launch;
 pub mod scm;
 pub mod settings;
@@ -52,7 +51,11 @@ pub mod token_cache;
 pub mod token_refresh;
 pub mod trunk_state;
 
-pub use argv::{issue_args, permission_args, release_args, IssueLaunchOptions};
+pub use argv::{permission_args, session_args, LaunchOptions};
+pub use batch_launcher::{
+    batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
+};
+pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use claude_task::{
     claude_task, claude_task_with_mcp, create_run_configs_prompt, fix_conflicts_prompt,
     resolve_pr_prompt, ClaudeTask,
@@ -78,11 +81,6 @@ pub use launcher::{
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
-pub use release_launcher::{
-    release_branch_name, release_slug, ReleaseIssueSpec, ReleaseLaunchOptions,
-    ReleaseLaunchRequest, RepoGroup,
-};
-pub use release_prompt::{render_release_prompt, ReleasePromptArgs, ReleasePromptIssue};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, write_rendered_prompt, PromptDelivery,
     PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,

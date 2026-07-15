@@ -108,7 +108,6 @@ impl PropertiesPanel {
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&collections.workspace_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
-            cx.observe(&collections.releases, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -483,86 +482,6 @@ impl PropertiesPanel {
             })
     }
 
-    /// The Release picker (EXP-56) — SINGLE-select over the workspace's
-    /// releases (`issues.release_id` is 1:N, unlike labels): trigger shows
-    /// the current release's name or the "Release" placeholder; the menu
-    /// offers a "No release" clear row plus every release in the shared
-    /// display order (unshipped first).
-    fn release_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let releases = Store::global(cx)
-            .collections()
-            .projects
-            .read(cx)
-            .get(&issue.project_id)
-            .map(|project| project.workspace_id.clone())
-            .map(|workspace_id| queries::workspace_releases(cx, &workspace_id))
-            .unwrap_or_default();
-        let current_id = issue.release_id.clone();
-        let issue_id = issue.id.clone();
-
-        let label: SharedString = match current_id.as_deref() {
-            Some(id) => releases
-                .iter()
-                .find(|release| release.id == id)
-                .and_then(|release| release.name.clone())
-                // The row hasn't synced (yet) — never leak the raw id.
-                .unwrap_or_else(|| "A release".to_string())
-                .into(),
-            None => "Release".into(),
-        };
-
-        Button::new("prop-release")
-            .ghost()
-            .xsmall()
-            .icon(Icon::from(ExpIcon::Rocket).text_color(cx.theme().muted_foreground))
-            .label(label)
-            .dropdown_menu(move |menu, _, _| {
-                // Release lists grow with the workspace — cap + scroll
-                // (EXP-46a).
-                let mut menu = menu
-                    .check_side(Side::Right)
-                    .scrollable(true)
-                    .max_h(px(320.));
-                if releases.is_empty() {
-                    return menu.item(PopupMenuItem::label("No releases in this workspace"));
-                }
-                if current_id.is_some() {
-                    let issue_id = issue_id.clone();
-                    menu = menu.item(PopupMenuItem::new("No release").on_click(
-                        move |_, _, cx| {
-                            set_issue_release(cx, issue_id.clone(), None);
-                        },
-                    ));
-                }
-                for release in &releases {
-                    let checked = current_id.as_deref() == Some(release.id.as_str());
-                    let name = release
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| "Untitled release".to_string());
-                    let label = if release.shipped_at.is_some() {
-                        format!("{name} (shipped)")
-                    } else {
-                        name
-                    };
-                    let issue_id = issue_id.clone();
-                    let release_id = release.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(label))
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                set_issue_release(
-                                    cx,
-                                    issue_id.clone(),
-                                    Some(release_id.clone()),
-                                );
-                            }),
-                    );
-                }
-                menu
-            })
-    }
-
     /// The due-date control (web `DueDateControl`, sidebar layout): a ghost
     /// `CalendarDays` trigger labeled with the formatted short date when set,
     /// or the literal "Due date" when empty (`triggerLabel = dueDate ?
@@ -741,11 +660,6 @@ impl Render for PropertiesPanel {
             })
             .child(property_group("Labels", self.labels_control(&issue, cx), cx))
             .child(property_group(
-                "Release",
-                self.release_control(&issue, cx),
-                cx,
-            ))
-            .child(property_group(
                 "Due date",
                 v_flex()
                     .items_start()
@@ -893,25 +807,6 @@ pub(crate) fn toggle_label(
         .detach();
 }
 
-/// Web `releases.setIssueRelease` — move an issue into a release, or out with
-/// `None` (EXP-56). Writes the ISSUES table server-side; the Electric echo
-/// re-renders. `pub(crate)` — shared with the issue-row context menu's
-/// "Remove from release" item and the release detail's row action.
-pub(crate) fn set_issue_release(cx: &mut App, issue_id: String, release_id: Option<String>) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        log::warn!("[ui] releases.setIssueRelease skipped: no signed-in account");
-        return;
-    };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) =
-                api::releases::set_issue_release(&trpc, &issue_id, release_id.as_deref())
-            {
-                log::warn!("[ui] releases.setIssueRelease({issue_id}) failed: {err}");
-            }
-        })
-        .detach();
-}
 
 /// §4.1 un-gated `issues.update` on a background thread — the Electric echo
 /// re-renders; errors log and the UI stays put (web inline behavior). Shared

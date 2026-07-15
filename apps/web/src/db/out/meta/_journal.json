@@ -162,6 +162,13 @@
       "when": 1784068984565,
       "tag": "0022_cheerful_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784119934170,
+      "tag": "0023_faithful_stark_industries",
+      "breakpoints": true
     }
   ]
 }

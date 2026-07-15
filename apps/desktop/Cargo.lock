@@ -1143,6 +1143,7 @@ dependencies = [
  "serde",
  "serde_json",
  "terminal",
+ "uuid",
 ]
 
 [[package]]

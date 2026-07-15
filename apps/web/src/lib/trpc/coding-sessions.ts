@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { codingSessions, releases } from "@/db/schema"
+import { codingSessions } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -10,8 +10,8 @@ import {
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
-// Two subjects (EXP-56): issue-scoped (issueId) or release-scoped (releaseId —
-// the desktop release orchestrator; issue_id/project_id stay NULL, the
+// Two subjects: issue-scoped (issueId) or batch-scoped (workspaceId — the
+// desktop multi-issue batch orchestrator; issue_id/project_id stay NULL, the
 // populate triggers no-op on NULL issue_id). Exactly one of the two.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
@@ -21,12 +21,15 @@ export const codingSessionsRouter = router({
       z
         .object({
           issueId: z.string().uuid().optional(),
-          releaseId: z.string().uuid().optional(),
+          workspaceId: z.string().uuid().optional(),
           deviceLabel: z.string().max(255).optional(),
         })
-        .refine((value) => Boolean(value.issueId) !== Boolean(value.releaseId), {
-          message: `Exactly one of issueId/releaseId is required`,
-        })
+        .refine(
+          (value) => Boolean(value.issueId) !== Boolean(value.workspaceId),
+          {
+            message: `Exactly one of issueId/workspaceId is required`,
+          }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       if (input.issueId) {
@@ -50,28 +53,15 @@ export const codingSessionsRouter = router({
         return { session }
       }
 
-      const [release] = await ctx.db
-        .select({ id: releases.id, workspaceId: releases.workspaceId })
-        .from(releases)
-        .where(eq(releases.id, input.releaseId!))
-        .limit(1)
-      if (!release) {
-        throw new TRPCError({
-          code: `NOT_FOUND`,
-          message: `Release not found`,
-        })
-      }
-      await assertWorkspaceMember(ctx.session.user.id, release.workspaceId)
+      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId!)
 
       const [session] = await ctx.db
         .insert(codingSessions)
         .values({
-          releaseId: release.id,
-          // workspace_id written directly from the release (no issue to
-          // denormalize from); project_id stays NULL — a release run spans
-          // projects and must never surface through the anonymous
-          // project-scoped clause.
-          workspaceId: release.workspaceId,
+          // Batch run: no issue to denormalize from — workspace_id written
+          // directly; project_id stays NULL, a batch run spans projects and
+          // must never surface through the anonymous project-scoped clause.
+          workspaceId: input.workspaceId!,
           userId: ctx.session.user.id,
           deviceLabel: input.deviceLabel ?? null,
           status: `running`,
@@ -87,7 +77,7 @@ export const codingSessionsRouter = router({
   // the synced row to `ended` is exactly the desktop's remote-kill signal
   // (the own-row kill-switch tears the live child down on that transition),
   // so a genuinely-live session MUST keep its row fresh to survive the sweep.
-  // Fire-and-forget on the client: a vanished row (issue/release cascade
+  // Fire-and-forget on the client: a vanished row (issue cascade
   // delete) or an already-ended one is reported, never thrown.
   heartbeat: authedProcedure
     .input(z.object({ id: z.string().uuid() }))

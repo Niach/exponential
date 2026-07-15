@@ -12,6 +12,8 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 
 serde = { workspace = true }
+# Batch-run ids (`exp/batch-<id8>`) — already in the tree via the app crate.
+uuid = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }

@@ -10,7 +10,7 @@ import { is, Param, SQL } from "drizzle-orm"
 // through the same applyStatusDerivations/finalizeIssueUpdateInTx core as the
 // single update (completedAt stamping, duplicate-link clearing, recurrence
 // clone), and the post-commit notification fan-out is skipped entirely past
-// 25 ids. Mirrors releases.test.ts's fake-db harness: FIFO select queue,
+// 25 ids. Fake-db harness: FIFO select queue,
 // recording update/delete chains, transaction() handing back the same fake.
 
 const h = vi.hoisted(() => ({

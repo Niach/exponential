@@ -15,7 +15,7 @@ object DomainContract {
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "release_added", "release_removed", "project_moved")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved")
     val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 
     const val workspaceRoleOwner: String = "owner"
@@ -49,7 +49,5 @@ object DomainContract {
     const val issueEventTypeLabelRemoved: String = "label_removed"
     const val issueEventTypePrOpened: String = "pr_opened"
     const val issueEventTypePrMerged: String = "pr_merged"
-    const val issueEventTypeReleaseAdded: String = "release_added"
-    const val issueEventTypeReleaseRemoved: String = "release_removed"
     const val issueEventTypeProjectMoved: String = "project_moved"
 }

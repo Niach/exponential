@@ -65,7 +65,7 @@ data class ProjectEntity(
 
 @Entity(
     tableName = "issues",
-    indices = [Index("project_id"), Index("status"), Index("assignee_id"), Index("due_date"), Index("release_id")],
+    indices = [Index("project_id"), Index("status"), Index("assignee_id"), Index("due_date")],
 )
 @Serializable
 data class IssueEntity(
@@ -94,9 +94,6 @@ data class IssueEntity(
     @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
     val branch: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
-    // Release membership (EXP-56): the workspace release this issue ships in
-    // (at most one — 1:N via issues.release_id). Member-only on the wire.
-    @ColumnInfo(name = "release_id") @SerialName("release_id") @JsonNames("releaseId") val releaseId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -212,48 +209,18 @@ fun commentKindOf(raw: String?): CommentKind = CommentKind.Regular
 @Serializable
 data class CodingSessionEntity(
     @PrimaryKey val id: String,
-    // Nullable since EXP-56: NULL for release-scoped orchestrator sessions
-    // (release_id set instead — exactly one of issue_id/release_id is set).
+    // Nullable for batch multi-issue runs (a desktop batch spans issues, so the
+    // session isn't tied to a single one).
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
     // Denormalized issue→project id (v7 server trigger); NULL for
-    // release-scoped sessions (a release run spans projects).
+    // batch sessions (a batch run spans projects).
     @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
-    // Set for release-scoped sessions; NULL for issue-scoped ones (EXP-56).
-    @ColumnInfo(name = "release_id") @SerialName("release_id") @JsonNames("releaseId") val releaseId: String? = null,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
     val status: String = "running",
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
-
-// Workspace-level issue bundle (EXP-56) — the 15th Electric shape. Issues
-// reference it 1:N via issues.release_id; state derives from shipped_at plus
-// member-issue progress (no status enum). The pr_* fields carry the release PR
-// (integration branch → default), written server-side only.
-@Entity(
-    tableName = "releases",
-    indices = [Index("workspace_id")],
-)
-@Serializable
-data class ReleaseEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
-    val name: String,
-    val description: String? = null,
-    // Plain yyyy-MM-dd date (no time component), like issues.due_date.
-    @ColumnInfo(name = "target_date") @SerialName("target_date") @JsonNames("targetDate") val targetDate: String? = null,
-    // Non-null = shipped. Independent of progress — shipping early is allowed.
-    @ColumnInfo(name = "shipped_at") @SerialName("shipped_at") @JsonNames("shippedAt") val shippedAt: String? = null,
-    // Audit-only creator (nullable — SET NULL on user delete server-side).
-    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String? = null,
-    @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
-    @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
-    @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
-    @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

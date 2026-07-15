@@ -113,7 +113,6 @@ vi.mock(`@/components/ui/context-menu`, () => ({
 function buildIssue(overrides: Partial<Issue> = {}): Issue {
   return {
     id: `issue-1`,
-    releaseId: null,
     projectId: `project-1`,
     number: 1,
     identifier: `APP-1`,

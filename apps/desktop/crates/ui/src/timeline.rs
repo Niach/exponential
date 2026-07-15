@@ -30,7 +30,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::rows::{Comment, IssueEvent, Label, Project, Release, User};
+use domain::rows::{Comment, IssueEvent, Label, Project, User};
 
 use crate::comments::{self, CommentRowProps};
 use crate::icons::ExpIcon;
@@ -110,8 +110,6 @@ impl IssueTimeline {
         subscriptions.push(cx.observe(&collections.issue_events, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.labels, |_, _, cx| cx.notify()));
-        // Release names in release_added/release_removed rows (EXP-56).
-        subscriptions.push(cx.observe(&collections.releases, |_, _, cx| cx.notify()));
         // The autocomplete scope depends on the issue → project → workspace
         // chain; re-resolve as those shapes land. Projects also notify —
         // project names in project_moved rows (EXP-57).
@@ -379,12 +377,6 @@ impl Render for IssueTimeline {
             .iter()
             .map(|label| (label.id.clone(), label.clone()))
             .collect();
-        let release_map: HashMap<String, Release> = collections
-            .releases
-            .read(cx)
-            .iter()
-            .map(|release| (release.id.clone(), release.clone()))
-            .collect();
         // Project names in project_moved rows (EXP-57).
         let project_map: HashMap<String, Project> = collections
             .projects
@@ -435,7 +427,7 @@ impl Render for IssueTimeline {
             match item {
                 TimelineItem::Event(event) => {
                     if let Some(row) =
-                        event_row(event, &user_map, &label_map, &release_map, &project_map, cx)
+                        event_row(event, &user_map, &label_map, &project_map, cx)
                     {
                         body = body.child(row);
                     }
@@ -516,7 +508,6 @@ fn event_phrase(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
-    release_map: &HashMap<String, Release>,
     project_map: &HashMap<String, Project>,
 ) -> Option<(ExpIcon, String, Option<String>)> {
     let payload = event.payload.as_ref();
@@ -564,22 +555,6 @@ fn event_phrase(
             let verb = if kind == "label_added" { "added" } else { "removed" };
             Some((ExpIcon::Tag, format!("{verb} label {label_name}"), None))
         }
-        kind @ ("release_added" | "release_removed") => {
-            // EXP-56: payload carries `releaseId`; the name resolves from the
-            // synced releases collection (a deleted/unsynced release degrades
-            // to "a release", mirroring the label fallback).
-            let verb = if kind == "release_added" {
-                "added this to"
-            } else {
-                "removed this from"
-            };
-            let target = payload_str("releaseId")
-                .and_then(|id| release_map.get(&id))
-                .and_then(|release| release.name.clone())
-                .map(|name| format!("release {name}"))
-                .unwrap_or_else(|| "a release".to_string());
-            Some((ExpIcon::Rocket, format!("{verb} {target}"), None))
-        }
         "project_moved" => {
             // EXP-57 (web `EventRow` parity): from/to project names resolve
             // from the synced projects; a deleted source degrades generically
@@ -625,11 +600,10 @@ fn event_row(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
-    release_map: &HashMap<String, Release>,
     project_map: &HashMap<String, Project>,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
-    let (icon, phrase, link) = event_phrase(event, user_map, label_map, release_map, project_map)?;
+    let (icon, phrase, link) = event_phrase(event, user_map, label_map, project_map)?;
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
@@ -711,14 +685,12 @@ mod tests {
             serde_json::from_value(json!({ "id": "l-1", "workspace_id": "w", "name": "bug" }))
                 .unwrap(),
         )]);
-        let releases: HashMap<String, Release> = HashMap::new();
         let projects: HashMap<String, Project> = HashMap::new();
 
         let (_, phrase, _) = event_phrase(
             &event("status_changed", json!({ "to": "in_progress" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -729,7 +701,6 @@ mod tests {
             &event("status_changed", json!({ "from": "todo", "to": "in_progress" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -739,7 +710,6 @@ mod tests {
             &event("assignee_changed", json!({ "to": "u-1" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -750,7 +720,6 @@ mod tests {
             &event("assignee_changed", json!({ "to": "u-ghost" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -760,7 +729,6 @@ mod tests {
             &event("assignee_changed", json!({})),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -770,7 +738,6 @@ mod tests {
             &event("label_added", json!({ "labelId": "l-1" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -780,7 +747,6 @@ mod tests {
             &event("label_removed", json!({ "labelId": "gone" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -790,7 +756,6 @@ mod tests {
             &event("pr_opened", json!({})),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -801,7 +766,6 @@ mod tests {
             &event("pr_merged", json!({})),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -813,7 +777,6 @@ mod tests {
             &event("something_new", json!({})),
             &users,
             &labels,
-            &releases,
             &projects
         )
         .is_none());
@@ -823,7 +786,6 @@ mod tests {
     fn pr_events_surface_number_and_link() {
         let users = HashMap::new();
         let labels = HashMap::new();
-        let releases = HashMap::new();
         let projects = HashMap::new();
 
         // pr_opened payload: { prUrl, prNumber, branch } (pr-sync.ts).
@@ -838,7 +800,6 @@ mod tests {
             ),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -850,7 +811,6 @@ mod tests {
             &event("pr_merged", json!({ "prUrl": "https://github.com/o/r/pull/42" })),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -863,55 +823,9 @@ mod tests {
     }
 
     #[test]
-    fn release_events_resolve_the_name_and_degrade_gracefully() {
-        let users = HashMap::new();
-        let labels = HashMap::new();
-        let release: Release = serde_json::from_value(json!({
-            "id": "rel-1", "workspace_id": "w-1", "name": "v1.0"
-        }))
-        .unwrap();
-        let releases = HashMap::from([("rel-1".to_string(), release)]);
-        let projects = HashMap::new();
-
-        // EXP-56: payload carries { releaseId } (releases.ts).
-        let (_, phrase, link) = event_phrase(
-            &event("release_added", json!({ "releaseId": "rel-1" })),
-            &users,
-            &labels,
-            &releases,
-            &projects,
-        )
-        .unwrap();
-        assert_eq!(phrase, "added this to release v1.0");
-        assert_eq!(link, None);
-
-        let (_, phrase, _) = event_phrase(
-            &event("release_removed", json!({ "releaseId": "rel-1" })),
-            &users,
-            &labels,
-            &releases,
-            &projects,
-        )
-        .unwrap();
-        assert_eq!(phrase, "removed this from release v1.0");
-
-        // A deleted/unsynced release degrades to "a release" (label parity).
-        let (_, phrase, _) = event_phrase(
-            &event("release_added", json!({ "releaseId": "gone" })),
-            &users,
-            &labels,
-            &releases,
-            &projects,
-        )
-        .unwrap();
-        assert_eq!(phrase, "added this to a release");
-    }
-
-    #[test]
     fn project_moved_resolves_names_and_degrades_gracefully() {
         let users = HashMap::new();
         let labels = HashMap::new();
-        let releases = HashMap::new();
         let alpha: Project = serde_json::from_value(json!({
             "id": "p-1", "workspace_id": "w-1", "name": "Alpha"
         }))
@@ -935,7 +849,6 @@ mod tests {
             ),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -954,7 +867,6 @@ mod tests {
             ),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -965,7 +877,6 @@ mod tests {
             &event("project_moved", json!({})),
             &users,
             &labels,
-            &releases,
             &projects,
         )
         .unwrap();
@@ -1022,7 +933,6 @@ mod tests {
         );
         let (_, phrase, _) = event_phrase(
             &hydrated,
-            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),

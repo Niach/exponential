@@ -142,14 +142,6 @@ impl BoardView {
                 .get(project_id)
                 .map(|project| project.workspace_id.clone()),
             IssueQuery::MyIssues { workspace_id, .. } => Some(workspace_id.clone()),
-            // The Releases tool window embeds the bare IssueListView, so a
-            // BoardView never carries this query — resolve anyway for safety.
-            IssueQuery::Release { release_id } => Store::global(cx)
-                .collections()
-                .releases
-                .read(cx)
-                .get(release_id)
-                .and_then(|release| release.workspace_id.clone()),
         }
     }
 }

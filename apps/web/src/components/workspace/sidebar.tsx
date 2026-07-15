@@ -14,7 +14,6 @@ import {
   LogIn,
   LogOut,
   Plus,
-  Rocket,
   Search,
   Settings,
   Shield,
@@ -22,7 +21,6 @@ import {
 import {
   codingSessionCollection,
   issueCollection,
-  releaseCollection,
 } from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getProjectTypeOption } from "@/lib/project-types"
@@ -73,16 +71,10 @@ function InboxUnreadBadge() {
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
 }
 
-// Open-PR count across the workspace's projects — issue-linked PRs plus open
-// RELEASE PRs (EXP-73), matching the Reviews page's synced-row count. Pure
-// client-side counting over the already-synced issues + releases shapes.
-function ReviewsCountBadge({
-  projects,
-  workspaceId,
-}: {
-  projects: Project[] | undefined
-  workspaceId?: string
-}) {
+// Open-PR count across the workspace's projects, matching the Reviews page's
+// synced-row count. Pure client-side counting over the already-synced issues
+// shape.
+function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
   const projectIds = useMemo(
     () => (projects ?? []).map((project) => project.id),
     [projects]
@@ -101,21 +93,7 @@ function ReviewsCountBadge({
         : undefined,
     [projectIds.join(`,`)]
   )
-  const { data: releasePulls } = useLiveQuery(
-    (query) =>
-      workspaceId
-        ? query
-            .from({ releases: releaseCollection })
-            .where(({ releases }) =>
-              and(
-                eq(releases.workspaceId, workspaceId),
-                eq(releases.prState, `open`)
-              )
-            )
-        : undefined,
-    [workspaceId]
-  )
-  const count = (data?.length ?? 0) + (releasePulls?.length ?? 0)
+  const count = data?.length ?? 0
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
@@ -139,27 +117,6 @@ function AgentsRunningBadge({ workspaceId }: { workspaceId?: string }) {
     [workspaceId]
   )
   const count = data?.length ?? 0
-  if (count === 0) return null
-  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
-}
-
-// Live count of UNSHIPPED releases in the workspace, for the Releases entry.
-// Pure client-side counting over the already-synced releases shape (member-
-// only, workspace-scoped). shipped_at is filtered in JS — the live-query
-// operator set has no null check, and workspace release lists are tiny.
-function ReleasesUnshippedBadge({ workspaceId }: { workspaceId?: string }) {
-  const { data } = useLiveQuery(
-    (query) =>
-      workspaceId
-        ? query
-            .from({ releases: releaseCollection })
-            .where(({ releases }) => eq(releases.workspaceId, workspaceId))
-        : undefined,
-    [workspaceId]
-  )
-  const count = (data ?? []).filter(
-    (release) => release.shippedAt === null
-  ).length
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
@@ -342,10 +299,7 @@ export function WorkspaceSidebar({
                           <span>Reviews</span>
                         </Link>
                       </SidebarMenuButton>
-                      <ReviewsCountBadge
-                        projects={projects}
-                        workspaceId={workspace?.id}
-                      />
+                      <ReviewsCountBadge projects={projects} />
                     </SidebarMenuItem>
                   )}
                   {isAuthed && (
@@ -360,20 +314,6 @@ export function WorkspaceSidebar({
                         </Link>
                       </SidebarMenuButton>
                       <AgentsRunningBadge workspaceId={workspace?.id} />
-                    </SidebarMenuItem>
-                  )}
-                  {isAuthed && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
-                        <Link
-                          to="/w/$workspaceSlug/releases"
-                          params={{ workspaceSlug }}
-                        >
-                          <Rocket className="h-4 w-4" />
-                          <span>Releases</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      <ReleasesUnshippedBadge workspaceId={workspace?.id} />
                     </SidebarMenuItem>
                   )}
                 </SidebarMenu>

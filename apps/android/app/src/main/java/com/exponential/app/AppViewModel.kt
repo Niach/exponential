@@ -151,12 +151,6 @@ class AppViewModel @Inject constructor(
         .map { it?.id }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    // The current project's workspace — the bottom bar's Releases tab targets
-    // it (EXP-56), so it follows the exact same resolution as the Issues tab.
-    val currentWorkspaceId: StateFlow<String?> = currentProject
-        .map { it?.workspaceId }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
     fun setInstanceUrl(url: String) {
         viewModelScope.launch { auth.setInstanceUrl(url) }
     }

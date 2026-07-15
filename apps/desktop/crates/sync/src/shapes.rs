@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 15 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 14 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `due_time`/`end_time` on `issues`, no
 /// `email` on `issue_subscribers`, and web-only billing fields dropped from
 /// `users`).
-pub const SHAPES: [ShapeSpec; 15] = [
+pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "workspaces",
         path: "/api/shapes/workspaces",
@@ -148,9 +148,6 @@ pub const SHAPES: [ShapeSpec; 15] = [
             "completed_at",
             "archived_at",
             "duplicate_of_id",
-            // EXP-56: the issue's release bundle (nullable FK, member-only —
-            // the anonymous issues allowlist omits it server-side).
-            "release_id",
             "recurrence_interval",
             "recurrence_unit",
             "pr_url",
@@ -322,41 +319,17 @@ pub const SHAPES: [ShapeSpec; 15] = [
     ShapeSpec {
         name: "coding_sessions",
         path: "/api/shapes/coding-sessions",
-        // EXP-56: `issue_id` is nullable now — release-scoped orchestrator
-        // sessions carry `release_id` instead (exactly one of the two is set).
+        // `issue_id` is nullable — batch-scoped (multi-issue) sessions carry
+        // only `workspace_id`.
         columns: &[
             "id",
             "issue_id",
-            "release_id",
             "workspace_id",
             "user_id",
             "device_label",
             "status",
             "started_at",
             "ended_at",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "releases",
-        path: "/api/shapes/releases",
-        // EXP-56: workspace-level issue bundles (member-only server-side —
-        // anonymous viewers sync zero rows). The pr_* fields mirror the
-        // issues shape; issue membership is 1:N via `issues.release_id`.
-        columns: &[
-            "id",
-            "workspace_id",
-            "name",
-            "description",
-            "target_date",
-            "shipped_at",
-            "created_by",
-            "pr_url",
-            "pr_number",
-            "pr_state",
-            "pr_merged_at",
             "created_at",
             "updated_at",
         ],
@@ -374,8 +347,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_15_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 15);
+    fn registry_has_14_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 14);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);

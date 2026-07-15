@@ -110,8 +110,6 @@ export const issueEventTypeValues = [
   `label_removed`,
   `pr_opened`,
   `pr_merged`,
-  `release_added`,
-  `release_removed`,
   `project_moved`,
 ] as const
 

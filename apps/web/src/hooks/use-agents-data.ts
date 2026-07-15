@@ -67,7 +67,7 @@ export function useAgentsData(workspaceId?: string) {
     const projectMap = new Map(projects.map((project) => [project.id, project]))
 
     const toRow = (session: CodingSession): AgentSessionRow => {
-      // Release-scoped sessions (EXP-56) carry no issue — render issueless.
+      // Batch-scoped sessions carry no issue — render issueless.
       const issue = session.issueId ? issueMap.get(session.issueId) : undefined
       return {
         session,

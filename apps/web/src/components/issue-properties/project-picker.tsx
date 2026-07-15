@@ -27,7 +27,7 @@ interface ProjectPickerProps {
 
 // Move-to-project picker for the issue detail view (EXP-57): single-select
 // over the workspace's projects (same workspace only; trashed projects never
-// reach the client). Mirrors the release picker's MobilePopover + Command
+// reach the client). MobilePopover + Command
 // structure; picking the current project is a no-op. The server renumbers the
 // issue in the target project (EXP-42 → ABC-17).
 export function ProjectPicker({

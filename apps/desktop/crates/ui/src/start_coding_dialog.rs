@@ -1,25 +1,26 @@
-//! The ONE shared Start-coding dialog (release rework Phase 4) — the
-//! single-issue Play button and the release-detail "Start coding" button both
-//! land here (`open_for_issue` / `open_for_release`), replacing the instant
-//! zero-options issue launch and the bespoke release dialog.
+//! The ONE shared Start-coding dialog — the issue-detail Play button and the
+//! bulk bar's "Start coding" action both land here (`open_for_issue` /
+//! `open_for_selection`). One surface, two run modes decided by the checked
+//! count:
 //!
-//! Shared surface: Model + Effort [`ChoiceSelect`]s (defaults from
-//! [`coding::Settings`]) and the "Plan mode" checkbox (NATIVE Claude plan
-//! mode — `--permission-mode plan`; issue default ON, release default OFF)
-//! with inline error rendering. The Issue variant adds the per-session
-//! "Keep private" opt-out (moved out of `StartCodingControl`); the Release
-//! variant adds:
+//! - **1 issue** → today's plain single-issue session (its own worktree +
+//!   `exp/<IDENTIFIER>` branch, `PrepareRequest::Issue`).
+//! - **2+ issues** → a BATCH run (EXP-106): ONE Claude session on ONE
+//!   `exp/batch-<id8>` branch implementing every checked issue and opening
+//!   ONE combined PR (`PrepareRequest::Batch`). Deliberately loose — no
+//!   per-issue subagent definitions, no waves; Claude organizes the work.
 //!
-//! - an issue CHECKLIST grouped by resolved repository (per-issue
-//!   `repositories.forIssue` probes on the background executor): repo-less
-//!   issues are greyed out and excluded; `done`/`cancelled`/`duplicate`/
-//!   PR-merged issues pre-uncheck but stay checkable;
-//! - ONE repo group per run, and (fix F6) at most [`MAX_ISSUES_PER_RUN`]
-//!   checked issues per run — `--agents` always rides argv and Windows caps
-//!   the whole command line at 32,767 chars;
-//! - Subagent model/effort selects and the ULTRACODE switch — enabled for
-//!   EVERY model (`--effort ultracode` is model-independent, no Opus pin);
-//!   while ON the main Effort select disables ("ultracode sets effort").
+//! The multi-issue PICKER is always present: a searchable checklist over the
+//! workspace's issues (`done`/`cancelled`/`duplicate`/PR-merged rows
+//! pre-uncheck but stay checkable; pre-seeded ids force-check). Repo probes
+//! (`repositories.forIssue`, background executor, generation-guarded) run
+//! LAZILY for checked issues only — ONE repository per run is enforced.
+//!
+//! Options: Model + Effort [`ChoiceSelect`]s, the ULTRACODE switch
+//! (`--effort ultracode`, model-independent; disables the Effort select) and
+//! the native "Plan mode" checkbox. Defaults follow the mode:
+//! [`coding::Settings`]' `issue_*` pair for a single selection, the `batch_*`
+//! pair for 2+; flipping modes re-applies that mode's defaults.
 //!
 //! Launch = snapshot → [`coding::prepare`] on the background executor → the
 //! shared `coding_flow::spawn_into_window` foreground spawn. A
@@ -28,14 +29,14 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
+    input::{Input, InputEvent, InputState},
     scroll::ScrollableElement as _,
     select::Select,
     switch::Switch,
@@ -45,29 +46,29 @@ use sync::Store;
 
 use api::repositories::IssueRepository;
 use coding::{
-    IssueLaunchOptions, LaunchOrigin, Prepared, PrepareRequest, ReleaseIssueSpec,
-    ReleaseLaunchOptions, ReleaseLaunchRequest, RepoGroup,
+    BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest,
+    RepoGroup,
 };
 use domain::IssueStatus;
 
 use crate::coding_flow::{self, CodingHub, SessionSubject};
-use crate::coding_selects::{
-    choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES,
-    SUBAGENT_EFFORT_CHOICES, SUBAGENT_MODEL_CHOICES,
-};
+use crate::coding_selects::{choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES};
 use crate::queries;
 
 /// Soft cost warning threshold: more checked issues than this shows the
 /// "token-expensive" note (no hard gate — coding is unmetered).
 const COST_NOTE_THRESHOLD: usize = 6;
 
-/// FIX F6 hard cap: `--agents` always rides argv and every checked issue adds
-/// a subagent definition — ~40 issues would blow Windows' 32,767-char command
-/// line cap, so one run takes at most this many checked issues.
+/// Hard cap per run: every checked issue adds a prompt section, and a batch
+/// beyond this size stops being one coherent session anyway.
 const MAX_ISSUES_PER_RUN: usize = 30;
 
-/// Open the dialog for a SINGLE ISSUE. A no-op when the issue row isn't
-/// synced (racing a delete).
+/// Unchecked search matches rendered at once — a workspace can hold hundreds
+/// of issues, and the checklist is a plain (non-virtual) list.
+const MAX_UNCHECKED_ROWS: usize = 50;
+
+/// Open the dialog from an issue's Play button: pre-seed that issue checked.
+/// A no-op when the issue row isn't synced (racing a delete).
 pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
     let Some(issue) = Store::global(cx)
         .collections()
@@ -79,42 +80,39 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog for unknown issue {issue_id}");
         return;
     };
-    let title: SharedString = format!("Start coding on {}", issue.identifier).into();
-    let view = cx.new(|cx| {
-        StartCodingDialogView::new_issue(issue.id.clone(), issue.identifier, window, cx)
-    });
-    window.open_dialog(cx, move |dialog, _, cx| {
-        let busy = view.read(cx).launching;
-        dialog
-            .w(px(420.))
-            .title(title.clone())
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .child(view.clone())
-    });
-}
-
-/// Open the dialog for a whole RELEASE. A no-op when the release row isn't
-/// synced (racing a delete).
-pub fn open_for_release(window: &mut Window, cx: &mut App, release_id: String) {
-    let Some(release) = Store::global(cx)
+    let Some(workspace_id) = Store::global(cx)
         .collections()
-        .releases
+        .projects
         .read(cx)
-        .get(&release_id)
-        .cloned()
+        .get(&issue.project_id)
+        .map(|project| project.workspace_id.clone())
     else {
-        log::warn!("[ui] start-coding dialog for unknown release {release_id}");
+        log::warn!("[ui] start-coding dialog: project not synced for {issue_id}");
         return;
     };
-    let view = cx.new(|cx| StartCodingDialogView::new_release(&release, window, cx));
+    open(window, cx, workspace_id, vec![issue.id]);
+}
+
+/// Open the dialog from the bulk bar with the selection pre-checked.
+pub fn open_for_selection(
+    window: &mut Window,
+    cx: &mut App,
+    workspace_id: String,
+    issue_ids: Vec<String>,
+) {
+    open(window, cx, workspace_id, issue_ids);
+}
+
+fn open(window: &mut Window, cx: &mut App, workspace_id: String, preselected: Vec<String>) {
+    let view =
+        cx.new(|cx| StartCodingDialogView::new(workspace_id, preselected, window, cx));
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).launching;
         let max_height = window.viewport_size().height * 0.85;
         dialog
             .w(px(560.))
             .max_h(max_height)
-            .title("Start coding on release")
+            .title("Start coding")
             .overlay_closable(!busy)
             .keyboard(!busy)
             .child(view.clone())
@@ -123,8 +121,7 @@ pub fn open_for_release(window: &mut Window, cx: &mut App, release_id: String) {
 
 /// One checklist row, snapshotted from the sync store at open (titles and
 /// descriptions ride into the launch request verbatim — the launcher never
-/// re-reads the collections). Per-issue model/effort overrides are deleted
-/// (the rework's hard cut) — subagents share the dialog-level defaults.
+/// re-reads the collections).
 struct IssueRow {
     issue_id: String,
     identifier: String,
@@ -132,7 +129,7 @@ struct IssueRow {
     description: Option<String>,
     /// The pre-uncheck reason (`done`/`cancelled`/`duplicate`/PR-merged rows
     /// start unchecked but stay checkable for a re-run), shown muted next to
-    /// the title. `None` = default-checked.
+    /// the title. `None` = plain row.
     state_hint: Option<&'static str>,
 }
 
@@ -141,77 +138,56 @@ enum RepoState {
     Loading,
     /// `Ready(None)` = no repository linked (excluded from the run).
     Ready(Option<IssueRepository>),
-    /// Transport failure — the issue can't resolve a group, so it is
+    /// Transport failure — the issue can't resolve a repo, so it is
     /// excluded like a repo-less one (the message says why).
     Error(String),
 }
 
-/// The two launch shapes the ONE dialog serves.
-enum Variant {
-    Issue {
-        issue_id: String,
-        identifier: String,
-    },
-    Release {
-        release_id: String,
-        release_name: String,
-        rows: Vec<IssueRow>,
-        /// issue id → probe state.
-        repos: HashMap<String, RepoState>,
-        /// Stale-probe guard (a retry re-probes; old results must not land).
-        probe_generation: u64,
-        checked: HashSet<String>,
-        subagent_model: ChoiceSelect,
-        subagent_effort: ChoiceSelect,
-        /// Dynamic workflows (`--effort ultracode`) — any model, no pin.
-        ultracode: bool,
-    },
+/// Which settings pair the ultracode/plan-mode toggles were last defaulted
+/// from — flipping the checked count across the 1↔2 boundary re-applies the
+/// other mode's defaults (user tweaks persist WITHIN a mode).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DefaultsMode {
+    Single,
+    Batch,
 }
 
 pub struct StartCodingDialogView {
-    variant: Variant,
+    workspace_id: String,
+    /// Every non-archived workspace issue, project→number ordered.
+    rows: Vec<IssueRow>,
+    /// issue id → probe state (LAZY: only checked issues probe).
+    repos: HashMap<String, RepoState>,
+    /// Stale-probe guard (old results must not land after a re-open).
+    probe_generation: u64,
+    checked: HashSet<String>,
+    search: Entity<InputState>,
     model: ChoiceSelect,
     effort: ChoiceSelect,
+    /// Dynamic workflows (`--effort ultracode`) — any model, no pin.
+    ultracode: bool,
     /// Native Claude plan mode (`--permission-mode plan`).
     plan_mode: bool,
+    defaults_mode: DefaultsMode,
     launching: bool,
     error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl StartCodingDialogView {
-    fn new_issue(
-        issue_id: String,
-        identifier: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
-        let hub = CodingHub::global(cx);
-        let settings = hub.read(cx).settings.clone();
-        Self {
-            variant: Variant::Issue {
-                issue_id,
-                identifier,
-            },
-            model: choice_select(&MODEL_CHOICES, &settings.claude_model, window, cx),
-            effort: choice_select(&EFFORT_CHOICES, &settings.claude_effort, window, cx),
-            plan_mode: settings.issue_plan_mode,
-            launching: false,
-            error: None,
-            _subscriptions: Vec::new(),
-        }
-    }
-
-    fn new_release(
-        release: &domain::rows::Release,
+    fn new(
+        workspace_id: String,
+        preselected: Vec<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
 
-        // Snapshot the member issues (stable order: project, then number).
-        let mut issues = queries::release_issues(cx, &release.id);
+        // Snapshot the workspace's issues (stable order: project, then
+        // number) — the picker's candidate pool.
+        let preselected: HashSet<String> = preselected.into_iter().collect();
+        let mut issues = queries::workspace_issues(cx, &workspace_id);
         issues.sort_by(|a, b| {
             a.project_id
                 .cmp(&b.project_id)
@@ -232,7 +208,9 @@ impl StartCodingDialogView {
                         _ => None,
                     }
                 };
-                if state_hint.is_none() {
+                // Pre-seeded ids force-check regardless of the state hint —
+                // the user explicitly picked them.
+                if preselected.contains(&issue.id) {
                     checked.insert(issue.id.clone());
                 }
                 IssueRow {
@@ -245,119 +223,128 @@ impl StartCodingDialogView {
             })
             .collect();
 
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
         let subscriptions = vec![
             // Doctor lands / re-runs → the footer gate moves.
             cx.observe(&hub, |_: &mut Self, _, cx| cx.notify()),
+            cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            }),
         ];
 
+        let defaults_mode = if checked.len() >= 2 {
+            DefaultsMode::Batch
+        } else {
+            DefaultsMode::Single
+        };
+        let (ultracode, plan_mode) = match defaults_mode {
+            DefaultsMode::Single => (settings.issue_ultracode, settings.issue_plan_mode),
+            DefaultsMode::Batch => (settings.batch_ultracode, settings.batch_plan_mode),
+        };
+
         let mut this = Self {
-            variant: Variant::Release {
-                release_id: release.id.clone(),
-                release_name: release
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| "Untitled release".to_string()),
-                rows,
-                repos: HashMap::new(),
-                probe_generation: 0,
-                checked,
-                subagent_model: choice_select(
-                    &SUBAGENT_MODEL_CHOICES,
-                    &settings.subagent_model,
-                    window,
-                    cx,
-                ),
-                subagent_effort: choice_select(
-                    &SUBAGENT_EFFORT_CHOICES,
-                    &settings.subagent_effort,
-                    window,
-                    cx,
-                ),
-                ultracode: settings.release_ultracode,
-            },
+            workspace_id,
+            rows,
+            repos: HashMap::new(),
+            probe_generation: 0,
+            checked,
+            search,
             model: choice_select(&MODEL_CHOICES, &settings.claude_model, window, cx),
             effort: choice_select(&EFFORT_CHOICES, &settings.claude_effort, window, cx),
-            plan_mode: settings.release_plan_mode,
+            ultracode,
+            plan_mode,
+            defaults_mode,
             launching: false,
             error: None,
             _subscriptions: subscriptions,
         };
-        this.spawn_probes(cx);
+        this.probe_generation += 1;
+        let ids: Vec<String> = this.checked.iter().cloned().collect();
+        for issue_id in ids {
+            this.ensure_probe(issue_id, cx);
+        }
         this
     }
 
-    /// Kick one `repositories.forIssue` probe per checklist row (background
-    /// executor, generation-guarded like `StartCodingControl::ensure_probe`).
-    fn spawn_probes(&mut self, cx: &mut gpui::Context<Self>) {
-        let Variant::Release {
-            rows,
-            repos,
-            probe_generation,
-            ..
-        } = &mut self.variant
-        else {
+    /// Kick ONE `repositories.forIssue` probe for `issue_id` if it never ran
+    /// (background executor, generation-guarded like
+    /// `StartCodingControl::ensure_probe`). Lazy by design: only checked
+    /// issues probe — a whole-workspace eager fan-out would be hundreds of
+    /// tRPC calls.
+    fn ensure_probe(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if self.repos.contains_key(&issue_id) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.repos
+                .insert(issue_id, RepoState::Error("Not signed in.".to_string()));
             return;
         };
-        *probe_generation += 1;
-        let generation = *probe_generation;
-        let row_ids: Vec<String> = rows.iter().map(|row| row.issue_id.clone()).collect();
-        for issue_id in row_ids {
-            let Some(trpc) = queries::trpc_client(cx) else {
-                repos.insert(issue_id, RepoState::Error("Not signed in.".to_string()));
-                continue;
-            };
-            repos.insert(issue_id.clone(), RepoState::Loading);
-            let probe_id = issue_id.clone();
-            cx.spawn(async move |this, cx| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { api::repositories::for_issue(&trpc, &probe_id) })
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    let Variant::Release {
-                        repos,
-                        probe_generation,
-                        checked,
-                        ..
-                    } = &mut this.variant
-                    else {
-                        return;
-                    };
-                    if *probe_generation != generation {
-                        return; // superseded by a retry
-                    }
-                    let state = match result {
-                        Ok(repo) => RepoState::Ready(repo),
-                        Err(err) => RepoState::Error(err.to_string()),
-                    };
-                    // Unresolvable issues can never launch — uncheck them.
-                    if !matches!(state, RepoState::Ready(Some(_))) {
-                        checked.remove(&issue_id);
-                    }
-                    repos.insert(issue_id.clone(), state);
-                    cx.notify();
-                });
-            })
-            .detach();
+        self.repos.insert(issue_id.clone(), RepoState::Loading);
+        let generation = self.probe_generation;
+        let probe_id = issue_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::for_issue(&trpc, &probe_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.probe_generation != generation {
+                    return; // superseded
+                }
+                let state = match result {
+                    Ok(repo) => RepoState::Ready(repo),
+                    Err(err) => RepoState::Error(err.to_string()),
+                };
+                // Unresolvable issues can never launch — uncheck them.
+                if !matches!(state, RepoState::Ready(Some(_))) {
+                    this.checked.remove(&issue_id);
+                    this.apply_mode_defaults(cx);
+                }
+                this.repos.insert(issue_id.clone(), state);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Re-apply the per-mode settings defaults when the checked count crosses
+    /// the 1↔2+ boundary (user tweaks persist within a mode).
+    fn apply_mode_defaults(&mut self, cx: &mut gpui::Context<Self>) {
+        let mode = if self.checked.len() >= 2 {
+            DefaultsMode::Batch
+        } else {
+            DefaultsMode::Single
+        };
+        if mode == self.defaults_mode {
+            return;
         }
+        self.defaults_mode = mode;
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        (self.ultracode, self.plan_mode) = match mode {
+            DefaultsMode::Single => (settings.issue_ultracode, settings.issue_plan_mode),
+            DefaultsMode::Batch => (settings.batch_ultracode, settings.batch_plan_mode),
+        };
+    }
+
+    fn toggle_checked(&mut self, issue_id: String, on: bool, cx: &mut gpui::Context<Self>) {
+        if on {
+            self.checked.insert(issue_id.clone());
+            self.ensure_probe(issue_id, cx);
+        } else {
+            self.checked.remove(&issue_id);
+        }
+        self.apply_mode_defaults(cx);
+        cx.notify();
     }
 
     /// Why the launch button is disabled right now; `None` = launchable.
-    /// Issue runs have no checklist to gate — the shared prepare re-checks
-    /// the doctor/repo and renders any `DisabledReason` inline.
     fn launch_blocker(&self, cx: &mut gpui::Context<Self>) -> Option<SharedString> {
         if self.launching {
             return Some("Starting…".into());
         }
-        let Variant::Release {
-            rows,
-            repos,
-            checked,
-            ..
-        } = &self.variant
-        else {
-            return None;
-        };
         let hub = CodingHub::global(cx);
         match hub.read(cx).doctor.report.as_ref() {
             None => return Some("Checking local tools…".into()),
@@ -373,27 +360,23 @@ impl StartCodingDialogView {
                 }
             }
         }
-        if checked.is_empty() {
+        if self.checked.is_empty() {
             return Some("Select at least one issue.".into());
         }
-        // FIX F6: the per-run argv cap (see MAX_ISSUES_PER_RUN).
-        if checked.len() > MAX_ISSUES_PER_RUN {
+        if self.checked.len() > MAX_ISSUES_PER_RUN {
             return Some(
-                format!(
-                    "At most {MAX_ISSUES_PER_RUN} issues per run — split the release run."
-                )
-                .into(),
+                format!("At most {MAX_ISSUES_PER_RUN} issues per run — split the batch.").into(),
             );
         }
-        let mut group: Option<&str> = None;
-        for row in rows {
-            if !checked.contains(&row.issue_id) {
+        let mut repo: Option<&str> = None;
+        for row in &self.rows {
+            if !self.checked.contains(&row.issue_id) {
                 continue;
             }
-            match repos.get(&row.issue_id) {
-                Some(RepoState::Ready(Some(repo))) => match group {
-                    None => group = Some(&repo.repository_id),
-                    Some(existing) if existing == repo.repository_id => {}
+            match self.repos.get(&row.issue_id) {
+                Some(RepoState::Ready(Some(resolved))) => match repo {
+                    None => repo = Some(&resolved.repository_id),
+                    Some(existing) if existing == resolved.repository_id => {}
                     Some(_) => {
                         return Some("One repository per run — deselect the others.".into())
                     }
@@ -405,30 +388,28 @@ impl StartCodingDialogView {
         None
     }
 
-    /// Snapshot the checked group into a [`ReleaseLaunchRequest`]. `None` on
-    /// a racing probe (the blocker just re-checked) — bail quietly.
-    fn release_request(&self, cx: &App) -> Option<ReleaseLaunchRequest> {
-        let Variant::Release {
-            release_id,
-            release_name,
-            rows,
-            repos,
-            checked,
-            subagent_model,
-            subagent_effort,
-            ultracode,
-            ..
-        } = &self.variant
-        else {
-            return None;
-        };
+    /// The dialog's model/effort/mode choices as launch options.
+    fn options(&self, cx: &App) -> LaunchOptions {
+        LaunchOptions {
+            model: selected(&self.model, cx),
+            // Ignored by the argv while ultracode is on (ultracode IS the
+            // effort level); blank = omit the flag.
+            effort: selected(&self.effort, cx),
+            ultracode: self.ultracode,
+            plan_mode: self.plan_mode,
+        }
+    }
+
+    /// Snapshot the checked set into a [`BatchLaunchRequest`] (2+ checked).
+    /// `None` on a racing probe (the blocker just re-checked) — bail quietly.
+    fn batch_request(&self, cx: &App) -> Option<BatchLaunchRequest> {
         let mut repo: Option<RepoGroup> = None;
-        let mut issues: Vec<ReleaseIssueSpec> = Vec::new();
-        for row in rows {
-            if !checked.contains(&row.issue_id) {
+        let mut issues: Vec<BatchIssueSpec> = Vec::new();
+        for row in &self.rows {
+            if !self.checked.contains(&row.issue_id) {
                 continue;
             }
-            let Some(RepoState::Ready(Some(resolved))) = repos.get(&row.issue_id) else {
+            let Some(RepoState::Ready(Some(resolved))) = self.repos.get(&row.issue_id) else {
                 return None;
             };
             if repo.is_none() {
@@ -438,87 +419,68 @@ impl StartCodingDialogView {
                     default_branch: resolved.default_branch.clone(),
                 });
             }
-            issues.push(ReleaseIssueSpec {
+            issues.push(BatchIssueSpec {
                 issue_id: row.issue_id.clone(),
                 issue_identifier: row.identifier.clone(),
                 title: row.title.clone(),
                 description: row.description.clone(),
             });
         }
-        let options = ReleaseLaunchOptions {
-            main_model: selected(&self.model, cx),
-            // Ignored by the argv while ultracode is on (ultracode IS the
-            // effort level); blank = omit the flag.
-            main_effort: non_blank(&selected(&self.effort, cx)),
-            subagent_model: selected(subagent_model, cx),
-            subagent_effort: non_blank(&selected(subagent_effort, cx)),
-            ultracode: *ultracode,
-            plan_mode: self.plan_mode,
-        };
-        Some(ReleaseLaunchRequest {
-            release_id: release_id.clone(),
-            release_name: release_name.clone(),
+        Some(BatchLaunchRequest {
+            batch_id: coding::new_batch_id(),
+            workspace_id: self.workspace_id.clone(),
             repo: repo?,
             issues,
             device_label: coding::default_device_label(),
             origin: LaunchOrigin::Local,
-            options,
+            options: self.options(cx),
         })
     }
 
-    /// The launch: build the per-variant [`PrepareRequest`], prepare on the
-    /// background executor, spawn on the foreground (the shared path).
+    /// The launch: 1 checked issue = the plain single-issue path, 2+ = a
+    /// batch run. Prepare on the background executor, spawn on the foreground
+    /// (the shared path).
     fn launch(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.launching {
+        if self.launching || self.launch_blocker(cx).is_some() {
             return;
         }
-        let issue_launch = match &self.variant {
-            Variant::Issue { issue_id, .. } => Some(issue_id.clone()),
-            Variant::Release { .. } => None,
+        if self.checked.len() == 1 {
+            let issue_id = self.checked.iter().next().cloned().expect("one checked");
+            let options = self.options(cx);
+            let Some((request, deps)) =
+                coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, cx)
+            else {
+                self.error = Some("Sign in and wait for sync before starting a session.".into());
+                cx.notify();
+                return;
+            };
+            return self.run_prepare(
+                PrepareRequest::Issue(request),
+                deps,
+                SessionSubject::Issue(issue_id),
+                window,
+                cx,
+            );
+        }
+        let Some(request) = self.batch_request(cx) else {
+            return;
         };
-        let (request, subject) = match issue_launch {
-            Some(issue_id) => {
-                let options = IssueLaunchOptions {
-                    model: selected(&self.model, cx),
-                    effort: selected(&self.effort, cx),
-                    plan_mode: self.plan_mode,
-                };
-                let Some((request, deps)) =
-                    coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, cx)
-                else {
-                    self.error =
-                        Some("Sign in and wait for sync before starting a session.".into());
-                    cx.notify();
-                    return;
-                };
-                return self.run_prepare(
-                    PrepareRequest::Issue(request),
-                    deps,
-                    SessionSubject::Issue(issue_id),
-                    window,
-                    cx,
-                );
-            }
-            None => {
-                if self.launch_blocker(cx).is_some() {
-                    return;
-                }
-                let Some(request) = self.release_request(cx) else {
-                    return;
-                };
-                let release_id = request.release_id.clone();
-                (request, SessionSubject::Release(release_id))
-            }
-        };
-        let Some(deps) = coding_flow::build_release_deps(cx) else {
+        let batch_id = request.batch_id.clone();
+        let Some(deps) = coding_flow::build_batch_deps(cx) else {
             self.error = Some("Sign in and wait for sync before starting a session.".into());
             cx.notify();
             return;
         };
-        self.run_prepare(PrepareRequest::Release(request), deps, subject, window, cx);
+        self.run_prepare(
+            PrepareRequest::Batch(request),
+            deps,
+            SessionSubject::Batch(batch_id),
+            window,
+            cx,
+        );
     }
 
-    /// Shared prepare→spawn tail for both variants: background
+    /// Shared prepare→spawn tail for both modes: background
     /// [`coding::prepare`], then `coding_flow::spawn_into_window` on the
     /// foreground; a `Disabled` reason (or spawn error) renders inline.
     fn run_prepare(
@@ -564,21 +526,23 @@ impl StartCodingDialogView {
 
     // -- render pieces --------------------------------------------------------
 
-    /// One checklist row: checkbox + identifier + title (+ state hint).
-    fn issue_row(
-        &self,
-        ix: usize,
-        enabled: bool,
-        trailing_note: Option<SharedString>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let Variant::Release { rows, checked, .. } = &self.variant else {
-            return div().into_any_element();
-        };
-        let row = &rows[ix];
+    /// One checklist row: checkbox + identifier + title (+ state hint or the
+    /// probe's exclusion note).
+    fn issue_row(&self, ix: usize, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let row = &self.rows[ix];
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        let is_checked = checked.contains(&row.issue_id);
+        let is_checked = self.checked.contains(&row.issue_id);
+        // A checked row whose probe failed/excluded it renders the reason
+        // (the probe auto-unchecks; this covers the transient frame).
+        let probe_note: Option<SharedString> = match self.repos.get(&row.issue_id) {
+            Some(RepoState::Ready(None)) => Some("no repository linked".into()),
+            Some(RepoState::Error(err)) => {
+                Some(format!("repository check failed: {err}").into())
+            }
+            Some(RepoState::Loading) if is_checked => Some("resolving repository…".into()),
+            _ => None,
+        };
         let toggle_id = row.issue_id.clone();
 
         h_flex()
@@ -588,17 +552,8 @@ impl StartCodingDialogView {
             .child(
                 Checkbox::new(SharedString::from(format!("sc-check-{}", row.issue_id)))
                     .checked(is_checked)
-                    .disabled(!enabled)
                     .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                        let Variant::Release { checked, .. } = &mut this.variant else {
-                            return;
-                        };
-                        if *on {
-                            checked.insert(toggle_id.clone());
-                        } else {
-                            checked.remove(&toggle_id);
-                        }
-                        cx.notify();
+                        this.toggle_checked(toggle_id.clone(), *on, cx);
                     })),
             )
             .child(
@@ -615,11 +570,11 @@ impl StartCodingDialogView {
                     .min_w_0()
                     .text_sm()
                     .truncate()
-                    .text_color(if enabled { theme.foreground } else { muted })
+                    .text_color(theme.foreground)
                     .child(SharedString::from(row.title.clone())),
             )
             .when_some(
-                trailing_note.or_else(|| row.state_hint.map(SharedString::from)),
+                probe_note.or_else(|| row.state_hint.map(SharedString::from)),
                 |this, note| {
                     this.child(
                         div()
@@ -630,17 +585,6 @@ impl StartCodingDialogView {
                     )
                 },
             )
-            .into_any_element()
-    }
-
-    /// A muted group/section header line inside the checklist.
-    fn group_header(label: SharedString, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        div()
-            .pt_1()
-            .text_xs()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(cx.theme().muted_foreground)
-            .child(label)
             .into_any_element()
     }
 
@@ -689,7 +633,7 @@ impl StartCodingDialogView {
             )
     }
 
-    /// Footer: blocker copy (release) + Cancel + Start.
+    /// Footer: blocker copy + Cancel + Start.
     fn footer(
         &self,
         blocker: Option<SharedString>,
@@ -738,157 +682,61 @@ impl StartCodingDialogView {
                     .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
             )
     }
+}
 
-    fn render_issue(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let identifier = match &self.variant {
-            Variant::Issue { identifier, .. } => identifier.clone(),
-            Variant::Release { .. } => return div().into_any_element(),
-        };
-        let muted = cx.theme().muted_foreground;
-
-        let mut body = v_flex()
-            .gap_3()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(format!(
-                        "Claude works on {identifier} in its own worktree and opens the \
-                         pull request when done."
-                    ))),
-            )
-            .child(
-                h_flex()
-                    .gap_3()
-                    .w_full()
-                    // Top-align: a column growing a hint line must not push
-                    // its sibling's label off the shared baseline.
-                    .items_start()
-                    .child(Self::labeled_field(
-                        "Model",
-                        Select::new(&self.model).small().into_any_element(),
-                        None,
-                        cx,
-                    ))
-                    .child(Self::labeled_field(
-                        "Effort",
-                        Select::new(&self.effort).small().into_any_element(),
-                        None,
-                        cx,
-                    )),
-            )
-            .child(self.plan_mode_row(cx));
-
-        if let Some(error) = &self.error {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
-        }
-        let blocker = self.launching.then(|| SharedString::from("Starting…"));
-        body.child(self.footer(blocker, cx)).into_any_element()
-    }
-
-    fn render_release(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+impl Render for StartCodingDialogView {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme_muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
+        let checked_count = self.checked.len();
+        let ultracode = self.ultracode;
 
-        // ---- checklist, grouped by resolved repo ----
-        struct GroupView {
-            repo: IssueRepository,
-            rows: Vec<usize>,
-        }
-        let (release_name, ultracode, checked_count, checked_groups, groups, pending, excluded) = {
-            let Variant::Release {
-                release_name,
-                rows,
-                repos,
-                checked,
-                ultracode,
-                ..
-            } = &self.variant
-            else {
-                return div().into_any_element();
-            };
-            let mut groups: Vec<GroupView> = Vec::new();
-            let mut pending: Vec<usize> = Vec::new();
-            let mut excluded: Vec<(usize, SharedString)> = Vec::new();
-            for (ix, row) in rows.iter().enumerate() {
-                match repos.get(&row.issue_id) {
-                    None | Some(RepoState::Loading) => pending.push(ix),
-                    Some(RepoState::Ready(None)) => {
-                        excluded.push((ix, "no repository linked".into()))
-                    }
-                    Some(RepoState::Error(err)) => {
-                        excluded.push((ix, format!("repository check failed: {err}").into()))
-                    }
-                    Some(RepoState::Ready(Some(repo))) => {
-                        match groups
-                            .iter_mut()
-                            .find(|group| group.repo.repository_id == repo.repository_id)
-                        {
-                            Some(group) => group.rows.push(ix),
-                            None => groups.push(GroupView {
-                                repo: repo.clone(),
-                                rows: vec![ix],
-                            }),
-                        }
-                    }
-                }
+        // ---- searchable checklist: checked rows pinned first, then the
+        //      unchecked search matches (capped — see MAX_UNCHECKED_ROWS) ----
+        let query = self.search.read(cx).value().trim().to_lowercase();
+        let mut checked_ixs: Vec<usize> = Vec::new();
+        let mut match_ixs: Vec<usize> = Vec::new();
+        for (ix, row) in self.rows.iter().enumerate() {
+            if self.checked.contains(&row.issue_id) {
+                checked_ixs.push(ix);
+            } else if query.is_empty()
+                || row.identifier.to_lowercase().contains(&query)
+                || row.title.to_lowercase().contains(&query)
+            {
+                match_ixs.push(ix);
             }
-            let checked_groups = groups
-                .iter()
-                .filter(|group| {
-                    group
-                        .rows
-                        .iter()
-                        .any(|ix| checked.contains(&rows[*ix].issue_id))
-                })
-                .count();
-            (
-                release_name.clone(),
-                *ultracode,
-                checked.len(),
-                checked_groups,
-                groups,
-                pending,
-                excluded,
-            )
-        };
+        }
+        let hidden = match_ixs.len().saturating_sub(MAX_UNCHECKED_ROWS);
+        match_ixs.truncate(MAX_UNCHECKED_ROWS);
 
-        let rows_empty = matches!(&self.variant, Variant::Release { rows, .. } if rows.is_empty());
         let mut checklist = v_flex().gap_1();
-        if rows_empty {
+        if self.rows.is_empty() {
             checklist = checklist.child(
                 div()
                     .text_sm()
                     .text_color(theme_muted)
-                    .child("This release has no issues."),
+                    .child("This workspace has no issues."),
             );
         }
-        for group in &groups {
-            checklist = checklist.child(Self::group_header(
-                SharedString::from(group.repo.full_name.clone()),
-                cx,
-            ));
-            for &ix in &group.rows {
-                checklist = checklist.child(self.issue_row(ix, true, None, cx));
-            }
+        for ix in checked_ixs {
+            checklist = checklist.child(self.issue_row(ix, cx));
         }
-        if !pending.is_empty() {
-            checklist = checklist.child(Self::group_header("Resolving repository…".into(), cx));
-            for ix in pending {
-                checklist = checklist.child(self.issue_row(ix, true, None, cx));
-            }
+        for ix in match_ixs {
+            checklist = checklist.child(self.issue_row(ix, cx));
         }
-        for (ix, note) in excluded {
-            checklist = checklist.child(self.issue_row(ix, false, Some(note), cx));
+        if hidden > 0 {
+            checklist = checklist.child(
+                div()
+                    .text_xs()
+                    .text_color(theme_muted)
+                    .child(SharedString::from(format!(
+                        "+{hidden} more — refine your search."
+                    ))),
+            );
         }
 
-        // ---- model/effort selects (main + subagent) ----
+        // ---- model/effort selects ----
         let main_row = h_flex()
             .gap_3()
             .w_full()
@@ -911,32 +759,6 @@ impl StartCodingDialogView {
                 ultracode.then_some("ultracode sets effort"),
                 cx,
             ));
-        let subagent_row = {
-            let Variant::Release {
-                subagent_model,
-                subagent_effort,
-                ..
-            } = &self.variant
-            else {
-                return div().into_any_element();
-            };
-            h_flex()
-                .gap_3()
-                .w_full()
-                .items_start()
-                .child(Self::labeled_field(
-                    "Subagent model",
-                    Select::new(subagent_model).small().into_any_element(),
-                    None,
-                    cx,
-                ))
-                .child(Self::labeled_field(
-                    "Subagent effort",
-                    Select::new(subagent_effort).small().into_any_element(),
-                    None,
-                    cx,
-                ))
-        };
 
         // ---- toggles ----
         let toggles = v_flex()
@@ -951,35 +773,37 @@ impl StartCodingDialogView {
                             .gap_0p5()
                             .child(div().text_sm().child("Dynamic workflows (ultracode)"))
                             .child(div().text_xs().text_color(theme_muted).child(
-                                "Runs the orchestrator with --effort ultracode — works \
-                                 with any model.",
+                                "Runs Claude with --effort ultracode — works with any model.",
                             )),
                     )
                     .child(
                         Switch::new("sc-ultracode")
                             .checked(ultracode)
                             .on_click(cx.listener(|this, on: &bool, _, cx| {
-                                if let Variant::Release { ultracode, .. } = &mut this.variant {
-                                    *ultracode = *on;
-                                    cx.notify();
-                                }
+                                this.ultracode = *on;
+                                cx.notify();
                             })),
                     ),
             )
             .child(self.plan_mode_row(cx));
 
+        let intro: SharedString = if checked_count >= 2 {
+            format!(
+                "One Claude session implements the {checked_count} checked issues on one \
+                 branch and opens one combined PR."
+            )
+            .into()
+        } else {
+            "Claude works on the checked issue in its own worktree and opens the pull \
+             request when done. Check more issues for a batch run."
+                .into()
+        };
+
         let blocker = self.launch_blocker(cx);
         let mut body = v_flex()
             .gap_3()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme_muted)
-                    .child(SharedString::from(format!(
-                        "One Claude orchestrator implements the checked issues of \
-                         “{release_name}” — one subagent per issue.",
-                    ))),
-            )
+            .child(div().text_xs().text_color(theme_muted).child(intro))
+            .child(Input::new(&self.search).small())
             .child(
                 div()
                     .id("sc-issues-scroll")
@@ -988,49 +812,24 @@ impl StartCodingDialogView {
                     .child(checklist),
             )
             .child(main_row)
-            .child(subagent_row)
             .child(toggles);
 
-        if checked_groups > 1 {
+        if checked_count > MAX_ISSUES_PER_RUN {
+            body = body.child(div().text_xs().text_color(warning).child(SharedString::from(
+                format!("At most {MAX_ISSUES_PER_RUN} issues per run — split the batch."),
+            )));
+        } else if checked_count > COST_NOTE_THRESHOLD {
             body = body.child(
                 div()
                     .text_xs()
                     .text_color(warning)
-                    .child("One repository per run — deselect the others."),
+                    .child("Large batches can be token-expensive."),
             );
-        }
-        if checked_count > MAX_ISSUES_PER_RUN {
-            body = body.child(div().text_xs().text_color(warning).child(
-                SharedString::from(format!(
-                    "At most {MAX_ISSUES_PER_RUN} issues per run — split the release run \
-                     across several sessions.",
-                )),
-            ));
-        } else if checked_count > COST_NOTE_THRESHOLD {
-            body = body.child(div().text_xs().text_color(warning).child(
-                "Large releases spawn many subagents — this can be token-expensive.",
-            ));
         }
         if let Some(error) = &self.error {
             body = body.child(div().text_sm().text_color(danger).child(error.clone()));
         }
 
         body.child(self.footer(blocker, cx)).into_any_element()
-    }
-}
-
-/// Trimmed value, `None` when blank (= omit the flag / inherit).
-fn non_blank(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-impl Render for StartCodingDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        if matches!(self.variant, Variant::Issue { .. }) {
-            self.render_issue(cx)
-        } else {
-            self.render_release(cx)
-        }
     }
 }

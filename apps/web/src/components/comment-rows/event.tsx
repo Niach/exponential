@@ -3,11 +3,10 @@ import {
   FolderInput,
   GitMerge,
   GitPullRequest,
-  Rocket,
   Tag,
   UserPlus,
 } from "lucide-react"
-import type { IssueEvent, Label, Project, Release, User } from "@/db/schema"
+import type { IssueEvent, Label, Project, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 
 function statusLabel(s: string): string {
@@ -19,13 +18,11 @@ export function EventRow({
   event,
   userMap,
   labelMap,
-  releaseMap,
   projectMap,
 }: {
   event: IssueEvent
   userMap: Map<string, User>
   labelMap: Map<string, Label>
-  releaseMap?: Map<string, Release>
   projectMap?: Map<string, Project>
 }) {
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
@@ -89,25 +86,6 @@ export function EventRow({
       Icon = GitMerge
       text = <>merged the pull request</>
       break
-    case `release_added`:
-    case `release_removed`: {
-      Icon = Rocket
-      // A deleted release leaves no name behind — fall back generically.
-      const release = payload.releaseId
-        ? releaseMap?.get(String(payload.releaseId))
-        : undefined
-      text = (
-        <>
-          {event.type === `release_added`
-            ? `added this to release`
-            : `removed this from release`}{` `}
-          <span className="font-medium text-foreground">
-            {release?.name ?? `a release`}
-          </span>
-        </>
-      )
-      break
-    }
     case `project_moved`: {
       Icon = FolderInput
       // A deleted source project leaves no name behind — fall back

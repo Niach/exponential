@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, Label, Project, Release, User } from "@/db/schema"
-import { projectCollection, releaseCollection } from "@/lib/collections"
-import { compareReleases } from "@/lib/releases"
+import type { Issue, Label, Project, User } from "@/db/schema"
+import { projectCollection } from "@/lib/collections"
 import { StatusDropdown, getStatusConfig } from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
@@ -52,12 +51,11 @@ interface IssueListProps {
   // filtered-empty one) — the project board passes the member-only "Getting
   // started" cards here (EXP-88).
   emptyStateExtra?: React.ReactNode
-  // Optional trailing per-row action cell (e.g. the release detail's
-  // remove-from-release X). Rendered in its own click-isolated grid column.
+  // Optional trailing per-row action cell. Rendered in its own
+  // click-isolated grid column.
   renderRowAction?: (issue: Issue) => React.ReactNode
   // Enables bulk selection + the floating action bar (hover checkboxes on
-  // md+, shift-click ranges, Cmd/Ctrl+A, Esc) and the context menu's
-  // add-to-release submenu. The workspace scope feeds the release queries.
+  // md+, shift-click ranges, Cmd/Ctrl+A, Esc).
   // Undefined = bulk select off. Selection also requires canModerate.
   bulkWorkspaceId?: string
 }
@@ -109,25 +107,6 @@ export function IssueList({
   const listRef = useRef<HTMLDivElement>(null)
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
   const bulkEnabled = Boolean(bulkWorkspaceId) && canModerate
-
-  // Workspace releases feed the context menu's add-to-release submenu (kept
-  // out of the per-row menu component so its tests stay collection-free).
-  const { data: releaseRows } = useLiveQuery(
-    (query) =>
-      bulkWorkspaceId
-        ? query
-            .from({ releases: releaseCollection })
-            .where(({ releases }) => eq(releases.workspaceId, bulkWorkspaceId))
-        : undefined,
-    [bulkWorkspaceId]
-  )
-  const workspaceReleases = useMemo(
-    () =>
-      bulkWorkspaceId
-        ? [...((releaseRows ?? []) as Release[])].sort(compareReleases)
-        : undefined,
-    [releaseRows, bulkWorkspaceId]
-  )
 
   // Workspace projects feed the context menu's move-to-project submenu
   // (EXP-57). Trashed projects never reach the client (the projects shape
@@ -403,7 +382,6 @@ export function IssueList({
                     labels={labels}
                     users={users}
                     userMap={userMap}
-                    releases={workspaceReleases}
                     projects={workspaceProjects}
                     onOpenIssue={() => onIssueClick(issue)}
                   >
@@ -520,7 +498,6 @@ export function IssueList({
 
       {bulkEnabled && bulkWorkspaceId && selectedIssues.length > 0 && (
         <BulkActionBar
-          workspaceId={bulkWorkspaceId}
           issues={selectedIssues}
           issueLabelMap={issueLabelMap}
           labels={labels}

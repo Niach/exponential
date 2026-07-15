@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// EXP-56 dual-subject coding sessions: `start` takes EXACTLY ONE of
-// issueId/releaseId (zod refine). The issue path denormalizes
-// workspaceId/projectId from the issue's context; the release path loads the
-// release, asserts membership against ITS workspace, and inserts with
-// releaseId + workspaceId only — issueId/projectId must stay absent so the
-// row never leaks through the anonymous project-scoped shape clause. The
-// router runs against ctx.db (no transaction/generateTxId), so a fake db with
-// a FIFO select queue + an insert recorder is enough.
+// Dual-subject coding sessions: `start` takes EXACTLY ONE of
+// issueId/workspaceId (zod refine). The issue path denormalizes
+// workspaceId/projectId from the issue's context; the batch path asserts
+// membership against the given workspace and inserts with workspaceId only —
+// issueId/projectId must stay absent so the row never leaks through the
+// anonymous project-scoped shape clause. The router runs against ctx.db (no
+// transaction/generateTxId), so a fake db with an insert recorder is enough.
 
 const h = vi.hoisted(() => ({
   assertWorkspaceMember: vi.fn(
@@ -35,26 +34,12 @@ import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions } from "@/db/schema"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
-const RELEASE_ID = `22222222-2222-4222-8222-222222222222`
+const WORKSPACE_ID = `22222222-2222-4222-8222-222222222222`
 const SESSION_ID = `33333333-3333-4333-8333-333333333333`
-
-// FIFO select queue: each ctx.db.select() call resolves the next seeded rows.
-const selectQueue: unknown[][] = []
-
-function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
-  const p = Promise.resolve(
-    selectQueue.shift() ?? []
-  ) as Promise<unknown[]> & Record<string, () => unknown>
-  for (const m of [`from`, `where`, `limit`]) {
-    p[m] = () => p
-  }
-  return p
-}
 
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
 
 const fakeDb = {
-  select: () => selectChain(),
   insert: (table: unknown) => ({
     values: (values: Record<string, unknown>) => {
       inserts.push({ table, values })
@@ -79,7 +64,6 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 }
 
 beforeEach(() => {
-  selectQueue.length = 0
   inserts.length = 0
   h.assertWorkspaceMember.mockClear()
   h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
@@ -92,14 +76,14 @@ beforeEach(() => {
 })
 
 describe(`codingSessions.start — exactly-one-subject refine`, () => {
-  it(`rejects BOTH issueId and releaseId as input validation`, async () => {
+  it(`rejects BOTH issueId and workspaceId as input validation`, async () => {
     const error = await rejectionOf(
-      caller.start({ issueId: ISSUE_ID, releaseId: RELEASE_ID })
+      caller.start({ issueId: ISSUE_ID, workspaceId: WORKSPACE_ID })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/releaseId is required`
+      `Exactly one of issueId/workspaceId is required`
     )
     expect(inserts).toHaveLength(0)
     expect(h.getIssueWorkspaceContext).not.toHaveBeenCalled()
@@ -111,7 +95,7 @@ describe(`codingSessions.start — exactly-one-subject refine`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/releaseId is required`
+      `Exactly one of issueId/workspaceId is required`
     )
     expect(inserts).toHaveLength(0)
     expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
@@ -137,8 +121,6 @@ describe(`codingSessions.start — issue path`, () => {
       deviceLabel: `MacBook`,
       status: `running`,
     })
-    // Issue-scoped rows never claim a release.
-    expect(`releaseId` in inserts[0]!.values).toBe(false)
     expect(result.session).toMatchObject({ id: SESSION_ID, issueId: ISSUE_ID })
   })
 
@@ -154,64 +136,50 @@ describe(`codingSessions.start — issue path`, () => {
   })
 })
 
-describe(`codingSessions.start — release path`, () => {
-  it(`inserts with releaseId + the release's workspaceId and NO issueId/projectId`, async () => {
-    selectQueue.push([{ id: RELEASE_ID, workspaceId: `ws-release` }])
-
+describe(`codingSessions.start — batch path`, () => {
+  it(`inserts with the workspaceId and NO issueId/projectId`, async () => {
     const result = await caller.start({
-      releaseId: RELEASE_ID,
+      workspaceId: WORKSPACE_ID,
       deviceLabel: `MacBook`,
     })
 
-    // Membership is asserted against the RELEASE's workspace.
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, `ws-release`)
+    // Membership is asserted against the given workspace.
+    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WORKSPACE_ID)
     expect(h.getIssueWorkspaceContext).not.toHaveBeenCalled()
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.table).toBe(codingSessions)
     expect(inserts[0]!.values).toEqual({
-      releaseId: RELEASE_ID,
-      workspaceId: `ws-release`,
+      workspaceId: WORKSPACE_ID,
       userId: `actor`,
       deviceLabel: `MacBook`,
       status: `running`,
     })
-    // A release run spans projects: issue_id/project_id must be ABSENT so the
+    // A batch run spans projects: issue_id/project_id must be ABSENT so the
     // populate triggers no-op and the anonymous project-scoped shape clause
     // can never match the row.
     expect(`issueId` in inserts[0]!.values).toBe(false)
     expect(`projectId` in inserts[0]!.values).toBe(false)
     expect(result.session).toMatchObject({
       id: SESSION_ID,
-      releaseId: RELEASE_ID,
+      workspaceId: WORKSPACE_ID,
     })
   })
 
-  it(`throws NOT_FOUND for an unknown release`, async () => {
-    // Empty select queue → no release row.
-    const error = await rejectionOf(caller.start({ releaseId: RELEASE_ID }))
-    expect(error).toBeInstanceOf(TRPCError)
-    expect((error as TRPCError).code).toBe(`NOT_FOUND`)
-    expect((error as TRPCError).message).toBe(`Release not found`)
-    expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`refuses a non-member of the release's workspace before inserting`, async () => {
-    selectQueue.push([{ id: RELEASE_ID, workspaceId: `ws-release` }])
+  it(`refuses a non-member of the workspace before inserting`, async () => {
     h.assertWorkspaceMember.mockRejectedValueOnce(
       new TRPCError({ code: `FORBIDDEN` })
     )
 
-    const error = await rejectionOf(caller.start({ releaseId: RELEASE_ID }))
+    const error = await rejectionOf(
+      caller.start({ workspaceId: WORKSPACE_ID })
+    )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(inserts).toHaveLength(0)
   })
 
   it(`nulls an omitted deviceLabel`, async () => {
-    selectQueue.push([{ id: RELEASE_ID, workspaceId: `ws-release` }])
-
-    await caller.start({ releaseId: RELEASE_ID })
+    await caller.start({ workspaceId: WORKSPACE_ID })
 
     expect(inserts[0]!.values.deviceLabel).toBeNull()
   })

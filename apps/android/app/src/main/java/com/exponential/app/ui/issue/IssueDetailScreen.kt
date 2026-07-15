@@ -26,10 +26,8 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonOff
-import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -108,9 +106,6 @@ fun IssueDetailScreen(
     val isModerator = permissions.isModerator
     // EXP-50: solo workspaces (one human member) hide the assignee row.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
-    // EXP-56: the workspace's releases + this issue's current one.
-    val workspaceReleases by viewModel.workspaceReleases.collectAsStateWithLifecycle()
-    val currentRelease by viewModel.currentRelease.collectAsStateWithLifecycle()
     // EXP-57: same-workspace projects the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -125,7 +120,6 @@ fun IssueDetailScreen(
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelsOpen by remember { mutableStateOf(false) }
-    var releaseMenuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var duplicatePickerOpen by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
@@ -431,11 +425,9 @@ fun IssueDetailScreen(
                 issueLabels = state.issueLabels,
                 isModerator = isModerator,
                 hideAssignee = soloMemberId != null,
-                releaseName = currentRelease?.name,
                 onStatusClick = { statusMenuOpen = true },
                 onPriorityClick = { priorityMenuOpen = true },
                 onAssigneeClick = { assigneeMenuOpen = true },
-                onReleaseClick = { releaseMenuOpen = true },
                 onDueDateClick = { datePickerOpen = true },
                 onClearDueDate = { viewModel.updateDueDate(null) },
                 onStartTimeClick = { dueTimePickerOpen = true },
@@ -546,31 +538,6 @@ fun IssueDetailScreen(
             iconOf = { user -> if (user == null) Icons.Filled.PersonOff else Icons.Filled.Person },
             onSelect = { viewModel.updateAssignee(it?.id) },
             onDismiss = { assigneeMenuOpen = false },
-        )
-    }
-
-    // Plain membership, not isModerator: v7 collapses moderation to membership
-    // (matches web's isModerator = isMember and iOS's ungated picker).
-    if (releaseMenuOpen && permissions.isMember) {
-        // Single-select release picker (EXP-56): "No release" clears, picking
-        // the current one is a no-op server-side.
-        val releaseItems: List<com.exponential.app.data.db.ReleaseEntity?> =
-            listOf<com.exponential.app.data.db.ReleaseEntity?>(null) + workspaceReleases
-        IssuePickerSheet(
-            title = "Release",
-            items = releaseItems,
-            selected = releaseItems.firstOrNull { it?.id == currentRelease?.id },
-            keyOf = { it?.id ?: "__no_release__" },
-            labelOf = { release ->
-                when {
-                    release == null -> "No release"
-                    release.shippedAt != null -> "${release.name} (shipped)"
-                    else -> release.name
-                }
-            },
-            iconOf = { release -> if (release == null) Icons.Filled.Close else Icons.Filled.RocketLaunch },
-            onSelect = { viewModel.setRelease(it?.id) },
-            onDismiss = { releaseMenuOpen = false },
         )
     }
 

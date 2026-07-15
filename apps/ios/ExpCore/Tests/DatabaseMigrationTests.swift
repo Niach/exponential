@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 7)
+        XCTAssertEqual(try appliedMigrations(pool).count, 8)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 7)
+        XCTAssertEqual(try appliedMigrations(pool).count, 8)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 7)
+        XCTAssertEqual(try appliedMigrations(pool).count, 8)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -106,7 +106,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 7)
+        XCTAssertEqual(try appliedMigrations(pool).count, 8)
         let tokenColumn = try pool.read { db in
             try db.columns(in: "workspace_invites").first { $0.name == "token" }
         }
@@ -126,6 +126,44 @@ final class DatabaseMigrationTests: XCTestCase {
         let needsRefetch: Bool? = offset?["needs_refetch"]
         XCTAssertEqual(handle, "")
         XCTAssertEqual(needsRefetch, true)
+    }
+
+    // EXP-106: a device that ran the original v7 (releases table + release_id
+    // on issues / coding_sessions) must have all of it dropped by v8, while the
+    // coding_sessions rows survive with their release_id-less columns intact.
+    // The current v7 body no longer creates those artifacts, so hand-build the
+    // pre-v8 state (the invite-token test's playbook) before running v8.
+    func testV8DropsReleaseArtifacts() throws {
+        let pool = try makePool("drop-releases")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v7_releases")
+        try pool.write { db in
+            try db.create(table: "releases") { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull()
+                t.column("name", .text).notNull()
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.alter(table: "issues") { t in t.add(column: "release_id", .text) }
+            try db.alter(table: "coding_sessions") { t in t.add(column: "release_id", .text) }
+            try db.execute(sql: """
+                INSERT INTO "coding_sessions"
+                    ("id", "workspace_id", "user_id", "status", "started_at",
+                     "created_at", "updated_at")
+                VALUES ('s1', 'w1', 'u1', 'running', '2026-01-01', '2026-01-01', '2026-01-01')
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertFalse(try pool.read { db in try db.tableExists("releases") })
+        XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
+        // The dropped column is in-place surgery — the row must survive.
+        let surviving = try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM coding_sessions")
+        }
+        XCTAssertEqual(surviving, 1)
     }
 
     // Idempotency: running the full migrator twice on the same file is a no-op,
@@ -148,6 +186,17 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
+        // EXP-106: the releases feature is deleted — a fresh install must have
+        // no `releases` table and no `release_id` on issues / coding_sessions.
+        XCTAssertFalse(try pool.read { db in try db.tableExists("releases") })
+        XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
+        // coding_sessions.issue_id stays nullable (issueless batch sessions).
+        let sessionIssueId = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "issue_id" }
+        }
+        XCTAssertNotNil(sessionIssueId)
+        XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
         // v4 project-type columns must be present after a full migration.
         let projectCols = try columnNames(pool, "projects")
         XCTAssertTrue(projectCols.contains("type"))
