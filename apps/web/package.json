@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
+    "@aws-sdk/client-sesv2": "^3.1081.0",
     "@better-auth/api-key": "^1.6.11",
     "@creem_io/better-auth": "^1.1.1",
     "@electric-sql/client": "^1.2.0",

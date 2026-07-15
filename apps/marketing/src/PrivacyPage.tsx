@@ -126,7 +126,7 @@ export function PrivacyPage() {
               notification payload).
             </li>
             <li style={listItem}>
-              <strong>Resend</strong> — transactional email (receives your
+              <strong>Amazon Web Services (Amazon SES)</strong> — transactional email (receives your
               email address and the message content, e.g. notification,
               account-verification, and password-reset emails).
             </li>

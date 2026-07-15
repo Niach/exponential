@@ -4,7 +4,7 @@ import { emailEnabled } from "@/lib/email"
 
 export type AuthConfig = {
   passwordEnabled: boolean
-  // Email sending is configured (RESEND_API_KEY) — gates "Forgot password?".
+  // Email sending is configured (AWS_SES_REGION) — gates "Forgot password?".
   passwordResetEnabled: boolean
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean

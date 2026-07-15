@@ -1,19 +1,21 @@
 // Transactional email — the SINGLE sender for the whole app. Two transports:
 //
-//   1. Resend (cloud): RESEND_API_KEY set → plain fetch, no SDK.
+//   1. Amazon SES (cloud): AWS_SES_REGION set → SESv2 SendEmail via the AWS
+//      SDK (lazy-imported so the module graph stays light when SES is
+//      unused). Credentials resolve through the standard AWS chain —
+//      AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env pair in practice.
 //   2. SMTP (self-host): SMTP_HOST set → nodemailer (lazy-imported so the
 //      module graph stays light when SMTP is unused).
 //
-// Resend wins when both are configured. With neither, every send is a logged
+// SES wins when both are configured. With neither, every send is a logged
 // no-op so auth + notification flows degrade gracefully instead of throwing;
 // `emailEnabled` lets the UI hide email-dependent affordances (forgot-password,
 // the email-notification prefs panel) on such instances.
 
+import type { SESv2Client } from "@aws-sdk/client-sesv2"
 import type { Transporter } from "nodemailer"
 
-const RESEND_ENDPOINT = `https://api.resend.com/emails`
-
-export type EmailProvider = `resend` | `smtp`
+export type EmailProvider = `ses` | `smtp`
 
 export type EmailSendResult = {
   // false only when no transport is configured (the logged no-op).
@@ -23,11 +25,22 @@ export type EmailSendResult = {
 }
 
 export const emailEnabled = Boolean(
-  process.env.RESEND_API_KEY || process.env.SMTP_HOST
+  process.env.AWS_SES_REGION || process.env.SMTP_HOST
 )
 
 function fromAddress(): string {
   return process.env.EMAIL_FROM ?? `Exponential <noreply@exponential.at>`
+}
+
+// Lazy SESv2 client singleton (cloud path). The runtime import stays dynamic
+// so the AWS SDK is only loaded when SES is configured.
+let sesClient: SESv2Client | null = null
+
+async function getSesClient() {
+  if (sesClient) return sesClient
+  const { SESv2Client: Client } = await import(`@aws-sdk/client-sesv2`)
+  sesClient = new Client({ region: process.env.AWS_SES_REGION })
+  return sesClient
 }
 
 // Lazy nodemailer transporter singleton (SMTP self-host path). The runtime
@@ -62,33 +75,34 @@ export async function sendEmail(args: {
   text: string
   headers?: Record<string, string>
 }): Promise<EmailSendResult> {
-  const apiKey = process.env.RESEND_API_KEY
-
-  if (apiKey) {
-    const res = await fetch(RESEND_ENDPOINT, {
-      method: `POST`,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": `application/json`,
-      },
-      body: JSON.stringify({
-        from: fromAddress(),
-        to: [args.to],
-        subject: args.subject,
-        html: args.html,
-        text: args.text,
-        ...(args.headers ? { headers: args.headers } : {}),
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => ``)
-      throw new Error(`Resend ${res.status}: ${body.slice(0, 300)}`)
-    }
-    const json = (await res.json().catch(() => null)) as { id?: string } | null
+  if (process.env.AWS_SES_REGION) {
+    const { SendEmailCommand } = await import(`@aws-sdk/client-sesv2`)
+    const client = await getSesClient()
+    const out = await client.send(
+      new SendEmailCommand({
+        FromEmailAddress: fromAddress(),
+        Destination: { ToAddresses: [args.to] },
+        Content: {
+          Simple: {
+            Subject: { Data: args.subject, Charset: `UTF-8` },
+            Body: {
+              Html: { Data: args.html, Charset: `UTF-8` },
+              Text: { Data: args.text, Charset: `UTF-8` },
+            },
+            Headers: args.headers
+              ? Object.entries(args.headers).map(([Name, Value]) => ({
+                  Name,
+                  Value,
+                }))
+              : undefined,
+          },
+        },
+      })
+    )
     return {
       delivered: true,
-      provider: `resend`,
-      messageId: json?.id ?? null,
+      provider: `ses`,
+      messageId: out.MessageId ?? null,
     }
   }
 
@@ -110,7 +124,7 @@ export async function sendEmail(args: {
   }
 
   process.stderr.write(
-    `[email] no transport configured (RESEND_API_KEY / SMTP_HOST unset) — dropping "${args.subject}" to ${args.to}\n`
+    `[email] no transport configured (AWS_SES_REGION / SMTP_HOST unset) — dropping "${args.subject}" to ${args.to}\n`
   )
   return { delivered: false, provider: null, messageId: null }
 }
