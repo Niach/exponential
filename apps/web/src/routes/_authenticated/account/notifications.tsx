@@ -146,7 +146,7 @@ function AccountNotifications() {
             <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
               Email sending is not configured on this server. Set
               <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
-                RESEND_API_KEY
+                AWS_SES_REGION
               </code>
               or
               <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">

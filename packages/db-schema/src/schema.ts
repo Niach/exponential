@@ -846,7 +846,7 @@ export const emailDeliveries = pgTable(
     kind: varchar({ length: 32 }).notNull(),
     // queued|sent|failed — documented varchar.
     status: varchar({ length: 16 }).notNull().default(`queued`),
-    provider: varchar({ length: 16 }), // resend|smtp
+    provider: varchar({ length: 16 }), // ses|smtp (legacy rows: resend)
     providerMessageId: text(`provider_message_id`),
     error: text(),
     sentAt: timestamp(`sent_at`, { withTimezone: true }),

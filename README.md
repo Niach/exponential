@@ -54,7 +54,7 @@ bun run storage:init             # prints S3 keys — paste into .env
 bun dev
 ```
 
-App at `https://localhost:3000` (Caddy proxies for HTTP/2). A **GitHub App is required to create projects** (every project is a repository) — set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Resend, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
+App at `https://localhost:3000` (Caddy proxies for HTTP/2). A **GitHub App is required to create projects** (every project is a repository) — set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Amazon SES, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
 
 For production, build the web image and run it instead of `bun dev` — note that with `NODE_ENV=production`, password sign-up is **disabled by default**, so opt in (or configure an OAuth/OIDC provider):
 

@@ -84,7 +84,7 @@ export const notificationsRouter = router({
   // unsubscribeToken on first read/write; a user who never touched the panel
   // simply has the defaults (email on, all types on, hourly digest).
   // `transportConfigured` lets the web panel hide/disable email affordances on
-  // self-hosted instances without RESEND_API_KEY/SMTP_HOST (§6.6).
+  // self-hosted instances without AWS_SES_REGION/SMTP_HOST (§6.6).
   emailPrefs: authedProcedure.query(async ({ ctx }) => {
     const prefs = await getOrCreateEmailPrefs(ctx.session.user.id)
     return {
