@@ -166,9 +166,9 @@ struct NavRegistry {
 impl Global for NavRegistry {}
 
 /// The window's navigation entity, created on first access. A fresh window
-/// starts on the LAST workspace this install had active (persisted in
-/// `settings.json`); an id that no longer syncs falls back to the first
-/// workspace via `active_workspace_id`.
+/// starts on the LAST workspace **and project** this install had active
+/// (persisted in `settings.json`, EXP-116); ids that no longer sync fall back
+/// via `active_workspace_id` / `active_project_id` at query time.
 pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
     let window_id = window.window_handle().window_id();
     if let Some(existing) = cx
@@ -179,8 +179,15 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
     }
     let nav = cx.new(|_| Navigation::new());
     if nav.read(cx).workspace_id.is_none() {
-        if let Some(last) = load_last_workspace(cx) {
-            nav.update(cx, |nav, _| nav.workspace_id = Some(last));
+        // The EXP_DEV_WORKSPACE override (Navigation::new) wins over the
+        // persisted pair — dev runs must land where they were pointed.
+        let last_workspace = load_settings_string(cx, LAST_WORKSPACE_KEY);
+        let last_project = load_settings_string(cx, LAST_PROJECT_KEY);
+        if last_workspace.is_some() || last_project.is_some() {
+            nav.update(cx, |nav, _| {
+                nav.workspace_id = last_workspace;
+                nav.last_project_id = last_project;
+            });
         }
     }
     cx.default_global::<NavRegistry>()
@@ -333,18 +340,24 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
 }
 
 /// Select the window's active project (the top-bar picker) — re-scopes the
-/// Files / Source Control / run / shell surfaces.
+/// Files / Source Control / run / shell surfaces. Persisted alongside the
+/// workspace so the next launch reopens on the same project (EXP-116).
 pub fn set_active_project(window: &Window, cx: &mut App, project_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
-    nav.update(cx, |nav, cx| {
+    let changed = nav.update(cx, |nav, cx| {
         if nav.last_project_id.as_deref() == Some(project_id.as_str()) {
-            return;
+            return false;
         }
-        nav.last_project_id = Some(project_id);
+        nav.last_project_id = Some(project_id.clone());
         cx.notify();
+        true
     });
+    if changed {
+        let workspace_id = nav.read(cx).workspace_id.clone();
+        persist_nav_state(cx, workspace_id, Some(project_id));
+    }
 }
 
 /// Pop the back stack (issue detail → board, …).
@@ -369,9 +382,9 @@ pub fn switch_workspace(window: &Window, cx: &mut App, workspace_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
-    nav.update(cx, |nav, cx| {
+    let changed = nav.update(cx, |nav, cx| {
         if nav.workspace_id.as_deref() == Some(workspace_id.as_str()) {
-            return;
+            return false;
         }
         nav.workspace_id = Some(workspace_id.clone());
         nav.screen = None;
@@ -380,50 +393,87 @@ pub fn switch_workspace(window: &Window, cx: &mut App, workspace_id: String) {
         nav.replaced_screen = None;
         nav.pending_issue_changes = None;
         cx.notify();
+        true
     });
-    persist_last_workspace(cx, workspace_id);
+    if changed {
+        // Clearing the project key keeps the file consistent with the
+        // in-memory reset above — a restart must not resurrect a project
+        // from the workspace this window just left.
+        persist_nav_state(cx, Some(workspace_id), None);
+    }
 }
 
 // -----------------------------------------------------------------------
-// Last-workspace persistence (`settings.json`, merge-preserving like the
-// `deviceId` key — other subsystems' keys survive)
+// Last-workspace/-project persistence (`settings.json`, merge-preserving
+// like the `deviceId` key — other subsystems' keys survive)
 // -----------------------------------------------------------------------
 
 const LAST_WORKSPACE_KEY: &str = "lastWorkspaceId";
+const LAST_PROJECT_KEY: &str = "lastProjectId";
 
 fn settings_json_path(cx: &App) -> Option<std::path::PathBuf> {
     cx.try_global::<crate::session::AuthContext>()
         .map(|auth| auth.data_dir.join("settings.json"))
 }
 
-/// The persisted last-active workspace id (a fresh window's starting point).
-fn load_last_workspace(cx: &App) -> Option<String> {
+/// A persisted non-empty string value (a fresh window's starting point).
+fn load_settings_string(cx: &App, key: &str) -> Option<String> {
     let raw = std::fs::read_to_string(settings_json_path(cx)?).ok()?;
     serde_json::from_str::<serde_json::Value>(&raw)
         .ok()?
-        .get(LAST_WORKSPACE_KEY)?
+        .get(key)?
         .as_str()
         .filter(|id| !id.trim().is_empty())
         .map(str::to_string)
 }
 
-/// Remember `workspace_id` for the next launch (best-effort, off-thread).
-fn persist_last_workspace(cx: &mut App, workspace_id: String) {
+/// Remember the window's workspace/project selection for the next launch
+/// (best-effort, off-thread). ONE writer for BOTH keys: the `OpenProject`
+/// cross-workspace path mutates workspace then project back-to-back, and two
+/// independent read-modify-write tasks against the shared `settings.json`
+/// could land in either order — the sequence stamp (checked under the write
+/// lock) lets a superseded snapshot skip instead of clobbering the newest.
+/// `workspace_id: None` leaves the workspace key untouched;
+/// `project_id: None` REMOVES the project key (workspace switch reset).
+fn persist_nav_state(cx: &mut App, workspace_id: Option<String>, project_id: Option<String>) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
     let Some(path) = settings_json_path(cx) else {
         return;
     };
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     cx.background_executor()
         .spawn(async move {
+            let _guard = WRITE_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+            if SEQ.load(Ordering::SeqCst) != seq {
+                return; // a newer snapshot is queued (or already written)
+            }
             let mut root = std::fs::read_to_string(&path)
                 .ok()
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .filter(serde_json::Value::is_object)
                 .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
             if let Some(object) = root.as_object_mut() {
-                object.insert(
-                    LAST_WORKSPACE_KEY.to_string(),
-                    serde_json::Value::String(workspace_id),
-                );
+                if let Some(workspace_id) = workspace_id {
+                    object.insert(
+                        LAST_WORKSPACE_KEY.to_string(),
+                        serde_json::Value::String(workspace_id),
+                    );
+                }
+                match project_id {
+                    Some(project_id) => {
+                        object.insert(
+                            LAST_PROJECT_KEY.to_string(),
+                            serde_json::Value::String(project_id),
+                        );
+                    }
+                    None => {
+                        object.remove(LAST_PROJECT_KEY);
+                    }
+                }
             }
             let write = || -> std::io::Result<()> {
                 if let Some(parent) = path.parent() {
@@ -435,7 +485,7 @@ fn persist_last_workspace(cx: &mut App, workspace_id: String) {
                 std::fs::write(&path, rendered)
             };
             if let Err(err) = write() {
-                log::warn!("[ui] persisting last workspace failed: {err}");
+                log::warn!("[ui] persisting nav state failed: {err}");
             }
         })
         .detach();
