@@ -194,4 +194,23 @@ describe(`injectMeta`, () => {
     const noHead = `<html><body>no head</body></html>`
     expect(injectMeta(noHead, meta, `https://app.exponential.at`)).toBe(noHead)
   })
+
+  it(`injects after <head> when the shell never closes it (React 19 streamed shell)`, () => {
+    // The REAL production shape: React 19's streaming SSR emits no </head>,
+    // <body>, or </html> — the browser parser auto-closes head at the first
+    // flow element. This is the path that actually runs in prod.
+    const streamedShell = `<!DOCTYPE html><html lang="en" class="dark"><head><meta charSet="utf-8"/><title>Exponential</title><meta name="robots" content="noindex"/><div id="root">app</div><script src="/assets/index.js"></script>`
+    const out = injectMeta(streamedShell, meta, `https://app.exponential.at`)
+    expect(out).toContain(`og:title`)
+    expect(out).toContain(`rel="canonical"`)
+    expect(out).toContain(
+      `content="https://app.exponential.at/t/feedback/projects/exponential/issues/EXP-1"`
+    )
+    // Injection lands inside head: after the opening tag, before the first
+    // flow element.
+    expect(out.indexOf(`og:title`)).toBeGreaterThan(out.indexOf(`<head>`))
+    expect(out.indexOf(`og:title`)).toBeLessThan(out.indexOf(`<div id="root">`))
+    // The shell already carries noindex — no duplicate is added.
+    expect(out.match(/name="robots"/g)).toHaveLength(1)
+  })
 })

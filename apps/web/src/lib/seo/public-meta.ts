@@ -284,19 +284,24 @@ export function injectMeta(
   // Re-assert noindex rather than trusting the shell: a public board is the one
   // page a crawler is most likely to reach (it's linked from the wild), so if
   // the shell ever ships without a robots tag, add one here.
-  let out = html
+  let injectBlock = block
   const robotsRe = /<meta[^>]*name=["']robots["'][^>]*>/i
-  if (!robotsRe.test(out)) {
-    out = out.replace(
-      /<\/head>/i,
-      `    <meta name="robots" content="noindex" />\n</head>`
-    )
+  if (!robotsRe.test(html)) {
+    injectBlock += tag(`<meta name="robots" content="noindex" />`)
   }
 
-  const headClose = /<\/head>/i
-  if (!headClose.test(out)) return out
-  // Replacer FUNCTION, not a string: the block embeds escaped titles where a
+  // Replacer FUNCTIONs, not strings: the block embeds escaped titles where a
   // `$'` (escaped to `$&#39;`) would otherwise be read as a replace() pattern
   // and splice document content into the attribute.
-  return out.replace(headClose, () => `${block}</head>`)
+  const headClose = /<\/head>/i
+  if (headClose.test(html)) {
+    return html.replace(headClose, () => `${injectBlock}</head>`)
+  }
+  // React 19's streamed production shell emits NO `</head>` at all (the
+  // browser parser auto-closes head at the first flow element), so falling
+  // back to the opening tag is the path that actually runs in prod — meta
+  // placement anywhere inside head is valid for crawlers and unfurlers.
+  const headOpen = /<head(?:\s[^>]*)?>/i
+  if (!headOpen.test(html)) return html
+  return html.replace(headOpen, (m) => `${m}${injectBlock}`)
 }
