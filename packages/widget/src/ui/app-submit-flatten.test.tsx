@@ -81,14 +81,26 @@ describe(`submit while a flatten is encoding`, () => {
       URL.createObjectURL = () => `blob:test`
       URL.revokeObjectURL = () => undefined
     }
+    if (typeof globalThis.requestAnimationFrame !== `function`) {
+      globalThis.requestAnimationFrame = (fn: FrameRequestCallback) => {
+        setTimeout(() => fn(0), 0)
+        return 0
+      }
+    }
     document.body.innerHTML = ``
     container = document.createElement(`div`)
     document.body.appendChild(container)
     state = makeState()
     render(<App state={state} />, container)
     await flush()
-    // Auto-capture drops into the annotator; the form is mounted underneath.
     state.bundle?.open()
+    await flush()
+    // "Take screenshot" captures and drops into the annotator; the form is
+    // mounted underneath.
+    const takeButton = [
+      ...container.querySelectorAll<HTMLButtonElement>(`.exp-chip`),
+    ].find((chip) => chip.textContent === `Take screenshot`)
+    takeButton!.click()
     await flush()
     const title = container.querySelector<HTMLInputElement>(`#exp-title`)
     title!.value = `Broken thing`

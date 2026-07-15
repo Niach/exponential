@@ -25,6 +25,7 @@ const renderSuccess = (args: {
       identityEmail={null}
       emailRequired={false}
       onClose={noop}
+      onCapture={noop}
       onRetake={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}
@@ -54,13 +55,17 @@ describe(`success card`, () => {
 
   it(`renders plain text when the url is null`, () => {
     const container = renderSuccess({ identifier: `EXP-7`, url: null })
-    expect(container.querySelector(`a`)).toBeNull()
+    // The powered-by footer's anchor is always present — only the
+    // issue-link anchor must be absent.
+    expect(container.querySelector(`a.exp-success-link`)).toBeNull()
     expect(container.textContent).toContain(`Filed as EXP-7.`)
   })
 
   it(`falls back to the generic line without an identifier`, () => {
     const container = renderSuccess({ identifier: null, url: null })
-    expect(container.querySelector(`a`)).toBeNull()
+    // The powered-by footer's anchor is always present — only the
+    // issue-link anchor must be absent.
+    expect(container.querySelector(`a.exp-success-link`)).toBeNull()
     expect(container.textContent).toContain(`Your feedback has been sent.`)
   })
 })

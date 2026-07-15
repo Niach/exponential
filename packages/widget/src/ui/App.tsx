@@ -36,6 +36,10 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // recropping is possible right up to submit.
   const [crop, setCrop] = useState<NormalizedRect | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
+  // True while the annotator is editing a capture the reporter never
+  // confirmed (straight from "Take screenshot"): cancelling then discards the
+  // image. Re-edits of an already-attached shot (the Annotate chip) keep it.
+  const freshCaptureRef = useRef(false)
   // A flatten (image decode + canvas re-encode) can take a second on slow
   // devices. Submitting during that window must never send the pristine base
   // screenshot — it may contain content the reporter deliberately cropped
@@ -89,22 +93,20 @@ export function App({ state }: { state: WidgetRuntimeState }) {
 
   const open = useCallback(() => {
     if (phaseRef.current.kind !== `closed`) return
-    // Capture BEFORE the panel renders so the screenshot shows the page as
-    // the reporter sees it, panel-free.
-    setPhase({ kind: `capturing` })
-    void capture().then((captured) => {
-      if (phaseRef.current.kind !== `capturing`) return
-      // Jump straight into the annotation editor when a screenshot exists —
-      // marking up the shot is the most common first action. Happens exactly
-      // once per open: closing the editor lands on the form and nothing
-      // re-triggers it.
-      setPhase(captured ? { kind: `annotating` } : { kind: `open` })
-    })
-  }, [capture])
+    // Screenshots are on demand: the panel opens straight onto the form and
+    // capturing only happens when the reporter asks for it.
+    setCaptureFailed(false)
+    setPhase({ kind: `open` })
+  }, [])
 
   const close = useCallback(() => {
+    // The form fields die with the unmounting Panel; keeping the screenshot
+    // (a snapshot of a page state that may be long gone by the next open)
+    // would be inconsistent, so it goes too.
+    replaceBase(null)
+    setCaptureFailed(false)
     setPhase({ kind: `closed` })
-  }, [])
+  }, [replaceBase])
 
   useEffect(() => {
     state.bundle = {
@@ -145,18 +147,39 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     })
   }, [capture])
 
+  const takeScreenshot = useCallback(() => {
+    // Hide the panel, capture the page as the reporter sees it, then land in
+    // the annotation editor — capturing is an explicit intent to mark up.
+    setPhase({ kind: `capturing` })
+    requestAnimationFrame(() => {
+      void capture().then((captured) => {
+        freshCaptureRef.current = captured
+        setPhase(captured ? { kind: `annotating` } : { kind: `open` })
+      })
+    })
+  }, [capture])
+
   const openAnnotator = useCallback(() => {
     if (!baseRef.current) return
     if (phaseRef.current.kind !== `open`) return
+    freshCaptureRef.current = false
     setPhase({ kind: `annotating` })
   }, [])
 
   const cancelAnnotate = useCallback(() => {
+    // Cancelling out of a never-confirmed capture discards it — it must not
+    // stay silently attached to the submission.
+    if (freshCaptureRef.current) {
+      freshCaptureRef.current = false
+      replaceBase(null)
+    }
     setPhase({ kind: `open` })
-  }, [])
+  }, [replaceBase])
 
   const saveAnnotations = useCallback(
     async (next: AnnotationShape[], nextCrop: NormalizedRect | null) => {
+      // Saving confirms the capture: later cancels keep the shot attached.
+      freshCaptureRef.current = false
       setPhase({ kind: `open` })
       setShapes(next)
       setCrop(nextCrop)
@@ -301,6 +324,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           identityEmail={state.identity.email ?? null}
           emailRequired={state.config?.form?.emailRequired === true}
           onClose={close}
+          onCapture={takeScreenshot}
           onRetake={retake}
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}

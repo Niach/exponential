@@ -2,6 +2,22 @@ import { useEffect, useRef, useState } from "preact/hooks"
 import type { Screenshot } from "./App"
 
 const closeIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>`
+
+// Same growth loop as the public board's powered-by footer: every embedded
+// widget signposts back to the product.
+function PoweredBy() {
+  return (
+    <div className="exp-powered">
+      <a
+        href="https://exponential.at/?utm_source=widget"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Powered by <strong>Exponential</strong>
+      </a>
+    </div>
+  )
+}
 const checkIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`
 
 export function Panel(props: {
@@ -22,6 +38,8 @@ export function Panel(props: {
   identityEmail: string | null
   emailRequired: boolean
   onClose(): void
+  // Capture from scratch (empty state) — lands in the annotator on success.
+  onCapture(): void
   onRetake(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
@@ -134,6 +152,7 @@ export function Panel(props: {
             )}
           </div>
         </div>
+        <PoweredBy />
       </div>
     )
   }
@@ -190,10 +209,14 @@ export function Panel(props: {
               <span>
                 {props.captureFailed
                   ? `Screenshot couldn't be captured.`
-                  : `No screenshot attached.`}
+                  : `Attach a screenshot of this page.`}
               </span>
-              <button type="button" className="exp-chip" onClick={props.onRetake}>
-                {props.captureFailed ? `Try again` : `Capture screenshot`}
+              <button
+                type="button"
+                className="exp-chip"
+                onClick={props.onCapture}
+              >
+                {props.captureFailed ? `Try again` : `Take screenshot`}
               </button>
             </div>
           )}
@@ -263,6 +286,7 @@ export function Panel(props: {
           </button>
         </div>
       </form>
+      <PoweredBy />
     </div>
   )
 }
