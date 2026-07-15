@@ -5,3 +5,9 @@ dist
 
 # Ignore the output video from Git but not videos you import into src/.
 out
+
+# Seedance take picks (heavy binaries; see public/footage/README.md)
+public/footage/*.mp4
+public/footage/*.mp3
+# Raw takes parked for picking
+ref/footage-takes

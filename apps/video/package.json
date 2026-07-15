@@ -1,7 +1,7 @@
 {
   "name": "@exp/video",
   "version": "0.1.0",
-  "description": "Remotion promo/demo videos for Exponential (renders MP4s from real app screenshots)",
+  "description": "Remotion promo/demo videos for Exponential (recreated app UI + brand scenes)",
   "private": true,
   "license": "UNLICENSED",
   "dependencies": {
@@ -9,7 +9,8 @@
     "@remotion/google-fonts": "4.0.484",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "remotion": "4.0.484"
+    "remotion": "4.0.484",
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@remotion/eslint-config-flat": "4.0.484",
@@ -22,6 +23,11 @@
   "scripts": {
     "studio": "remotion studio",
     "render": "remotion render WebUiDemo out/webui-demo.mp4",
+    "render:ships": "remotion render ShipsItsOwnIssues out/ships-its-own-issues.mp4 --crf 16",
+    "render:spot": "remotion render LaunchSpot out/launch-spot-raw.mp4 --crf 16 && bun run master:spot",
+    "master:spot": "ffmpeg -y -i out/launch-spot-raw.mp4 -c:v copy -af 'volume=5.1dB,alimiter=attack=5:release=80:limit=0.85:level=disabled' -c:a aac -b:a 256k out/launch-spot.mp4",
+    "render:spot-vertical": "remotion render LaunchSpotVertical out/launch-spot-vertical-raw.mp4 --crf 16 && bun run master:spot-vertical",
+    "master:spot-vertical": "ffmpeg -y -i out/launch-spot-vertical-raw.mp4 -c:v copy -af 'volume=3.9dB,alimiter=attack=5:release=80:limit=0.85:level=disabled' -c:a aac -b:a 256k out/launch-spot-vertical.mp4",
     "build": "remotion bundle",
     "lint": "eslint src && tsc"
   },
