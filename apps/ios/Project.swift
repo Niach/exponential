@@ -57,6 +57,9 @@ let expUiDependencies: [TargetDependency] = [
 // curated copy (it does NOT link ExpCore, so it stays GRDB-free).
 let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/AppConstants.swift",
+    // HTTPClient's 426 handling references the gate (EXP-104); the extension
+    // compiles it too, where a trip is simply never read.
+    "ExpCore/Sources/UpdateGate.swift",
     "ExpCore/Sources/Shared/**",
     "ExpCore/Sources/Auth/KeychainStore.swift",
     "ExpCore/Sources/Auth/AccountStore.swift",
