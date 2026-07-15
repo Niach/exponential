@@ -12,6 +12,7 @@ export interface DomainContract {
   recurrenceUnit: { values: readonly string[] }
   workspaceRole: { values: readonly string[] }
   projectType: { values: readonly string[] }
+  projectIcon: { values: readonly string[] }
   commentKind: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
