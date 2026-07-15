@@ -6,6 +6,57 @@ export type SubmitResult =
   | { ok: true; identifier: string | null; url: string | null }
   | { ok: false; message: string }
 
+// Support mode (EXP-130): files a helpdesk ticket. The reply channel is the
+// reporter's email — the server mails them a magic conversation link.
+export async function submitSupportRequest(args: {
+  state: WidgetRuntimeState
+  message: string
+  email: string
+  meta: EnvMeta
+}): Promise<SubmitResult> {
+  const { state } = args
+  const formData = new FormData()
+  formData.set(`key`, state.options.key)
+  formData.set(`mode`, `support`)
+  formData.set(`message`, args.message)
+  formData.set(`email`, args.email)
+  if (state.identity.name) formData.set(`name`, state.identity.name)
+  if (state.identity.userId) formData.set(`userId`, state.identity.userId)
+  if (Object.keys(state.customData).length > 0) {
+    formData.set(`customData`, JSON.stringify(state.customData))
+  }
+  formData.set(`meta`, JSON.stringify(args.meta))
+
+  try {
+    const response = await fetch(`${state.apiOrigin}/api/widget/submit`, {
+      method: `POST`,
+      body: formData,
+      credentials: `omit`,
+    })
+    if (response.status === 429) {
+      return {
+        ok: false,
+        message: `Too many requests right now — try again in a minute.`,
+      }
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: string
+      } | null
+      return {
+        ok: false,
+        message: body?.error ?? `Something went wrong. Please try again.`,
+      }
+    }
+    const body = (await response.json().catch(() => null)) as {
+      identifier?: string
+    } | null
+    return { ok: true, identifier: body?.identifier ?? null, url: null }
+  } catch {
+    return { ok: false, message: `Network error. Please try again.` }
+  }
+}
+
 export async function submitFeedback(args: {
   state: WidgetRuntimeState
   title: string
@@ -42,7 +93,10 @@ export async function submitFeedback(args: {
       credentials: `omit`,
     })
     if (response.status === 429) {
-      return { ok: false, message: `Too many reports right now — try again in a minute.` }
+      return {
+        ok: false,
+        message: `Too many reports right now — try again in a minute.`,
+      }
     }
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {

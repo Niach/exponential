@@ -49,8 +49,13 @@ export interface WidgetRemoteForm {
   emailRequired: boolean
 }
 
+// Which entry points the panel offers (EXP-130).
+export type WidgetMode = `feedback` | `support`
+
 export interface WidgetRemoteConfig {
   enabled: boolean
+  // Absent on older servers = feedback-only.
+  modes?: WidgetMode[]
   form?: WidgetRemoteForm
   limits?: { maxScreenshotBytes: number }
 }

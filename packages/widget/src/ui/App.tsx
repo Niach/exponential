@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks"
-import type { WidgetRuntimeState } from "../types"
+import type {
+  WidgetMode,
+  WidgetRemoteConfig,
+  WidgetRuntimeState,
+} from "../types"
 import type { AnnotationShape, NormalizedRect } from "../annotate/shapes"
 import { flattenAnnotations } from "../annotate/flatten"
 import { captureScreenshot } from "../capture/engine"
 import { snapdomEngine } from "../capture/snapdom-engine"
 import { collectEnvMeta } from "../env-meta"
-import { submitFeedback } from "../api-client"
+import { submitFeedback, submitSupportRequest } from "../api-client"
 import { megaphoneIconSvg, pickForeground, theme } from "../theme"
 import { Annotator } from "./Annotator"
 import { Panel } from "./Panel"
+import type { PanelView } from "./Panel"
 
 type UiPhase =
   | { kind: `closed` }
@@ -16,7 +21,22 @@ type UiPhase =
   | { kind: `open` }
   | { kind: `annotating` }
   | { kind: `submitting` }
-  | { kind: `success`; identifier: string | null; url: string | null }
+  | {
+      kind: `success`
+      flavor: WidgetMode
+      identifier: string | null
+      url: string | null
+    }
+
+// The panel's entry points, from the remote config. Absent / unknown values
+// (older servers, cache skew) degrade to feedback-only — today's behavior.
+function effectiveModes(config: WidgetRemoteConfig | null): WidgetMode[] {
+  const modes =
+    config?.modes?.filter(
+      (mode) => mode === `feedback` || mode === `support`
+    ) ?? []
+  return modes.length > 0 ? modes : [`feedback`]
+}
 
 export interface Screenshot {
   blob: Blob
@@ -25,6 +45,9 @@ export interface Screenshot {
 
 export function App({ state }: { state: WidgetRuntimeState }) {
   const [phase, setPhase] = useState<UiPhase>({ kind: `closed` })
+  // Which pane the panel shows: the card home (both modes), or one form
+  // directly (single mode) — set at open time from the resolved config.
+  const [view, setView] = useState<PanelView>(`feedback`)
   // `base` is the pristine capture annotations are drawn over; `annotated`
   // is the flattened result (what the preview shows and submit sends).
   // Shapes are kept so reopening the editor stays non-destructive.
@@ -57,10 +80,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const screenshot = annotated ?? base
 
   const accent =
-    state.options.color ?? state.config?.form?.accentColor ?? theme.defaultAccent
+    state.options.color ??
+    state.config?.form?.accentColor ??
+    theme.defaultAccent
   const position =
     state.options.position ?? state.config?.form?.position ?? `bottom-left`
-  const label = state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
+  const label =
+    state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
 
   const replaceBase = useCallback((next: Screenshot | null) => {
     setBase((previous) => {
@@ -93,11 +119,15 @@ export function App({ state }: { state: WidgetRuntimeState }) {
 
   const open = useCallback(() => {
     if (phaseRef.current.kind !== `closed`) return
-    // Screenshots are on demand: the panel opens straight onto the form and
-    // capturing only happens when the reporter asks for it.
+    // Both modes enabled → the card home; a single mode skips it and opens
+    // that form directly (feedback-only configs behave exactly like before).
+    const modes = effectiveModes(state.config)
+    setView(modes.length > 1 ? `home` : modes[0])
+    // Screenshots are on demand: the feedback form opens plain and capturing
+    // only happens when the reporter asks for it.
     setCaptureFailed(false)
     setPhase({ kind: `open` })
-  }, [])
+  }, [state])
 
   const close = useCallback(() => {
     // The form fields die with the unmounting Panel; keeping the screenshot
@@ -237,22 +267,57 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         setCaptureFailed(false)
         setPhase({
           kind: `success`,
+          flavor: `feedback`,
           identifier: result.identifier,
           url: result.url,
         })
         // Leave the success card up longer when it carries a link to the
         // public issue, so the reporter has a chance to click through.
-        window.setTimeout(() => {
-          setPhase((current) =>
-            current.kind === `success` ? { kind: `closed` } : current
-          )
-        }, result.url ? 6_000 : 2_500)
+        window.setTimeout(
+          () => {
+            setPhase((current) =>
+              current.kind === `success` ? { kind: `closed` } : current
+            )
+          },
+          result.url ? 6_000 : 2_500
+        )
         return null
       }
       setPhase({ kind: `open` })
       return result.message
     },
     [state, screenshot, replaceBase]
+  )
+
+  const submitSupport = useCallback(
+    async (form: { message: string; email: string }) => {
+      setPhase({ kind: `submitting` })
+      const result = await submitSupportRequest({
+        state,
+        message: form.message,
+        email: form.email || state.identity.email || ``,
+        meta: collectEnvMeta(),
+      })
+      if (result.ok) {
+        setPhase({
+          kind: `success`,
+          flavor: `support`,
+          identifier: null,
+          url: null,
+        })
+        // Longer than the feedback flash: the card tells the reporter to
+        // check their email for the conversation link.
+        window.setTimeout(() => {
+          setPhase((current) =>
+            current.kind === `success` ? { kind: `closed` } : current
+          )
+        }, 6_000)
+        return null
+      }
+      setPhase({ kind: `open` })
+      return result.message
+    },
+    [state]
   )
 
   const showButton =
@@ -313,9 +378,12 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         <Panel
           phase={phase.kind === `annotating` ? `open` : phase.kind}
           hidden={phase.kind === `annotating`}
-          successIdentifier={
-            phase.kind === `success` ? phase.identifier : null
-          }
+          view={view}
+          canGoBack={effectiveModes(state.config).length > 1}
+          onPickMode={(mode) => setView(mode)}
+          onBack={() => setView(`home`)}
+          successFlavor={phase.kind === `success` ? phase.flavor : `feedback`}
+          successIdentifier={phase.kind === `success` ? phase.identifier : null}
           successUrl={phase.kind === `success` ? phase.url : null}
           position={position}
           screenshot={screenshot}
@@ -329,6 +397,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}
           onSubmit={submit}
+          onSubmitSupport={submitSupport}
         />
       )}
 

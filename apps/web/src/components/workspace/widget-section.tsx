@@ -69,6 +69,9 @@ function previewForeground(color: string): string {
 }
 
 type WidgetPosition = `bottom-left` | `bottom-right`
+// The settings-facing shape of formConfig.modes: a single pick instead of a
+// multi-select (there are only three valid combinations).
+type WidgetModeChoice = `feedback` | `support` | `both`
 
 // The styling knobs stored in widget_configs.form_config (jsonb) — read
 // defensively, rows may predate any of the fields.
@@ -77,7 +80,11 @@ function readFormConfig(raw: Record<string, unknown> | null): {
   accentColor: string
   position: WidgetPosition
   emailRequired: boolean
+  mode: WidgetModeChoice
 } {
+  const modes = Array.isArray(raw?.modes) ? raw.modes : []
+  const hasSupport = modes.includes(`support`)
+  const hasFeedback = modes.includes(`feedback`) || !hasSupport
   return {
     buttonLabel: typeof raw?.buttonLabel === `string` ? raw.buttonLabel : ``,
     accentColor:
@@ -87,7 +94,15 @@ function readFormConfig(raw: Record<string, unknown> | null): {
         : ``,
     position: raw?.position === `bottom-right` ? `bottom-right` : `bottom-left`,
     emailRequired: raw?.emailRequired === true,
+    mode: hasSupport ? (hasFeedback ? `both` : `support`) : `feedback`,
   }
+}
+
+function modesForChoice(
+  choice: WidgetModeChoice
+): Array<`feedback` | `support`> {
+  if (choice === `both`) return [`feedback`, `support`]
+  return [choice]
 }
 
 export function WorkspaceWidgetSection({
@@ -116,8 +131,10 @@ export function WorkspaceWidgetSection({
   const [formButtonLabel, setFormButtonLabel] = useState(``)
   // Empty string = "use the widget default" (the accentColor key is omitted).
   const [formAccent, setFormAccent] = useState(``)
-  const [formPosition, setFormPosition] = useState<WidgetPosition>(`bottom-left`)
+  const [formPosition, setFormPosition] =
+    useState<WidgetPosition>(`bottom-left`)
   const [formEmailRequired, setFormEmailRequired] = useState(false)
+  const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -146,6 +163,7 @@ export function WorkspaceWidgetSection({
     setFormAccent(``)
     setFormPosition(`bottom-left`)
     setFormEmailRequired(false)
+    setFormMode(`feedback`)
     setFormError(null)
     setDialogOpen(true)
   }
@@ -160,17 +178,17 @@ export function WorkspaceWidgetSection({
     setFormAccent(config.accentColor)
     setFormPosition(config.position)
     setFormEmailRequired(config.emailRequired)
+    setFormMode(config.mode)
     setFormError(null)
     setDialogOpen(true)
   }
 
   const buildFormConfig = () => ({
-    ...(formButtonLabel.trim()
-      ? { buttonLabel: formButtonLabel.trim() }
-      : {}),
+    ...(formButtonLabel.trim() ? { buttonLabel: formButtonLabel.trim() } : {}),
     ...(formAccent ? { accentColor: formAccent } : {}),
     position: formPosition,
     emailRequired: formEmailRequired,
+    modes: modesForChoice(formMode),
   })
 
   const save = async () => {
@@ -262,13 +280,17 @@ export function WorkspaceWidgetSection({
         </CardTitle>
         <CardDescription>
           Embed the Exponential widget on your own site: visitors capture a
-          screenshot, describe the problem, and it lands here as an issue —
-          with reporter email and page context attached.
+          screenshot, describe the problem, and it lands here as an issue — with
+          reporter email and page context attached.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex justify-end">
-          <Button size="sm" onClick={openCreate} disabled={projects.length === 0}>
+          <Button
+            size="sm"
+            onClick={openCreate}
+            disabled={projects.length === 0}
+          >
             New widget
           </Button>
         </div>
@@ -305,7 +327,8 @@ export function WorkspaceWidgetSection({
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                     <span>
-                      {widget.submissionCount}{` `}
+                      {widget.submissionCount}
+                      {` `}
                       {widget.submissionCount === 1
                         ? `submission`
                         : `submissions`}
@@ -374,8 +397,8 @@ export function WorkspaceWidgetSection({
               {editTarget ? `Edit widget` : `New widget`}
             </DialogTitle>
             <DialogDescription>
-              Submissions create issues in the selected project. The key in
-              the snippet is public; restrict it to your domains.
+              Submissions create issues in the selected project. The key in the
+              snippet is public; restrict it to your domains.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -402,6 +425,31 @@ export function WorkspaceWidgetSection({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Modes</Label>
+              <Select
+                value={formMode}
+                onValueChange={(value) =>
+                  setFormMode(value as WidgetModeChoice)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="feedback">Feedback</SelectItem>
+                  <SelectItem value="support">Support</SelectItem>
+                  <SelectItem value="both">Feedback + support</SelectItem>
+                </SelectContent>
+              </Select>
+              {formMode !== `feedback` && (
+                <p className="text-xs text-muted-foreground">
+                  Support files helpdesk tickets — visitors get a reply-by-email
+                  conversation. Requires the helpdesk to be enabled on the
+                  selected project.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="widget-domains">Allowed domains</Label>

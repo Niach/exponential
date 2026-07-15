@@ -16,6 +16,11 @@ const renderSuccess = (args: {
   render(
     <Panel
       phase="success"
+      view="feedback"
+      canGoBack={false}
+      onPickMode={noop}
+      onBack={noop}
+      successFlavor="feedback"
       successIdentifier={args.identifier}
       successUrl={args.url}
       position="bottom-right"
@@ -30,6 +35,7 @@ const renderSuccess = (args: {
       onAnnotate={noop}
       onRemoveScreenshot={noop}
       onSubmit={async () => null}
+      onSubmitSupport={async () => null}
     />,
     container
   )

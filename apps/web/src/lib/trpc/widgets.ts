@@ -12,7 +12,7 @@ import {
 } from "@/lib/workspace-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { createWidgetUser, widgetUserName } from "@/lib/widget/widget-user"
-import { assertCanCreateWidget } from "@/lib/billing"
+import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
 
 const widgetNameSchema = z.string().trim().min(1).max(255)
 // Hostname[:port] patterns, optionally `*.`-prefixed. Kept permissive on
@@ -23,7 +23,10 @@ const domainPatternSchema = z
   .trim()
   .min(1)
   .max(253)
-  .regex(/^(\*\.)?[a-zA-Z0-9.-]+(:\d{1,5})?$/, `Enter a hostname like app.example.com`)
+  .regex(
+    /^(\*\.)?[a-zA-Z0-9.-]+(:\d{1,5})?$/,
+    `Enter a hostname like app.example.com`
+  )
 const allowedDomainsSchema = z.array(domainPatternSchema).max(20)
 
 const formConfigSchema = z
@@ -35,8 +38,32 @@ const formConfigSchema = z
       .optional(),
     position: z.enum([`bottom-right`, `bottom-left`]).optional(),
     emailRequired: z.boolean().optional(),
+    // Which entry points the panel offers (EXP-130); absent = feedback-only.
+    modes: z
+      .array(z.enum([`feedback`, `support`]))
+      .min(1)
+      .max(2)
+      .optional(),
   })
   .optional()
+
+// Support mode files helpdesk tickets, so it needs both the plan gate and a
+// target project with the helpdesk switched on — otherwise tickets would land
+// invisibly (the Support inbox nav keys off projects.helpdesk_enabled).
+async function assertSupportModeUsable(workspaceId: string, projectId: string) {
+  await assertCanUseHelpdesk(workspaceId)
+  const [project] = await db
+    .select({ helpdeskEnabled: projects.helpdeskEnabled })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+  if (project?.helpdeskEnabled !== true) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `Enable the helpdesk on the target project first`,
+    })
+  }
+}
 
 async function loadConfigForWorkspaceAdmin(
   userId: string,
@@ -128,6 +155,9 @@ export const widgetsRouter = router({
           message: `Project must belong to the workspace`,
         })
       }
+      if (input.formConfig?.modes?.includes(`support`)) {
+        await assertSupportModeUsable(input.workspaceId, input.projectId)
+      }
 
       return await ctx.db.transaction(async (tx) => {
         const widgetUserId = await createWidgetUser(tx, {
@@ -176,6 +206,29 @@ export const widgetsRouter = router({
             message: `Project must belong to the workspace`,
           })
         }
+      }
+
+      // Gate on the FINAL state, but only when this update actually touches
+      // it (new modes, or a project repoint re-checked against the new
+      // target) — a lapsed plan must not block unrelated edits like renaming
+      // or disabling, and stale stored support degrades gracefully at serve
+      // time via effectiveWidgetModes.
+      const touchesSupportState =
+        input.formConfig !== undefined ||
+        (input.projectId !== undefined && input.projectId !== config.projectId)
+      const finalModes =
+        input.formConfig !== undefined
+          ? input.formConfig?.modes
+          : (config.formConfig?.modes as string[] | undefined)
+      if (
+        touchesSupportState &&
+        Array.isArray(finalModes) &&
+        finalModes.includes(`support`)
+      ) {
+        await assertSupportModeUsable(
+          config.workspaceId,
+          input.projectId ?? config.projectId
+        )
       }
 
       await ctx.db.transaction(async (tx) => {

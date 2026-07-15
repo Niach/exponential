@@ -324,6 +324,42 @@ export async function sendSupportReplyEmail(args: {
   })
 }
 
+// Helpdesk ticket confirmation for the reporter (widget support mode): the
+// FIRST carrier of the magic conversation link — without this email the
+// reporter has no way back into the thread until a member reply re-mails a
+// rotated link.
+export async function sendSupportConfirmationEmail(args: {
+  to: string
+  projectName: string
+  threadUrl: string
+}): Promise<EmailSendResult> {
+  const subject = `We got your request — ${args.projectName} support`
+  return await sendEmail({
+    to: args.to,
+    subject,
+    html: `<!doctype html>
+<html>
+  <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(subject)}</h1>
+      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">
+        Thanks for reaching out — we'll get back to you as soon as we can.
+        Track the conversation and reply from the link below.
+      </p>
+      <a href="${args.threadUrl}"
+         style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px;">
+        Track and reply here
+      </a>
+      <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
+        This link is personal to you, so don't share it.
+      </p>
+    </div>
+  </body>
+</html>`,
+    text: `${subject}\n\nThanks for reaching out — we'll get back to you as soon as we can.\n\nTrack and reply here: ${args.threadUrl}\n\nThis link is personal to you — don't share it.`,
+  })
+}
+
 // One-way helpdesk resolution notice for an external widget reporter. CLEAN
 // reporter-facing copy only — no assignee names, no page/UA metadata, none of
 // the internal buildWidgetDescription block, no workspace context, no links
