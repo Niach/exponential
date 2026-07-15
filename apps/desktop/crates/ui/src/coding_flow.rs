@@ -16,7 +16,9 @@
 //!   **stop** affordance (kill the child → the exit hook fires the idempotent
 //!   `codingSessions.end`). A manually closed tab is also caught
 //!   (`TabClosed`) and ends the row best-effort — the "coding now" badge must
-//!   never ghost.
+//!   never ghost. EXP-105 extends that rule to the two teardown paths that
+//!   fire neither the exit hook nor `TabClosed`: window close (a manager
+//!   release observer per session) and app quit ([`install_quit_hook`]).
 //! - [`StartCodingControl`] — the header affordance itself. Enabled iff
 //!   `repositories.forIssue` resolves non-null AND the doctor is green
 //!   (BOTH `claude` and `git`, §7.1 step 1); disabled states carry the EXACT
@@ -193,9 +195,9 @@ pub struct LocalSessions {
     by_issue: HashMap<String, LocalCodingSession>,
     /// Multi-issue batch sessions, keyed by batch id.
     by_batch: HashMap<String, LocalCodingSession>,
-    /// Keeps the per-session `TabClosed` watchers alive (keyed by session id;
-    /// dropped with the entry).
-    watchers: HashMap<String, Subscription>,
+    /// Keeps the per-session watchers (`TabClosed` + manager release) alive
+    /// (keyed by session id; dropped with the entry).
+    watchers: HashMap<String, Vec<Subscription>>,
 }
 
 struct LocalSessionsGlobal(Entity<LocalSessions>);
@@ -233,6 +235,16 @@ impl LocalSessions {
             .map(|session| session.session_id.as_str())
     }
 
+    /// Every live local session's row id (issue + batch) — the EXP-105
+    /// quit-time sweep input.
+    fn session_ids(&self) -> Vec<String> {
+        self.by_issue
+            .values()
+            .chain(self.by_batch.values())
+            .map(|session| session.session_id.clone())
+            .collect()
+    }
+
     /// Drop the session for `subject` and release its P9 token-refresher
     /// hold. Both exit paths (child-exit notify + `TabClosed` watcher) land
     /// here; the second one finds the entry already gone, so the refresher is
@@ -258,7 +270,11 @@ impl LocalSessions {
     /// manual `TabClosed` on our tab: closing a running Claude tab kills the
     /// child without its exit hook ever firing (the tab's subscription dies
     /// with it), so the watcher ends the row best-effort here — the synced
-    /// "coding now" badge must never ghost (§7.1 step 8's intent).
+    /// "coding now" badge must never ghost (§7.1 step 8's intent). The same
+    /// reasoning covers the manager entity's RELEASE (EXP-105): closing the
+    /// window while the app keeps running (macOS) tears the dock down with
+    /// no `TabClosed` and no exit hook — the PTY closing SIGHUPs the child,
+    /// so ending the row there is badge-only, never a kill of live work.
     fn insert(
         sessions: &Entity<LocalSessions>,
         session: LocalCodingSession,
@@ -267,30 +283,50 @@ impl LocalSessions {
     ) {
         let subject = session.subject.clone();
         let session_key = session.session_id.clone();
-        let watcher = session.manager.upgrade().map(|manager| {
-            let sessions = sessions.downgrade();
-            let watch_subject = subject.clone();
-            let watch_tab = session.tab;
-            let session_id = session.session_id.clone();
-            cx.subscribe(&manager, move |_, event: &TerminalManagerEvent, cx| {
-                if *event != TerminalManagerEvent::TabClosed(watch_tab) {
-                    return;
-                }
-                // End the row off the foreground (idempotent server-side —
-                // a normal exit already ended it before the close).
+        let mut watchers: Vec<Subscription> = Vec::new();
+        if let Some(manager) = session.manager.upgrade() {
+            {
+                let sessions = sessions.downgrade();
+                let watch_subject = subject.clone();
+                let watch_tab = session.tab;
+                let session_id = session.session_id.clone();
                 let trpc = Arc::clone(&trpc);
-                let session_id = session_id.clone();
-                std::thread::spawn(move || {
-                    coding::end_session_best_effort(&trpc, &session_id);
-                });
-                if let Some(sessions) = sessions.upgrade() {
-                    LocalSessions::remove(&sessions, &watch_subject, cx);
-                }
-            })
-        });
+                watchers.push(cx.subscribe(
+                    &manager,
+                    move |_, event: &TerminalManagerEvent, cx| {
+                        if *event != TerminalManagerEvent::TabClosed(watch_tab) {
+                            return;
+                        }
+                        // End the row off the foreground (idempotent
+                        // server-side — a normal exit already ended it
+                        // before the close).
+                        spawn_tracked_end(Arc::clone(&trpc), session_id.clone());
+                        if let Some(sessions) = sessions.upgrade() {
+                            LocalSessions::remove(&sessions, &watch_subject, cx);
+                        }
+                    },
+                ));
+            }
+            {
+                let sessions = sessions.downgrade();
+                let watch_subject = subject.clone();
+                let session_id = session.session_id.clone();
+                let trpc = Arc::clone(&trpc);
+                watchers.push(cx.observe_release(&manager, move |_, cx| {
+                    // A normal end already removed the entry (and with it
+                    // this subscription) — reaching here means the window
+                    // died around a live session. Idempotent server-side;
+                    // tracked so a release-cascade-then-quit still waits.
+                    spawn_tracked_end(trpc, session_id);
+                    if let Some(sessions) = sessions.upgrade() {
+                        LocalSessions::remove(&sessions, &watch_subject, cx);
+                    }
+                }));
+            }
+        }
         sessions.update(cx, |this, cx| {
-            if let Some(watcher) = watcher {
-                this.watchers.insert(session_key, watcher);
+            if !watchers.is_empty() {
+                this.watchers.insert(session_key, watchers);
             }
             match &subject {
                 SessionSubject::Issue(id) => {
@@ -311,6 +347,84 @@ pub fn local_session_for<'a>(
     issue_id: &str,
 ) -> Option<&'a LocalCodingSession> {
     sessions.get(issue_id)
+}
+
+/// In-flight best-effort `codingSessions.end` calls (count + wakeup). The
+/// watcher threads are fire-and-forget in steady state, but on a non-macOS
+/// last-window-close quit the release CASCADE runs before the quit
+/// observers — the release watchers have already emptied [`LocalSessions`]
+/// and spawned their end threads by the time the quit hook fires, and those
+/// threads would race process exit. The hook drains this counter instead of
+/// (only) sweeping the registry.
+static PENDING_ENDS: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Fire `codingSessions.end` for `session_id` on a plain thread, tracked in
+/// [`PENDING_ENDS`] so the quit hook can wait for it (idempotent
+/// server-side; errors are swallowed — the server sweep is the backstop).
+fn spawn_tracked_end(trpc: Arc<api::TrpcClient>, session_id: String) {
+    {
+        let (count, _) = &PENDING_ENDS;
+        *count.lock().unwrap_or_else(|poison| poison.into_inner()) += 1;
+    }
+    std::thread::spawn(move || {
+        coding::end_session_best_effort(&trpc, &session_id);
+        let (count, wake) = &PENDING_ENDS;
+        *count.lock().unwrap_or_else(|poison| poison.into_inner()) -= 1;
+        wake.notify_all();
+    });
+}
+
+/// Block until every tracked end resolved or `deadline` passed.
+fn drain_pending_ends(deadline: std::time::Instant) {
+    let (count, wake) = &PENDING_ENDS;
+    let mut pending = count.lock().unwrap_or_else(|poison| poison.into_inner());
+    while *pending > 0 {
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return;
+        };
+        pending = wake
+            .wait_timeout(pending, remaining)
+            .unwrap_or_else(|poison| poison.into_inner())
+            .0;
+    }
+}
+
+/// How long the quit hook waits for the best-effort `codingSessions.end`
+/// calls before letting the quit proceed (a dead network must never wedge
+/// ⌘Q; the server staleness sweep remains the backstop).
+const QUIT_END_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// EXP-105: end every coding_sessions row THIS process launched when the app
+/// quits (⌘Q, last-window close on non-macOS). The per-session exit hook and
+/// watchers die with their entities during teardown — the claude child gets
+/// SIGHUP from its PTY closing, but nothing would end the synced row, so the
+/// "coding now" badge ghosted on every client until the server staleness
+/// sweep. Installed once from `ui::init`.
+///
+/// The waiting happens IN the observer body, not the returned future: gpui's
+/// `shutdown` only grants quit futures `SHUTDOWN_TIMEOUT` (200ms) — not
+/// enough for HTTPS round trips — while the body runs synchronously before
+/// that clock starts. Sessions still registered end here; sessions the
+/// pre-quit release cascade already handed to their release watchers are
+/// covered by draining [`PENDING_ENDS`] within the same deadline.
+pub fn install_quit_hook(cx: &mut App) {
+    cx.on_app_quit(|cx| {
+        let session_ids: Vec<String> = LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).session_ids())
+            .unwrap_or_default();
+        let trpc = (!session_ids.is_empty())
+            .then(|| queries::trpc_client(cx).map(Arc::new))
+            .flatten();
+        if let Some(trpc) = trpc {
+            for session_id in session_ids {
+                spawn_tracked_end(Arc::clone(&trpc), session_id);
+            }
+        }
+        drain_pending_ends(std::time::Instant::now() + QUIT_END_TIMEOUT);
+        async {}
+    })
+    .detach();
 }
 
 // ---------------------------------------------------------------------------

@@ -94,6 +94,10 @@ use gpui_component::dock::register_panel;
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     navigation::init(cx);
+    // EXP-105: quit-time sweep ending every coding_sessions row this process
+    // launched — without it a closed IDE ghosts the "coding now" badge on
+    // every client until the server staleness sweep catches it.
+    coding_flow::install_quit_hook(cx);
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and terminal dock filter against.
     undock::init(cx);

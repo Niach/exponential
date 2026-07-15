@@ -72,15 +72,33 @@ export const codingSessionsRouter = router({
     }),
 
   // Liveness ping from the desktop while the claude child is alive. The
-  // server-side staleness sweep treats a `running` row whose updated_at
-  // stopped advancing as a crashed desktop and force-ends it — and flipping
-  // the synced row to `ended` is exactly the desktop's remote-kill signal
-  // (the own-row kill-switch tears the live child down on that transition),
-  // so a genuinely-live session MUST keep its row fresh to survive the sweep.
-  // Fire-and-forget on the client: a vanished row (issue cascade
-  // delete) or an already-ended one is reported, never thrown.
+  // server-side staleness sweep (lib/coding-session-sweep.ts) treats a
+  // `running` row whose updated_at stopped advancing as a crashed desktop
+  // and DELETES it — deliberately never flips it to `ended`, because that
+  // transition is the desktop's remote-kill signal (a vanished row does not
+  // fire the kill-switch), so deletion can never kill a live child.
+  // A ping that finds its row GONE therefore means "swept while actually
+  // alive" — a laptop suspend longer than CODING_SESSION_STALE_HOURS is the
+  // routine case (EXP-105) — so when the client supplies the row's original
+  // start scope, the row is re-created under the SAME id (fresh startedAt —
+  // the original is lost with the row), restoring badge + steerability
+  // within one heartbeat interval. An EXISTING non-running row is NEVER
+  // resurrected: `ended` is an explicit end/kill and must stay final.
+  // Fire-and-forget on the client: failures are reported, never thrown.
   heartbeat: authedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z
+        .object({
+          id: z.string().uuid(),
+          // The row's original start scope — enables re-create-on-missing.
+          issueId: z.string().uuid().optional(),
+          workspaceId: z.string().uuid().optional(),
+          deviceLabel: z.string().max(255).optional(),
+        })
+        .refine((value) => !(value.issueId && value.workspaceId), {
+          message: `At most one of issueId/workspaceId`,
+        })
+    )
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
         .select({
@@ -91,7 +109,38 @@ export const codingSessionsRouter = router({
         .where(eq(codingSessions.id, input.id))
         .limit(1)
 
-      if (!existing) return { alive: false }
+      if (!existing) {
+        if (!input.issueId && !input.workspaceId) return { alive: false }
+        try {
+          if (input.issueId) {
+            const issueCtx = await getIssueWorkspaceContext(input.issueId)
+            await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+            await ctx.db.insert(codingSessions).values({
+              id: input.id,
+              issueId: input.issueId,
+              workspaceId: issueCtx.workspaceId,
+              projectId: issueCtx.projectId,
+              userId: ctx.session.user.id,
+              deviceLabel: input.deviceLabel ?? null,
+              status: `running`,
+            })
+          } else {
+            await assertWorkspaceMember(ctx.session.user.id, input.workspaceId!)
+            await ctx.db.insert(codingSessions).values({
+              id: input.id,
+              workspaceId: input.workspaceId!,
+              userId: ctx.session.user.id,
+              deviceLabel: input.deviceLabel ?? null,
+              status: `running`,
+            })
+          }
+          return { alive: true }
+        } catch {
+          // Issue cascade-deleted, membership revoked, or an insert race —
+          // degrade to the plain report; the next ping retries.
+          return { alive: false }
+        }
+      }
       if (existing.userId !== ctx.session.user.id) {
         throw new TRPCError({
           code: `FORBIDDEN`,
