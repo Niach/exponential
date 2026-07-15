@@ -12,14 +12,18 @@ use crate::release_launcher::ReleaseLaunchOptions;
 use crate::settings::Settings;
 
 /// The MCP wiring of every coding argv: the launcher-written worktree
-/// `.mcp.json` is passed EXPLICITLY (`--mcp-config`, resolved against the
-/// spawn cwd = the worktree) instead of being left to project-file discovery —
-/// discovered project servers trigger claude's "New MCP server found in
-/// .mcp.json" trust dialog even under `--dangerously-skip-permissions`
-/// (EXP-83), while explicitly-passed config is trusted without prompting.
-/// `--strict-mcp-config` then disables discovery entirely so the SAME file
-/// (and anything else the repo carries) can't be found a second time and
-/// re-raise the dialog.
+/// [`MCP_JSON_FILE`] (`.exp-mcp.json`) rides `--mcp-config` (resolved against
+/// the spawn cwd = the worktree) and connects trusted, prompt-free.
+///
+/// The flags alone are NOT what suppresses claude's "New MCP server found in
+/// this project" dialog — EXP-83 assumed they were, and the dialog kept
+/// firing (EXP-98). Claude's interactive startup runs an unconditional
+/// approval scan of the project-scope config (the literal `.mcp.json` in the
+/// cwd) that ignores both `--mcp-config` and `--strict-mcp-config`; those
+/// flags only gate which servers CONNECT. The actual fix is the file NAME:
+/// `.exp-mcp.json` is invisible to that scan (see [`crate::mcp_json`]).
+/// `--strict-mcp-config` still matters — it keeps any repo-carried MCP
+/// config from connecting in a `--dangerously-skip-permissions` session.
 pub fn mcp_config_args() -> Vec<String> {
     vec![
         "--mcp-config".into(),
@@ -143,13 +147,14 @@ mod tests {
 
     #[test]
     fn mcp_config_args_pass_the_worktree_file_explicitly_and_strictly() {
-        // EXP-83: explicit --mcp-config (trusted, no dialog) + strict mode
-        // (no project-file discovery that would re-raise the dialog).
+        // Explicit --mcp-config on the non-discoverable name (EXP-98 — the
+        // dialog scan only sees `.mcp.json`) + strict mode (repo-carried MCP
+        // config never connects).
         assert_eq!(
             mcp_config_args(),
             vec![
                 "--mcp-config".to_string(),
-                ".mcp.json".to_string(),
+                ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
             ]
         );
@@ -169,7 +174,7 @@ mod tests {
                 "--model",
                 "fable",
                 "--mcp-config",
-                ".mcp.json",
+                ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--permission-mode",
                 "plan",
@@ -193,7 +198,7 @@ mod tests {
                 "--effort",
                 "xhigh",
                 "--mcp-config",
-                ".mcp.json",
+                ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "prompt",
@@ -252,7 +257,7 @@ mod tests {
                 "--agents",
                 r#"{"exp-42":{}}"#,
                 "--mcp-config",
-                ".mcp.json",
+                ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "seed",
@@ -272,7 +277,7 @@ mod tests {
                 "--agents",
                 "{}",
                 "--mcp-config",
-                ".mcp.json",
+                ".exp-mcp.json",
                 "--strict-mcp-config",
                 "--dangerously-skip-permissions",
                 "seed",

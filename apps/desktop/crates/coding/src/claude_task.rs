@@ -4,18 +4,20 @@
 //! ([`terminal::TabKind::ClaudeTask`]).
 //!
 //! Deliberately NOT [`crate::launch`] (DNR L5, invariant 5): a Claude task has
-//! **no `.mcp.json`, no `PROMPT.md`, no `coding_sessions` row** (not
+//! **no MCP config, no `PROMPT.md`, no `coding_sessions` row** (not
 //! issue-bound: no steer room, no plan-limit charge), and creates no
 //! branch/worktree — it runs where it is pointed (`cwd`). Always visible,
 //! always steerable by typing; never a hidden background job.
 //!
-//! Every task passes `--strict-mcp-config` (EXP-83): a conflict task's cwd is
-//! often an issue worktree that carries the coding session's `.mcp.json`, and
-//! project-file discovery would raise claude's MCP trust dialog (even under
-//! `--dangerously-skip-permissions`). Strict mode ENFORCES the MCP-less
-//! posture instead of merely assuming it. The one MCP-enabled task
-//! ([`claude_task_with_mcp`]) passes its `.mcp.json` explicitly via
-//! `--mcp-config`, which is trusted without prompting.
+//! Every task passes `--strict-mcp-config` (EXP-83): strict mode ENFORCES the
+//! MCP-less posture instead of merely assuming it — nothing the cwd's repo
+//! carries can connect. It does NOT suppress claude's project-approval dialog
+//! (EXP-98: that startup scan of a cwd `.mcp.json` is unconditional), which
+//! is why the coding session's config is named `.exp-mcp.json`
+//! ([`crate::mcp_json`]) and why callers pointing a task at a possibly-stale
+//! worktree should [`crate::mcp_json::remove_stale_legacy_mcp_json`] first.
+//! The one MCP-enabled task ([`claude_task_with_mcp`]) passes that file
+//! explicitly via `--mcp-config`, which connects trusted without prompting.
 //!
 //! The prompt is passed as the positional argument (not typed into the PTY),
 //! and `--model` is ALWAYS explicit (DNR invariant 10 — never the CLI default,
@@ -64,8 +66,9 @@ pub fn claude_task(settings: &Settings, cwd: &Path, prompt: &str, label: &str) -
 /// [`claude_task`] plus the scoped MCP config the caller wrote into `cwd` —
 /// the run-configs "Create with Claude" variant (v5 §7.3 / L24, the ONE
 /// MCP-enabled task). The file is passed explicitly (`--mcp-config`, resolved
-/// against the spawn cwd) so claude trusts it without the project-discovery
-/// dialog (EXP-83); `--strict-mcp-config` rides along like every task.
+/// against the spawn cwd) and connects trusted; its non-`.mcp.json` name
+/// keeps it out of claude's project-approval dialog scan (EXP-98).
+/// `--strict-mcp-config` rides along like every task.
 pub fn claude_task_with_mcp(
     settings: &Settings,
     cwd: &Path,
@@ -120,7 +123,7 @@ verify the build, then push with `--force-with-lease`."
 
 /// Prompt for the run-configs editor's "Create with Claude" action (v5 §7.3 /
 /// L24): the ONE MCP-enabled Claude task. It runs in the project's trunk clone
-/// alongside a scoped `.mcp.json` that exposes the `exponential_run_configs_*`
+/// alongside a scoped `.exp-mcp.json` that exposes the `exponential_run_configs_*`
 /// MCP tools, and asks Claude to inspect the repo and create run configs for
 /// `project_id`. Unlike the conflict prompts it does NOT touch git — it only
 /// reads the repo and calls the MCP tools.
@@ -163,8 +166,8 @@ mod tests {
         // --dangerously-skip-permissions <prompt>. `--model` is
         // explicit-ALWAYS (never the CLI default), strict MCP enforces the
         // task's MCP-less posture even in a worktree carrying a session
-        // `.mcp.json` (EXP-83 — discovery would raise the trust dialog), and
-        // the prompt is the positional arg (not typed into the PTY).
+        // `.exp-mcp.json` (EXP-83/EXP-98), and the prompt is the positional
+        // arg (not typed into the PTY).
         assert_eq!(
             task.spawn.args,
             vec![
@@ -181,7 +184,7 @@ mod tests {
 
     #[test]
     fn task_sets_no_env_and_carries_no_session_state() {
-        // A Claude task is NOT a coding launch (v4 §4.9): no `.mcp.json`, no
+        // A Claude task is NOT a coding launch (v4 §4.9): no MCP config, no
         // `PROMPT.md`, no `coding_sessions` row. The spec surfaces as: an empty
         // env overlay (PATH augmentation is the terminal layer's §6.12 job, not
         // ours) and a struct that carries only the spawn + tab title — there is
@@ -194,14 +197,15 @@ mod tests {
             .spawn
             .args
             .iter()
-            .any(|a| a.contains(".mcp.json") || a.contains("PROMPT.md")));
+            .any(|a| a.contains("mcp.json") || a.contains("PROMPT.md")));
     }
 
     #[test]
     fn mcp_task_passes_the_scoped_config_explicitly_and_strictly() {
         // The ONE MCP-enabled task (run-config creation): the caller-written
-        // `.mcp.json` rides `--mcp-config` (explicit ⇒ trusted, no dialog —
-        // EXP-83) with `--strict-mcp-config` so discovery can't re-find it.
+        // `.exp-mcp.json` rides `--mcp-config` (connects trusted; the name is
+        // invisible to claude's project-approval scan — EXP-98) with
+        // `--strict-mcp-config` so repo-carried MCP config never connects.
         let cwd = PathBuf::from("/repos/acme/web");
         let task = claude_task_with_mcp(&settings(), &cwd, "make configs", "Create run configs");
         assert_eq!(task.spawn.program, "/opt/homebrew/bin/claude");
@@ -211,7 +215,7 @@ mod tests {
                 "--model".to_string(),
                 "opus".to_string(),
                 "--mcp-config".to_string(),
-                ".mcp.json".to_string(),
+                ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
                 "--dangerously-skip-permissions".to_string(),
                 "make configs".to_string(),
@@ -255,7 +259,7 @@ conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent,
         let prompt = create_run_configs_prompt("proj-123");
         // Names the exact project so Claude passes the right projectId.
         assert!(prompt.contains("proj-123"));
-        // Points at the run-config MCP tools (the scoped .mcp.json exposes them).
+        // Points at the run-config MCP tools (the scoped .exp-mcp.json exposes them).
         assert!(prompt.contains("exponential_run_configs_create"));
         assert!(prompt.contains("exponential_run_configs_list"));
         // No-shell posture is spelled out for the argv-direct spawner.

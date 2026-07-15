@@ -776,6 +776,9 @@ fn update_from_main(
     };
     let prompt = coding::resolve_pr_prompt(&repo.default_branch);
     let label = format!("Update from main · {identifier}");
+    // A worktree prepared by a pre-EXP-98 app version still carries a stale
+    // `.mcp.json`, which alone re-raises claude's project-approval dialog.
+    coding::remove_stale_legacy_mcp_json(&repo.worktree);
     let task = coding::claude_task(settings, &repo.worktree, &prompt, &label);
     let _ = manager.update(cx, |manager, cx| {
         manager.open_tab(TabKind::ClaudeTask, task.tab_title.clone(), &task.spawn, None, cx)

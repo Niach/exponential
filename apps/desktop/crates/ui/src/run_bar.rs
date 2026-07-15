@@ -511,11 +511,12 @@ impl RunBar {
 
     /// §7.3 / L24: the ONE MCP-enabled Claude task. Spawns
     /// `coding::claude_task` at the project's trunk clone with a **scoped
-    /// `.mcp.json`** (the same expu_ key as a coding session), so Claude can
-    /// inspect the repo and create run configs via the `exponential_run_configs_*`
-    /// MCP tools. No worktree, no `coding_sessions` row — the tab is a plain
-    /// `ClaudeTask`. The `.mcp.json` is git-excluded, `0600`, and removed on
-    /// task exit; the run bar refetches its configs at that point too.
+    /// `.exp-mcp.json`** (the same expu_ key as a coding session), so Claude
+    /// can inspect the repo and create run configs via the
+    /// `exponential_run_configs_*` MCP tools. No worktree, no
+    /// `coding_sessions` row — the tab is a plain `ClaudeTask`. The
+    /// `.exp-mcp.json` is git-excluded, `0600`, and removed on task exit; the
+    /// run bar refetches its configs at that point too.
     fn create_configs_with_claude(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(project_id) = self.project_id.clone() else {
             return;
@@ -551,8 +552,8 @@ impl RunBar {
             );
             return;
         }
-        // Only reclaim a `.mcp.json` we created (never clobber-then-delete a
-        // file the repo already carried).
+        // Only reclaim a `.exp-mcp.json` we created (never clobber-then-delete
+        // a file the repo already carried).
         let created_marker = !root.join(coding::MCP_JSON_FILE).exists();
         cx.spawn(async move |this, cx| {
             let prep_root = root.clone();
@@ -563,7 +564,7 @@ impl RunBar {
                     let key = api::users::ensure_personal_key(&trpc, &store, &account.id)
                         .map_err(|err| err.to_string())?;
                     coding::write_mcp_json(&prep_root, trpc.base_url(), &key)
-                        .map_err(|err| format!("write .mcp.json: {err}"))?;
+                        .map_err(|err| format!("write .exp-mcp.json: {err}"))?;
                     // Token-leak guard (the file carries the raw expu_ key).
                     let _ = coding::git_worktree::ensure_local_excludes(
                         &prep_root,

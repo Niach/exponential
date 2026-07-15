@@ -4,7 +4,7 @@
 //! git library), the `exp/<IDENTIFIER>` branch, ambient git auth via the
 //! repo-local credential helper ([`git_credentials`] — EXP-73: `origin` stays
 //! bare; the token is never logged — [`git_worktree::TokenUrl`] redacts, git
-//! output is scrubbed), `.mcp.json`, the seed prompt, the tooling doctor, the
+//! output is scrubbed), `.exp-mcp.json`, the seed prompt, the tooling doctor, the
 //! coding settings (repos root / branch prefix / claude path — never
 //! a manual API-key field), and the `claude` spawn into the embedded
 //! terminal. Claude-only: the experimental codex adapter is deleted.
@@ -75,7 +75,9 @@ pub use launcher::{
     LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest, PreparedLaunch,
     WorktreeProvider,
 };
-pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
+pub use mcp_json::{
+    remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
+};
 pub use release_launcher::{
     release_branch_name, release_slug, ReleaseIssueSpec, ReleaseLaunchOptions,
     ReleaseLaunchRequest, RepoGroup,

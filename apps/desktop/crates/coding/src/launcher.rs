@@ -7,7 +7,7 @@
 //! Split to match gpui's threading model while keeping one code path:
 //!
 //! 1. [`prepare`] — steps 0–6 (doctor → repo resolve → JIT token → git →
-//!    `.mcp.json` → prompt delivery → `codingSessions.start`). **Blocking
+//!    `.exp-mcp.json` → prompt delivery → `codingSessions.start`). **Blocking
 //!    network and git I/O, gpui-free** — run it on the background executor.
 //!    Returns either a [`PreparedLaunch`] (the composed `claude` spawn spec)
 //!    or a [`DisabledReason`] (never falsely block, always explain — none of
@@ -158,10 +158,10 @@ impl WorktreeProvider for GitWorktrees {
         let _ = fetch_base(&clone, default_branch, url);
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
-        // .mcp.json carries the raw expu_ key and claude is told to commit +
-        // push — keep it out of `git add -A` via the shared, never-committed
-        // `.git/info/exclude` (best-effort by design; the PROMPT.md exclude
-        // rides [`crate::prompt::deliver_prompt_file`]).
+        // .exp-mcp.json carries the raw expu_ key and claude is told to
+        // commit + push — keep it out of `git add -A` via the shared,
+        // never-committed `.git/info/exclude` (best-effort by design; the
+        // PROMPT.md exclude rides [`crate::prompt::deliver_prompt_file`]).
         let _ = crate::git_worktree::ensure_local_excludes(
             &clone,
             &[crate::mcp_json::MCP_JSON_FILE],
@@ -345,7 +345,7 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 ///    `exp/rel-<slug>`) + ambient-auth install (bare origin + repo-local
 ///    credential helper, EXP-73; the personal-key read/mint races this on a
 ///    side thread, §7.2);
-/// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk);
+/// 4. `.exp-mcp.json` (the ONLY place the raw `expu_` key lands on disk);
 /// 5. prompt — Issue: rendered + size-gated delivery (direct argv when
 ///    small); Release: the orchestration template + `--agents` defs, ALWAYS
 ///    file-delivered (the subagent prompts reference PROMPT.md sections);
@@ -394,7 +394,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     };
 
     // §7.2 — the personal-key read/mint races the git prep on a side thread;
-    // only step 4 (.mcp.json) needs the result.
+    // only step 4 (.exp-mcp.json) needs the result.
     let key_handle = {
         let trpc = Arc::clone(&deps.trpc);
         let store = Arc::clone(&deps.token_store);
@@ -426,13 +426,14 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // The clone path the worktree hangs off — the P9 token refresher's target.
     let clone = clone_path(&repos_root, url.full_name());
 
-    // Step 4 — .mcp.json (authenticates the spawned claude as the real user;
-    // release subagents inherit the session's MCP servers).
+    // Step 4 — .exp-mcp.json (authenticates the spawned claude as the real
+    // user; release subagents inherit the session's MCP servers; NOT named
+    // .exp-mcp.json — EXP-98, see `crate::mcp_json`).
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
     write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
-        .map_err(|e| CodingError::Io(format!("write .mcp.json: {e}")))?;
+        .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
 
     // Step 5 — the seed prompt.
     let (delivery, agents_json) = match req {
@@ -906,7 +907,7 @@ mod tests {
                 "--model".to_string(),
                 "fable".to_string(),
                 "--mcp-config".to_string(),
-                ".mcp.json".to_string(),
+                ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
                 "--permission-mode".to_string(),
                 "plan".to_string(),
@@ -929,8 +930,8 @@ mod tests {
             )]
         );
 
-        // Step 4: .mcp.json carries the stored key + the instance /api/mcp.
-        let mcp = fs::read_to_string(worktree.join(".mcp.json")).unwrap();
+        // Step 4: .exp-mcp.json carries the stored key + the instance /api/mcp.
+        let mcp = fs::read_to_string(worktree.join(".exp-mcp.json")).unwrap();
         assert!(mcp.contains(&format!("{base}/api/mcp")));
         assert!(mcp.contains("Bearer expu_seeded"));
 
@@ -970,7 +971,7 @@ mod tests {
                         "--effort".to_string(),
                         "xhigh".to_string(),
                         "--mcp-config".to_string(),
-                        ".mcp.json".to_string(),
+                        ".exp-mcp.json".to_string(),
                         "--strict-mcp-config".to_string(),
                         "--dangerously-skip-permissions".to_string(),
                     ]
@@ -1059,8 +1060,8 @@ mod tests {
             )]
         );
 
-        // .mcp.json (subagents inherit it).
-        let mcp = fs::read_to_string(worktree.join(".mcp.json")).unwrap();
+        // .exp-mcp.json (subagents inherit it).
+        let mcp = fs::read_to_string(worktree.join(".exp-mcp.json")).unwrap();
         assert!(mcp.contains("Bearer expu_seeded"));
 
         // PROMPT.md is ALWAYS on disk for a release run (fix F5 — the
@@ -1099,7 +1100,7 @@ mod tests {
             prepared.spawn.args[6..9],
             [
                 "--mcp-config".to_string(),
-                ".mcp.json".to_string(),
+                ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
             ]
         );
@@ -1153,7 +1154,7 @@ mod tests {
     /// §7.2 runtime path: an EMPTY token store at launch time silently mints
     /// via `users.mintPersonalApiKey` (request 3 — the key race lands between
     /// `installationToken` and `codingSessions.start`), stores the raw key +
-    /// row id, and `.mcp.json` carries the fresh key. No manual key UI exists
+    /// row id, and `.exp-mcp.json` carries the fresh key. No manual key UI exists
     /// anywhere; this is the only way the key ever comes to be.
     #[test]
     fn first_session_auto_mints_the_hidden_personal_key() {
@@ -1193,8 +1194,8 @@ mod tests {
                 .as_deref(),
             Some("key-9")
         );
-        // .mcp.json is the ONLY on-disk consumer of the raw key (§7.1 step 4).
-        let mcp = fs::read_to_string(worktree.join(".mcp.json")).unwrap();
+        // .exp-mcp.json is the ONLY on-disk consumer of the raw key (§7.1 step 4).
+        let mcp = fs::read_to_string(worktree.join(".exp-mcp.json")).unwrap();
         assert!(mcp.contains("Bearer expu_minted_runtime"), "mcp: {mcp}");
     }
 

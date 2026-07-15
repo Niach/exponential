@@ -51,7 +51,7 @@
 //! **Two distinct credentials — never confuse them (§5.7):** the Better Auth
 //! *session token* is the `Authorization: Bearer` on every shape + tRPC
 //! request; the `expu_` *personal API key* exists only for the coding
-//! launcher's `.mcp.json` and is never a sync/tRPC credential. They live in
+//! launcher's `.exp-mcp.json` and is never a sync/tRPC credential. They live in
 //! separate token-store entries.
 
 pub mod accounts;

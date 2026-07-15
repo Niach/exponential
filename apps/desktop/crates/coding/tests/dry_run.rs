@@ -9,8 +9,8 @@
 //!    local bare origin per the crate's hermetic test design) →
 //!    `git_credentials::ensure` (bare origin + repo-local helper + token
 //!    file, EXP-73) → `create_worktree` cutting `exp/GATE-99` from
-//!    `origin/main` → `.git/info/exclude` covering `.mcp.json`;
-//! 2. `.mcp.json` written into the worktree with the exact §7.1 contents
+//!    `origin/main` → `.git/info/exclude` covering `.exp-mcp.json`;
+//! 2. `.exp-mcp.json` written into the worktree with the exact §7.1 contents
 //!    (instance `/api/mcp` URL + `Bearer expu_…`) and the rendered issue
 //!    prompt riding argv DIRECTLY (small prompt ⇒ no `PROMPT.md` on disk);
 //! 3. the composed spawn spec (`<claude> --dangerously-skip-permissions`,
@@ -279,15 +279,15 @@ fn main() {
         "username=x-access-token\npassword=ghs_dryrun_dead\n"
     );
 
-    // .mcp.json: exact §7.1 step-4 contents, private perms.
-    let mcp = fs::read_to_string(expected_worktree.join(".mcp.json")).unwrap();
+    // .exp-mcp.json: exact §7.1 step-4 contents, private perms.
+    let mcp = fs::read_to_string(expected_worktree.join(".exp-mcp.json")).unwrap();
     assert!(mcp.contains(&format!("\"url\": \"{base}/api/mcp\"")), "mcp url: {mcp}");
     assert!(mcp.contains("\"Authorization\": \"Bearer expu_dryrun_key\""), "mcp key: {mcp}");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(expected_worktree.join(".mcp.json")).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, ".mcp.json must be private");
+        let mode = fs::metadata(expected_worktree.join(".exp-mcp.json")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, ".exp-mcp.json must be private");
     }
 
     // Direct delivery: the FULL rendered prompt is the positional argv and
@@ -300,7 +300,7 @@ fn main() {
 
     // The credential seed file is git-invisible (token-leak guard).
     let status = git_stdout(&expected_worktree, &["status", "--porcelain"]);
-    assert!(!status.contains(".mcp.json"), "seed file not excluded: {status}");
+    assert!(!status.contains("mcp.json"), "seed file not excluded: {status}");
 
     // The composed spawn spec: stub program, explicit --model, the
     // explicit+strict MCP config (EXP-83: no project-discovery trust dialog),
@@ -313,7 +313,7 @@ fn main() {
             "--model".to_string(),
             "opus".to_string(),
             "--mcp-config".to_string(),
-            ".mcp.json".to_string(),
+            ".exp-mcp.json".to_string(),
             "--strict-mcp-config".to_string(),
             "--dangerously-skip-permissions".to_string(),
             prompt.clone(),
@@ -321,7 +321,7 @@ fn main() {
     );
     assert_eq!(prepared.spawn.cwd.as_deref(), Some(expected_worktree.as_path()));
     assert_eq!(prepared.tab_title, "claude · GATE-99");
-    eprintln!("dry_run e2e: steps 0–6 verified (worktree, remote, .mcp.json, direct prompt, spawn spec)");
+    eprintln!("dry_run e2e: steps 0–6 verified (worktree, remote, .exp-mcp.json, direct prompt, spawn spec)");
 
     // ---- steps 7–8: spawn the stub through a real headless TerminalManager;
     //      the watchdog (outside gpui) asserts the observable effects ----
