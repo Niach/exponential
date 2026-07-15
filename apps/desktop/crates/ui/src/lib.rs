@@ -80,7 +80,9 @@ pub use icons::ExpIcon;
 pub use navigation::{navigate, Screen};
 pub use oauth::handle_open_urls;
 pub use update::check_for_updates;
-pub use session::{bootstrap as bootstrap_session, sign_out_active, AuthContext};
+pub use session::{
+    bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,
+};
 pub use workspace::Workspace;
 
 use gpui::{App, AppContext as _};

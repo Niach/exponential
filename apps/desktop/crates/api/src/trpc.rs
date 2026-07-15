@@ -30,6 +30,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 
+use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
+
 use crate::encode::percent_encode;
 use crate::error::{from_ureq_authed, ApiError};
 use crate::login::normalize_instance_url;
@@ -131,6 +133,9 @@ impl TrpcClient {
     /// goes out unauthenticated and the server answers 401 for authed procs —
     /// which correctly surfaces as [`ApiError::Unauthorized`].
     fn authorize(&self, request: ureq::Request) -> ureq::Request {
+        // EXP-104: every request carries the client-version header so the
+        // server can 426-gate stale builds (authed and unauthed alike).
+        let request = request.set(CLIENT_VERSION_HEADER, &client_version_header_value());
         match self.token_provider.token() {
             Some(token) => request.set("Authorization", &format!("Bearer {token}")),
             None => request,
@@ -244,6 +249,23 @@ pub(crate) mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/widgets.get HTTP/1.1"));
         assert!(request.contains("Authorization: Bearer tok-1"));
+        // EXP-104: the client-version header rides every request.
+        assert!(
+            request.to_ascii_lowercase().contains("x-client-version: desktop/"),
+            "missing client-version header: {request}"
+        );
+    }
+
+    #[test]
+    fn http_426_maps_to_upgrade_required() {
+        // The min-version gate (EXP-104): a stale build is stopped, and this
+        // must NOT be mistaken for Unauthorized (which would clear the token).
+        let (base, _captured) = one_shot_server(
+            426,
+            r#"{"error":"client_upgrade_required","platform":"desktop","min":"0.9.0"}"#,
+        );
+        let result: Result<Widget, ApiError> = client(&base).query("widgets.get");
+        assert!(matches!(result, Err(ApiError::UpgradeRequired)));
     }
 
     #[test]

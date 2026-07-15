@@ -75,6 +75,12 @@ fn releases_api() -> String {
     std::env::var("EXP_UPDATE_API").unwrap_or_else(|_| RELEASES_API.to_string())
 }
 
+/// The human release page — the blocking view's browser fallback when no
+/// release/plan is known (staging, dev, or an assetless release).
+pub fn releases_page_url() -> &'static str {
+    RELEASES_PAGE
+}
+
 /// A newer release the user can download or install.
 #[derive(Clone, Debug)]
 pub struct UpdateInfo {
@@ -125,6 +131,12 @@ pub struct UpdateState {
     available: Option<UpdateInfo>,
     phase: UpdatePhase,
     dismissed: bool,
+    /// The server rejected this build (HTTP 426 min-version gate, EXP-104).
+    /// While set, the shell renders a FULL-WINDOW blocking "Update required"
+    /// view instead of the board (and the dismissible banner is suppressed).
+    /// Unlike a normal update it cannot be dismissed — the app is unusable
+    /// until it updates.
+    blocked: bool,
 }
 
 impl UpdateState {
@@ -136,6 +148,24 @@ impl UpdateState {
         } else {
             self.available.as_ref().map(|info| (info, &self.phase))
         }
+    }
+
+    /// Whether the app is gated behind the EXP-104 blocking "Update required"
+    /// view (the server 426'd this build).
+    pub fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+
+    /// The known newer release, IGNORING a session dismissal — the blocking
+    /// view drives its buttons off this directly (a required update can't be
+    /// dismissed).
+    pub fn available(&self) -> Option<&UpdateInfo> {
+        self.available.as_ref()
+    }
+
+    /// The current pipeline phase (for the blocking view's progression).
+    pub fn phase(&self) -> &UpdatePhase {
+        &self.phase
     }
 
     /// Dismiss the banner for the rest of this session (not persisted — a fresh
@@ -185,6 +215,43 @@ impl UpdateState {
     /// wired the global.
     pub fn global_ref(cx: &App) -> Option<Entity<UpdateState>> {
         cx.try_global::<UpdateGlobal>().map(|g| g.0.clone())
+    }
+
+    /// Gate the app into the blocking "Update required" state (EXP-104 — the
+    /// sync/tRPC layer saw a 426). Idempotent: repeat 426s (many shape
+    /// threads) collapse to one transition. When no release is known yet it
+    /// kicks off ONE immediate `fetch_latest()` — bypassing the 4h loop — so
+    /// the blocking view can offer the in-app "Update now" pipeline rather than
+    /// only a browser link. On the staging channel (which publishes no assets
+    /// and never checks) the fetch is skipped and the view degrades to the
+    /// browser-link fallback.
+    pub fn set_blocked(cx: &mut App) {
+        let model = Self::global(cx);
+        let need_fetch = model.update(cx, |state, cx| {
+            if state.blocked {
+                return false;
+            }
+            state.blocked = true;
+            cx.notify();
+            // Fetch only if we don't already know a release and the channel
+            // checks (staging has no published assets to install).
+            state.available.is_none() && CHANNEL_CHECKS_UPDATES
+        });
+        if !need_fetch {
+            return;
+        }
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { fetch_latest() })
+                .await;
+            if let Ok(Some(info)) = result {
+                let _ = cx.update(|cx| {
+                    model.update(cx, |state, cx| state.offer(info, cx));
+                });
+            }
+        })
+        .detach();
     }
 }
 

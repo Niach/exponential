@@ -44,7 +44,13 @@ struct AppNavigator: View {
 
     var body: some View {
         Group {
-            if deps.auth.accounts.isEmpty {
+            if UpdateGate.shared.upgrade != nil {
+                // Client-version gate (EXP-104): the server 426'd this build.
+                // Blocks the entire app ahead of every other state — sync loops
+                // have already stopped; nothing below is reachable until the
+                // user updates and relaunches.
+                UpdateRequiredView()
+            } else if deps.auth.accounts.isEmpty {
                 // First launch — no accounts at all.
                 InstanceView()
             } else if deps.auth.accounts.allSatisfy({ $0.token == nil }) {

@@ -279,6 +279,13 @@ fn unauthorized_401() -> MockResponse {
     MockResponse::new(401, json!({"message": "unauthorized"}))
 }
 
+fn upgrade_required_426() -> MockResponse {
+    MockResponse::new(
+        426,
+        json!({"error": "client_upgrade_required", "platform": "desktop", "min": "0.9.0"}),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -343,6 +350,8 @@ impl ClientHarness {
             deltas: tx,
             unauthorized_reported: Arc::new(AtomicBool::new(false)),
             on_unauthorized: None,
+            upgrade_required_reported: Arc::new(AtomicBool::new(false)),
+            on_upgrade_required: None,
         });
         let thread_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || client.run(&thread_stop));
@@ -702,6 +711,62 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
     let stopped_at = Instant::now();
     assert!(manager.stop_account("acct-1"));
     assert!(stopped_at.elapsed() < Duration::from_secs(2));
+}
+
+// ---------------------------------------------------------------------------
+// 3b. HTTP 426 → on_upgrade_required fires exactly once, pipeline tears down,
+//     token is NOT cleared and NO Unauthorized delta is emitted (EXP-104)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stale_client_surfaces_upgrade_required_once_and_tears_down() {
+    let server = MockShapeServer::start(upgrade_required_426());
+
+    let dir = TempDir::new("426");
+    let upgrade_calls = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::clone(&upgrade_calls);
+    let manager = SyncManager::new().on_upgrade_required(Arc::new(move || {
+        calls.fetch_add(1, Ordering::SeqCst);
+    }));
+    let deltas = manager.deltas();
+
+    let started = manager
+        .start_account(AccountSyncConfig {
+            account_id: "acct-1".into(),
+            base_url: server.base_url.clone(),
+            db_path: dir.db_path(),
+            token: Arc::new(|| Some("live-token".to_string())),
+        })
+        .unwrap();
+    assert!(started);
+
+    // The pipeline tears itself down — no thread keeps polling a build the
+    // server refuses.
+    assert!(wait_until(Duration::from_secs(10), || {
+        manager.running_accounts().is_empty()
+    }));
+
+    // Exactly one hook call despite all threads 426-ing near-simultaneously.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(upgrade_calls.load(Ordering::SeqCst), 1);
+
+    // No polling after teardown.
+    let polls_after_teardown = server.requests().len();
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        server.requests().len(),
+        polls_after_teardown,
+        "threads must stop polling after the 426 teardown"
+    );
+
+    // The 426 path emits NO delta — the session is fine, only the binary is
+    // stale (contrast the 401 path, which routes to login).
+    while let Ok(delta) = deltas.try_recv() {
+        assert!(
+            !matches!(delta, ShapeDelta::Unauthorized { .. }),
+            "426 must never surface as Unauthorized (that would clear the token)"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

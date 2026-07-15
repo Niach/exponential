@@ -24,7 +24,8 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Edges, Entity, FocusHandle, Focusable,
-    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Task, WeakEntity, Window,
+    FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Task, WeakEntity,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -36,9 +37,9 @@ use gpui_component::{
 use sync::{SessionPhase, Store};
 
 use crate::{
-    debug_board::DebugBoardPanel, login::LoginView, navigation, screens::ScreensPanel,
-    sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel, top_bar::TopBar,
-    update::{self, UpdatePhase, UpdateState},
+    debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
+    screens::ScreensPanel, sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel,
+    top_bar::TopBar, update::{self, UpdatePhase, UpdateState},
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -356,6 +357,25 @@ impl Render for Workspace {
             return div().into_any_element();
         }
 
+        // EXP-104: the server 426'd this build — nothing is usable until it
+        // updates. This wins over the session switch (login OR board): the
+        // whole window becomes the blocking "Update required" surface.
+        let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
+        if blocked {
+            let sheet_layer = Root::render_sheet_layer(window, cx);
+            let dialog_layer = Root::render_dialog_layer(window, cx);
+            let notification_layer = Root::render_notification_layer(window, cx);
+            return div()
+                .size_full()
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .child(self.render_update_required(cx))
+                .children(sheet_layer)
+                .children(dialog_layer)
+                .children(notification_layer)
+                .into_any_element();
+        }
+
         // The §5 session switch: anything but `Synced` renders the login
         // surface — including `AuthExpired`, the dead-token
         // routing (login screen, never an empty board).
@@ -545,6 +565,168 @@ impl Workspace {
         }
 
         Some(banner.into_any_element())
+    }
+
+    /// The EXP-104 blocking "Update required" surface: a full-window centered
+    /// card (styled like the login surface) shown when the server 426'd this
+    /// build. It reuses the self-update pipeline — the same `UpdatePhase`
+    /// progression and `start_update` / restart flow as
+    /// [`Self::render_update_banner`] — but as a mandatory, non-dismissible
+    /// gate. When no install plan is available (staging, dev, an assetless
+    /// release) it degrades to a browser "Download update" link.
+    fn render_update_required(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let (info, phase) = UpdateState::global_ref(cx)
+            .map(|model| {
+                let state = model.read(cx);
+                (state.available().cloned(), state.phase().clone())
+            })
+            .unwrap_or((None, UpdatePhase::Available));
+
+        let has_plan = info.as_ref().and_then(|i| i.plan.as_ref()).is_some();
+        // The release page (info's own html_url, else the generic latest page)
+        // is the universal browser fallback.
+        let fallback_url = info
+            .as_ref()
+            .map(|i| i.url.clone())
+            .unwrap_or_else(|| update::releases_page_url().to_string());
+
+        // A per-phase status line under the body copy (progress / installing /
+        // failure reason) — `None` in the idle `Available` state.
+        let status: Option<SharedString> = match &phase {
+            UpdatePhase::Available => None,
+            UpdatePhase::Downloading { received, total } => {
+                Some(format!("Downloading… {}", format_progress(*received, *total)).into())
+            }
+            UpdatePhase::Installing => Some("Installing…".into()),
+            UpdatePhase::ReadyToRestart { .. } => {
+                Some("Update installed — restart to finish.".into())
+            }
+            UpdatePhase::Failed { message } => Some(format!("Update failed: {message}").into()),
+        };
+
+        let download_button = |id: &'static str, label: &'static str, url: String| {
+            Button::new(id)
+                .w_full()
+                .label(label)
+                .on_click(move |_: &ClickEvent, _, _| {
+                    if let Err(err) = api::opener::open_in_browser(&url) {
+                        log::warn!("[ui] update-required: open release page failed: {err}");
+                    }
+                })
+        };
+
+        // The primary action tracks the pipeline phase — mirrors the banner's
+        // phase→button mapping, laid out as a full-width column of buttons.
+        let mut actions = v_flex().w_full().gap_2();
+        match &phase {
+            UpdatePhase::Available if has_plan => {
+                actions = actions.child(
+                    Button::new("update-required-install")
+                        .primary()
+                        .w_full()
+                        .label("Update now")
+                        .on_click(move |_: &ClickEvent, _, cx| update::start_update(cx)),
+                );
+            }
+            UpdatePhase::Available => {
+                actions =
+                    actions.child(download_button("update-required-download", "Download update", fallback_url.clone()).primary());
+            }
+            UpdatePhase::Downloading { .. } | UpdatePhase::Installing => {
+                // No action — the status line shows progress; the pipeline is
+                // running.
+            }
+            UpdatePhase::ReadyToRestart { restart_path } => {
+                let restart_path = restart_path.clone();
+                actions = actions.child(
+                    Button::new("update-required-restart")
+                        .primary()
+                        .w_full()
+                        .label("Restart to update")
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            if let Some(path) = restart_path.clone() {
+                                cx.set_restart_path(path);
+                            }
+                            cx.restart();
+                        }),
+                );
+            }
+            UpdatePhase::Failed { .. } => {
+                if has_plan {
+                    actions = actions.child(
+                        Button::new("update-required-retry")
+                            .primary()
+                            .w_full()
+                            .label("Retry")
+                            .on_click(move |_: &ClickEvent, _, cx| update::start_update(cx)),
+                    );
+                }
+                actions = actions.child(download_button(
+                    "update-required-download",
+                    "Download update",
+                    fallback_url.clone(),
+                ));
+            }
+        }
+
+        // Brand header above the card (login parity).
+        let brand = h_flex()
+            .gap_2()
+            .items_center()
+            .justify_center()
+            .child(
+                Icon::from(ExpIcon::Logo)
+                    .with_size(px(32.))
+                    .text_color(cx.theme().foreground),
+            )
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Exponential"),
+            );
+
+        let card = v_flex()
+            .w(px(380.))
+            .gap_4()
+            .p_6()
+            .rounded(cx.theme().radius_lg)
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover)
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xl()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Update required"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "A newer version of Exponential is required to keep using this instance.",
+                            ),
+                    ),
+            )
+            .children(status.map(|text| {
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(text)
+            }))
+            .child(actions);
+
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(v_flex().gap_6().items_center().child(brand).child(card))
+            .into_any_element()
     }
 }
 

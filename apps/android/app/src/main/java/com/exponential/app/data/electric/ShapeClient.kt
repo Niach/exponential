@@ -43,6 +43,14 @@ private const val SCHEMA_RESET_THRESHOLD = 3
 /** Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure. */
 private class ShapeAuthException(message: String) : Exception(message)
 
+/**
+ * Thrown on HTTP 426 (client below the server's minimum version, EXP-104). The
+ * shared HTTP client's response validator has already latched the app-wide
+ * update gate, so the run loop only needs to STOP: the blocking "Update
+ * required" screen is up and retrying would just hammer the server.
+ */
+private class ShapeUpgradeException(message: String) : Exception(message)
+
 class ShapeClient<T : Any>(
     private val client: HttpClient,
     private val baseUrlProvider: () -> String?,
@@ -107,6 +115,14 @@ class ShapeClient<T : Any>(
                 consecutiveSchemaErrors = 0
                 delay(backoffMs)
                 backoffMs = min(backoffMs * 2, 30_000L)
+            } catch (upgrade: ShapeUpgradeException) {
+                // Client is below the server minimum: the update gate is already
+                // latched (via the HTTP response validator) and the blocking
+                // screen is up. Exit the loop entirely — nothing this build can
+                // sync until the user updates, and retrying only hammers the
+                // server. A fresh app version restarts sync from scratch.
+                android.util.Log.w("ShapeClient", "[$shapeName] upgrade required: ${upgrade.message}")
+                return
             } catch (auth: ShapeAuthException) {
                 android.util.Log.w("ShapeClient", "[$shapeName] auth error: ${auth.message}")
                 onError(true, auth.message, false)
@@ -211,6 +227,11 @@ class ShapeClient<T : Any>(
             offsetDao.deleteShape(shapeName)
             onMessages(listOf(ShapeMessage.MustRefetch))
             return false
+        }
+        // 426 = client below the server's minimum version (EXP-104). Stop the
+        // run loop; the shared client's validator already raised the update gate.
+        if (response.status.value == 426) {
+            throw ShapeUpgradeException("Upgrade required syncing $shapeName (HTTP 426)")
         }
         if (response.status == HttpStatusCode.Unauthorized ||
             response.status == HttpStatusCode.Forbidden

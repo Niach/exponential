@@ -139,6 +139,12 @@ impl HttpAttachmentTransport {
     }
 
     fn authorize(&self, request: ureq::Request) -> ureq::Request {
+        // EXP-104: the client-version header rides the attachment upload/fetch
+        // requests too, so a stale build is 426-gated everywhere.
+        let request = request.set(
+            domain::client_version::CLIENT_VERSION_HEADER,
+            &domain::client_version::client_version_header_value(),
+        );
         match self.token.token() {
             Some(token) => request.set("Authorization", &format!("Bearer {token}")),
             None => request,

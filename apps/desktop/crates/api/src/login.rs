@@ -19,6 +19,7 @@
 //! The login *view* (cloud button first) is §4/Phase-3 UI
 //! territory; this module owns only the mechanics.
 
+use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -28,6 +29,14 @@ use std::time::Duration;
 
 use crate::encode::{base64url_nopad, percent_decode, percent_encode};
 use crate::error::{from_ureq_unauthed, ApiError};
+
+/// Tag a request with the client-version header (EXP-104) so the server can
+/// 426-gate stale builds — applied to every `AuthClient` request, including
+/// the unauthenticated auth-config / sign-in / oauth-exchange calls (the gate
+/// fires before login too).
+fn versioned(request: ureq::Request) -> ureq::Request {
+    request.set(CLIENT_VERSION_HEADER, &client_version_header_value())
+}
 
 /// Which auth methods the server offers (`GET /api/auth-config`, mirrors
 /// `apps/web/src/lib/auth/config.ts`). Gate the login UI on this.
@@ -117,9 +126,7 @@ impl AuthClient {
     /// `GET /api/auth-config` — unauthenticated; call before any account exists.
     pub fn fetch_auth_config(&self, instance_url: &str) -> Result<AuthConfig, ApiError> {
         let base = normalize_instance_url(instance_url);
-        let response = self
-            .agent
-            .get(&format!("{base}/api/auth-config"))
+        let response = versioned(self.agent.get(&format!("{base}/api/auth-config")))
             .set("Accept", "application/json")
             .call()
             .map_err(from_ureq_unauthed)?;
@@ -142,9 +149,7 @@ impl AuthClient {
     ) -> Result<SignInSuccess, ApiError> {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "email": email, "password": password });
-        let response = self
-            .agent
-            .post(&format!("{base}/api/auth/sign-in/email"))
+        let response = versioned(self.agent.post(&format!("{base}/api/auth/sign-in/email")))
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
             // Better Auth's CSRF check 403s POSTs without an Origin header
@@ -196,9 +201,7 @@ impl AuthClient {
         token: &str,
     ) -> Result<Option<AuthUser>, ApiError> {
         let base = normalize_instance_url(instance_url);
-        let result = self
-            .agent
-            .get(&format!("{base}/api/auth/get-session"))
+        let result = versioned(self.agent.get(&format!("{base}/api/auth/get-session")))
             .set("Accept", "application/json")
             .set("Authorization", &format!("Bearer {token}"))
             .call();
@@ -235,9 +238,7 @@ impl AuthClient {
 
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "code": code, "code_verifier": code_verifier });
-        let response = self
-            .agent
-            .post(&format!("{base}/api/mobile-oauth-exchange"))
+        let response = versioned(self.agent.post(&format!("{base}/api/mobile-oauth-exchange")))
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
             .send_string(&payload.to_string())
@@ -264,8 +265,7 @@ impl AuthClient {
     /// fails (offline sign-out is legal).
     pub fn sign_out(&self, instance_url: &str, token: &str) -> Result<(), ApiError> {
         let base = normalize_instance_url(instance_url);
-        self.agent
-            .post(&format!("{base}/api/auth/sign-out"))
+        versioned(self.agent.post(&format!("{base}/api/auth/sign-out")))
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
             .set("Authorization", &format!("Bearer {token}"))

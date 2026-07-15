@@ -14,6 +14,12 @@ pub enum ApiError {
     /// on `/api/auth/sign-in/email` come back as [`ApiError::Http`] with
     /// status 401, because no session token was presented there.
     Unauthorized,
+    /// The server rejected this client build as too old (HTTP 426 Upgrade
+    /// Required, EXP-104) — the app must show the blocking "Update required"
+    /// view and stop syncing. NOTE: unlike [`ApiError::Unauthorized`] this
+    /// NEVER clears the stored token; the session is fine, the binary is
+    /// stale.
+    UpgradeRequired,
     /// Any other non-2xx HTTP status. `message` is the server's error message
     /// when one could be extracted from the JSON body, else the raw body
     /// (truncated).
@@ -32,6 +38,9 @@ impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ApiError::Unauthorized => write!(f, "unauthorized (session token rejected)"),
+            ApiError::UpgradeRequired => {
+                write!(f, "client upgrade required (server rejected this build)")
+            }
             ApiError::Http { status, message } => write!(f, "HTTP {status}: {message}"),
             ApiError::Transport(msg) => write!(f, "transport error: {msg}"),
             ApiError::Decode(msg) => write!(f, "decode error: {msg}"),
@@ -90,6 +99,7 @@ pub(crate) fn http_error(status: u16, body: &str) -> ApiError {
 pub(crate) fn from_ureq_authed(err: ureq::Error) -> ApiError {
     match err {
         ureq::Error::Status(401, _) => ApiError::Unauthorized,
+        ureq::Error::Status(426, _) => ApiError::UpgradeRequired,
         ureq::Error::Status(status, response) => {
             let body = response.into_string().unwrap_or_default();
             http_error(status, &body)
@@ -102,6 +112,9 @@ pub(crate) fn from_ureq_authed(err: ureq::Error) -> ApiError {
 /// presented, so a 401 means bad credentials, not a dead session).
 pub(crate) fn from_ureq_unauthed(err: ureq::Error) -> ApiError {
     match err {
+        // The min-version gate (EXP-104) rejects even unauthenticated calls
+        // (auth-config, sign-in) so a stale build is stopped before login.
+        ureq::Error::Status(426, _) => ApiError::UpgradeRequired,
         ureq::Error::Status(status, response) => {
             let body = response.into_string().unwrap_or_default();
             http_error(status, &body)
@@ -136,6 +149,24 @@ mod tests {
             }
             other => panic!("expected Http, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn authed_maps_426_to_upgrade_required() {
+        // EXP-104: a 426 on an authed request is the min-version gate, NOT a
+        // dead session — it must never be mistaken for Unauthorized (which
+        // clears the token).
+        let response = ureq::Response::new(426, "Upgrade Required", "{}").unwrap();
+        let err = from_ureq_authed(ureq::Error::Status(426, response));
+        assert!(matches!(err, ApiError::UpgradeRequired), "got {err:?}");
+    }
+
+    #[test]
+    fn unauthed_maps_426_to_upgrade_required() {
+        // The gate also fires before login (auth-config / sign-in).
+        let response = ureq::Response::new(426, "Upgrade Required", "{}").unwrap();
+        let err = from_ureq_unauthed(ureq::Error::Status(426, response));
+        assert!(matches!(err, ApiError::UpgradeRequired), "got {err:?}");
     }
 
     #[test]

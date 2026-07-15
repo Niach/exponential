@@ -26,6 +26,7 @@ espresso = "3.6.1"
 screengrab = "2.1.1"
 google-services = "4.4.2"
 firebase-bom = "33.7.0"
+play-app-update = "2.1.0"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -74,6 +75,7 @@ espresso-core = { group = "androidx.test.espresso", name = "espresso-core", vers
 screengrab = { group = "tools.fastlane", name = "screengrab", version.ref = "screengrab" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+play-app-update-ktx = { group = "com.google.android.play", name = "app-update-ktx", version.ref = "play-app-update" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

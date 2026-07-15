@@ -31,7 +31,7 @@ pub mod store;
 
 pub use client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeError, ShapeTransport, TokenFn,
-    TransportError, TransportResponse, UnauthorizedFn, UreqTransport,
+    TransportError, TransportResponse, UnauthorizedFn, UpgradeRequiredFn, UreqTransport,
 };
 pub use collections::{
     cmp_identifiers, Collection, Collections, SessionPhase, ShapeRow, ShapeStatus, ShapeSyncPhase,

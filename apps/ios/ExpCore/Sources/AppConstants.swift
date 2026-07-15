@@ -15,4 +15,23 @@ public enum AppConstants {
     public static var defaultCloudUrl: String {
         isStaging ? stagingCloudUrl : publicCloudUrl
     }
+
+    /// This build's marketing version, read from the app's Info.plist
+    /// (`CFBundleShortVersionString`, injected from `appMarketingVersion` in
+    /// Project.swift). Falls back to `0.0.0` so a missing/malformed plist reads
+    /// as the oldest possible version rather than crashing.
+    public static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    /// The `x-client-version` header value every request carries (EXP-104):
+    /// `ios/<marketingVersion>`. The server uses it to gate builds below the
+    /// configured minimum with a 426 (`client_upgrade_required`).
+    public static var clientVersionHeaderValue: String {
+        "ios/\(appVersion)"
+    }
+
+    /// The App Store listing, opened from the blocking Update-required view.
+    // TODO: real App Store id once published
+    public static let appStoreUrl = URL(string: "https://apps.apple.com/app/id0000000000")!
 }

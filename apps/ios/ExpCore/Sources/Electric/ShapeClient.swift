@@ -107,6 +107,15 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                 }
             } catch is CancellationError {
                 throw CancellationError()
+            } catch ShapeError.upgradeRequired {
+                // Client-version gate (EXP-104): below the server minimum. Stop
+                // this loop permanently — no backoff, no retry. The blocking
+                // Update-required view is now up; sync restarts on the next app
+                // launch (with, presumably, an updated build). Logged like the
+                // other terminal failures so the timeline shows why it stopped.
+                logger.warning("[\(self.shapeName)] stopped: client upgrade required")
+                SyncDebug.shared.log("[\(shapeName)] STOP: client upgrade required")
+                return
             } catch {
                 let message = Self.describe(error)
                 let isSchema = Self.isSchemaError(error)
@@ -202,6 +211,9 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Client-version gate (EXP-104): shape reads carry the build version too,
+        // so an out-of-date client's sync loop gets 426'd like everything else.
+        request.setValue(AppConstants.clientVersionHeaderValue, forHTTPHeaderField: "x-client-version")
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -231,6 +243,15 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         if httpResponse.statusCode == 401 {
             throw ShapeError.unauthorized
+        }
+
+        // Client-version gate (EXP-104): this build is below the server minimum.
+        // Trip the update gate (defensive decode — min/latest may be absent) and
+        // throw so run() can stop this shape's loop permanently.
+        if httpResponse.statusCode == 426 {
+            let info = try? JSONDecoder().decode(ClientUpgradeResponse.self, from: data)
+            UpdateGate.shared.trigger(min: info?.min, latest: info?.latest)
+            throw ShapeError.upgradeRequired
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -374,6 +395,9 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 public enum ShapeError: Error {
     case invalidResponse
     case unauthorized
+    /// The server rejected this client version (HTTP 426, EXP-104). run() stops
+    /// the shape loop for good on this case.
+    case upgradeRequired
     case httpError(Int)
 }
 
