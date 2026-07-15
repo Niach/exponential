@@ -333,7 +333,7 @@ STEER_RELAY_SECRET            # Shared HS256 secret: web mints steer tickets, re
 ANDROID_APP_LINK_FINGERPRINTS # Comma-separated SHA-256 cert fingerprints for /.well-known/assetlinks.json (Android App Links; unset = 404 and links open in the browser)
 SECURITY_HEADERS_ENABLED      # 'true' to emit CSP/HSTS etc. from the Bun server
 INITIAL_ADMIN_EMAILS          # Comma-separated emails auto-promoted to global admin at startup
-CLIENT_MIN_VERSION_ANDROID    # Min Android client version — below it tRPC/shape requests answer HTTP 426 (blocking update screen); unset = gate off (fail-open)
+CLIENT_MIN_VERSION_ANDROID    # Min Android client version — below it tRPC/shape requests answer HTTP 426 (blocking update screen); unset = gate off (fail-open). ALL CLIENT_*_VERSION_* values are marketing versions (versionName / CFBundleShortVersionString / desktop tag, e.g. 0.13.3), NEVER versionCode or build number
 CLIENT_MIN_VERSION_IOS        # Min iOS client version (same 426 gate)
 CLIENT_MIN_VERSION_DESKTOP    # Min desktop client version (same 426 gate)
 CLIENT_LATEST_VERSION_ANDROID # Informational latest Android version (GET /api/version + 426 body; no blocking)

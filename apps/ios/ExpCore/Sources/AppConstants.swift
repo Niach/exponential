@@ -32,6 +32,5 @@ public enum AppConstants {
     }
 
     /// The App Store listing, opened from the blocking Update-required view.
-    // TODO: real App Store id once published
-    public static let appStoreUrl = URL(string: "https://apps.apple.com/app/id0000000000")!
+    public static let appStoreUrl = URL(string: "https://apps.apple.com/app/id6788189402")!
 }
