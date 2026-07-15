@@ -4,6 +4,7 @@ import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
+import { PublicBoardShareButton } from "@/components/workspace/public-board-share"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import {
@@ -126,6 +127,17 @@ function ProjectPage() {
         labels={labelList}
         onNewIssue={() => handleNewIssue()}
         canCreate={permissions.canCreate}
+        // Sharing a public board's link is any member's privilege, not an
+        // owner's — the owner-only knobs (publicness, privacy toggles) stay
+        // in workspace settings.
+        actions={
+          project.isPublic && permissions.isMember ? (
+            <PublicBoardShareButton
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+            />
+          ) : undefined
+        }
       />
 
       <div className="flex-1 overflow-auto">

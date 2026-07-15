@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   Globe,
   Inbox,
+  Link2,
   LogIn,
   LogOut,
   Plus,
@@ -38,8 +39,15 @@ import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
+import { copyPublicBoardUrl } from "@/components/workspace/public-board-share"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -346,26 +354,52 @@ export function WorkspaceSidebar({
                 ) : (
                   projects.map((project) => {
                     const TypeIcon = getProjectIcon(project)
+                    const link = (
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/t/$workspaceSlug/projects/$projectSlug"
+                          params={{
+                            workspaceSlug,
+                            projectSlug: project.slug,
+                          }}
+                        >
+                          <TypeIcon
+                            className="h-4 w-4 shrink-0"
+                            style={{ color: project.color }}
+                          />
+                          <span>{project.name}</span>
+                          {project.isPublic && (
+                            <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                        </Link>
+                      </SidebarMenuButton>
+                    )
                     return (
                       <SidebarMenuItem key={project.id}>
-                        <SidebarMenuButton asChild>
-                          <Link
-                            to="/t/$workspaceSlug/projects/$projectSlug"
-                            params={{
-                              workspaceSlug,
-                              projectSlug: project.slug,
-                            }}
-                          >
-                            <TypeIcon
-                              className="h-4 w-4 shrink-0"
-                              style={{ color: project.color }}
-                            />
-                            <span>{project.name}</span>
-                            {project.isPublic && (
-                              <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            )}
-                          </Link>
-                        </SidebarMenuButton>
+                        {/* The link is public by definition, so the copy
+                            affordance isn't owner-gated. */}
+                        {project.isPublic ? (
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              {link}
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  copyPublicBoardUrl(
+                                    workspaceSlug,
+                                    project.slug
+                                  )
+                                }
+                              >
+                                <Link2 className="h-4 w-4" />
+                                Copy public link
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        ) : (
+                          link
+                        )}
                       </SidebarMenuItem>
                     )
                   })

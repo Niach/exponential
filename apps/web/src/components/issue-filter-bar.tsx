@@ -20,6 +20,9 @@ interface IssueFilterBarProps {
   onNewIssue: () => void
   canCreate?: boolean
   title?: string
+  // Extra header actions rendered before the filter button (e.g. the public
+  // board Share button).
+  actions?: React.ReactNode
 }
 
 export function IssueFilterBar({
@@ -29,6 +32,7 @@ export function IssueFilterBar({
   onNewIssue,
   canCreate = true,
   title = `Issues`,
+  actions,
 }: IssueFilterBarProps) {
   const activeTab = deriveActiveTab(filters.statuses)
 
@@ -41,6 +45,7 @@ export function IssueFilterBar({
       <div className="flex items-center justify-between py-3">
         <h1 className="hidden md:block text-base font-medium">{title}</h1>
         <div className="flex items-center gap-1 ml-auto">
+          {actions}
           <IssueFilterPopover
             filters={filters}
             onFiltersChange={onFiltersChange}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, Copy, Github, GitBranch, Globe, Trash2 } from "lucide-react"
+import { Github, GitBranch, Globe, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +21,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  buildPublicBoardUrl,
+  PublicBoardLinkRow,
+} from "@/components/workspace/public-board-share"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
@@ -372,15 +376,10 @@ function PublicBoardDialog({
   workspaceSlug: string
   onOpenChange: (open: boolean) => void
 }) {
-  const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    setCopied(false)
-  }, [project?.id])
-
   const publicUrl = project
-    ? `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}`
+    ? buildPublicBoardUrl(workspaceSlug, project.slug)
     : ``
 
   const update = async (
@@ -416,27 +415,7 @@ function PublicBoardDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 min-w-0 flex-1 items-center rounded-md border px-3 text-xs text-muted-foreground">
-            <span className="truncate">{publicUrl}</span>
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            title="Copy public link"
-            onClick={() => {
-              void navigator.clipboard.writeText(publicUrl)
-              setCopied(true)
-            }}
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-primary" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
+        <PublicBoardLinkRow url={publicUrl} />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
