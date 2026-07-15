@@ -55,3 +55,17 @@ pub use serialize::blocks_to_markdown;
 pub fn canonicalize(markdown: &str) -> String {
     blocks_to_markdown(&markdown_to_blocks(markdown))
 }
+
+/// [`canonicalize`] for EDITOR-TYPED source (EXP-118): a lone `\n` — what a
+/// plain Enter inserts into the editor's raw text blocks — becomes a
+/// paragraph break (`\n\n`), the same thing Enter produces on web, iOS and
+/// Android. Plain GFM would collapse it to a space, silently discarding the
+/// user's line break on save. Read/render paths keep [`canonicalize`]'s
+/// soft-break-as-space semantics so stored content renders identically on
+/// all four clients.
+pub fn canonicalize_editor_input(markdown: &str) -> String {
+    blocks_to_markdown(&parse::markdown_to_blocks_with(
+        markdown,
+        parse::SoftBreakMode::ParagraphBreak,
+    ))
+}

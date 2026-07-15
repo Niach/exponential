@@ -45,9 +45,12 @@ export const PROJECT_TRASH_RETENTION_MS =
 // treats that flip as a remote kill of the live claude child, while a
 // vanished row deliberately never fires it — so even a live session whose
 // heartbeats all fail (or a pre-heartbeat desktop build) only loses its
-// badge, never its process. Generous relative to the heartbeat cadence so
-// flaky pings can never strand a live session's badge.
-export const CODING_SESSION_STALE_HOURS = 24
+// badge, never its process. Four missed 30-minute heartbeats — tight enough
+// that a crashed IDE's phantom badge clears within ~2.5h (EXP-105; the
+// desktop also ends its rows on app quit and window close, so the sweep is
+// the crash/SIGKILL backstop only), loose enough that flaky pings can't
+// strand a live session's badge.
+export const CODING_SESSION_STALE_HOURS = 2
 export const CODING_SESSION_STALE_MS =
   CODING_SESSION_STALE_HOURS * 60 * 60 * 1000
 

@@ -49,9 +49,9 @@ use crate::prompt::{deliver_prompt, render_prompt};
 use crate::settings::Settings;
 
 /// Cadence of the `codingSessions.heartbeat` liveness ping while the claude
-/// child is alive. Must stay far inside the server's staleness window
-/// (`CODING_SESSION_STALE_HOURS` = 24h in `@exp/db-schema/domain`, measured
-/// from the row's `updated_at`) so that dozens of pings would have to fail
+/// child is alive. Must stay well inside the server's staleness window
+/// (`CODING_SESSION_STALE_HOURS` = 2h in `@exp/db-schema/domain`, measured
+/// from the row's `updated_at`) so that several pings would have to fail
 /// back-to-back before a live session's row could be swept.
 const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30 * 60);
@@ -287,6 +287,10 @@ pub struct PreparedLaunch {
     pub spawn: SpawnSpec,
     /// Tab strip default title (`claude · EXP-42` / `claude · EXP-42 +2`).
     pub tab_title: String,
+    /// The row's start scope, re-sent with every heartbeat (EXP-105): a ping
+    /// that finds the row swept (suspend outlived the staleness window)
+    /// re-creates it server-side under the same id.
+    pub heartbeat_scope: coding_sessions::HeartbeatScope,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -513,6 +517,19 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         )
         .env("CARGO_INCREMENTAL", "0");
 
+    let heartbeat_scope = match req {
+        PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
+            issue_id: Some(issue_req.issue_id.clone()),
+            workspace_id: None,
+            device_label: Some(issue_req.device_label.clone()),
+        },
+        PrepareRequest::Batch(batch_req) => coding_sessions::HeartbeatScope {
+            issue_id: None,
+            workspace_id: Some(batch_req.workspace_id.clone()),
+            device_label: Some(batch_req.device_label.clone()),
+        },
+    };
+
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier,
@@ -522,6 +539,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         branch,
         spawn,
         tab_title,
+        heartbeat_scope,
     }))
 }
 
@@ -562,7 +580,9 @@ pub fn spawn_prepared_with(
     trpc: Arc<TrpcClient>,
     exit_notify: Option<ExitNotify>,
 ) -> Result<LaunchOutcome, CodingError> {
-    let PreparedLaunch { session_id, worktree, branch, spawn, tab_title, .. } = prepared;
+    let PreparedLaunch {
+        session_id, worktree, branch, spawn, tab_title, heartbeat_scope, ..
+    } = prepared;
 
     // Liveness heartbeat: the server's staleness sweep deletes `running`
     // rows whose `updated_at` stopped advancing, so a long-lived session (an
@@ -580,7 +600,7 @@ pub fn spawn_prepared_with(
         std::thread::spawn(move || loop {
             match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let _ = coding_sessions::heartbeat(&trpc, &session_id);
+                    let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
                 }
                 _ => return,
             }

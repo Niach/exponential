@@ -72,6 +72,30 @@ struct SessionIdInput<'a> {
     id: &'a str,
 }
 
+/// The row's original start scope, riding every heartbeat (EXP-105): a ping
+/// that finds the row swept (laptop suspend outlived the server's staleness
+/// window) re-creates it server-side under the SAME id, restoring the badge
+/// and steerability. Exactly one of `issue_id`/`workspace_id` is set —
+/// `start`'s own invariant.
+#[derive(Clone, Debug)]
+pub struct HeartbeatScope {
+    pub issue_id: Option<String>,
+    pub workspace_id: Option<String>,
+    pub device_label: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HeartbeatInput<'a> {
+    id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    issue_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_label: Option<&'a str>,
+}
+
 #[derive(Deserialize)]
 struct HeartbeatEnvelope {
     alive: bool,
@@ -123,13 +147,25 @@ pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
 /// `codingSessions.heartbeat` — mutation. Advances the synced row's
 /// `updated_at` while the claude child is alive so the server's staleness
 /// sweep (which DELETES `running` rows whose liveness signal stopped) never
-/// reaps a live session's badge. Fire-and-forget from the launcher's
-/// heartbeat thread: `alive: false` (row ended or cascade-deleted) and
-/// transport errors are both ignorable — the next child-exit hook still ends
-/// the session normally.
-pub fn heartbeat(trpc: &TrpcClient, id: &str) -> Result<bool, ApiError> {
-    let envelope: HeartbeatEnvelope =
-        trpc.mutation("codingSessions.heartbeat", &SessionIdInput { id })?;
+/// reaps a live session's badge — and, when `scope` rides along, re-creates
+/// a row the sweep DID reap (suspend > staleness window) under the same id.
+/// Fire-and-forget from the launcher's heartbeat thread: `alive: false`
+/// (row ended, or resurrection impossible) and transport errors are both
+/// ignorable — the next child-exit hook still ends the session normally.
+pub fn heartbeat(
+    trpc: &TrpcClient,
+    id: &str,
+    scope: Option<&HeartbeatScope>,
+) -> Result<bool, ApiError> {
+    let envelope: HeartbeatEnvelope = trpc.mutation(
+        "codingSessions.heartbeat",
+        &HeartbeatInput {
+            id,
+            issue_id: scope.and_then(|scope| scope.issue_id.as_deref()),
+            workspace_id: scope.and_then(|scope| scope.workspace_id.as_deref()),
+            device_label: scope.and_then(|scope| scope.device_label.as_deref()),
+        },
+    )?;
     Ok(envelope.alive)
 }
 
@@ -207,7 +243,7 @@ mod tests {
     #[test]
     fn heartbeat_posts_id_and_decodes_alive() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
-        let alive = heartbeat(&client(&base), "sess-1").unwrap();
+        let alive = heartbeat(&client(&base), "sess-1", None).unwrap();
         assert!(alive);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.heartbeat HTTP/1.1"));
@@ -215,9 +251,36 @@ mod tests {
     }
 
     #[test]
+    fn heartbeat_posts_resurrection_scope_when_provided() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            workspace_id: None,
+            device_label: Some("testbox".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .ends_with(r#"{"id":"sess-1","issueId":"issue-1","deviceLabel":"testbox"}"#));
+    }
+
+    #[test]
+    fn heartbeat_posts_batch_scope_workspace_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: None,
+            workspace_id: Some("ws-1".to_string()),
+            device_label: None,
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-1","workspaceId":"ws-1"}"#));
+    }
+
+    #[test]
     fn heartbeat_reports_a_dead_row_without_erroring() {
         let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{"alive":false}}}"#);
-        assert!(!heartbeat(&client(&base), "sess-1").unwrap());
+        assert!(!heartbeat(&client(&base), "sess-1", None).unwrap());
     }
 
     #[test]

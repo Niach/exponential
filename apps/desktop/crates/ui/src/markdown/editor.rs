@@ -458,7 +458,9 @@ impl MarkdownEditor {
                 EditorBlock::Image { url, alt, .. } => parts.push(format!("![{alt}]({url})")),
             }
         }
-        super::canonicalize(&parts.join("\n\n"))
+        // Editor-input canonicalization (EXP-118): a plain Enter's lone `\n`
+        // in a text block means a paragraph break, not a GFM soft break.
+        super::canonicalize_editor_input(&parts.join("\n\n"))
     }
 
     /// Images staged (pasted pre-save) and still referenced by the document.
