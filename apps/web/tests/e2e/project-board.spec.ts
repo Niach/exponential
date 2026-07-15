@@ -32,14 +32,14 @@ test(`creates a project and routes the workspace to its board`, async ({
   await createProject(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
   const workspaceSlug = getWorkspaceSlug(page.url())
   await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
   await expect(page.getByRole(`button`, { name: `New Issue` })).toBeVisible()
 
-  await page.goto(`/w/${workspaceEntrySlug}`)
+  await page.goto(`/t/${workspaceEntrySlug}`)
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceSlug}/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/${workspaceSlug}/projects/${app.projectSlug}/?$`)
   )
 })

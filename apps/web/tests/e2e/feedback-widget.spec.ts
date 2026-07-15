@@ -32,7 +32,7 @@ async function createWidget(
   workspaceSlug: string,
   domains: string
 ): Promise<string> {
-  await page.goto(`/w/${workspaceSlug}/settings`)
+  await page.goto(`/t/${workspaceSlug}/settings`)
   await expect(
     page.getByRole(`heading`, { name: `Workspace Settings` })
   ).toBeVisible()
@@ -143,7 +143,7 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   expect(deniedSubmit.status()).toBe(403)
 
   // The real submission shows up in the project; the honeypot one doesn't.
-  await page.goto(`/w/${workspaceSlug}/projects/${app.projectSlug}`)
+  await page.goto(`/t/${workspaceSlug}/projects/${app.projectSlug}`)
   await expect(
     page.getByText(`Widget report ${app.namespace}`)
   ).toBeVisible()
@@ -230,7 +230,7 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   })
 
   // The issue landed in the project the widget points at.
-  await page.goto(`/w/${workspaceSlug}/projects/${app.projectSlug}`)
+  await page.goto(`/t/${workspaceSlug}/projects/${app.projectSlug}`)
   await expect(
     page.getByText(`In-widget report ${app.namespace}`)
   ).toBeVisible()

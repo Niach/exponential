@@ -18,7 +18,7 @@ export const Route = createFileRoute(`/`)({
       // index then prefers the last-used project board). The helper is
       // window-guarded, so a non-browser evaluation just skips this. A stale
       // entry — workspace deleted or membership lost — clears itself and
-      // falls through to the /w/default resolution below.
+      // falls through to the /t/default resolution below.
       const last = readLastVisited()
       if (last) {
         let isMember = false
@@ -37,14 +37,14 @@ export const Route = createFileRoute(`/`)({
         }
         if (isMember) {
           throw redirect({
-            to: `/w/$workspaceSlug`,
+            to: `/t/$workspaceSlug`,
             params: { workspaceSlug: last.workspaceSlug },
           })
         }
       }
     }
     throw redirect({
-      to: `/w/$workspaceSlug`,
+      to: `/t/$workspaceSlug`,
       params: { workspaceSlug: `default` },
     })
   },

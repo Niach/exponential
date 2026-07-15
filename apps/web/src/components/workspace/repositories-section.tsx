@@ -183,7 +183,7 @@ export function WorkspaceRepositoriesSection({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Connect GitHub repos so projects in this workspace can be coded on.
+            Connect GitHub repos so projects in this team can be coded on.
             Point a project at a repo to make it the clone target for
             &ldquo;Start coding&rdquo;.
           </CardDescription>
@@ -193,7 +193,7 @@ export function WorkspaceRepositoriesSection({
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
               <Github className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1">
-                No GitHub account is connected to this workspace yet. Connect
+                No GitHub account is connected to this team yet. Connect
                 one to pick repositories here.
               </span>
               {connectHopUrl && (
@@ -316,8 +316,8 @@ export function WorkspaceRepositoriesSection({
           <DialogHeader>
             <DialogTitle>Connect a repository</DialogTitle>
             <DialogDescription>
-              Pick a repository from this workspace&apos;s connected GitHub
-              accounts. It becomes available to point this workspace&apos;s
+              Pick a repository from this team&apos;s connected GitHub
+              accounts. It becomes available to point this team&apos;s
               projects at.
             </DialogDescription>
           </DialogHeader>
@@ -375,7 +375,7 @@ function InstallationChip({
           className="h-5 w-5 text-muted-foreground hover:text-destructive"
           disabled={busy}
           onClick={onUnlink}
-          title="Disconnect this GitHub account from the workspace"
+          title="Disconnect this GitHub account from the team"
         >
           <Unlink className="h-3 w-3" />
         </Button>

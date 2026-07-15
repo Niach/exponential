@@ -13,6 +13,8 @@ import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 describe(`sanitizeRedirectPath`, () => {
   it.each([
     `/`,
+    `/t/acme/projects/exp`,
+    // legacy path form — still a valid same-origin redirect target
     `/w/acme/projects/exp`,
     // invite/$token.tsx producer shape
     `/invite/abc123`,

@@ -18,9 +18,15 @@ const APPLE_APP_IDS = [
 // prod + staging hosts.
 const ANDROID_PACKAGES = [`at.exponential`, `at.exponential.staging`]
 
-// Only the two link shapes the mobile apps can render. Claiming broader /w/*
+// Only the link shapes the mobile apps can render. Claiming broader /t/*
 // paths would hijack public feedback-board visitors and web-only surfaces.
-const LINK_PATHS = [`/w/*/projects/*/issues/*`, `/invite/*`]
+// Both path prefixes ride every list: /t/ is the current form, /w/ the legacy
+// one — old links live in the wild forever, and native parsers accept both.
+const LINK_PATHS = [
+  `/t/*/projects/*/issues/*`,
+  `/w/*/projects/*/issues/*`,
+  `/invite/*`,
+]
 
 export function buildAppleAppSiteAssociation(): unknown {
   return {

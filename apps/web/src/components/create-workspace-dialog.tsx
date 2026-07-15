@@ -42,12 +42,12 @@ export function CreateWorkspaceDialog({
       reset()
       onOpenChange(false)
       if (newSlug) {
-        navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug: newSlug } })
+        navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug: newSlug } })
       }
     } catch (e) {
       // Admin-only mutation (the dialog is only mounted for admins) — surface
       // any server error inline.
-      setError(e instanceof Error ? e.message : `Failed to create workspace`)
+      setError(e instanceof Error ? e.message : `Failed to create team`)
     } finally {
       setSubmitting(false)
     }
@@ -63,7 +63,7 @@ export function CreateWorkspaceDialog({
     >
       <DialogContent className="sm:max-w-[26rem]">
         <DialogHeader>
-          <DialogTitle>Create workspace</DialogTitle>
+          <DialogTitle>Create team</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -86,7 +86,7 @@ export function CreateWorkspaceDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!name.trim() || submitting}>
-              {submitting ? `Creating...` : `Create workspace`}
+              {submitting ? `Creating...` : `Create team`}
             </Button>
           </DialogFooter>
         </form>

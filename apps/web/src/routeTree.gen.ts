@@ -13,6 +13,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WSplatRouteImport } from './routes/w/$'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
@@ -33,9 +34,9 @@ import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } fr
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
 import { Route as Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport } from './routes/[.well-known]/apple-app-site-association'
-import { Route as WWorkspaceSlugRouteRouteImport } from './routes/w/$workspaceSlug/route'
+import { Route as TWorkspaceSlugRouteRouteImport } from './routes/t/$workspaceSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
-import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w/$workspaceSlug/index'
+import { Route as TWorkspaceSlugIndexRouteImport } from './routes/t/$workspaceSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
@@ -61,11 +62,11 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
-import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
-import { Route as WWorkspaceSlugReviewsIndexRouteImport } from './routes/w/$workspaceSlug/reviews/index'
-import { Route as WWorkspaceSlugMyIssuesIndexRouteImport } from './routes/w/$workspaceSlug/my-issues/index'
-import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
-import { Route as WWorkspaceSlugAgentsIndexRouteImport } from './routes/w/$workspaceSlug/agents/index'
+import { Route as TWorkspaceSlugSettingsIndexRouteImport } from './routes/t/$workspaceSlug/settings/index'
+import { Route as TWorkspaceSlugReviewsIndexRouteImport } from './routes/t/$workspaceSlug/reviews/index'
+import { Route as TWorkspaceSlugMyIssuesIndexRouteImport } from './routes/t/$workspaceSlug/my-issues/index'
+import { Route as TWorkspaceSlugInboxIndexRouteImport } from './routes/t/$workspaceSlug/inbox/index'
+import { Route as TWorkspaceSlugAgentsIndexRouteImport } from './routes/t/$workspaceSlug/agents/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
@@ -73,8 +74,8 @@ import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './
 import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
 import { Route as AuthenticatedAdminWorkspacesWorkspaceIdRouteImport } from './routes/_authenticated/admin/workspaces_.$workspaceId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
-import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
-import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+import { Route as TWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/index'
+import { Route as TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -93,6 +94,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WSplatRoute = WSplatRouteImport.update({
+  id: '/w/$',
+  path: '/w/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
@@ -199,9 +205,9 @@ const Char91DotwellKnownChar93AppleAppSiteAssociationRoute =
     path: '/.well-known/apple-app-site-association',
     getParentRoute: () => rootRouteImport,
   } as any)
-const WWorkspaceSlugRouteRoute = WWorkspaceSlugRouteRouteImport.update({
-  id: '/w/$workspaceSlug',
-  path: '/w/$workspaceSlug',
+const TWorkspaceSlugRouteRoute = TWorkspaceSlugRouteRouteImport.update({
+  id: '/t/$workspaceSlug',
+  path: '/t/$workspaceSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
@@ -209,10 +215,10 @@ const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const WWorkspaceSlugIndexRoute = WWorkspaceSlugIndexRouteImport.update({
+const TWorkspaceSlugIndexRoute = TWorkspaceSlugIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WWorkspaceSlugRouteRoute,
+  getParentRoute: () => TWorkspaceSlugRouteRoute,
 } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
@@ -345,35 +351,35 @@ const AuthenticatedAccountNotificationsRoute =
     path: '/account/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const WWorkspaceSlugSettingsIndexRoute =
-  WWorkspaceSlugSettingsIndexRouteImport.update({
+const TWorkspaceSlugSettingsIndexRoute =
+  TWorkspaceSlugSettingsIndexRouteImport.update({
     id: '/settings/',
     path: '/settings/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
-const WWorkspaceSlugReviewsIndexRoute =
-  WWorkspaceSlugReviewsIndexRouteImport.update({
+const TWorkspaceSlugReviewsIndexRoute =
+  TWorkspaceSlugReviewsIndexRouteImport.update({
     id: '/reviews/',
     path: '/reviews/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
-const WWorkspaceSlugMyIssuesIndexRoute =
-  WWorkspaceSlugMyIssuesIndexRouteImport.update({
+const TWorkspaceSlugMyIssuesIndexRoute =
+  TWorkspaceSlugMyIssuesIndexRouteImport.update({
     id: '/my-issues/',
     path: '/my-issues/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
-const WWorkspaceSlugInboxIndexRoute =
-  WWorkspaceSlugInboxIndexRouteImport.update({
+const TWorkspaceSlugInboxIndexRoute =
+  TWorkspaceSlugInboxIndexRouteImport.update({
     id: '/inbox/',
     path: '/inbox/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
-const WWorkspaceSlugAgentsIndexRoute =
-  WWorkspaceSlugAgentsIndexRouteImport.update({
+const TWorkspaceSlugAgentsIndexRoute =
+  TWorkspaceSlugAgentsIndexRouteImport.update({
     id: '/agents/',
     path: '/agents/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
@@ -416,17 +422,17 @@ const AuthenticatedAdminUsersUserIdRoute =
     path: '/users/$userId',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
-const WWorkspaceSlugProjectsProjectSlugIndexRoute =
-  WWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
+const TWorkspaceSlugProjectsProjectSlugIndexRoute =
+  TWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
     id: '/projects/$projectSlug/',
     path: '/projects/$projectSlug/',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
-const WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute =
-  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport.update({
+const TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute =
+  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport.update({
     id: '/projects/$projectSlug/issues/$issueIdentifier',
     path: '/projects/$projectSlug/issues/$issueIdentifier',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -434,7 +440,7 @@ export interface FileRoutesByFullPath {
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
-  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteRouteWithChildren
+  '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
@@ -455,6 +461,7 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/w/$': typeof WSplatRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -480,7 +487,7 @@ export interface FileRoutesByFullPath {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
-  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/t/$workspaceSlug/': typeof TWorkspaceSlugIndexRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
@@ -488,13 +495,13 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
-  '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
-  '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
-  '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
-  '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$workspaceSlug/agents/': typeof TWorkspaceSlugAgentsIndexRoute
+  '/t/$workspaceSlug/inbox/': typeof TWorkspaceSlugInboxIndexRoute
+  '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
+  '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
+  '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -520,6 +527,7 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/w/$': typeof WSplatRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -545,7 +553,7 @@ export interface FileRoutesByTo {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
-  '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/t/$workspaceSlug': typeof TWorkspaceSlugIndexRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
@@ -553,13 +561,13 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/w/$workspaceSlug/agents': typeof WWorkspaceSlugAgentsIndexRoute
-  '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
-  '/w/$workspaceSlug/my-issues': typeof WWorkspaceSlugMyIssuesIndexRoute
-  '/w/$workspaceSlug/reviews': typeof WWorkspaceSlugReviewsIndexRoute
-  '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$workspaceSlug/agents': typeof TWorkspaceSlugAgentsIndexRoute
+  '/t/$workspaceSlug/inbox': typeof TWorkspaceSlugInboxIndexRoute
+  '/t/$workspaceSlug/my-issues': typeof TWorkspaceSlugMyIssuesIndexRoute
+  '/t/$workspaceSlug/reviews': typeof TWorkspaceSlugReviewsIndexRoute
+  '/t/$workspaceSlug/settings': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -568,7 +576,7 @@ export interface FileRoutesById {
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
-  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteRouteWithChildren
+  '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
@@ -589,6 +597,7 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/w/$': typeof WSplatRoute
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -614,7 +623,7 @@ export interface FileRoutesById {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
-  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/t/$workspaceSlug/': typeof TWorkspaceSlugIndexRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/_authenticated/admin/workspaces_/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
@@ -622,13 +631,13 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
-  '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
-  '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
-  '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
-  '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$workspaceSlug/agents/': typeof TWorkspaceSlugAgentsIndexRoute
+  '/t/$workspaceSlug/inbox/': typeof TWorkspaceSlugInboxIndexRoute
+  '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
+  '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
+  '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -637,7 +646,7 @@ export interface FileRouteTypes {
     | '/robots.txt'
     | '/sitemap.xml'
     | '/admin'
-    | '/w/$workspaceSlug'
+    | '/t/$workspaceSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
@@ -658,6 +667,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/w/$'
     | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
@@ -683,7 +693,7 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin/'
-    | '/w/$workspaceSlug/'
+    | '/t/$workspaceSlug/'
     | '/admin/users/$userId'
     | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
@@ -691,13 +701,13 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/w/$workspaceSlug/agents/'
-    | '/w/$workspaceSlug/inbox/'
-    | '/w/$workspaceSlug/my-issues/'
-    | '/w/$workspaceSlug/reviews/'
-    | '/w/$workspaceSlug/settings/'
-    | '/w/$workspaceSlug/projects/$projectSlug/'
-    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$workspaceSlug/agents/'
+    | '/t/$workspaceSlug/inbox/'
+    | '/t/$workspaceSlug/my-issues/'
+    | '/t/$workspaceSlug/reviews/'
+    | '/t/$workspaceSlug/settings/'
+    | '/t/$workspaceSlug/projects/$projectSlug/'
+    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -723,6 +733,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/w/$'
     | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
@@ -748,7 +759,7 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin'
-    | '/w/$workspaceSlug'
+    | '/t/$workspaceSlug'
     | '/admin/users/$userId'
     | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
@@ -756,13 +767,13 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/w/$workspaceSlug/agents'
-    | '/w/$workspaceSlug/inbox'
-    | '/w/$workspaceSlug/my-issues'
-    | '/w/$workspaceSlug/reviews'
-    | '/w/$workspaceSlug/settings'
-    | '/w/$workspaceSlug/projects/$projectSlug'
-    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$workspaceSlug/agents'
+    | '/t/$workspaceSlug/inbox'
+    | '/t/$workspaceSlug/my-issues'
+    | '/t/$workspaceSlug/reviews'
+    | '/t/$workspaceSlug/settings'
+    | '/t/$workspaceSlug/projects/$projectSlug'
+    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   id:
     | '__root__'
     | '/'
@@ -770,7 +781,7 @@ export interface FileRouteTypes {
     | '/robots.txt'
     | '/sitemap.xml'
     | '/_authenticated/admin'
-    | '/w/$workspaceSlug'
+    | '/t/$workspaceSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
@@ -791,6 +802,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
+    | '/w/$'
     | '/_authenticated/account/notifications'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/workspaces'
@@ -816,7 +828,7 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/_authenticated/admin/'
-    | '/w/$workspaceSlug/'
+    | '/t/$workspaceSlug/'
     | '/_authenticated/admin/users_/$userId'
     | '/_authenticated/admin/workspaces_/$workspaceId'
     | '/_authenticated/integrations/github/claim'
@@ -824,13 +836,13 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/w/$workspaceSlug/agents/'
-    | '/w/$workspaceSlug/inbox/'
-    | '/w/$workspaceSlug/my-issues/'
-    | '/w/$workspaceSlug/reviews/'
-    | '/w/$workspaceSlug/settings/'
-    | '/w/$workspaceSlug/projects/$projectSlug/'
-    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$workspaceSlug/agents/'
+    | '/t/$workspaceSlug/inbox/'
+    | '/t/$workspaceSlug/my-issues/'
+    | '/t/$workspaceSlug/reviews/'
+    | '/t/$workspaceSlug/settings/'
+    | '/t/$workspaceSlug/projects/$projectSlug/'
+    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -838,7 +850,7 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  WWorkspaceSlugRouteRoute: typeof WWorkspaceSlugRouteRouteWithChildren
+  TWorkspaceSlugRouteRoute: typeof TWorkspaceSlugRouteRouteWithChildren
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
@@ -857,6 +869,7 @@ export interface RootRouteChildren {
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  WSplatRoute: typeof WSplatRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
@@ -911,6 +924,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/w/$': {
+      id: '/w/$'
+      path: '/w/$'
+      fullPath: '/w/$'
+      preLoaderRoute: typeof WSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$token': {
@@ -1053,11 +1073,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/w/$workspaceSlug': {
-      id: '/w/$workspaceSlug'
-      path: '/w/$workspaceSlug'
-      fullPath: '/w/$workspaceSlug'
-      preLoaderRoute: typeof WWorkspaceSlugRouteRouteImport
+    '/t/$workspaceSlug': {
+      id: '/t/$workspaceSlug'
+      path: '/t/$workspaceSlug'
+      fullPath: '/t/$workspaceSlug'
+      preLoaderRoute: typeof TWorkspaceSlugRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
@@ -1067,12 +1087,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/w/$workspaceSlug/': {
-      id: '/w/$workspaceSlug/'
+    '/t/$workspaceSlug/': {
+      id: '/t/$workspaceSlug/'
       path: '/'
-      fullPath: '/w/$workspaceSlug/'
-      preLoaderRoute: typeof WWorkspaceSlugIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/'
+      preLoaderRoute: typeof TWorkspaceSlugIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
@@ -1249,40 +1269,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/w/$workspaceSlug/settings/': {
-      id: '/w/$workspaceSlug/settings/'
+    '/t/$workspaceSlug/settings/': {
+      id: '/t/$workspaceSlug/settings/'
       path: '/settings'
-      fullPath: '/w/$workspaceSlug/settings/'
-      preLoaderRoute: typeof WWorkspaceSlugSettingsIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/settings/'
+      preLoaderRoute: typeof TWorkspaceSlugSettingsIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
-    '/w/$workspaceSlug/reviews/': {
-      id: '/w/$workspaceSlug/reviews/'
+    '/t/$workspaceSlug/reviews/': {
+      id: '/t/$workspaceSlug/reviews/'
       path: '/reviews'
-      fullPath: '/w/$workspaceSlug/reviews/'
-      preLoaderRoute: typeof WWorkspaceSlugReviewsIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/reviews/'
+      preLoaderRoute: typeof TWorkspaceSlugReviewsIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
-    '/w/$workspaceSlug/my-issues/': {
-      id: '/w/$workspaceSlug/my-issues/'
+    '/t/$workspaceSlug/my-issues/': {
+      id: '/t/$workspaceSlug/my-issues/'
       path: '/my-issues'
-      fullPath: '/w/$workspaceSlug/my-issues/'
-      preLoaderRoute: typeof WWorkspaceSlugMyIssuesIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/my-issues/'
+      preLoaderRoute: typeof TWorkspaceSlugMyIssuesIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
-    '/w/$workspaceSlug/inbox/': {
-      id: '/w/$workspaceSlug/inbox/'
+    '/t/$workspaceSlug/inbox/': {
+      id: '/t/$workspaceSlug/inbox/'
       path: '/inbox'
-      fullPath: '/w/$workspaceSlug/inbox/'
-      preLoaderRoute: typeof WWorkspaceSlugInboxIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/inbox/'
+      preLoaderRoute: typeof TWorkspaceSlugInboxIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
-    '/w/$workspaceSlug/agents/': {
-      id: '/w/$workspaceSlug/agents/'
+    '/t/$workspaceSlug/agents/': {
+      id: '/t/$workspaceSlug/agents/'
       path: '/agents'
-      fullPath: '/w/$workspaceSlug/agents/'
-      preLoaderRoute: typeof WWorkspaceSlugAgentsIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/agents/'
+      preLoaderRoute: typeof TWorkspaceSlugAgentsIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
@@ -1333,19 +1353,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/w/$workspaceSlug/projects/$projectSlug/': {
-      id: '/w/$workspaceSlug/projects/$projectSlug/'
+    '/t/$workspaceSlug/projects/$projectSlug/': {
+      id: '/t/$workspaceSlug/projects/$projectSlug/'
       path: '/projects/$projectSlug'
-      fullPath: '/w/$workspaceSlug/projects/$projectSlug/'
-      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/projects/$projectSlug/'
+      preLoaderRoute: typeof TWorkspaceSlugProjectsProjectSlugIndexRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
-    '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': {
-      id: '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': {
+      id: '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
       path: '/projects/$projectSlug/issues/$issueIdentifier'
-      fullPath: '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
-      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
+      fullPath: '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+      preLoaderRoute: typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
     }
   }
 }
@@ -1398,39 +1418,39 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
-interface WWorkspaceSlugRouteRouteChildren {
-  WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
-  WWorkspaceSlugAgentsIndexRoute: typeof WWorkspaceSlugAgentsIndexRoute
-  WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
-  WWorkspaceSlugMyIssuesIndexRoute: typeof WWorkspaceSlugMyIssuesIndexRoute
-  WWorkspaceSlugReviewsIndexRoute: typeof WWorkspaceSlugReviewsIndexRoute
-  WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
-  WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
-  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+interface TWorkspaceSlugRouteRouteChildren {
+  TWorkspaceSlugIndexRoute: typeof TWorkspaceSlugIndexRoute
+  TWorkspaceSlugAgentsIndexRoute: typeof TWorkspaceSlugAgentsIndexRoute
+  TWorkspaceSlugInboxIndexRoute: typeof TWorkspaceSlugInboxIndexRoute
+  TWorkspaceSlugMyIssuesIndexRoute: typeof TWorkspaceSlugMyIssuesIndexRoute
+  TWorkspaceSlugReviewsIndexRoute: typeof TWorkspaceSlugReviewsIndexRoute
+  TWorkspaceSlugSettingsIndexRoute: typeof TWorkspaceSlugSettingsIndexRoute
+  TWorkspaceSlugProjectsProjectSlugIndexRoute: typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
+  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 
-const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
-  WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
-  WWorkspaceSlugAgentsIndexRoute: WWorkspaceSlugAgentsIndexRoute,
-  WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
-  WWorkspaceSlugMyIssuesIndexRoute: WWorkspaceSlugMyIssuesIndexRoute,
-  WWorkspaceSlugReviewsIndexRoute: WWorkspaceSlugReviewsIndexRoute,
-  WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
-  WWorkspaceSlugProjectsProjectSlugIndexRoute:
-    WWorkspaceSlugProjectsProjectSlugIndexRoute,
-  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute:
-    WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute,
+const TWorkspaceSlugRouteRouteChildren: TWorkspaceSlugRouteRouteChildren = {
+  TWorkspaceSlugIndexRoute: TWorkspaceSlugIndexRoute,
+  TWorkspaceSlugAgentsIndexRoute: TWorkspaceSlugAgentsIndexRoute,
+  TWorkspaceSlugInboxIndexRoute: TWorkspaceSlugInboxIndexRoute,
+  TWorkspaceSlugMyIssuesIndexRoute: TWorkspaceSlugMyIssuesIndexRoute,
+  TWorkspaceSlugReviewsIndexRoute: TWorkspaceSlugReviewsIndexRoute,
+  TWorkspaceSlugSettingsIndexRoute: TWorkspaceSlugSettingsIndexRoute,
+  TWorkspaceSlugProjectsProjectSlugIndexRoute:
+    TWorkspaceSlugProjectsProjectSlugIndexRoute,
+  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute:
+    TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute,
 }
 
-const WWorkspaceSlugRouteRouteWithChildren =
-  WWorkspaceSlugRouteRoute._addFileChildren(WWorkspaceSlugRouteRouteChildren)
+const TWorkspaceSlugRouteRouteWithChildren =
+  TWorkspaceSlugRouteRoute._addFileChildren(TWorkspaceSlugRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  WWorkspaceSlugRouteRoute: WWorkspaceSlugRouteRouteWithChildren,
+  TWorkspaceSlugRouteRoute: TWorkspaceSlugRouteRouteWithChildren,
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute:
     Char91DotwellKnownChar93AppleAppSiteAssociationRoute,
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute:
@@ -1453,6 +1473,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   InviteTokenRoute: InviteTokenRoute,
+  WSplatRoute: WSplatRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,

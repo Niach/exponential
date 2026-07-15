@@ -61,7 +61,7 @@ function InviteAcceptPage() {
       setSuccess(true)
       setTimeout(() => {
         navigate({
-          to: `/w/$workspaceSlug`,
+          to: `/t/$workspaceSlug`,
           params: { workspaceSlug: workspace.slug },
         })
       }, 1500)
@@ -97,11 +97,11 @@ function InviteAcceptPage() {
               ? `Welcome!`
               : error && !invite
                 ? `Invalid Invite`
-                : `Workspace Invite`}
+                : `Team Invite`}
           </CardTitle>
           <CardDescription>
             {success
-              ? `You've joined the workspace. Redirecting...`
+              ? `You've joined the team. Redirecting...`
               : error && !invite
                 ? error
                 : invite
@@ -113,7 +113,7 @@ function InviteAcceptPage() {
           {success && (
             <div className="flex items-center justify-center gap-2 text-sm text-green-500">
               <CheckCircle2 className="h-4 w-4" />
-              Successfully joined workspace
+              Successfully joined team
             </div>
           )}
 
@@ -186,12 +186,12 @@ function InviteAcceptPage() {
               className="w-full"
               onClick={() =>
                 navigate({
-                  to: `/w/$workspaceSlug`,
+                  to: `/t/$workspaceSlug`,
                   params: { workspaceSlug: `default` },
                 })
               }
             >
-              Go to your workspace
+              Go to your team
             </Button>
           )}
         </CardContent>

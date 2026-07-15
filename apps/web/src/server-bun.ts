@@ -176,6 +176,25 @@ async function withPublicMeta(req: Request, response: Response): Promise<Respons
   return new Response(rewritten, { status, statusText, headers })
 }
 
+// Workspaces → teams rename: the app lives under /t/, but /w/ links live in
+// the wild forever (old emails, bookmarks, chat messages). Permanent-redirect
+// them server-side so crawlers consolidate onto /t/ and unfurlers follow.
+// ONLY the page namespace is touched — /w/ has no API siblings, but the guard
+// stays surgical anyway. The client-side `routes/w/$.tsx` splat covers dev
+// (the nitro-alpha bridge never reaches this file) and SPA-internal entries.
+function legacyWorkspaceRedirect(req: Request): Response | null {
+  if (req.method !== `GET` && req.method !== `HEAD`) return null
+  const url = new URL(req.url)
+  if (url.pathname !== `/w` && !url.pathname.startsWith(`/w/`)) return null
+  const rest = url.pathname.slice(`/w`.length)
+  // Not Response.redirect(): its headers are immutable and the security-header
+  // wrapper still decorates this response.
+  return new Response(null, {
+    status: 301,
+    headers: { location: `${url.origin}/t${rest}${url.search}` },
+  })
+}
+
 // h3 (inside the nitro chunk) can hand back its lazy NodeResponse wrapper —
 // it masquerades as a Response via Symbol.hasInstance/prototype games, but
 // Bun.serve requires the real native class and otherwise logs "Expected a
@@ -191,10 +210,14 @@ function ensureNativeResponse(res: Response): Response {
 
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
   withSecurityHeaders(
-    withWidgetAssetHeaders(
-      req,
-      await withPublicMeta(req, ensureNativeResponse(await nitroApp.fetch(req)))
-    )
+    legacyWorkspaceRedirect(req) ??
+      withWidgetAssetHeaders(
+        req,
+        await withPublicMeta(
+          req,
+          ensureNativeResponse(await nitroApp.fetch(req))
+        )
+      )
   )
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
@@ -213,13 +236,14 @@ if (hasWebSocket && ws) {
       return upgraded as Response | Promise<Response>
     }
     return withSecurityHeaders(
-      withWidgetAssetHeaders(
-        req,
-        await withPublicMeta(
+      legacyWorkspaceRedirect(req) ??
+        withWidgetAssetHeaders(
           req,
-          ensureNativeResponse(await nitroApp.fetch(req))
+          await withPublicMeta(
+            req,
+            ensureNativeResponse(await nitroApp.fetch(req))
+          )
         )
-      )
     )
   }
 }

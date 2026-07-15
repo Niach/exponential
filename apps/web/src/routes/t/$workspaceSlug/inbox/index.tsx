@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import { InboxView } from "@/components/inbox/inbox-view"
 
-export const Route = createFileRoute(`/w/$workspaceSlug/inbox/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/inbox/`)({
   component: InboxPage,
 })
 

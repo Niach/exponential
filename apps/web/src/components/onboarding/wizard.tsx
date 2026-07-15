@@ -88,7 +88,7 @@ export function OnboardingWizard({
     })
     if (result.ok) {
       await trpc.onboarding.complete.mutate()
-      navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug } })
+      navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug } })
       return
     }
     if (result.error.kind === `planLimit`) {
@@ -268,7 +268,7 @@ export function OnboardingWizard({
               <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
                 Public boards are readable by anyone: issues, comments and
                 @mentions in them are visible to anyone with the link. The
-                workspace name is shown on the board.
+                team name is shown on the board.
               </p>
             )}
 

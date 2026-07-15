@@ -160,7 +160,7 @@ export function InboxView() {
             return (
               <Link
                 key={g.issue.id}
-                to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+                to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
                 params={{
                   workspaceSlug: g.workspaceSlug,
                   projectSlug: g.project.slug,

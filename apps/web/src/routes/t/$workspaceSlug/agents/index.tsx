@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 // coding_sessions shape; watching reuses the AgentSessionView renderer from
 // agent-session.tsx (ticket minted by trpc.steer.mintTicket — membership and
 // perm are enforced server-side at mint time, the UI only mirrors them).
-export const Route = createFileRoute(`/w/$workspaceSlug/agents/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/agents/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
       throw redirect({
@@ -151,7 +151,7 @@ function AgentsPage() {
   const openIssue = (row: AgentSessionRow) => {
     if (!row.issue || !row.project) return
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
       params: {
         workspaceSlug,
         projectSlug: row.project.slug,

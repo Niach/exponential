@@ -145,13 +145,13 @@ export function GettingStartedCards({
       <p className="text-xs text-muted-foreground">
         {canManageWidgets
           ? `Create a widget to get your real key and domain allowlist.`
-          : `A workspace owner can create widgets in Workspace Settings to get a real key.`}
+          : `A team owner can create widgets in Team Settings to get a real key.`}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {canManageWidgets && (
           <Button size="sm" asChild>
             <Link
-              to="/w/$workspaceSlug/settings"
+              to="/t/$workspaceSlug/settings"
               params={{ workspaceSlug }}
               hash="feedback-widget"
             >

@@ -164,7 +164,7 @@ function AdminUserDetail() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Workspaces</CardTitle>
+          <CardTitle className="text-sm">Teams</CardTitle>
           <CardDescription className="text-xs">
             {detail.workspaces.length}{` `}
             {detail.workspaces.length === 1 ? `membership` : `memberships`}
@@ -176,7 +176,7 @@ function AdminUserDetail() {
           ) : (
             <div className="rounded-md border">
               <div className="hidden md:grid grid-cols-[1fr_90px_110px_120px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                <div>Workspace</div>
+                <div>Team</div>
                 <div>Role</div>
                 <div>Plan</div>
                 <div>Member since</div>

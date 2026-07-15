@@ -203,7 +203,7 @@ export function WorkspaceLabelsSection({
         <CardTitle className="text-base">Labels</CardTitle>
         <CardDescription>
           {labelList.length} label{labelList.length !== 1 ? `s` : ``} in this
-          workspace. Deleting a label removes it from all issues.
+          team. Deleting a label removes it from all issues.
         </CardDescription>
       </CardHeader>
       <CardContent>

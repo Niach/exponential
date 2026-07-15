@@ -25,7 +25,7 @@ type ProjectSearch = IssueFilterSearch & {
 }
 
 export const Route = createFileRoute(
-  `/w/$workspaceSlug/projects/$projectSlug/`
+  `/t/$workspaceSlug/projects/$projectSlug/`
 )({
   validateSearch: (search: Record<string, unknown>): ProjectSearch => ({
     new: search.new === 1 || search.new === `1` ? 1 : undefined,
@@ -56,7 +56,7 @@ function ProjectPage() {
       })
       // Clear only the one-shot create keys; keep any active filter params.
       void navigate({
-        to: `/w/$workspaceSlug/projects/$projectSlug`,
+        to: `/t/$workspaceSlug/projects/$projectSlug`,
         params: { workspaceSlug, projectSlug },
         search: (prev) => ({
           ...prev,
@@ -76,7 +76,7 @@ function ProjectPage() {
 
   const setFilters = (next: IssueFilters) => {
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      to: `/t/$workspaceSlug/projects/$projectSlug`,
       params: { workspaceSlug, projectSlug },
       search: (prev) => ({
         ...prev,
@@ -138,7 +138,7 @@ function ProjectPage() {
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) =>
             void navigate({
-              to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+              to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
               params: {
                 workspaceSlug,
                 projectSlug,

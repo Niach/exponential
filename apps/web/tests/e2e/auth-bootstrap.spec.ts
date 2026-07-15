@@ -25,6 +25,6 @@ test(`registers, bootstraps a workspace, and signs back in`, async ({
   await logoutUser(page)
   await loginUser(page, app.owner)
 
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/?$`))
+  await expect(page).toHaveURL(new RegExp(`/t/${workspaceSlug}/?$`))
   await expect(main.getByText(`No projects yet`)).toBeVisible()
 })

@@ -94,13 +94,13 @@ export function WorkspaceProjectsSection({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Manage projects in this workspace.
+            Manage projects in this team.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {visibleProjects.length === 0 ? (
             <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-              No projects in this workspace yet.
+              No projects in this team yet.
             </div>
           ) : (
             <div className="divide-y rounded-md border">
@@ -380,7 +380,7 @@ function PublicBoardDialog({
   }, [project?.id])
 
   const publicUrl = project
-    ? `${window.location.origin}/w/${workspaceSlug}/projects/${project.slug}`
+    ? `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}`
     : ``
 
   const update = async (

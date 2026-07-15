@@ -22,9 +22,9 @@ import type { Issue, IssueLabel, Project } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
 export const Route = createFileRoute(
-  `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`
+  `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`
 )({
-  // No route-level auth guard: the parent `/w/$workspaceSlug` layout route
+  // No route-level auth guard: the parent `/t/$workspaceSlug` layout route
   // (route.tsx) already gates access with public-workspace-aware logic —
   // anonymous visitors of a PUBLIC workspace pass through, while non-public /
   // inaccessible workspaces are redirected to login or 404'd there. Mirroring
@@ -133,7 +133,7 @@ function IssueDetailPage() {
           this project.
         </div>
         <Link
-          to="/w/$workspaceSlug/projects/$projectSlug"
+          to="/t/$workspaceSlug/projects/$projectSlug"
           params={{ workspaceSlug, projectSlug }}
           className="text-foreground underline-offset-2 hover:underline"
         >

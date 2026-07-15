@@ -41,7 +41,7 @@ describe(`success card`, () => {
   })
 
   it(`links the identifier to the public issue when a url is present`, () => {
-    const url = `https://app.exponential.test/w/feedback/projects/exponential/issues/EXP-7`
+    const url = `https://app.exponential.test/t/feedback/projects/exponential/issues/EXP-7`
     const container = renderSuccess({ identifier: `EXP-7`, url })
     const link = container.querySelector<HTMLAnchorElement>(`a.exp-success-link`)
     expect(link).toBeTruthy()

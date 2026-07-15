@@ -54,7 +54,7 @@ afterEach(() => {
 
 describe(`submitFeedback response parsing`, () => {
   it(`surfaces identifier and url when the server sends both`, async () => {
-    const url = `https://app.exponential.test/w/feedback/projects/exponential/issues/EXP-7`
+    const url = `https://app.exponential.test/t/feedback/projects/exponential/issues/EXP-7`
     mockFetchJson({ ok: true, issueId: `id-1`, identifier: `EXP-7`, url })
     expect(await submit(makeState())).toEqual({
       ok: true,

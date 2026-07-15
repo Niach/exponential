@@ -10,7 +10,7 @@ import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { Button } from "@/components/ui/button"
 import { readLastVisited } from "@/lib/last-visited"
 
-export const Route = createFileRoute(`/w/$workspaceSlug/`)({
+export const Route = createFileRoute(`/t/$workspaceSlug/`)({
   component: WorkspaceIndexPage,
 })
 
@@ -32,7 +32,7 @@ function WorkspaceIndexPage() {
           ? projects.find((project) => project.slug === last.projectSlug)
           : undefined
       navigate({
-        to: `/w/$workspaceSlug/projects/$projectSlug`,
+        to: `/t/$workspaceSlug/projects/$projectSlug`,
         params: {
           workspaceSlug,
           projectSlug: (preferred ?? projects[0]).slug,

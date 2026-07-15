@@ -56,7 +56,7 @@ export function WorkspaceGeneralSection({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">General</CardTitle>
-        <CardDescription>Workspace name</CardDescription>
+        <CardDescription>Team name</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">

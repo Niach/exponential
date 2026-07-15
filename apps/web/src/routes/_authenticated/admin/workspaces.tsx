@@ -69,10 +69,10 @@ function AdminWorkspaces() {
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
       <div>
-        <h1 className="text-2xl font-bold">Workspaces</h1>
+        <h1 className="text-2xl font-bold">Teams</h1>
         <p className="text-sm text-muted-foreground">
           {filteredWorkspaces.length}{` `}
-          {filteredWorkspaces.length === 1 ? `workspace` : `workspaces`} on this
+          {filteredWorkspaces.length === 1 ? `team` : `teams`} on this
           instance.
         </p>
       </div>
@@ -126,7 +126,7 @@ function AdminWorkspaces() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      aria-label="Workspace actions"
+                      aria-label="Team actions"
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
@@ -217,7 +217,7 @@ function AdminWorkspaces() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
-                    aria-label="Workspace actions"
+                    aria-label="Team actions"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
@@ -243,7 +243,7 @@ function AdminWorkspaces() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete workspace?</DialogTitle>
+            <DialogTitle>Delete team?</DialogTitle>
             <DialogDescription>
               This permanently removes <strong>{confirmDelete?.name}</strong>{` `}
               and cascades to all of its projects, issues, labels, comments,

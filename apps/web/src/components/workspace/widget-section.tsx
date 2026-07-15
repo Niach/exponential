@@ -84,7 +84,7 @@ export function WorkspaceWidgetSection({
       setWidgets(await trpc.widgets.list.query({ workspaceId }))
       setError(null)
     } catch {
-      setError(`Couldn't load widgets — are you an owner of this workspace?`)
+      setError(`Couldn't load widgets — are you an owner of this team?`)
     } finally {
       setLoading(false)
     }

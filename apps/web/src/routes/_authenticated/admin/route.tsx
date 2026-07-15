@@ -55,7 +55,7 @@ function AdminLayout() {
               activeProps={{ className: `bg-accent` }}
             >
               <Building2 className="h-4 w-4" />
-              Workspaces
+              Teams
             </Link>
           </Button>
         </nav>

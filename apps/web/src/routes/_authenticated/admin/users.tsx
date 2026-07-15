@@ -110,7 +110,7 @@ function AdminUsers() {
         <div className="hidden md:grid grid-cols-[1fr_130px_90px_110px_70px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>User</div>
           <div>Providers</div>
-          <div>Workspaces</div>
+          <div>Teams</div>
           <div>Last active</div>
           <div>Admin</div>
           <div />
@@ -184,7 +184,7 @@ function AdminUsers() {
               <div className="flex md:hidden items-center gap-2 text-xs text-muted-foreground pl-11">
                 <span>
                   {user.workspaceCount}{` `}
-                  {user.workspaceCount === 1 ? `workspace` : `workspaces`}
+                  {user.workspaceCount === 1 ? `team` : `teams`}
                 </span>
                 <span aria-hidden>·</span>
                 <span>active {formatRelative(user.lastActiveAt)}</span>

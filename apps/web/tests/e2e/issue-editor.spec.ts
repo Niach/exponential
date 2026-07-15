@@ -70,7 +70,7 @@ test(`creates and edits an issue through the shared issue editor`, async ({
   await createProject(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()
@@ -211,7 +211,7 @@ test(`uploads create-time images, shows them in the footer rail, and removes the
   await createProject(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()
@@ -297,7 +297,7 @@ test(`removes uploaded images from the inline hover control`, async ({
   await createProject(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()

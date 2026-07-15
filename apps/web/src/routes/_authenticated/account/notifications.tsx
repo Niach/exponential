@@ -37,7 +37,7 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
     {
       type: `issue_created`,
       label: `New feedback`,
-      hint: `A new issue is filed in your workspace via the feedback widget.`,
+      hint: `A new issue is filed in your team via the feedback widget.`,
     },
     {
       type: `issue_assigned`,

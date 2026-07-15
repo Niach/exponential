@@ -164,7 +164,7 @@ export function WorkspaceSidebar({
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
                   className="w-full h-10"
-                  aria-label="Workspace switcher"
+                  aria-label="Team switcher"
                 >
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
                     {workspace?.name?.[0]?.toUpperCase() ??
@@ -184,7 +184,7 @@ export function WorkspaceSidebar({
                       key={ws.id}
                       onClick={() =>
                         navigate({
-                          to: `/w/$workspaceSlug`,
+                          to: `/t/$workspaceSlug`,
                           params: { workspaceSlug: ws.slug },
                         })
                       }
@@ -204,20 +204,20 @@ export function WorkspaceSidebar({
                 {isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="h-4 w-4" />
-                    New workspace
+                    New team
                   </DropdownMenuItem>
                 )}
                 {isAuthed && (
                   <DropdownMenuItem
                     onClick={() =>
                       navigate({
-                        to: `/w/$workspaceSlug/settings`,
+                        to: `/t/$workspaceSlug/settings`,
                         params: { workspaceSlug },
                       })
                     }
                   >
                     <Settings className="h-4 w-4" />
-                    Workspace settings
+                    Team settings
                   </DropdownMenuItem>
                 )}
                 {!isAuthed && (
@@ -268,7 +268,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/my-issues"
+                          to="/t/$workspaceSlug/my-issues"
                           params={{ workspaceSlug }}
                         >
                           <CircleUser className="h-4 w-4" />
@@ -280,7 +280,7 @@ export function WorkspaceSidebar({
                   {isAuthed && (
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
-                        <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
+                        <Link to="/t/$workspaceSlug/inbox" params={{ workspaceSlug }}>
                           <Inbox className="h-4 w-4" />
                           <span>Inbox</span>
                         </Link>
@@ -292,7 +292,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/reviews"
+                          to="/t/$workspaceSlug/reviews"
                           params={{ workspaceSlug }}
                         >
                           <GitPullRequest className="h-4 w-4" />
@@ -306,7 +306,7 @@ export function WorkspaceSidebar({
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link
-                          to="/w/$workspaceSlug/agents"
+                          to="/t/$workspaceSlug/agents"
                           params={{ workspaceSlug }}
                         >
                           <Bot className="h-4 w-4" />
@@ -350,7 +350,7 @@ export function WorkspaceSidebar({
                       <SidebarMenuItem key={project.id}>
                         <SidebarMenuButton asChild>
                           <Link
-                            to="/w/$workspaceSlug/projects/$projectSlug"
+                            to="/t/$workspaceSlug/projects/$projectSlug"
                             params={{
                               workspaceSlug,
                               projectSlug: project.slug,
@@ -417,7 +417,7 @@ export function WorkspaceSidebar({
                   <DropdownMenuItem
                     onClick={() =>
                       navigate({
-                        to: `/w/$workspaceSlug/settings`,
+                        to: `/t/$workspaceSlug/settings`,
                         params: { workspaceSlug },
                       })
                     }
@@ -435,7 +435,7 @@ export function WorkspaceSidebar({
                 {!showChrome && isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    New workspace
+                    New team
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

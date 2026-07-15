@@ -31,7 +31,7 @@ export async function findPersonalMembership(tx: Tx, userId: string) {
 // away? Used by `workspaces.delete` to refuse deleting the LAST personal
 // workspace (EXP-82) — the EXP-43 ensureDefault self-heal would otherwise
 // silently recreate it on some clients (Android home bootstrap, desktop,
-// web /w/default) and not others (iOS), which reads as data corruption.
+// web /t/default) and not others (iOS), which reads as data corruption.
 export async function findOtherPersonalMembership(
   tx: Tx,
   userId: string,
@@ -62,7 +62,9 @@ export async function createPersonalWorkspace(
   const [workspace] = await tx
     .insert(workspaces)
     .values({
-      name: `${args.userName || `My`}'s Workspace`,
+      // "Team" is the user-facing word for workspaces since the teams rename;
+      // existing workspace names are user data and stay untouched.
+      name: `${args.userName || `My`}'s Team`,
       slug,
     })
     .returning()

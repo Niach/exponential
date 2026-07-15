@@ -239,7 +239,7 @@ async function resolvePublicReporterUserId(
 
 export const publicBoardRouter = router({
   // The public feedback boards a workspace hosts (name/slug only). Lets the
-  // bare /w/$slug URL resolve to the board without exposing sibling projects.
+  // bare /t/$slug URL resolve to the board without exposing sibling projects.
   boards: publicProcedure
     .input(z.object({ workspaceSlug: z.string().min(1).max(255) }))
     .query(async ({ ctx, input }) => {

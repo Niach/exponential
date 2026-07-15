@@ -1,7 +1,7 @@
 // Last-visited workspace/project persistence (EXP-69). Per-device via
 // localStorage: the workspace layout writes an entry on every workspace or
 // project navigation, and the root redirect (`routes/index.tsx`) reads it so
-// app entry jumps back to where the user left off instead of `/w/default`.
+// app entry jumps back to where the user left off instead of `/t/default`.
 //
 // The app is fully client-rendered (`defaultSsr: false`), but route code can
 // still run where `window` is missing and localStorage access can throw
@@ -79,7 +79,7 @@ export function rememberLastVisited(
 }
 
 // Drop a stale entry (workspace deleted or membership lost) so the next app
-// entry falls straight through to the `/w/default` resolution.
+// entry falls straight through to the `/t/default` resolution.
 export function clearLastVisited(): void {
   const store = storage()
   if (!store) return

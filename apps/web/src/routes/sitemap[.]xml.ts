@@ -48,7 +48,7 @@ async function buildSitemap(origin: string): Promise<string> {
 
     for (const project of projectRows) {
       urls.push({
-        loc: `${origin}/w/${project.workspaceSlug}/projects/${project.slug}`,
+        loc: `${origin}/t/${project.workspaceSlug}/projects/${project.slug}`,
         lastmod: project.updatedAt.toISOString(),
       })
     }
@@ -72,7 +72,7 @@ async function buildSitemap(origin: string): Promise<string> {
       const project = byId.get(issue.projectId)
       if (!project) continue
       urls.push({
-        loc: `${origin}/w/${project.workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`,
+        loc: `${origin}/t/${project.workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`,
         lastmod: issue.updatedAt.toISOString(),
       })
     }
