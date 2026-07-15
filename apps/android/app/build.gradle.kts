@@ -167,6 +167,10 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
 
+    // Play in-app updates — drives the immediate update flow from the EXP-104
+    // "Update required" gate on production builds.
+    implementation(libs.play.app.update.ktx)
+
     debugImplementation(libs.compose.ui.tooling)
     // ui-test-manifest contributes the activity used by createComposeRule; harmless
     // in normal debug builds, required for the screengrab instrumentation run.

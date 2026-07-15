@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.api.UpdateGate
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
@@ -31,6 +32,9 @@ data class AppState(
     val token: String? = null,
     val activeAccountId: String? = null,
     val accounts: List<ServerAccount> = emptyList(),
+    // Non-null once the server has answered HTTP 426 (this build is below the
+    // configured minimum, EXP-104) — drives the blocking "Update required" gate.
+    val updateRequired: UpdateGate.UpgradeInfo? = null,
 )
 
 @HiltViewModel
@@ -40,6 +44,7 @@ class AppViewModel @Inject constructor(
     private val pushTokenManager: PushTokenManager,
     private val databaseHolder: DatabaseHolder,
     private val workspaceSelection: WorkspaceSelection,
+    private val updateGate: UpdateGate,
 ) : ViewModel() {
 
     init {
@@ -85,12 +90,14 @@ class AppViewModel @Inject constructor(
         auth.token,
         auth.activeAccountId,
         auth.accounts,
-    ) { url, token, activeId, accounts ->
+        updateGate.state,
+    ) { url, token, activeId, accounts, updateRequired ->
         AppState(
             instanceUrl = url,
             token = token,
             activeAccountId = activeId,
             accounts = accounts,
+            updateRequired = updateRequired,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState())
 

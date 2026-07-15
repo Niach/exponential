@@ -50,6 +50,7 @@ import com.exponential.app.ui.settings.WorkspaceSettingsScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.theme.AppBackground
+import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
 
 /**
@@ -146,7 +147,13 @@ fun AppNavHost() {
         // black default and render near-invisible on the dark gradient. Anchor the
         // default to onSurface (light) app-wide; explicit colors still win.
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        if (needsAuth) {
+        val updateRequired = state.updateRequired
+        if (updateRequired != null) {
+            // Highest priority: the server has 426'd this build (below its
+            // minimum version, EXP-104). Replace the whole NavHost with the
+            // blocking update screen — no navigation, no authed requests.
+            UpdateRequiredScreen(info = updateRequired)
+        } else if (needsAuth) {
             UnauthenticatedNav(
                 navController = navController,
                 startDestination = startDestination,

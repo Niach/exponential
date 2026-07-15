@@ -30,7 +30,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, AsyncApp, Entity, Global, Subscription};
 use serde_json::{Map, Value};
 
-use crate::client::{ShapeDelta, UnauthorizedFn};
+use crate::client::{ShapeDelta, UnauthorizedFn, UpgradeRequiredFn};
 use crate::manager::{AccountSyncConfig, SyncManager};
 use crate::protocol::RowKey;
 use crate::shapes::{shape_by_name, ShapeSpec};
@@ -626,7 +626,11 @@ impl Store {
     /// Pipelines start via [`Store::connect`] (login / warm-start resume),
     /// not here — `requireAuth` shapes must never be polled without a token
     /// (§5.9).
-    pub fn open(cx: &mut App, on_unauthorized: Option<UnauthorizedFn>) -> Self {
+    pub fn open(
+        cx: &mut App,
+        on_unauthorized: Option<UnauthorizedFn>,
+        on_upgrade_required: Option<UpgradeRequiredFn>,
+    ) -> Self {
         let state = cx.new(|_| SharedState {
             windows_open: 0,
             session: SessionPhase::SignedOut,
@@ -635,6 +639,9 @@ impl Store {
         let mut manager = SyncManager::new();
         if let Some(hook) = on_unauthorized {
             manager = manager.on_unauthorized(hook);
+        }
+        if let Some(hook) = on_upgrade_required {
+            manager = manager.on_upgrade_required(hook);
         }
         let store = Self {
             state,

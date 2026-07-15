@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use crate::client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeTransport, TokenFn, UnauthorizedFn,
-    UreqTransport,
+    UpgradeRequiredFn, UreqTransport,
 };
 use crate::shapes::SHAPES;
 use crate::store::{ShapeStore, StoreError};
@@ -74,6 +74,7 @@ impl AccountPipeline {
 pub struct SyncManager {
     transport: Arc<dyn ShapeTransport>,
     on_unauthorized: Option<UnauthorizedFn>,
+    on_upgrade_required: Option<UpgradeRequiredFn>,
     deltas_tx: flume::Sender<ShapeDelta>,
     deltas_rx: flume::Receiver<ShapeDelta>,
     pipelines: Mutex<HashMap<String, AccountPipeline>>,
@@ -92,6 +93,7 @@ impl SyncManager {
         Self {
             transport,
             on_unauthorized: None,
+            on_upgrade_required: None,
             deltas_tx,
             deltas_rx,
             pipelines: Mutex::new(HashMap::new()),
@@ -104,6 +106,14 @@ impl SyncManager {
     /// call before the first `start_account`.
     pub fn on_unauthorized(mut self, hook: UnauthorizedFn) -> Self {
         self.on_unauthorized = Some(hook);
+        self
+    }
+
+    /// Wire the EXP-104 426 hook (the app shell passes a closure that gates
+    /// the app into the blocking "Update required" state). Builder-style; call
+    /// before the first `start_account`.
+    pub fn on_upgrade_required(mut self, hook: UpgradeRequiredFn) -> Self {
+        self.on_upgrade_required = Some(hook);
         self
     }
 
@@ -136,6 +146,8 @@ impl SyncManager {
         // Shared by the 15 threads so the 401 signal fires exactly once per
         // account (§5.6b).
         let unauthorized_reported = Arc::new(AtomicBool::new(false));
+        // Same one-shot dedupe for the EXP-104 426 gate.
+        let upgrade_required_reported = Arc::new(AtomicBool::new(false));
 
         let mut threads = Vec::with_capacity(SHAPES.len());
         for spec in &SHAPES {
@@ -149,6 +161,8 @@ impl SyncManager {
                 deltas: self.deltas_tx.clone(),
                 unauthorized_reported: Arc::clone(&unauthorized_reported),
                 on_unauthorized: self.on_unauthorized.clone(),
+                upgrade_required_reported: Arc::clone(&upgrade_required_reported),
+                on_upgrade_required: self.on_upgrade_required.clone(),
             });
             let thread_stop = Arc::clone(&stop);
             // Named per shape; truncated to 15 bytes so Linux's

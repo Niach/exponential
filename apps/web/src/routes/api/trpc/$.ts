@@ -3,6 +3,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { router } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
+import { checkClientVersion } from "@/lib/client-version"
 import { workspacesRouter } from "@/lib/trpc/workspaces"
 import { projectsRouter } from "@/lib/trpc/projects"
 import { issuesRouter } from "@/lib/trpc/issues"
@@ -56,6 +57,12 @@ export const appRouter = router({
 export type AppRouter = typeof appRouter
 
 const serve = ({ request }: { request: Request }) => {
+  // Gate outdated native clients with a real HTTP 426 — a tRPC middleware
+  // can only produce a 200-wrapped error envelope, which clients can't
+  // reliably distinguish at their HTTP layer.
+  const upgradeRequired = checkClientVersion(request)
+  if (upgradeRequired) return upgradeRequired
+
   return fetchRequestHandler({
     endpoint: `/api/trpc`,
     req: request,

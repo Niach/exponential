@@ -109,7 +109,15 @@ fn main() {
         // routes the UI to login.
         let data_dir = api::default_data_dir();
         let auth = api::AuthStore::load(data_dir.clone());
-        let store = sync::Store::open(cx, Some(auth.unauthorized_handler_fn()));
+        // EXP-104: the sync manager also gets a 426 hook — a stale build stops
+        // polling and the shell renders the blocking "Update required" view.
+        // Built before `Store::open` (it can't share the `&mut App` borrow).
+        let on_upgrade_required = ui::upgrade_required_handler(cx);
+        let store = sync::Store::open(
+            cx,
+            Some(auth.unauthorized_handler_fn()),
+            Some(on_upgrade_required),
+        );
         cx.set_global(store);
         cx.set_global(ui::AuthContext {
             auth,

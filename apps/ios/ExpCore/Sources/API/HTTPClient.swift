@@ -9,6 +9,9 @@ public final class HTTPClient: Sendable {
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = [
             "Accept": "application/json",
+            // Client-version gate (EXP-104): every request through this client
+            // advertises its build so the server can 426 out-of-date clients.
+            "x-client-version": AppConstants.clientVersionHeaderValue,
         ]
         config.timeoutIntervalForRequest = 30
         // Bearer auth is used everywhere, so no cookie jar or response cache is
@@ -39,6 +42,14 @@ public final class HTTPClient: Sendable {
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HTTPError.invalidResponse
+        }
+        // Client-version gate (EXP-104): a 426 means this build is below the
+        // server minimum. Trip the update gate (defensive decode — min/latest
+        // may be absent, and the decode must never throw) and fall through to
+        // the caller's existing error handling unchanged.
+        if httpResponse.statusCode == 426 {
+            let info = try? JSONDecoder().decode(ClientUpgradeResponse.self, from: data)
+            UpdateGate.shared.trigger(min: info?.min, latest: info?.latest)
         }
         return (data, httpResponse)
     }

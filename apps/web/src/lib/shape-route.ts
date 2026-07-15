@@ -1,4 +1,5 @@
 import { resolveSession } from "@/lib/auth/resolve-bearer"
+import { checkClientVersion } from "@/lib/client-version"
 import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
 
 // True when the request carries explicit token credentials — an
@@ -38,6 +39,11 @@ export function createShapeRouteHandler({
   columns,
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
+    // Outdated native clients get 426 before anything else — sync engines
+    // treat it as a hard stop and the app shows its blocking update screen.
+    const upgradeRequired = checkClientVersion(request)
+    if (upgradeRequired) return upgradeRequired
+
     // Auth accepts the session cookie (web), `Authorization: Bearer
     // <sessionToken>` (iOS, Android), personal `expu_` api keys, or a human MCP
     // client's OAuth2 access token — all via the single resolveSession

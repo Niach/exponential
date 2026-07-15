@@ -24,6 +24,7 @@ pub mod contract {
 }
 
 pub mod board;
+pub mod client_version;
 pub mod enums;
 pub mod filters;
 pub mod hydrate;

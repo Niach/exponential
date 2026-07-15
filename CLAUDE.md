@@ -334,6 +334,12 @@ STEER_RELAY_SECRET            # Shared HS256 secret: web mints steer tickets, re
 ANDROID_APP_LINK_FINGERPRINTS # Comma-separated SHA-256 cert fingerprints for /.well-known/assetlinks.json (Android App Links; unset = 404 and links open in the browser)
 SECURITY_HEADERS_ENABLED      # 'true' to emit CSP/HSTS etc. from the Bun server
 INITIAL_ADMIN_EMAILS          # Comma-separated emails auto-promoted to global admin at startup
+CLIENT_MIN_VERSION_ANDROID    # Min Android client version — below it tRPC/shape requests answer HTTP 426 (blocking update screen); unset = gate off (fail-open)
+CLIENT_MIN_VERSION_IOS        # Min iOS client version (same 426 gate)
+CLIENT_MIN_VERSION_DESKTOP    # Min desktop client version (same 426 gate)
+CLIENT_LATEST_VERSION_ANDROID # Informational latest Android version (GET /api/version + 426 body; no blocking)
+CLIENT_LATEST_VERSION_IOS     # Informational latest iOS version
+CLIENT_LATEST_VERSION_DESKTOP # Informational latest desktop version
 WIDGET_RATE_LIMIT_PER_KEY_HOURLY # Widget submit limit per public key (default 60/h, burst 10 via WIDGET_RATE_LIMIT_KEY_BURST)
 WIDGET_RATE_LIMIT_PER_IP_HOURLY  # Widget submit limit per client IP (default 60/h, burst 5 via WIDGET_RATE_LIMIT_IP_BURST)
 CONTACT_EMAIL_TO              # Recipient of POST /api/contact (marketing contact form; default dennis@straehhuber.com; 503 when no email transport is configured)

@@ -56,6 +56,12 @@ pub type TokenFn = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 /// UI routes to login. Called with the account id, at most once per account.
 pub type UnauthorizedFn = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The 426 report hook (EXP-104): the app shell passes a closure that flips
+/// the app into the blocking "Update required" state. Called at most once per
+/// account pipeline. NO account id — the min-version gate is a property of the
+/// whole binary, not one account (contrast [`UnauthorizedFn`]).
+pub type UpgradeRequiredFn = Arc<dyn Fn() + Send + Sync>;
+
 /// Read timeout for the blocking socket — MUST exceed the server's ~60s
 /// long-poll hold window (§5.3; the `long-poll-canary.md` contract).
 pub const LIVE_READ_TIMEOUT: Duration = Duration::from_secs(90);
@@ -145,6 +151,12 @@ impl ShapeTransport for UreqTransport {
             // Explicit no-cache discipline (§5.6a) — belt to the proxy's
             // `private, no-store` suspender. Never If-None-Match/-Modified.
             .set("Cache-Control", "no-store")
+            // EXP-104: the client-version header so a stale build's shape polls
+            // are 426-gated just like tRPC.
+            .set(
+                domain::client_version::CLIENT_VERSION_HEADER,
+                &domain::client_version::client_version_header_value(),
+            )
             .call();
         let response = match result {
             Ok(response) => response,
@@ -216,6 +228,9 @@ pub enum ShapeDelta {
 pub enum ShapeError {
     /// Hard 401 — terminal for the account pipeline (§5.6b).
     Unauthorized,
+    /// HTTP 426 — the min-version gate (EXP-104). Terminal like the 401 path
+    /// (stop polling), but the token is left intact.
+    UpgradeRequired,
     /// Any other non-2xx status — transient, retried with backoff.
     Http(u16),
     Transport(TransportError),
@@ -226,6 +241,7 @@ impl std::fmt::Display for ShapeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ShapeError::Unauthorized => write!(f, "unauthorized (session token rejected)"),
+            ShapeError::UpgradeRequired => write!(f, "client upgrade required (426)"),
             ShapeError::Http(status) => write!(f, "http {status}"),
             ShapeError::Transport(e) => write!(f, "{e}"),
             ShapeError::Store(e) => write!(f, "store: {e}"),
@@ -269,6 +285,14 @@ pub struct ShapeClientConfig {
     /// (`AuthStore::handle_unauthorized`). Optional so headless tests can
     /// observe the delta alone.
     pub on_unauthorized: Option<UnauthorizedFn>,
+    /// Per-ACCOUNT dedupe flag for the 426 signal (EXP-104), mirroring
+    /// `unauthorized_reported`: the shape threads may all 426 at once; exactly
+    /// one reports.
+    pub upgrade_required_reported: Arc<AtomicBool>,
+    /// The app-shell hook that flips the app into the blocking "Update
+    /// required" state (EXP-104). Optional so headless tests can assert the
+    /// loop teardown alone.
+    pub on_upgrade_required: Option<UpgradeRequiredFn>,
 }
 
 /// One shape's blocking long-poll engine. [`ShapeClient::run`] is the thread
@@ -320,6 +344,13 @@ impl ShapeClient {
                 Err(ShapeError::Unauthorized) => {
                     // §5.6b: terminal for the whole account pipeline.
                     self.report_unauthorized(stop);
+                    return;
+                }
+                Err(ShapeError::UpgradeRequired) => {
+                    // EXP-104: terminal like the 401 path — stop polling — but
+                    // the token is left intact (the session is fine; the build
+                    // is stale).
+                    self.report_upgrade_required(stop);
                     return;
                 }
                 Err(err) => {
@@ -393,6 +424,11 @@ impl ShapeClient {
 
         if response.status == 401 {
             return Err(ShapeError::Unauthorized);
+        }
+        if response.status == 426 {
+            // EXP-104 min-version gate — before the generic non-2xx path so a
+            // stale build tears down instead of backing off forever.
+            return Err(ShapeError::UpgradeRequired);
         }
         if response.status == 409 {
             // The shape rotated (§5.6c step 1): persist the refetch marker
@@ -523,6 +559,30 @@ impl ShapeClient {
             let _ = self.cfg.deltas.send(ShapeDelta::Unauthorized {
                 account_id: self.cfg.account_id.clone(),
             });
+        }
+    }
+
+    /// EXP-104, once per ACCOUNT: flip the shared stop flag (all sibling
+    /// threads exit at their next loop boundary — none keeps polling a build
+    /// the server refuses) and run the app-shell hook (flips the app into the
+    /// blocking "Update required" state). Mirrors [`Self::report_unauthorized`]
+    /// but emits NO delta and NEVER touches the stored token — the session is
+    /// valid; only the binary is stale.
+    fn report_upgrade_required(&self, stop: &Arc<AtomicBool>) {
+        stop.store(true, Ordering::Relaxed);
+        if !self
+            .cfg
+            .upgrade_required_reported
+            .swap(true, Ordering::SeqCst)
+        {
+            log::warn!(
+                "[sync {}::{}] HTTP 426 — client too old; stopping polling and gating the app",
+                self.cfg.account_id,
+                self.cfg.spec.name
+            );
+            if let Some(hook) = &self.cfg.on_upgrade_required {
+                hook();
+            }
         }
     }
 }

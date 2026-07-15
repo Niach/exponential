@@ -10,4 +10,14 @@ package com.exponential.app
 object AppConstants {
     val PUBLIC_CLOUD_URL: String = BuildConfig.DEFAULT_CLOUD_URL
     val IS_STAGING: Boolean = BuildConfig.IS_STAGING
+
+    /** The app's user-facing version (e.g. "0.13.2", "0.13.2-staging"). */
+    val VERSION_NAME: String = BuildConfig.VERSION_NAME
+
+    /**
+     * Value of the `x-client-version` header sent on every request — the client
+     * versioning + min-version gate contract (EXP-104). The server matches on
+     * `android/<versionName>` and tolerates the `-staging` suffix.
+     */
+    val CLIENT_VERSION_HEADER_VALUE: String = "android/${BuildConfig.VERSION_NAME}"
 }

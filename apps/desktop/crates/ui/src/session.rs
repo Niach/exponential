@@ -33,6 +33,29 @@ impl AuthContext {
     }
 }
 
+/// Build the EXP-104 upgrade-required hook the sync manager invokes on an HTTP
+/// 426 (a stale build). The sync layer calls it from a shape thread, so — like
+/// the auth layer's `unauthorized_handler_fn` — it must be `Send + Sync`;
+/// unlike that handler, it has to reach a gpui global (`UpdateState`), which is
+/// foreground-only. It bridges the gap with a flume channel drained on ONE
+/// foreground task (the same pattern as the sync `ShapeDelta` drain), where it
+/// flips the app into the blocking "Update required" state.
+///
+/// Call once at bootstrap (before `Store::open`), with the returned hook passed
+/// into it.
+pub fn upgrade_required_handler(cx: &mut App) -> sync::UpgradeRequiredFn {
+    let (tx, rx) = flume::unbounded::<()>();
+    cx.spawn(async move |cx| {
+        while rx.recv_async().await.is_ok() {
+            let _ = cx.update(|cx| crate::update::UpdateState::set_blocked(cx));
+        }
+    })
+    .detach();
+    Arc::new(move || {
+        let _ = tx.send(());
+    })
+}
+
 /// Start (or resume) syncing `account`: builds the [`sync::AccountSyncConfig`]
 /// (per-account DB path + call-time token provider, §5.7) and flips the
 /// session machine to `Synced` via [`Store::connect`]. Returns `false` (and

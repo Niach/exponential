@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.AppConstants
 import com.exponential.app.BuildConfig
 import dagger.Module
 import dagger.Provides
@@ -8,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.DefaultRequest
+import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
@@ -15,9 +17,13 @@ import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
 import io.ktor.serialization.kotlinx.json.json
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -33,7 +39,7 @@ object HttpClientModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(json: Json): HttpClient =
+    fun provideHttpClient(json: Json, updateGate: UpdateGate): HttpClient =
         HttpClient(CIO) {
             expectSuccess = false
             // Without this plugin, ktor CIO enforces its engine-level default
@@ -67,6 +73,30 @@ object HttpClientModule {
             }
             install(DefaultRequest) {
                 header("Accept", "application/json")
+                // Client versioning + min-version gate contract (EXP-104). Every
+                // request (tRPC AND Electric shape polls — they share this client)
+                // carries the version so the server can 426 an under-min build.
+                header("x-client-version", AppConstants.CLIENT_VERSION_HEADER_VALUE)
+            }
+            // A custom validator runs even with expectSuccess = false, so this is
+            // the single choke point that catches the server's HTTP 426
+            // ("client_upgrade_required") across every tRPC and shape response and
+            // latches the app-wide update gate. Parsing is fully defensive — the
+            // min/latest fields may be absent, and a body that won't decode must
+            // never mask the 426 signal.
+            HttpResponseValidator {
+                validateResponse { response ->
+                    if (response.status.value == 426) {
+                        val info = runCatching {
+                            val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                            UpdateGate.UpgradeInfo(
+                                min = obj["min"]?.jsonPrimitive?.contentOrNull,
+                                latest = obj["latest"]?.jsonPrimitive?.contentOrNull,
+                            )
+                        }.getOrDefault(UpdateGate.UpgradeInfo(min = null, latest = null))
+                        updateGate.trigger(info)
+                    }
+                }
             }
         }
 }
