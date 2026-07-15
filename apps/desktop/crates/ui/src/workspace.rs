@@ -818,7 +818,9 @@ impl Render for CenterPanel {
                 .child(
                     resizable_panel()
                         .size(SIDEBAR_WIDTH)
-                        .size_range(px(180.)..px(520.))
+                        // Max must stay clear of the default (EXP-109: 520px)
+                        // or the sidebar starts grow-locked at its own cap.
+                        .size_range(px(180.)..px(880.))
                         .child(self.sidebar.clone()),
                 )
                 .child(resizable_panel().child(self.screens.clone())),

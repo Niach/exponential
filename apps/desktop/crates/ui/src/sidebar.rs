@@ -61,8 +61,9 @@ use crate::queries;
 /// Width of the icon-only rail column (outside the dock area).
 pub(crate) const RAIL_W: f32 = 44.;
 
-/// Default tool-window width — web parity.
-pub(crate) const DEFAULT_DOCK_WIDTH: f32 = 260.;
+/// Default tool-window width (EXP-109: doubled from the original 260px web
+/// parity — the issue lists inside the tool window were too cramped).
+pub(crate) const DEFAULT_DOCK_WIDTH: f32 = 520.;
 
 /// The rail's tool windows (JetBrains tool-window bar). One is ALWAYS active
 /// — there is deliberately no unselected/collapsed state.
