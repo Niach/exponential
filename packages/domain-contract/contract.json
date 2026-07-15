@@ -49,7 +49,8 @@
       "issue_mention",
       "issue_created",
       "pr_opened",
-      "pr_merged"
+      "pr_merged",
+      "support_reply"
     ]
   },
   "prState": {

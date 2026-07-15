@@ -12,7 +12,7 @@ object DomainContract {
     val projectTypeValues: List<String> = listOf("dev", "tasks", "feedback")
     val projectIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
     val commentKindValues: List<String> = listOf("regular")
-    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged")
+    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
@@ -32,6 +32,7 @@ object DomainContract {
     const val notificationTypeIssueCreated: String = "issue_created"
     const val notificationTypePrOpened: String = "pr_opened"
     const val notificationTypePrMerged: String = "pr_merged"
+    const val notificationTypeSupportReply: String = "support_reply"
     const val prStateOpen: String = "open"
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"

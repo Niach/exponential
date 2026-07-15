@@ -49,6 +49,8 @@ import {
   getWorkspaceUsage,
   assertCanInviteMember,
   assertCanCreateWidget,
+  assertCanUseHelpdesk,
+  assertHelpdeskUsable,
   assertWithinStorageLimit,
   type PlanTier,
 } from "./billing"
@@ -404,6 +406,43 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
   it(`self-hosted skips the gate`, async () => {
     cloud.value = false
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
+  })
+})
+
+describe(`assertCanUseHelpdesk — server-side Pro gate`, () => {
+  function seedPlan(sub: unknown[], compTier: string | null = null) {
+    selectResults.push(sub) // getWorkspacePlan sub lookup
+    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
+  }
+
+  it(`pure gate: free throws the plan-limit error, paid tiers pass`, () => {
+    expect(() => assertHelpdeskUsable(`free`)).toThrow(/Pro and Business/)
+    expect(() => assertHelpdeskUsable(`free`)).toThrow(
+      new RegExp(PLAN_LIMIT_MESSAGE_PREFIX)
+    )
+    expect(() => assertHelpdeskUsable(`pro`)).not.toThrow()
+    expect(() => assertHelpdeskUsable(`business`)).not.toThrow()
+    expect(() => assertHelpdeskUsable(`unlimited`)).not.toThrow()
+  })
+
+  it(`free workspace cannot use the helpdesk`, async () => {
+    seedPlan([])
+    await expect(assertCanUseHelpdesk(WS)).rejects.toThrow(/Pro and Business/)
+  })
+
+  it(`pro workspace can`, async () => {
+    seedPlan([{ productId: PRO_ID, seats: 3 }])
+    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
+  })
+
+  it(`a pro comp unlocks it`, async () => {
+    seedPlan([], `pro`)
+    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
+  })
+
+  it(`self-hosted skips the gate`, async () => {
+    cloud.value = false
+    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
   })
 })
 

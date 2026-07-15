@@ -21,6 +21,7 @@ import {
   assertCanManageRepos,
   connectRepositoryInTx,
 } from "@/lib/trpc/repositories"
+import { assertCanUseHelpdesk } from "@/lib/billing"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -320,6 +321,7 @@ export const projectsRouter = router({
         type: projectTypeSchema.optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
+        helpdeskEnabled: z.boolean().optional(),
         archivedAt: z
           .string()
           .datetime()
@@ -335,19 +337,25 @@ export const projectsRouter = router({
 
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
-      // Archiving, publicness flips and public-visibility toggles are
-      // privacy/structure-significant — workspace-owner-only. Name/color/icon
-      // stay member-editable.
+      // Archiving, publicness flips, public-visibility toggles and the
+      // helpdesk switch are privacy/structure-significant —
+      // workspace-owner-only. Name/color/icon stay member-editable.
       const ownerGated =
         Object.hasOwn(updates, `archivedAt`) ||
         isPublicUpdate !== undefined ||
         updates.publicShowComments !== undefined ||
-        updates.publicShowActivity !== undefined
+        updates.publicShowActivity !== undefined ||
+        updates.helpdeskEnabled !== undefined
       if (ownerGated) {
         await assertWorkspaceOwner(
           ctx.session.user.id,
           projectRecord.workspaceId
         )
+      }
+      // The helpdesk is Pro+ on cloud; disabling is always allowed (a
+      // downgraded workspace must be able to turn it off).
+      if (updates.helpdeskEnabled === true) {
+        await assertCanUseHelpdesk(projectRecord.workspaceId)
       }
 
       const [current] = await ctx.db

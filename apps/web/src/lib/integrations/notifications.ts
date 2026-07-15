@@ -457,6 +457,52 @@ export function fireAndForgetPrNotify(args: {
 }
 
 /**
+ * Helpdesk: an external reporter replied on a support thread. Broadcast to
+ * every human workspace member (mirroring fireAndForgetNewIssueNotify — the
+ * inbox is a shared surface and there is no actor to exclude). The preview is
+ * reporter-authored UNTRUSTED text: deliver() writes it as a plain string and
+ * the digest email escapes bodies, so no extra sanitizing is needed here
+ * beyond truncation.
+ */
+export function fireAndForgetSupportNotify(args: {
+  issueId: string
+  reporterName: string | null
+  reporterEmail: string
+  messageBody: string
+}): void {
+  void (async () => {
+    try {
+      const issue = await loadIssueMeta(args.issueId)
+      if (!issue) return
+
+      const memberRows = await db
+        .select({ userId: workspaceMembers.userId })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+      if (memberRows.length === 0) return
+
+      const who = args.reporterName || args.reporterEmail
+      const previewSource = args.messageBody.trim()
+      const preview =
+        previewSource.length > 140
+          ? `${previewSource.slice(0, 139)}…`
+          : previewSource
+
+      await deliver({
+        issue,
+        recipientIds: memberRows.map((row) => row.userId),
+        type: `support_reply`,
+        pushType: `support_reply`,
+        title: `${who} replied on ${issue.identifier}`,
+        body: preview || issue.title,
+      })
+    } catch (err) {
+      console.error(`[notify] support reply failed:`, err)
+    }
+  })()
+}
+
+/**
  * One-way helpdesk (§6.4): when a widget-reported issue is closed
  * (done/cancelled), email the external reporter(s) a CLEAN resolution notice —
  * no internal metadata, no in-app/push rows (reporters have no account).

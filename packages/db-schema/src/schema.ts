@@ -259,6 +259,10 @@ export const projects = pgTable(
     // column (not a server-only id comparison) so clients can grey out the
     // affordance and it survives restore-from-backup id changes.
     isProtected: boolean(`is_protected`).notNull().default(false),
+    // Helpdesk switch (Pro-gated on cloud — assertCanUseHelpdesk guards the
+    // flip and thread creation). Synced so clients can show the support inbox
+    // entry; the conversation tables themselves stay server-only.
+    helpdeskEnabled: boolean(`helpdesk_enabled`).notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -954,6 +958,88 @@ export const widgetSubmissions = pgTable(
   ]
 )
 
+// Helpdesk conversation threads (SERVER-ONLY, never Electric-synced — read
+// via the `helpdesk` tRPC router and the anonymous magic-link routes). A
+// ticket IS an ordinary issue; the thread rides on it because external
+// reporters can never author `comments` rows (comments.author_id → users is
+// NOT NULL). The reporter's only credential is the raw token embedded in
+// emailed magic links — the DB stores just its sha256, so a DB leak never
+// leaks live conversation URLs.
+export const supportThreads = pgTable(
+  `support_threads`,
+  {
+    id: uuidPk(),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .unique()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    // Denormalized from the issue for cheap per-project inbox listing.
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
+    reporterEmail: varchar(`reporter_email`, { length: 320 }).notNull(),
+    reporterName: varchar(`reporter_name`, { length: 255 }),
+    // sha256 hex of the 32-byte magic-link token. The raw token exists only
+    // inside emailed URLs — never logged, never stored.
+    tokenHash: varchar(`token_hash`, { length: 64 }).notNull().unique(),
+    // Stamped on close: the transcript stays readable but replies are
+    // rejected. Reopen regenerates the token (fresh hash) and clears this.
+    tokenRevokedAt: timestamp(`token_revoked_at`, { withTimezone: true }),
+    // When the reporter last loaded the magic-link page — lets members see
+    // whether their reply has been read.
+    lastReporterSeenAt: timestamp(`last_reporter_seen_at`, {
+      withTimezone: true,
+    }),
+    ...timestamps,
+  },
+  (table) => [index(`idx_support_threads_project`).on(table.projectId)]
+)
+
+// Individual helpdesk messages. direction: inbound|outbound (inbound = the
+// reporter; author_user_id NULL). visibility: public|internal — internal
+// notes are member-only and never reach the reporter page or emails. Both
+// documented varchars (server-only vocabulary in domain.ts, not the
+// contract).
+export const supportMessages = pgTable(
+  `support_messages`,
+  {
+    id: uuidPk(),
+    threadId: uuid(`thread_id`)
+      .notNull()
+      .references(() => supportThreads.id, { onDelete: `cascade` }),
+    // Denormalized for direct issue → conversation lookups.
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    // NULL = the external reporter wrote it.
+    authorUserId: text(`author_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    direction: varchar({ length: 16 })
+      .notNull()
+      .$type<`inbound` | `outbound`>(),
+    visibility: varchar({ length: 16 })
+      .notNull()
+      .default(`public`)
+      .$type<`public` | `internal`>(),
+    // Plain text on both sides: reporter input is untrusted (never rendered
+    // as GFM, no @mention/#ref resolution), and member replies land in plain
+    // emails, so symmetrical plain text keeps the transcript honest.
+    body: text().notNull(),
+    // The outbound email that carried this reply (audit; NULL for internal
+    // notes, inbound messages, and no-transport sends).
+    emailDeliveryId: uuid(`email_delivery_id`).references(
+      () => emailDeliveries.id,
+      { onDelete: `set null` }
+    ),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_support_messages_thread`).on(table.threadId),
+    index(`idx_support_messages_issue`).on(table.issueId),
+  ]
+)
+
 // What an OAuth-authenticated MCP client may touch (SERVER-ONLY, written by
 // the /auth/consent page). One row per (user, oauth client); re-consenting
 // replaces the selection. `workspaceIds` grants whole workspaces (including
@@ -1115,4 +1201,6 @@ export type UserNotificationPrefs = InferSelectModel<
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
+export type SupportThread = InferSelectModel<typeof supportThreads>
+export type SupportMessage = InferSelectModel<typeof supportMessages>
 export type McpGrant = InferSelectModel<typeof mcpGrants>

@@ -13,7 +13,7 @@ public enum DomainContract {
     public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
     public static let projectIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
     public static let commentKindValues: [String] = ["regular"]
-    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged"]
+    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
@@ -33,6 +33,7 @@ public enum DomainContract {
     public static let notificationTypeIssueCreated: String = "issue_created"
     public static let notificationTypePrOpened: String = "pr_opened"
     public static let notificationTypePrMerged: String = "pr_merged"
+    public static let notificationTypeSupportReply: String = "support_reply"
     public static let prStateOpen: String = "open"
     public static let prStateClosed: String = "closed"
     public static let prStateMerged: String = "merged"

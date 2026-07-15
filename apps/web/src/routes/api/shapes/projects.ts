@@ -29,6 +29,7 @@ const PROJECT_COLUMNS = [
   `archived_at`,
   `deleted_at`,
   `is_protected`,
+  `helpdesk_enabled`,
   `created_at`,
   `updated_at`,
 ]

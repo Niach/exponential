@@ -42,6 +42,8 @@ import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
+import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
+import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
 import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shapes/workspace-members'
 import { Route as ApiShapesWorkspaceInvitesRouteImport } from './routes/api/shapes/workspace-invites'
@@ -243,6 +245,16 @@ const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
 const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
   id: '/api/trpc/$',
   path: '/api/trpc/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportThreadRoute = ApiSupportThreadRouteImport.update({
+  id: '/api/support/thread',
+  path: '/api/support/thread',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
+  id: '/api/support/reply',
+  path: '/api/support/reply',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesWorkspacesRoute = ApiShapesWorkspacesRouteImport.update({
@@ -482,6 +494,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
+  '/api/support/reply': typeof ApiSupportReplyRoute
+  '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
@@ -548,6 +562,8 @@ export interface FileRoutesByTo {
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
+  '/api/support/reply': typeof ApiSupportReplyRoute
+  '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
@@ -618,6 +634,8 @@ export interface FileRoutesById {
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
+  '/api/support/reply': typeof ApiSupportReplyRoute
+  '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
@@ -688,6 +706,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
+    | '/api/support/reply'
+    | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/widget/config'
@@ -754,6 +774,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
+    | '/api/support/reply'
+    | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/widget/config'
@@ -823,6 +845,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
+    | '/api/support/reply'
+    | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/widget/config'
@@ -887,6 +911,8 @@ export interface RootRouteChildren {
   ApiShapesWorkspaceInvitesRoute: typeof ApiShapesWorkspaceInvitesRoute
   ApiShapesWorkspaceMembersRoute: typeof ApiShapesWorkspaceMembersRoute
   ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
+  ApiSupportReplyRoute: typeof ApiSupportReplyRoute
+  ApiSupportThreadRoute: typeof ApiSupportThreadRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
@@ -1127,6 +1153,20 @@ declare module '@tanstack/react-router' {
       path: '/api/trpc/$'
       fullPath: '/api/trpc/$'
       preLoaderRoute: typeof ApiTrpcSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/thread': {
+      id: '/api/support/thread'
+      path: '/api/support/thread'
+      fullPath: '/api/support/thread'
+      preLoaderRoute: typeof ApiSupportThreadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/reply': {
+      id: '/api/support/reply'
+      path: '/api/support/reply'
+      fullPath: '/api/support/reply'
+      preLoaderRoute: typeof ApiSupportReplyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/workspaces': {
@@ -1491,6 +1531,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkspaceInvitesRoute: ApiShapesWorkspaceInvitesRoute,
   ApiShapesWorkspaceMembersRoute: ApiShapesWorkspaceMembersRoute,
   ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
+  ApiSupportReplyRoute: ApiSupportReplyRoute,
+  ApiSupportThreadRoute: ApiSupportThreadRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,

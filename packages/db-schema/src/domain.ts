@@ -89,6 +89,13 @@ export const recurrenceIntervals = [
 // Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
 
+// Helpdesk conversation vocabulary (SERVER-ONLY — support tables never sync,
+// so these stay out of the domain contract). Direction is who wrote the
+// message; visibility gates what the anonymous magic-link page may see
+// (`internal` notes never leave the member inbox).
+export const supportMessageDirectionValues = [`inbound`, `outbound`] as const
+export const supportMessageVisibilityValues = [`public`, `internal`] as const
+
 // Notification kinds. Mirrors the `notification_type` pg enum in schema.ts;
 // promoted into the contract so the native inbox can label rows.
 export const notificationTypeValues = [
@@ -103,6 +110,9 @@ export const notificationTypeValues = [
   // away/phone flow gets "PR opened" and "it's merged" on every channel.
   `pr_opened`,
   `pr_merged`,
+  // Helpdesk: an external reporter replied on a support thread (broadcast to
+  // workspace members, mirroring the issue_created feedback broadcast).
+  `support_reply`,
 ] as const
 
 // Pull-request state surfaced on issues.pr_state. Mirrors the GitHub PR state
@@ -151,6 +161,10 @@ export type PrState = (typeof prStateValues)[number]
 export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
+export type SupportMessageDirection =
+  (typeof supportMessageDirectionValues)[number]
+export type SupportMessageVisibility =
+  (typeof supportMessageVisibilityValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)

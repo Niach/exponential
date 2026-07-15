@@ -176,6 +176,21 @@ async function withPublicMeta(req: Request, response: Response): Promise<Respons
   return new Response(rewritten, { status, statusText, headers })
 }
 
+// The helpdesk magic-link page: the /support/<token> URL IS the credential,
+// so the page must never leak it through the Referer header (the SPA also
+// sets a same-named meta tag; this covers direct navigations before hydration
+// and wins over the global strict-origin policy). Set unconditionally — the
+// header is harmless on the API siblings.
+function withSupportPageHeaders(req: Request, response: Response): Response {
+  const pathname = new URL(req.url).pathname
+  if (pathname !== `/support` && !pathname.startsWith(`/support/`)) {
+    return response
+  }
+  response.headers.set(`Referrer-Policy`, `no-referrer`)
+  response.headers.set(`X-Robots-Tag`, `noindex, nofollow`)
+  return response
+}
+
 // Workspaces → teams rename: the app lives under /t/, but /w/ links live in
 // the wild forever (old emails, bookmarks, chat messages). Permanent-redirect
 // them server-side so crawlers consolidate onto /t/ and unfurlers follow.
@@ -211,11 +226,14 @@ function ensureNativeResponse(res: Response): Response {
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
   withSecurityHeaders(
     legacyWorkspaceRedirect(req) ??
-      withWidgetAssetHeaders(
+      withSupportPageHeaders(
         req,
-        await withPublicMeta(
+        withWidgetAssetHeaders(
           req,
-          ensureNativeResponse(await nitroApp.fetch(req))
+          await withPublicMeta(
+            req,
+            ensureNativeResponse(await nitroApp.fetch(req))
+          )
         )
       )
   )
@@ -237,11 +255,14 @@ if (hasWebSocket && ws) {
     }
     return withSecurityHeaders(
       legacyWorkspaceRedirect(req) ??
-        withWidgetAssetHeaders(
+        withSupportPageHeaders(
           req,
-          await withPublicMeta(
+          withWidgetAssetHeaders(
             req,
-            ensureNativeResponse(await nitroApp.fetch(req))
+            await withPublicMeta(
+              req,
+              ensureNativeResponse(await nitroApp.fetch(req))
+            )
           )
         )
     )
