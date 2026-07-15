@@ -1,0 +1,1 @@
+Close pull requests from the issue's Changes section, and agent steering now shows a dedicated card when a plan is ready.

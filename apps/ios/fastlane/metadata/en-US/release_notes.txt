@@ -1,3 +1,3 @@
-• Issue and invite links now open directly in the app
-• Opening an issue now clears its notification everywhere
-• Privacy and reliability improvements
+• Close a pull request right from the issue's Changes section
+• Agent steering shows a dedicated card when a plan is ready
+• Reliability improvements
