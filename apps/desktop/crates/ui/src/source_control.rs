@@ -732,6 +732,10 @@ impl SourceControlView {
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         let prompt = coding::fix_conflicts_prompt(&branch, &conflict.files);
         let label = format!("Fix conflicts · {branch}");
+        // A pre-EXP-98 "Create with Claude" crash can leave a stale
+        // `.mcp.json` in the clone root, re-raising claude's project-approval
+        // dialog.
+        coding::remove_stale_legacy_mcp_json(&scope.clone_dir);
         let task = coding::claude_task(&settings, &scope.clone_dir, &prompt, &label);
         let Some(manager) = coding_flow::window_terminal_manager(window, cx) else {
             self.error = Some("No terminal dock in this window.".into());

@@ -29,7 +29,7 @@ pub enum SecretKind {
     /// shape + tRPC request. Deleted on 401 (§5.6b).
     SessionToken,
     /// The hidden auto-minted `expu_` personal API key — used ONLY
-    /// inside the coding launcher's `.mcp.json`, never as a sync/tRPC
+    /// inside the coding launcher's `.exp-mcp.json`, never as a sync/tRPC
     /// credential.
     PersonalApiKey,
     /// The server-side row id of the personal key (not itself a secret;

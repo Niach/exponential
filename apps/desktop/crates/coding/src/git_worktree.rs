@@ -284,7 +284,7 @@ pub fn create_worktree(
 /// missing. The common git dir is shared by every worktree, so one write
 /// covers them all — and unlike `.gitignore` it is never committed.
 ///
-/// This is a TOKEN-LEAK guard, not cosmetics: `.mcp.json` carries the raw
+/// This is a TOKEN-LEAK guard, not cosmetics: `.exp-mcp.json` carries the raw
 /// `expu_` personal key, and the spawned `claude` is told to commit + push —
 /// without the exclude, a `git add -A` would ship the key to GitHub.
 /// Best-effort: a missing/at-odds `.git` layout only skips the write (the
@@ -702,16 +702,16 @@ mod tests {
             &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
         );
 
-        ensure_local_excludes(&clone, &[".mcp.json", "PROMPT.md"]).unwrap();
+        ensure_local_excludes(&clone, &[".exp-mcp.json", "PROMPT.md"]).unwrap();
         // Idempotent — no duplicate lines on relaunch.
-        ensure_local_excludes(&clone, &[".mcp.json", "PROMPT.md"]).unwrap();
+        ensure_local_excludes(&clone, &[".exp-mcp.json", "PROMPT.md"]).unwrap();
         let exclude = fs::read_to_string(clone.join(".git/info/exclude")).unwrap();
-        assert_eq!(exclude.matches(".mcp.json").count(), 1);
+        assert_eq!(exclude.matches(".exp-mcp.json").count(), 1);
         assert_eq!(exclude.matches("PROMPT.md").count(), 1);
 
         // The real assertion: git itself must consider both files ignored —
         // a `git add -A` by the spawned claude can never stage the raw key.
-        fs::write(clone.join(".mcp.json"), "{\"secret\":true}").unwrap();
+        fs::write(clone.join(".exp-mcp.json"), "{\"secret\":true}").unwrap();
         fs::write(clone.join("PROMPT.md"), "seed").unwrap();
         let status = Command::new("git")
             .args(["status", "--porcelain"])
@@ -719,7 +719,7 @@ mod tests {
             .output()
             .unwrap();
         let listing = String::from_utf8_lossy(&status.stdout).into_owned();
-        assert!(!listing.contains(".mcp.json"), "not ignored: {listing}");
+        assert!(!listing.contains(".exp-mcp.json"), "not ignored: {listing}");
         assert!(!listing.contains("PROMPT.md"), "not ignored: {listing}");
     }
 

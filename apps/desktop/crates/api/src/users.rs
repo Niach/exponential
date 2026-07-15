@@ -14,8 +14,8 @@
 //!
 //! **The rule is explicit: there is never a manual API-key text field in the
 //! desktop UI.** The key is minted silently on first need (the coding
-//! launcher's `.mcp.json`, §7.1 step 4), stored in the file store, and only
-//! ever flows token-store → `.mcp.json`. Settings shows a status row (`start`
+//! launcher's `.exp-mcp.json`, §7.1 step 4), stored in the file store, and only
+//! ever flows token-store → `.exp-mcp.json`. Settings shows a status row (`start`
 //! prefix from the list call) with Regenerate as the ONLY control.
 
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ use crate::trpc::TrpcClient;
 pub const PERSONAL_KEY_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `users.mintPersonalApiKey` output. `key` is the raw credential — handle
-/// it like a password: token-store/`.mcp.json` only, NEVER logged or displayed.
+/// it like a password: token-store/`.exp-mcp.json` only, NEVER logged or displayed.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MintedPersonalKey {
@@ -137,7 +137,7 @@ pub fn hostname() -> String {
 /// Hidden-key auto-mint (§7.2): return the device's personal `expu_` key, minting
 /// it silently on first need. The secret read is bounded
 /// ([`PERSONAL_KEY_READ_TIMEOUT`]) so this never stalls Start-coding; the
-/// mint itself can race the git prep (only `.mcp.json` needs the result).
+/// mint itself can race the git prep (only `.exp-mcp.json` needs the result).
 /// The user never sees, types, or pastes the key.
 pub fn ensure_personal_key(
     trpc: &TrpcClient,

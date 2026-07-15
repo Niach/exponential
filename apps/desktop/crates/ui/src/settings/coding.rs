@@ -25,7 +25,7 @@
 //!
 //! The personal API key is provisioned and rotated **fully automatically**
 //! (`api::users::ensure_personal_key` on the first coding session; the
-//! `.mcp.json` writer picks it up), so there is no key UI here at all — no
+//! `.exp-mcp.json` writer picks it up), so there is no key UI here at all — no
 //! value field, no reveal, no copy, no manual entry, no status row.
 
 use gpui::{

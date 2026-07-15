@@ -20,7 +20,7 @@
 //!
 //! Everything published passes through [`Redactor`] first: exact-match masking
 //! of the launcher-created secrets (the JIT GitHub installation token embedded
-//! in the worktree remote, the `expu_` personal key in `.mcp.json`) plus
+//! in the worktree remote, the `expu_` personal key in `.exp-mcp.json`) plus
 //! gitleaks-style patterns. Tool results are never read; injected system
 //! content (`isMeta`, task notifications, `<system-reminder>` blocks) is never
 //! published.
@@ -77,7 +77,7 @@ const MIN_SECRET_LEN: usize = 8;
 
 /// The worktree MCP config file (mirrors `coding::MCP_JSON_FILE`; `steer` must
 /// not depend on `coding`, so the name is duplicated here).
-const MCP_JSON_FILE: &str = ".mcp.json";
+const MCP_JSON_FILE: &str = ".exp-mcp.json";
 
 // ---------------------------------------------------------------------------
 // Redaction
@@ -143,7 +143,7 @@ impl Redactor {
 
 /// Gather the session's exact secrets from the worktree (best-effort): the JIT
 /// installation token embedded in the git remote URL, and the `expu_` personal
-/// key written into `.mcp.json`. Both are launcher-created and long-lived only
+/// key written into `.exp-mcp.json`. Both are launcher-created and long-lived only
 /// for the session; masking them is belt-and-braces on top of the patterns.
 pub fn secrets_from_worktree(worktree: &Path) -> Vec<String> {
     let mut out = Vec::new();
@@ -174,7 +174,7 @@ fn git_remote_token(worktree: &Path) -> Option<String> {
     (!token.is_empty()).then(|| token.to_string())
 }
 
-/// Extract the `expu_` key from the worktree `.mcp.json`
+/// Extract the `expu_` key from the worktree `.exp-mcp.json`
 /// (`mcpServers.exponential.headers.Authorization = "Bearer <key>"`).
 fn mcp_expu_key(worktree: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(worktree.join(MCP_JSON_FILE)).ok()?;
