@@ -1,4 +1,4 @@
-• New In review status — issues with an open pull request park there until merged
-• Reviews segment groups open pull requests, including batch PRs
-• Keyboard no longer covers the editor while writing
+• Refreshed app icon
+• More reliable syncing of issues and comments
+• Code blocks in descriptions now round-trip cleanly
 • Reliability improvements

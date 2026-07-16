@@ -1,0 +1,1 @@
+Refreshed app icon, notifications now show the proper status-bar icon, and the issue editor keeps your text intact while edits sync in from other devices.
