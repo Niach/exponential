@@ -20,7 +20,6 @@ import {
   IcLucideCircleDashed,
   IcMessage,
   IcMinus,
-  IcRocket,
   IcSearch,
   IcSend,
   IcSignalHigh,
@@ -35,7 +34,6 @@ import {
   mobDetailIssue,
   mobInboxItems,
   mobProjects,
-  mobReleases,
   mobSearchQuery,
   mobSearchResults,
   mobSteerDiff,
@@ -48,11 +46,14 @@ import {
 
 /* ─── Small glyph helpers ─── */
 
+/* Inline hexes mirror the shared tokens.css semantics
+   (--st-progress / --st-review / --st-done / --neutral / --fg) */
 const statusColor: Record<MobStatus, string> = {
   in_progress: `#facc15`,
+  in_review: `#22c55e`,
   todo: `#fafafa`,
   backlog: `#a1a1a1`,
-  done: `#22c55e`,
+  done: `#3b82f6`,
 }
 
 const StatusIcon = ({
@@ -64,6 +65,7 @@ const StatusIcon = ({
 }) => {
   const style = { color: statusColor[status] }
   if (status === `in_progress`) return <IcTimer size={size} style={style} />
+  if (status === `in_review`) return <IcGitPr size={size} style={style} />
   if (status === `done`) return <IcCircleCheck size={size} style={style} />
   if (status === `backlog`)
     return <IcLucideCircleDashed size={size} style={style} />
@@ -134,9 +136,11 @@ const Avatar = ({
   </span>
 )
 
-/* ─── Tabs / tour plumbing ─── */
+/* ─── Tabs / tour plumbing ───
+   Four real tabs (Issues, My Work, Agents, Search) + the detached compose
+   FAB, mirroring the native MobileTabBar; `steer` is the Agents sub-screen. */
 
-type MobTab = `issues` | `search` | `agents` | `steer` | `releases` | `inbox`
+type MobTab = `issues` | `mywork` | `agents` | `steer` | `search`
 
 const TOUR: { tab: MobTab; chip?: number }[] = [
   { tab: `issues`, chip: 0 },
@@ -144,8 +148,7 @@ const TOUR: { tab: MobTab; chip?: number }[] = [
   { tab: `issues`, chip: 2 },
   { tab: `agents` },
   { tab: `steer` },
-  { tab: `releases` },
-  { tab: `inbox` },
+  { tab: `mywork` },
 ]
 
 /* ─── Shared rows ─── */
@@ -170,7 +173,7 @@ const IssueRow = ({ issue }: { issue: MobIssue }) => (
   </div>
 )
 
-/* ─── Bottom dock (5 tabs + compose FAB) ─── */
+/* ─── Bottom dock (4 tabs + compose FAB) ─── */
 
 const DockBtn = ({
   active,
@@ -222,19 +225,12 @@ const BottomBar = ({
         <IcListTodo size={19} />
       </DockBtn>
       <DockBtn
-        active={tab === `inbox`}
-        onClick={() => onTab(`inbox`)}
+        active={tab === `mywork`}
+        onClick={() => onTab(`mywork`)}
         dot={inboxUnread ? `unread` : undefined}
-        label={`Inbox`}
+        label={`My Work`}
       >
         <IcInbox size={19} />
-      </DockBtn>
-      <DockBtn
-        active={tab === `releases`}
-        onClick={() => onTab(`releases`)}
-        label={`Releases`}
-      >
-        <IcRocket size={19} />
       </DockBtn>
       <DockBtn
         active={tab === `agents` || tab === `steer`}
@@ -263,8 +259,8 @@ const BottomBar = ({
 const chips = [`All Issues`, `Active`, `Backlog`] as const
 
 const chipStatuses: Record<number, MobStatus[]> = {
-  0: [`in_progress`, `todo`, `backlog`, `done`],
-  1: [`in_progress`, `todo`],
+  0: [`in_progress`, `in_review`, `todo`, `backlog`, `done`],
+  1: [`in_progress`, `in_review`, `todo`],
   2: [`backlog`],
 }
 
@@ -466,46 +462,7 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
   </>
 )
 
-/* ─── Releases tab — rocket rows with progress, mirrors the IDE panel ─── */
-
-const ReleasesScreen = () => (
-  <>
-    <h2 className={`mob-title`}>Releases</h2>
-    <div className={`mob-list mob-list-scrollpad`}>
-      {mobReleases.map((release) => (
-        <div key={release.name} className={`mob-row mob-release-row`}>
-          <div className={`mob-release-line1`}>
-            <IcRocket
-              size={16}
-              style={{ color: release.shipped ? `#34d399` : `#8e8e93` }}
-            />
-            <span className={`mob-release-name`}>{release.name}</span>
-            {release.coding ? (
-              <span className={`mob-live-pill`}>
-                <span className={`mob-agent-dot`} />
-                Coding
-              </span>
-            ) : null}
-            {release.shipped ? (
-              <span className={`mob-shipped-pill`}>Shipped</span>
-            ) : null}
-          </div>
-          <div className={`mob-release-sub`}>
-            {`${release.shipped ? `Shipped ${release.shipped}` : `Target ${release.target}`} · ${release.done} of ${release.total} done`}
-          </div>
-          <div className={`mob-release-bar`}>
-            <span
-              className={`mob-release-fill`}
-              style={{ width: `${(release.done / release.total) * 100}%` }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  </>
-)
-
-/* ─── Inbox tab — single Linear-style activity stream ─── */
+/* ─── My Work tab — Inbox + My Issues merged (native MobileTabBar) ─── */
 
 const inboxIcon = (type: MobInboxType) => {
   if (type === `pr_opened`) return <IcGitPr size={14} />
@@ -514,10 +471,11 @@ const inboxIcon = (type: MobInboxType) => {
   return <IcMessage size={14} />
 }
 
-const InboxScreen = () => (
+const MyWorkScreen = () => (
   <>
-    <h2 className={`mob-title`}>Inbox</h2>
+    <h2 className={`mob-title`}>My Work</h2>
     <div className={`mob-list mob-list-scrollpad`}>
+      <div className={`mob-section-head`}>Inbox</div>
       {mobInboxItems.map((n) => (
         <div
           key={n.identifier}
@@ -546,6 +504,10 @@ const InboxScreen = () => (
             {n.unread ? <span className={`mob-inbox-dot`} /> : null}
           </span>
         </div>
+      ))}
+      <div className={`mob-section-head`}>My Issues</div>
+      {mobAssigned.map((issue) => (
+        <IssueRow key={issue.identifier} issue={issue} />
       ))}
     </div>
   </>
@@ -611,7 +573,7 @@ const IssueScreen = () => {
   )
 }
 
-/* ─── Interactive app shell (5-tab dock, tour) ─── */
+/* ─── Interactive app shell (4-tab dock + FAB, tour) ─── */
 
 const AppShell = ({
   reduce,
@@ -634,14 +596,14 @@ const AppShell = ({
       const next = TOUR[step.current]
       setTab(next.tab)
       if (next.chip !== undefined) setChip(next.chip)
-      if (next.tab === `inbox`) setInboxSeen(true)
+      if (next.tab === `mywork`) setInboxSeen(true)
     }, 4200)
     return () => clearInterval(timer)
   }, [touring])
 
   const goto = (t: MobTab) => {
     setTab(t)
-    if (t === `inbox`) setInboxSeen(true)
+    if (t === `mywork`) setInboxSeen(true)
   }
 
   return (
@@ -670,10 +632,8 @@ const AppShell = ({
           <AgentsScreen onOpenSteer={() => goto(`steer`)} />
         ) : tab === `steer` ? (
           <SteerScreen onBack={() => goto(`agents`)} />
-        ) : tab === `releases` ? (
-          <ReleasesScreen />
         ) : (
-          <InboxScreen />
+          <MyWorkScreen />
         )}
       </motion.div>
       {tab !== `steer` && (

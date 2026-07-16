@@ -1,6 +1,6 @@
 /* ─── IDE playground fixture data — dogfood: Exponential building Exponential ─── */
 
-export type IssueStatus = `backlog` | `todo` | `in_progress` | `done`
+export type IssueStatus = `backlog` | `todo` | `in_progress` | `in_review` | `done`
 export type IssuePriority = `none` | `urgent` | `high` | `medium` | `low`
 export type FilterTab = `all` | `active` | `backlog`
 
@@ -33,7 +33,7 @@ export const ISSUES: Issue[] = [
   {
     id: `EXP-11`,
     title: `Issue board keyboard navigation`,
-    status: `todo`,
+    status: `in_review`,
     priority: `medium`,
     due: `Jul 15`,
   },
@@ -74,65 +74,17 @@ export const ISSUES: Issue[] = [
 export const getIssue = (id: string): Issue =>
   ISSUES.find((i) => i.id === id) ?? ISSUES[0]
 
-/* ─── Releases — workspace-level bundles of issues (EXP-56) ─── */
-
-export type Release = {
-  id: string
-  name: string
-  target?: string
-  shippedAt?: string
-  issueIds: string[]
-}
-
-export const RELEASES: Release[] = [
-  {
-    id: `rel-steer`,
-    name: `Live steer v2`,
-    target: `Jul 15`,
-    issueIds: [`EXP-8`, `EXP-11`, `EXP-12`, `EXP-5`],
-  },
-  {
-    id: `rel-terminal`,
-    name: `Terminal polish`,
-    shippedAt: `Jul 2`,
-    issueIds: [`EXP-7`],
-  },
-]
-
-export const getRelease = (id: string): Release =>
-  RELEASES.find((r) => r.id === id) ?? RELEASES[0]
-
-/* An issue ships in at most ONE release. */
-export const releaseFor = (issueId: string): Release | undefined =>
-  RELEASES.find((r) => r.issueIds.includes(issueId))
-
-/* Progress derives client-side, like the real apps. */
-export const releaseProgress = (release: Release): { done: number; total: number } => {
-  const issues = release.issueIds.map(getIssue)
-  return { done: issues.filter((i) => i.status === `done`).length, total: issues.length }
-}
-
-export const releaseSubline = (release: Release): string => {
-  const { done, total } = releaseProgress(release)
-  const when = release.shippedAt
-    ? `Shipped ${release.shippedAt}`
-    : release.target
-      ? `Target ${release.target}`
-      : undefined
-  const progress = `${done} of ${total} done`
-  return when ? `${when} · ${progress}` : progress
-}
-
 export const GROUP_ORDER: { status: IssueStatus; label: string }[] = [
   { status: `in_progress`, label: `In Progress` },
+  { status: `in_review`, label: `In Review` },
   { status: `todo`, label: `Todo` },
   { status: `backlog`, label: `Backlog` },
   { status: `done`, label: `Done` },
 ]
 
 export const FILTER_STATUSES: Record<FilterTab, IssueStatus[]> = {
-  all: [`in_progress`, `todo`, `backlog`, `done`],
-  active: [`in_progress`, `todo`],
+  all: [`in_progress`, `in_review`, `todo`, `backlog`, `done`],
+  active: [`in_progress`, `in_review`, `todo`],
   backlog: [`backlog`],
 }
 
@@ -140,6 +92,7 @@ export const STATUS_LABEL: Record<IssueStatus, string> = {
   backlog: `Backlog`,
   todo: `Todo`,
   in_progress: `In Progress`,
+  in_review: `In Review`,
   done: `Done`,
 }
 
@@ -542,32 +495,32 @@ export const codingScriptFor = (issue: Issue): ScriptLine[] => [
   { kind: `ok`, text: `Session finished · 1 file changed` },
 ]
 
-/* ─── Release orchestrator run — ONE session plans waves, merges issues
-   back into the integration branch, opens the ONE release PR ─── */
+/* ─── Batch coding run (EXP-106) — ONE Claude session on ONE pushed
+   exp/batch-<id8> branch implementing every checked issue, ending in ONE
+   combined PR that links them all. Deliberately loose: no waves, no
+   per-issue worktrees — Claude organizes the work itself. ─── */
 
-export const releaseCodingScriptFor = (release: Release): ScriptLine[] => {
-  const slug = release.name.toLowerCase().replace(/[^a-z0-9]+/g, `-`)
-  const open = release.issueIds.filter((id) => getIssue(id).status !== `done`)
-  return [
-    {
-      kind: `ok`,
-      text: `Created integration branch exp/rel-${slug} · ${open.length} issues in scope`,
-    },
-    { kind: `claude`, text: `Planning dependency waves across ${open.length} issues` },
-    { kind: `claude`, text: `Wave 1 — ${open.slice(0, 2).join(`, `)} in parallel worktrees` },
-    ...open.map(
-      (id): ScriptLine => ({
-        kind: `claude`,
-        text: `Merged exp/${id} into exp/rel-${slug} — PR #${prNumberFor(getIssue(id))} targets the integration branch`,
-      }),
-    ),
-    { kind: `claude`, text: `Reviewing the combined diff` },
-    { kind: `cmd`, text: `git push -u origin exp/rel-${slug}` },
-    { kind: `claude`, text: `Opened release PR #221 — ${release.name}` },
-    { kind: `ok`, text: `Release run finished · ${open.length} issues merged` },
-  ]
-}
+const BATCH_BRANCH = `exp/batch-3f9a1c2e`
+
+export const batchCodingScriptFor = (issues: Issue[]): ScriptLine[] => [
+  { kind: `ok`, text: `Created worktree .worktrees/batch-3f9a1c2e on branch ${BATCH_BRANCH}` },
+  { kind: `ok`, text: `Launched Claude on ${issues.length} issues` },
+  {
+    kind: `claude`,
+    text: `Plan: one pass across ${issues.map((i) => i.id).join(`, `)} — shared branch, one combined PR`,
+  },
+  ...issues.slice(0, 3).map(
+    (issue): ScriptLine => ({
+      kind: `claude`,
+      text: `Implementing ${issue.id} — ${issue.title}`,
+    }),
+  ),
+  { kind: `claude`, text: `Typecheck and tests clean across the combined change` },
+  { kind: `cmd`, text: `git push -u origin ${BATCH_BRANCH}` },
+  { kind: `claude`, text: `Opened PR #221 — ${issues.length} issues` },
+  { kind: `ok`, text: `Session finished · ${issues.length} issues in one PR` },
+]
 
 export const SHELL_TAB_TITLE = `~/E/r/N/exponential`
 export const claudeTabTitle = (issueId: string): string => `claude · ${issueId}`
-export const releaseTabTitle = (name: string): string => `claude · release ${name}`
+export const batchTabTitle = (count: number): string => `claude · batch (${count} issues)`

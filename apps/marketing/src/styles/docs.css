@@ -316,7 +316,7 @@
   letter-spacing: 0.1em;
 }
 
-.docs-callout--tip .docs-callout-dot { background: var(--st-done); }
+.docs-callout--tip .docs-callout-dot { background: var(--st-review); }
 .docs-callout--warn .docs-callout-dot { background: var(--pr-high); }
 .docs-callout--note .docs-callout-dot { background: var(--neutral); }
 
