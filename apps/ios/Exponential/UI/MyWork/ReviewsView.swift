@@ -4,8 +4,22 @@ import SwiftUI
 
 /// "Reviews" (EXP-131): the active workspace's open PRs awaiting review, one row
 /// per distinct PR (a batch coding run's issues collapse into a single row),
-/// grouped by project. Renders embedded as the My Work tab's Reviews segment —
-/// same glass row language as `MyIssuesListContent`, no chrome of its own.
+/// grouped by project. Its own bottom-bar destination beside My Work (EXP-147 —
+/// it used to be a My Work segment).
+struct ReviewsView: View {
+    var body: some View {
+        ZStack {
+            AppBackground()
+            ReviewsListContent()
+        }
+        .navigationTitle("Reviews")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+    }
+}
+
+/// The bare list — same glass row language as `MyIssuesListContent`, no chrome
+/// of its own.
 struct ReviewsListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId

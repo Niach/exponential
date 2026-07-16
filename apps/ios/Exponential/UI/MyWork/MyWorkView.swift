@@ -14,16 +14,17 @@ struct MyWorkView: View {
     @State private var inboxViewModel: InboxViewModel?
     @AppStorage("myWorkSegment") private var segmentRaw = Segment.inbox.rawValue
 
+    // Reviews moved out to its own bottom-bar destination (EXP-147); a
+    // persisted "reviews" rawValue falls back to .inbox via the `segment`
+    // computed property.
     private enum Segment: String, CaseIterable {
         case inbox
         case myIssues
-        case reviews
 
         var label: String {
             switch self {
             case .inbox: return "Inbox"
             case .myIssues: return "My Issues"
-            case .reviews: return "Reviews"
             }
         }
     }
@@ -50,8 +51,6 @@ struct MyWorkView: View {
                     }
                 case .myIssues:
                     MyIssuesListContent()
-                case .reviews:
-                    ReviewsListContent()
                 }
             }
         }

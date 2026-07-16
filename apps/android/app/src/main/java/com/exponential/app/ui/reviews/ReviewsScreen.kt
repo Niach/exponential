@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,12 +55,28 @@ import com.exponential.app.ui.theme.glassRow
 
 /**
  * "Reviews" (EXP-131): the open pull requests in the current workspace, grouped
- * by project. Lives as the third segment of the "My Work" tab (PersonalScreen),
- * beside Inbox and My Issues. A batch coding run's combined PR shows as ONE
- * entry ("N issues"), never one row per linked issue.
+ * by project. Its own bottom-bar destination beside My Work (EXP-147 — it used
+ * to be a PersonalScreen segment). A batch coding run's combined PR shows as
+ * ONE entry ("N issues"), never one row per linked issue.
  */
 @Composable
-fun ReviewsListContent(
+fun ReviewsScreen(onOpenIssue: (String) -> Unit) {
+    Scaffold(containerColor = Color.Transparent) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Text(
+                "Reviews",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            )
+            ReviewsListContent(onOpenIssue = onOpenIssue)
+        }
+    }
+}
+
+/** The bare list — reusable content with no chrome of its own. */
+@Composable
+private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),

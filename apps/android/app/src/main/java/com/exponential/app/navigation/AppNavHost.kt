@@ -36,6 +36,7 @@ import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
+import com.exponential.app.ui.reviews.ReviewsScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
@@ -56,7 +57,7 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Search · Agents · My Work + compose FAB) overlaid
+ * pill (Issues · My Work · Reviews · Agents · Search + compose FAB) overlaid
  * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
@@ -257,7 +258,7 @@ private fun AuthenticatedNav(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "search", "agents", "personal", "project/{projectId}")
+        currentRoute in setOf("home", "search", "agents", "personal", "reviews", "project/{projectId}")
     // The single add-issue affordance: the FAB shows while a project is in
     // view — the Issues tab root (its resolved current project) or a pushed
     // project route — so it always targets the project on screen.
@@ -311,6 +312,13 @@ private fun AuthenticatedNav(
             // (pushes deep-link straight to issue/{id}), so renaming the old
             // "inbox" route is safe.
             PersonalScreen(
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+            )
+        }
+        composable("reviews") {
+            // Reviews — its own bottom-bar destination beside My Work
+            // (EXP-147; it used to be a PersonalScreen segment).
+            ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
@@ -455,6 +463,7 @@ private fun AuthenticatedNav(
             searchActive = currentRoute == "search",
             agentsActive = currentRoute == "agents",
             personalActive = currentRoute == "personal",
+            reviewsActive = currentRoute == "reviews",
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             showsCompose = composeProjectId != null,
@@ -478,6 +487,14 @@ private fun AuthenticatedNav(
             onPersonal = {
                 if (currentRoute != "personal") {
                     navController.navigate("personal") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
+            onReviews = {
+                if (currentRoute != "reviews") {
+                    navController.navigate("reviews") {
                         launchSingleTop = true
                         popUpTo("home")
                     }
