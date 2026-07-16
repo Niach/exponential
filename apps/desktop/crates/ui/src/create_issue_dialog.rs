@@ -12,12 +12,9 @@
 //!   mirrors the web flow: create with the drafts **stripped**, upload each
 //!   staged image, rewrite the URLs and `issues.update` the final description
 //! - chip row: status / priority / assignee / labels / due-date (with
-//!   `due_time`/`end_time` + "All day", §4.2) + the `…` overflow menu with
-//!   **Make recurring…** (web L344-398)
+//!   `due_time`/`end_time` + "All day", §4.2)
 //! - footer: "Create more" `Switch` (web uses a Switch, not a checkbox —
-//!   L488-494) + the indigo submit button; while recurring the footer swaps
-//!   to the `RecurrenceEditor` (first-due calendar + interval/unit + stop),
-//!   status is forced to `todo` at submit and the due chip hides.
+//!   L488-494) + the indigo submit button.
 //!
 //! Submit (§4.1): `issues.create` on a background thread; when "Create more"
 //! is off the close+navigate is **gated** on the created row becoming visible
@@ -118,14 +115,6 @@ pub fn open(window: &mut Window, cx: &mut App, project_id: String) {
     });
 }
 
-/// Web `RecurrenceValue` (`recurrence-editor.tsx`).
-#[derive(Clone, Debug, PartialEq)]
-struct RecurrenceValue {
-    first_due: Option<chrono::NaiveDate>,
-    interval: i64,
-    unit: &'static str,
-}
-
 pub struct CreateIssueDialogView {
     project_id: String,
     workspace_id: String,
@@ -150,8 +139,6 @@ pub struct CreateIssueDialogView {
     due_calendar: Entity<CalendarState>,
     due_time: Entity<InputState>,
     end_time: Entity<InputState>,
-    recurrence: Option<RecurrenceValue>,
-    recurrence_calendar: Entity<CalendarState>,
     create_more: bool,
     submitting: bool,
     error: Option<SharedString>,
@@ -180,7 +167,6 @@ impl CreateIssueDialogView {
             cx,
         );
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let recurrence_calendar = cx.new(|cx| CalendarState::new(window, cx));
         let due_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
         let end_time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM"));
 
@@ -210,19 +196,6 @@ impl CreateIssueDialogView {
                 };
                 this.due_date = *date;
                 cx.notify();
-            },
-        ));
-        // Recurrence first-due picks (web `RecurrenceEditor` calendar).
-        subscriptions.push(cx.subscribe(
-            &recurrence_calendar,
-            |this, _, event: &CalendarEvent, cx| {
-                let CalendarEvent::Selected(Date::Single(date)) = event else {
-                    return;
-                };
-                if let Some(recurrence) = &mut this.recurrence {
-                    recurrence.first_due = *date;
-                    cx.notify();
-                }
             },
         ));
         // The end-time input enables only once a start time exists (web
@@ -263,8 +236,6 @@ impl CreateIssueDialogView {
             due_calendar,
             due_time,
             end_time,
-            recurrence: None,
-            recurrence_calendar,
             create_more: false,
             submitting: false,
             error: None,
@@ -273,8 +244,7 @@ impl CreateIssueDialogView {
         }
     }
 
-    /// Web `resetFields`: clear everything except "Create more" and (when
-    /// recurring) the recurrence settings, whose first-due resets to today.
+    /// Web `resetFields`: clear everything except "Create more".
     fn reset_fields(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.title.update(cx, |state, cx| {
             state.set_value("", window, cx);
@@ -295,32 +265,9 @@ impl CreateIssueDialogView {
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.end_time
             .update(cx, |state, cx| state.set_value("", window, cx));
-        if let Some(recurrence) = &mut self.recurrence {
-            let today = chrono::Local::now().date_naive();
-            recurrence.first_due = Some(today);
-            self.recurrence_calendar.update(cx, |state, cx| {
-                state.set_date(Date::Single(Some(today)), window, cx);
-            });
-        }
         self.error = None;
         self.submitting = false;
         self.title.update(cx, |state, cx| state.focus(window, cx));
-        cx.notify();
-    }
-
-    /// Web `enableRecurrence`: first-due = due date or today, every 1 week.
-    fn enable_recurrence(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let first_due = self
-            .due_date
-            .unwrap_or_else(|| chrono::Local::now().date_naive());
-        self.recurrence = Some(RecurrenceValue {
-            first_due: Some(first_due),
-            interval: 1,
-            unit: "week",
-        });
-        self.recurrence_calendar.update(cx, |state, cx| {
-            state.set_date(Date::Single(Some(first_due)), window, cx);
-        });
         cx.notify();
     }
 
@@ -328,12 +275,6 @@ impl CreateIssueDialogView {
         let title = self.title.read(cx).value().trim().to_string();
         if title.is_empty() || self.submitting {
             return;
-        }
-        if let Some(recurrence) = &self.recurrence {
-            // Web disables submit until a first-due exists.
-            if recurrence.first_due.is_none() {
-                return;
-            }
         }
         let Some(trpc) = queries::trpc_client(cx) else {
             self.error = Some("Not signed in.".into());
@@ -346,14 +287,9 @@ impl CreateIssueDialogView {
         cx.notify();
 
         // Build the exact web mutation input (`create-issue-dialog.tsx`
-        // handleSubmit): recurring forces status `todo` and uses the
-        // recurrence first-due as the due date.
+        // handleSubmit).
         let mut input = api::issues::IssuesCreateInput::new(self.project_id.clone(), title);
-        input.status = Some(if self.recurrence.is_some() {
-            IssueStatus::Todo
-        } else {
-            self.status
-        });
+        input.status = Some(self.status);
         input.priority = Some(self.priority);
         input.assignee_id = self.assignee_id.clone();
         // Web submit flow (create-issue-dialog.tsx): create with the staged
@@ -369,14 +305,10 @@ impl CreateIssueDialogView {
         // `TrpcClient` is not `Clone` — a second one for the post-create
         // description update (cheap: an `Agent` + two `Arc`s, §5.7).
         let trpc_update = queries::trpc_client(cx);
-        let due_date = match &self.recurrence {
-            Some(recurrence) => recurrence.first_due,
-            None => self.due_date,
-        };
-        input.due_date = due_date.map(|date| date.format("%Y-%m-%d").to_string());
+        input.due_date = self.due_date.map(|date| date.format("%Y-%m-%d").to_string());
         // Cascade rules (§4.2): times ride only with a date; end only with a
         // start.
-        if input.due_date.is_some() && self.recurrence.is_none() {
+        if input.due_date.is_some() {
             if let Some(due_time) = valid_time(&self.due_time.read(cx).value()) {
                 input.due_time = Some(due_time);
                 if let Some(end_time) = valid_time(&self.end_time.read(cx).value()) {
@@ -386,10 +318,6 @@ impl CreateIssueDialogView {
         }
         if !self.selected_label_ids.is_empty() {
             input.label_ids = Some(self.selected_label_ids.clone());
-        }
-        if let Some(recurrence) = &self.recurrence {
-            input.recurrence_interval = Some(recurrence.interval);
-            input.recurrence_unit = Some(recurrence.unit.to_string());
         }
 
         let create_more = self.create_more;
@@ -764,150 +692,7 @@ impl CreateIssueDialogView {
             })
     }
 
-    /// Web overflow `…` menu: "Make recurring…" (disabled once recurring).
-    fn overflow_menu(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let recurring = self.recurrence.is_some();
-        let view = cx.entity().clone();
-        Button::new("create-overflow")
-            .ghost()
-            .xsmall()
-            .icon(
-                Icon::new(IconName::Ellipsis)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .dropdown_menu(move |menu, _window, cx| {
-                let view = view.clone();
-                menu.item(
-                    PopupMenuItem::new("Make recurring…")
-                        .icon(
-                            Icon::from(ExpIcon::Repeat)
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(recurring)
-                        .on_click(move |_, window, cx| {
-                            view.update(cx, |this, cx| this.enable_recurrence(window, cx));
-                        }),
-                )
-            })
-    }
-
     // -- footer ----------------------------------------------------------------
-
-    /// Web `RecurrenceEditor` row: first-due date popover + "repeats every"
-    /// interval/unit selects + stop.
-    fn recurrence_editor(
-        &self,
-        recurrence: &RecurrenceValue,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let first_due_label: SharedString = recurrence
-            .first_due
-            .map(|date| domain::board::format_short_date(&date.format("%Y-%m-%d").to_string()).into())
-            .unwrap_or_else(|| "Pick date".into());
-        let calendar = self.recurrence_calendar.clone();
-        let interval = recurrence.interval;
-        let unit = recurrence.unit;
-        let view = cx.entity().clone();
-        let view_for_interval = view.clone();
-        let view_for_unit = view;
-
-        h_flex()
-            .gap_2()
-            .items_center()
-            .text_sm()
-            .child(
-                div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("First due"),
-            )
-            .child(
-                Popover::new("recurrence-first-due")
-                    .trigger(
-                        Button::new("recurrence-first-due-trigger")
-                            .outline()
-                            .xsmall()
-                            .icon(Icon::from(ExpIcon::CalendarDays).xsmall())
-                            .label(first_due_label),
-                    )
-                    .content(move |_, _window, _cx| {
-                        v_flex().w(px(280.)).child(Calendar::new(&calendar))
-                    }),
-            )
-            .child(
-                div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("repeats every"),
-            )
-            .child(
-                Button::new("recurrence-interval")
-                    .outline()
-                    .xsmall()
-                    .label(SharedString::from(interval.to_string()))
-                    .dropdown_menu(move |menu, _window, _cx| {
-                        let mut menu = menu.check_side(Side::Right).scrollable(true).max_h(px(320.));
-                        for value in domain::contract::RECURRENCE_INTERVALS {
-                            let view = view_for_interval.clone();
-                            let value = *value as i64;
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(value.to_string()))
-                                    .checked(value == interval)
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            if let Some(recurrence) = &mut this.recurrence {
-                                                recurrence.interval = value;
-                                                cx.notify();
-                                            }
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
-            )
-            .child(
-                Button::new("recurrence-unit")
-                    .outline()
-                    .xsmall()
-                    .label(SharedString::from(pluralize_unit(unit, interval)))
-                    .dropdown_menu(move |menu, _window, _cx| {
-                        let mut menu = menu.check_side(Side::Right);
-                        for value in domain::contract::RECURRENCE_UNIT_VALUES {
-                            let view = view_for_unit.clone();
-                            let value: &'static str = value;
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(pluralize_unit(
-                                    value, interval,
-                                )))
-                                .checked(value == unit)
-                                .on_click(move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        if let Some(recurrence) = &mut this.recurrence {
-                                            recurrence.unit = value;
-                                            cx.notify();
-                                        }
-                                    });
-                                }),
-                            );
-                        }
-                        menu
-                    }),
-            )
-            .child(
-                Button::new("recurrence-stop")
-                    .ghost()
-                    .xsmall()
-                    .icon(
-                        Icon::new(IconName::Close)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.recurrence = None;
-                        cx.notify();
-                    })),
-            )
-    }
 
     /// Web `IssueEditorAttachmentRail` (the dialog footer's left slot): one
     /// chip per image occurrence in the live description + the trailing
@@ -977,17 +762,9 @@ impl CreateIssueDialogView {
 
     fn footer(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let title_empty = self.title.read(cx).value().trim().is_empty();
-        let recurring = self.recurrence.is_some();
-        let submit_disabled = title_empty
-            || self.submitting
-            || self
-                .recurrence
-                .as_ref()
-                .is_some_and(|recurrence| recurrence.first_due.is_none());
+        let submit_disabled = title_empty || self.submitting;
         let submit_label: &'static str = if self.submitting {
             "Creating..."
-        } else if recurring {
-            "Create recurring issue"
         } else {
             "Create issue"
         };
@@ -1036,15 +813,14 @@ impl CreateIssueDialogView {
                     }),
             );
 
-        let left: gpui::AnyElement = match (&self.error, &self.recurrence) {
-            (Some(error), _) => div()
+        let left: gpui::AnyElement = match &self.error {
+            Some(error) => div()
                 .text_xs()
                 .text_color(cx.theme().danger)
                 .child(error.clone())
                 .into_any_element(),
-            (None, Some(recurrence)) => self.recurrence_editor(recurrence, cx).into_any_element(),
             // Web `IssueEditorAttachmentRail` — always rendered ("0 images").
-            (None, None) => self.attachment_rail(cx).into_any_element(),
+            None => self.attachment_rail(cx).into_any_element(),
         };
 
         h_flex()
@@ -1124,7 +900,7 @@ impl Render for CreateIssueDialogView {
             );
 
         // Chip row (web px-4 py-2 border-t): status · priority · assignee ·
-        // labels · due (hidden while recurring) · overflow.
+        // labels · due.
         let chips = h_flex()
             .px_4()
             .py_2()
@@ -1141,10 +917,7 @@ impl Render for CreateIssueDialogView {
                 this.child(self.assignee_chip(cx))
             })
             .child(self.labels_chip(cx))
-            .when(self.recurrence.is_none(), |this| {
-                this.child(self.due_chip(cx))
-            })
-            .child(self.overflow_menu(cx));
+            .child(self.due_chip(cx));
 
         v_flex()
             .size_full()
@@ -1324,15 +1097,6 @@ pub(crate) fn valid_time(value: &str) -> Option<String> {
     Some(format!("{hour:02}:{minute:02}"))
 }
 
-/// Web `RecurrenceEditor` unit labels: singular for 1, plural otherwise.
-fn pluralize_unit(unit: &str, interval: i64) -> String {
-    if interval == 1 {
-        unit.to_string()
-    } else {
-        format!("{unit}s")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1354,13 +1118,6 @@ mod tests {
         assert!(parse_hex_color("6366f1").is_none());
         assert!(parse_hex_color("#66f1").is_none());
         assert!(parse_hex_color("#zzzzzz").is_none());
-    }
-
-    #[test]
-    fn recurrence_units_pluralize_like_web() {
-        assert_eq!(pluralize_unit("week", 1), "week");
-        assert_eq!(pluralize_unit("week", 2), "weeks");
-        assert_eq!(pluralize_unit("day", 30), "days");
     }
 
     #[test]

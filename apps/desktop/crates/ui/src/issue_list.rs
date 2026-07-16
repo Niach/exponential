@@ -460,8 +460,7 @@ impl IssueListView {
                     .w_6()
                     .child(status_dropdown(issue, cx)),
             )
-            // 1fr title (truncating), with the Repeat glyph for recurring
-            // issues (web `issue.recurrenceInterval !== null`).
+            // 1fr title (truncating).
             .child(
                 h_flex()
                     .flex_1()
@@ -469,13 +468,6 @@ impl IssueListView {
                     .ml_2()
                     .gap_1p5()
                     .items_center()
-                    .when(issue.recurrence_interval.is_some(), |row| {
-                        row.child(
-                            Icon::from(ExpIcon::Repeat)
-                                .xsmall()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                    })
                     .child(
                         div()
                             .text_sm()

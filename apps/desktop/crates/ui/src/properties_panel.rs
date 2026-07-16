@@ -3,7 +3,7 @@
 //! layout — desktop always renders the non-mobile branch, §4.9).
 //!
 //! Groups top-to-bottom exactly like web: Status · Priority · Assignee ·
-//! Labels · Due date (+ the recurrence control beneath it) · Project. Every
+//! Labels · Due date · Project. Every
 //! control mutates immediately through tRPC (`issues.update` /
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
 //! re-renders. `completed_at` is server-managed and never set here.
@@ -17,13 +17,6 @@
 //! `issues` shape deliberately drops `due_time`/`end_time` (§5.4), so the
 //! desktop shows no time inputs — date edits leave any server-side times
 //! untouched except through that cascade.
-//!
-//! Recurrence control: a `Repeat` trigger whose popover mirrors
-//! `recurrence-editor.tsx` — first-due `Calendar` + interval/unit selectors
-//! (values from the domain contract) + "Stop recurring". Every change
-//! commits immediately (web `RecurrenceControl` calls
-//! `onRecurrenceChange` per edit): `issues.update({ recurrence_interval,
-//! recurrence_unit, due_date: first_due })`; stop clears both to null.
 
 use chrono::NaiveDate;
 
@@ -57,14 +50,12 @@ const PANEL_WIDTH: f32 = 288.;
 pub struct PropertiesPanel {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
-    recur_calendar: Entity<CalendarState>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl PropertiesPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let recur_calendar = cx.new(|cx| CalendarState::new(window, cx));
 
         let mut subscriptions = Vec::new();
         // User picked a due date in the popover → immediate mutation (the
@@ -77,18 +68,6 @@ impl PropertiesPanel {
                     return;
                 };
                 this.commit_due_date(Some(*date), cx);
-            },
-        ));
-        // First-due picked in the recurrence editor → commit the whole
-        // recurrence value (web RecurrenceEditor onChange).
-        subscriptions.push(cx.subscribe(
-            &recur_calendar,
-            |this, _, event: &CalendarEvent, cx| {
-                let CalendarEvent::Selected(Date::Single(Some(date))) = event else {
-                    return;
-                };
-                let (interval, unit) = this.effective_recurrence(cx);
-                this.commit_recurrence(interval, unit, Some(*date), cx);
             },
         ));
         // Re-render on every collection this panel reads; keep the calendars
@@ -115,7 +94,6 @@ impl PropertiesPanel {
         Self {
             issue_id: None,
             due_calendar,
-            recur_calendar,
             _subscriptions: subscriptions,
         }
     }
@@ -155,10 +133,6 @@ impl PropertiesPanel {
         self.due_calendar.update(cx, |calendar, cx| {
             calendar.set_date(Date::Single(due), window, cx);
         });
-        let first_due = due.unwrap_or_else(today);
-        self.recur_calendar.update(cx, |calendar, cx| {
-            calendar.set_date(Date::Single(Some(first_due)), window, cx);
-        });
     }
 
     // -- mutations -------------------------------------------------------------
@@ -184,57 +158,6 @@ impl PropertiesPanel {
                 input.end_time = api::Patch::Null;
             }
         }
-        spawn_issue_update(cx, input);
-    }
-
-    /// The recurrence the editor shows: the issue's when set, else the web
-    /// default draft `{ interval: 1, unit: week }`.
-    fn effective_recurrence(&self, cx: &App) -> (i64, String) {
-        let issue = self.issue(cx);
-        let interval = issue
-            .as_ref()
-            .and_then(|issue| issue.recurrence_interval)
-            .unwrap_or(1);
-        let unit = issue
-            .and_then(|issue| issue.recurrence_unit)
-            .unwrap_or_else(|| "week".to_string());
-        (interval, unit)
-    }
-
-    /// Web `handleRecurrenceChange(next)`: commit interval + unit + first-due
-    /// in one mutation.
-    pub(crate) fn commit_recurrence(
-        &mut self,
-        interval: i64,
-        unit: String,
-        first_due: Option<NaiveDate>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(issue_id) = self.issue_id.clone() else {
-            return;
-        };
-        let first_due = first_due.or_else(|| {
-            self.issue(cx)
-                .and_then(|issue| issue.due_date)
-                .and_then(|date| NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok())
-        });
-        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-        input.recurrence_interval = api::Patch::Set(interval);
-        input.recurrence_unit = api::Patch::Set(unit);
-        if let Some(first_due) = first_due {
-            input.due_date = api::Patch::Set(format_mutation_date(first_due));
-        }
-        spawn_issue_update(cx, input);
-    }
-
-    /// Web `handleRecurrenceChange(null)`: clear both fields.
-    pub(crate) fn stop_recurrence(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(issue_id) = self.issue_id.clone() else {
-            return;
-        };
-        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-        input.recurrence_interval = api::Patch::Null;
-        input.recurrence_unit = api::Patch::Null;
         spawn_issue_update(cx, input);
     }
 
@@ -527,73 +450,6 @@ impl PropertiesPanel {
             })
     }
 
-    /// The recurrence control (web `RecurrenceControl` +
-    /// `recurrence-editor.tsx`): Repeat trigger; popover hosts first-due
-    /// Calendar + interval/unit selectors + Stop recurring.
-    fn recurrence_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let is_recurring =
-            issue.recurrence_interval.is_some() && issue.recurrence_unit.is_some();
-        let trigger_label = if is_recurring {
-            format_recurrence(
-                issue.recurrence_interval.unwrap_or(1),
-                issue.recurrence_unit.as_deref().unwrap_or("week"),
-            )
-        } else {
-            "Add recurrence".to_string()
-        };
-        let (interval, unit) = self.effective_recurrence(cx);
-
-        let calendar = self.recur_calendar.clone();
-        let panel = cx.entity();
-        Popover::new("prop-recurrence-popover")
-            .trigger(
-                Button::new("prop-recurrence")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::Repeat).text_color(cx.theme().muted_foreground))
-                    .label(SharedString::from(trigger_label)),
-            )
-            .content(move |_, _, cx| {
-                let mut content = v_flex()
-                    .p_3()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("First due"),
-                    )
-                    .child(Calendar::new(&calendar))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("repeats every"),
-                            )
-                            .child(interval_select(interval, unit.clone(), &panel))
-                            .child(unit_select(interval, unit.clone(), &panel)),
-                    );
-                if is_recurring {
-                    let panel = panel.clone();
-                    content = content.child(
-                        Button::new("prop-recurrence-stop")
-                            .ghost()
-                            .xsmall()
-                            .label("Stop recurring")
-                            .text_color(cx.theme().muted_foreground)
-                            .on_click(move |_, _, cx| {
-                                panel.update(cx, |panel, cx| panel.stop_recurrence(cx));
-                            }),
-                    );
-                }
-                content.into_any_element()
-            })
-    }
-
     fn project_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
         let project: Project = Store::global(cx)
             .collections()
@@ -661,11 +517,7 @@ impl Render for PropertiesPanel {
             .child(property_group("Labels", self.labels_control(&issue, cx), cx))
             .child(property_group(
                 "Due date",
-                v_flex()
-                    .items_start()
-                    .gap_1()
-                    .child(self.due_control(&issue, cx))
-                    .child(self.recurrence_control(&issue, cx)),
+                self.due_control(&issue, cx),
                 cx,
             ))
             .when_some(self.project_chip(&issue, cx), |panel, chip| {
@@ -709,76 +561,6 @@ fn option_item<V: Copy + 'static>(
         .icon(option_icon(option, cx))
         .checked(checked)
         .on_click(move |_, window, cx| on_select(window, cx))
-}
-
-/// Interval dropdown (contract `recurrenceIntervals`).
-fn interval_select(
-    current: i64,
-    unit: String,
-    panel: &Entity<PropertiesPanel>,
-) -> impl IntoElement {
-    let panel = panel.clone();
-    Button::new("prop-recur-interval")
-        .outline()
-        .xsmall()
-        .label(SharedString::from(current.to_string()))
-        .dropdown_menu(move |menu, _, _| {
-            let mut menu = menu.check_side(Side::Right);
-            for value in domain::contract::RECURRENCE_INTERVALS {
-                let value = *value as i64;
-                let panel = panel.clone();
-                let unit = unit.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(value.to_string()))
-                        .checked(value == current)
-                        .on_click(move |_, _, cx| {
-                            let unit = unit.clone();
-                            panel.update(cx, |panel, cx| {
-                                panel.commit_recurrence(value, unit, None, cx);
-                            });
-                        }),
-                );
-            }
-            menu
-        })
-}
-
-/// Unit dropdown (contract `recurrenceUnitValues`); plural label when the
-/// interval is > 1 (web parity: "week" vs "weeks").
-fn unit_select(interval: i64, current: String, panel: &Entity<PropertiesPanel>) -> impl IntoElement {
-    let panel = panel.clone();
-    let label = if interval == 1 {
-        current.clone()
-    } else {
-        format!("{current}s")
-    };
-    Button::new("prop-recur-unit")
-        .outline()
-        .xsmall()
-        .label(SharedString::from(label))
-        .dropdown_menu(move |menu, _, _| {
-            let mut menu = menu.check_side(Side::Right);
-            for unit in domain::contract::RECURRENCE_UNIT_VALUES {
-                let panel = panel.clone();
-                let item_label = if interval == 1 {
-                    (*unit).to_string()
-                } else {
-                    format!("{unit}s")
-                };
-                let checked = *unit == current;
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(item_label))
-                        .checked(checked)
-                        .on_click(move |_, _, cx| {
-                            let unit = (*unit).to_string();
-                            panel.update(cx, |panel, cx| {
-                                panel.commit_recurrence(interval, unit, None, cx);
-                            });
-                        }),
-                );
-            }
-            menu
-        })
 }
 
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
@@ -830,25 +612,6 @@ fn format_mutation_date(date: NaiveDate) -> String {
     date.format("%Y-%m-%d").to_string()
 }
 
-/// Web `formatRecurrence` (`db-schema/domain.ts`): "Every week" / "Every 2
-/// weeks".
-fn format_recurrence(interval: i64, unit: &str) -> String {
-    let noun = if interval == 1 {
-        unit.to_string()
-    } else {
-        format!("{unit}s")
-    };
-    if interval == 1 {
-        format!("Every {noun}")
-    } else {
-        format!("Every {interval} {noun}")
-    }
-}
-
-fn today() -> NaiveDate {
-    chrono::Local::now().date_naive()
-}
-
 /// `#rrggbb` (leading `#` optional) → Hsla (labels/projects store hex
 /// strings). Shared with the detail view's breadcrumb/banner dots.
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
@@ -874,14 +637,6 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn recurrence_label_matches_web_format_recurrence() {
-        assert_eq!(format_recurrence(1, "week"), "Every week");
-        assert_eq!(format_recurrence(2, "week"), "Every 2 weeks");
-        assert_eq!(format_recurrence(1, "day"), "Every day");
-        assert_eq!(format_recurrence(30, "day"), "Every 30 days");
-    }
 
     #[test]
     fn mutation_date_is_iso_ymd() {

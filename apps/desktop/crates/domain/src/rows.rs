@@ -133,10 +133,6 @@ pub struct Issue {
     pub archived_at: Option<String>,
     #[serde(default)]
     pub duplicate_of_id: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_i64")]
-    pub recurrence_interval: Option<i64>,
-    #[serde(default)]
-    pub recurrence_unit: Option<String>,
     #[serde(default)]
     pub pr_url: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]

@@ -980,8 +980,12 @@ impl SidebarPanel {
         {
             let mut live_ids: HashSet<String> = groups
                 .iter()
-                .flat_map(|group| {
-                    group
+                .flat_map(|group| group.entries.iter())
+                .flat_map(|entry| {
+                    // Merge/close target the representative id, but keep every
+                    // linked issue's id live so no transient state is dropped
+                    // while a batch PR is in flight.
+                    entry
                         .issues
                         .iter()
                         .flat_map(|issue| [issue.id.clone(), close_pr_key(&issue.id)])
@@ -1042,8 +1046,8 @@ impl SidebarPanel {
                         )
                         .into_any_element(),
                 );
-                for issue in &group.issues {
-                    children.push(self.review_row(issue, cx));
+                for entry in &group.entries {
+                    children.push(self.review_row(entry, cx));
                 }
             }
             for repo in &pull_repos {
@@ -1103,17 +1107,46 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// One Reviews row: PR icon + identifier + title with a trailing Merge
-    /// button, sub-line `#N · branch`, optional error caption. Clicking the
-    /// row opens the issue detail (its Changes tab shows the diff). A
-    /// deliberately subtle ghost `×` left of Merge closes the PR WITHOUT
-    /// merging (EXP-100: the reject path for issues that got dropped after
-    /// the work was done) — same two-click confirm, `issues.closePr`.
+    /// One Reviews row for a PR entry: PR icon + identifier + title with a
+    /// trailing Merge button, sub-line `#N · branch`, optional error caption.
+    /// A single-issue entry shows the issue identifier + title; a BATCH entry
+    /// (EXP-131: N issues on ONE PR) shows `#<pr_number>`, a "N issues" count,
+    /// and the linked identifiers in place of the title. Merge/× act on the
+    /// representative issue's id — the server merges the ONE PR and completes
+    /// every linked issue. Clicking the row opens the representative issue's
+    /// detail (its Changes tab shows the diff). The subtle ghost `×` left of
+    /// Merge closes the PR WITHOUT merging (EXP-100: the reject path) — same
+    /// two-click confirm, `issues.closePr`.
     fn review_row(
         &self,
-        issue: &domain::rows::Issue,
+        entry: &queries::ReviewEntry,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        let issue = entry.representative();
+        let is_batch = entry.is_batch();
+        // Batch: `#<pr_number>` (all linked issues share one PR); single: the
+        // issue identifier. Batch title = the linked identifiers; single =
+        // the issue title. The "N issues" count renders only for batches.
+        let identifier_text = if is_batch {
+            match issue.pr_number {
+                Some(number) => format!("#{number}"),
+                None => issue.identifier.clone(),
+            }
+        } else {
+            issue.identifier.clone()
+        };
+        let title_text = if is_batch {
+            entry
+                .issues
+                .iter()
+                .map(|i| i.identifier.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            issue.title.clone()
+        };
+        let batch_count = is_batch.then(|| format!("{} issues", entry.issues.len()));
+
         let theme = cx.theme();
         let radius = theme.radius;
         let fg = theme.foreground;
@@ -1227,7 +1260,7 @@ impl SidebarPanel {
                             .text_xs()
                             .text_color(muted)
                             .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(issue.identifier.clone())),
+                            .child(SharedString::from(identifier_text)),
                     )
                     .child(
                         div()
@@ -1236,8 +1269,17 @@ impl SidebarPanel {
                             .text_xs()
                             .truncate()
                             .text_color(fg)
-                            .child(SharedString::from(issue.title.clone())),
+                            .child(SharedString::from(title_text)),
                     )
+                    .when_some(batch_count, |this, count| {
+                        this.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(SharedString::from(count)),
+                        )
+                    })
                     .child(close_button)
                     .child(merge_button),
             )

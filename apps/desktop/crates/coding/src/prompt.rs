@@ -90,8 +90,9 @@ pub fn render_prompt(identifier: &str, title: &str, description: Option<&str>) -
         "Please read the issue context below and work on **{identifier}: {title}** in this \
 repository. Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
-with `exponential_issues_update_status` (`in_progress` when you start, `done` when the \
-PR is open). Do not use `gh`.
+with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
+moves the issue to `in_review` automatically, and merging it later completes it to \
+`done` — you do not set those yourself. Do not use `gh`.
 
 ## Issue context
 
@@ -126,8 +127,9 @@ mod tests {
     const EXPECTED: &str = "Please read the issue context below and work on **EXP-42: Fix login flicker** in this \
 repository. Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
-with `exponential_issues_update_status` (`in_progress` when you start, `done` when the \
-PR is open). Do not use `gh`.
+with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
+moves the issue to `in_review` automatically, and merging it later completes it to \
+`done` — you do not set those yourself. Do not use `gh`.
 
 ## Issue context
 

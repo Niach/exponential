@@ -101,12 +101,6 @@ pub struct IssuesCreateInput {
     pub end_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label_ids: Option<Vec<String>>,
-    /// Must be set together with `recurrence_unit` (server-enforced pair).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recurrence_interval: Option<i64>,
-    /// A `recurrenceUnitValues` contract value (`domain::contract`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recurrence_unit: Option<String>,
 }
 
 impl IssuesCreateInput {
@@ -122,8 +116,6 @@ impl IssuesCreateInput {
             due_time: None,
             end_time: None,
             label_ids: None,
-            recurrence_interval: None,
-            recurrence_unit: None,
         }
     }
 }
@@ -160,10 +152,6 @@ pub struct IssuesUpdateInput {
     pub due_time: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub end_time: Patch<String>,
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub recurrence_interval: Patch<i64>,
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub recurrence_unit: Patch<String>,
     /// Mark-as-duplicate (§4.2): `Set(canonical_id)` forces
     /// `status='duplicate'` server-side; `Null` unmarks (restores backlog).
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -186,8 +174,6 @@ impl IssuesUpdateInput {
             due_date: Patch::Omit,
             due_time: Patch::Omit,
             end_time: Patch::Omit,
-            recurrence_interval: Patch::Omit,
-            recurrence_unit: Patch::Omit,
             duplicate_of_id: Patch::Omit,
             archived_at: Patch::Omit,
         }
