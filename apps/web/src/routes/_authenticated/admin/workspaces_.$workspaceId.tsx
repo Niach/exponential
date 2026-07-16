@@ -386,7 +386,7 @@ function AdminWorkspaceDetail() {
                   </div>
                   <div>
                     <Badge variant="outline" className="text-xs">
-                      {p.type}
+                      {p.isPublic ? `public` : `private`}
                     </Badge>
                   </div>
                   <div className="text-sm tabular-nums">{p.issueCount}</div>

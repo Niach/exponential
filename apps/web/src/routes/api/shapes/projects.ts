@@ -19,7 +19,6 @@ const PROJECT_COLUMNS = [
   `slug`,
   `prefix`,
   `color`,
-  `type`,
   `is_public`,
   `icon`,
   `public_show_comments`,

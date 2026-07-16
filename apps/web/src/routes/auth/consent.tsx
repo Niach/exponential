@@ -43,7 +43,7 @@ interface ScopeWorkspace {
   id: string
   name: string
   slug: string
-  projects: Array<{ id: string; name: string; prefix: string; type: string }>
+  projects: Array<{ id: string; name: string; prefix: string; icon: string | null }>
 }
 
 function ConsentPage() {

@@ -184,7 +184,7 @@ async function main() {
       slug: `launch-marketing`,
       prefix: `MKT`,
       color: `#f59e0b`,
-      type: `tasks`,
+      icon: `square-kanban`,
       sortOrder: 10,
     },
     {
@@ -193,7 +193,8 @@ async function main() {
       slug: `product-feedback`,
       prefix: `FB`,
       color: `#22c55e`,
-      type: `feedback`,
+      isPublic: true,
+      icon: `megaphone`,
       sortOrder: 20,
     },
   ])

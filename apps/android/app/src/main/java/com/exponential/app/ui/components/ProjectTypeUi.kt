@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.domain.DomainContract
 
 /**
  * Creation-template presentation metadata (the old dev/tasks/feedback project
@@ -94,12 +93,13 @@ val ProjectIconGlyphs: Map<String, ImageVector> = linkedMapOf(
 
 /**
  * Resolve a project's display glyph: the stored `icon` when it's a known
- * curated name, else the legacy type-derived fallback (pre-collapse rows have
- * icon = NULL). Mirrors web `getProjectIcon`.
+ * curated name, else a fallback derived from the project's shape (pre-collapse
+ * rows have icon = NULL). Mirrors web `getProjectIcon` now that `type` is gone:
+ * public → megaphone, repo-backed → code, else the plain task board.
  */
 fun projectIcon(project: ProjectEntity): ImageVector =
-    project.icon?.let { ProjectIconGlyphs[it] } ?: when (project.type) {
-        DomainContract.projectTypeTasks -> Icons.Filled.ViewKanban
-        DomainContract.projectTypeFeedback -> Icons.Filled.Campaign
-        else -> Icons.Filled.Code
+    project.icon?.let { ProjectIconGlyphs[it] } ?: when {
+        project.isPublic -> Icons.Filled.Campaign
+        project.repositoryId != null -> Icons.Filled.Code
+        else -> Icons.Filled.ViewKanban
     }

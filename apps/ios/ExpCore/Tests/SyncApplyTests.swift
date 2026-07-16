@@ -96,7 +96,7 @@ final class SyncApplyTests: XCTestCase {
         let project = ProjectEntity(
             id: "p1", workspaceId: "ws1", name: "Dogfood", slug: "exponential",
             prefix: "EXP", color: "#6366f1", sortOrder: 0, archivedAt: nil,
-            githubRepo: nil, repositoryId: "repo1", type: "feedback",
+            githubRepo: nil, repositoryId: "repo1", isPublic: true,
             publicShowComments: true, publicShowActivity: false,
             isProtected: true, previewConfig: nil,
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"

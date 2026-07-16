@@ -324,7 +324,7 @@ export function registerExponentialTools(
     `exponential_projects_create`,
     {
       title: `Create project`,
-      description: `Create a project in a workspace. isPublic: true makes it a PUBLIC read-only feedback board (owner-only); the repository is always optional (coding features gate on repo presence). icon is a curated display icon name. The legacy 'type' param is a DEPRECATED alias ('feedback' → isPublic: true; 'dev'/'tasks' → private) — prefer isPublic. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
+      description: `Create a project in a workspace. isPublic: true makes it a PUBLIC read-only feedback board (owner-only); the repository is always optional (coding features gate on repo presence). icon is a curated display icon name. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
@@ -343,8 +343,6 @@ export function registerExponentialTools(
           .optional(),
         isPublic: z.boolean().optional(),
         icon: projectIconEnumSchema.optional(),
-        // Deprecated alias, kept until the type column drops.
-        type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
         repository: z
@@ -381,13 +379,11 @@ export function registerExponentialTools(
     `exponential_projects_update`,
     {
       title: `Update project`,
-      description: `Update a project's name, color, icon, publicness (isPublic — owner-only), public-board visibility toggles (owner-only), or archive state. The legacy 'type' param is a DEPRECATED alias for isPublic ('feedback' → true).`,
+      description: `Update a project's name, color, icon, publicness (isPublic — owner-only), public-board visibility toggles (owner-only), or archive state.`,
       inputSchema: {
         id: z.string().uuid(),
         isPublic: z.boolean().optional(),
         icon: projectIconEnumSchema.nullable().optional(),
-        // Deprecated alias, kept until the type column drops.
-        type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
         name: z.string().min(1).max(255).optional(),

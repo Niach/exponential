@@ -1,5 +1,5 @@
 {
-  "id": "e975a02a-42b6-4afe-95bf-2da51448daa2",
+  "id": "c12d267a-617a-443b-88e7-b5c704be5bcc",
   "prevId": "aabb50bb-244b-4ea9-b741-99f8c9833aae",
   "version": "7",
   "dialect": "postgresql",
@@ -1968,6 +1968,19 @@
           "primaryKey": false,
           "notNull": false
         },
+        "recurrence_interval": {
+          "name": "recurrence_interval",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurrence_unit": {
+          "name": "recurrence_unit",
+          "type": "recurrence_unit",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "duplicate_of_id": {
           "name": "duplicate_of_id",
           "type": "uuid",
@@ -2537,14 +2550,6 @@
           "notNull": true,
           "default": "'#6366f1'"
         },
-        "type": {
-          "name": "type",
-          "type": "project_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'dev'"
-        },
         "is_public": {
           "name": "is_public",
           "type": "boolean",
@@ -2638,22 +2643,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_projects_feedback": {
-          "name": "idx_projects_feedback",
-          "columns": [
-            {
-              "expression": "type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "type = 'feedback'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -4876,7 +4865,6 @@
         "backlog",
         "todo",
         "in_progress",
-        "in_review",
         "done",
         "cancelled",
         "duplicate"
@@ -4906,13 +4894,13 @@
         "draft"
       ]
     },
-    "public.project_type": {
-      "name": "project_type",
+    "public.recurrence_unit": {
+      "name": "recurrence_unit",
       "schema": "public",
       "values": [
-        "dev",
-        "tasks",
-        "feedback"
+        "day",
+        "week",
+        "month"
       ]
     },
     "public.subscriber_source": {

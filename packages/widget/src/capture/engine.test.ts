@@ -44,6 +44,16 @@ describe(`captureScreenshot`, () => {
     const opts = capture.mock.calls[0][0]
     expect(opts.excludeSelectors).toContain(`[data-exponential-widget]`)
     expect(opts.keepNode(document.body)).toBe(true)
+
+    // Same-origin iframes must be dropped: snapdom rasterizes them during
+    // clone construction, before the pii-mask plugin can redact their text.
+    const iframe = document.createElement(`iframe`)
+    document.body.appendChild(iframe)
+    try {
+      expect(opts.keepNode(iframe)).toBe(false)
+    } finally {
+      iframe.remove()
+    }
     expect(opts.dpr).toBeGreaterThan(0)
     expect(opts.dpr).toBeLessThanOrEqual(2)
   })

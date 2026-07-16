@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { maskEmailsInText, maskEmailsInTree, piiMaskPlugin } from "./pii-mask"
+import {
+  isReadableIframe,
+  maskEmailsInText,
+  maskEmailsInTree,
+  piiMaskPlugin,
+} from "./pii-mask"
 import type { CaptureContext } from "@zumer/snapdom"
 
 describe(`maskEmailsInText`, () => {
@@ -97,6 +102,39 @@ describe(`maskEmailsInTree`, () => {
     } finally {
       outside.remove()
     }
+  })
+})
+
+describe(`isReadableIframe`, () => {
+  it(`flags an attached same-origin iframe`, () => {
+    const iframe = document.createElement(`iframe`)
+    document.body.appendChild(iframe)
+    try {
+      expect(isReadableIframe(iframe)).toBe(true)
+    } finally {
+      iframe.remove()
+    }
+  })
+
+  it(`ignores non-iframe elements`, () => {
+    expect(isReadableIframe(document.createElement(`div`))).toBe(false)
+    expect(isReadableIframe(document.body)).toBe(false)
+  })
+
+  it(`treats an unreadable iframe document as not readable`, () => {
+    const iframe = document.createElement(`iframe`)
+    // Cross-origin access throws — the predicate must swallow it and say no.
+    Object.defineProperty(iframe, `contentDocument`, {
+      get() {
+        throw new DOMException(`Blocked a frame`, `SecurityError`)
+      },
+    })
+    Object.defineProperty(iframe, `contentWindow`, {
+      get() {
+        throw new DOMException(`Blocked a frame`, `SecurityError`)
+      },
+    })
+    expect(isReadableIframe(iframe)).toBe(false)
   })
 })
 

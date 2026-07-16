@@ -37,8 +37,6 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
-use domain::contract::{PROJECT_TYPE_DEV, PROJECT_TYPE_FEEDBACK, PROJECT_TYPE_TASKS};
-
 use crate::actions::NewProject;
 use crate::create_issue_dialog::parse_hex_color;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
@@ -58,9 +56,9 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 const DEFAULT_COLOR: &str = "#6366f1";
 
 /// A quickstart template: `(key, title, subtitle, icon, is_public, repo_leads)`.
-/// The key reuses the legacy `project_type` string purely for the card's glyph
-/// + identity; it is never sent to the server. Picking one seeds `is_public`,
-/// `icon`, and whether the repository picker leads the optional fields.
+/// The key is an opaque card identifier (never sent to the server). Picking one
+/// seeds `is_public`, `icon`, and whether the repository picker leads the
+/// optional fields.
 struct Template {
     key: &'static str,
     title: &'static str,
@@ -72,7 +70,7 @@ struct Template {
 
 const TEMPLATES: [Template; 3] = [
     Template {
-        key: PROJECT_TYPE_DEV,
+        key: "dev",
         title: "Dev board",
         subtitle: "Code with Claude on a connected repository.",
         icon: "code",
@@ -80,7 +78,7 @@ const TEMPLATES: [Template; 3] = [
         repo_leads: true,
     },
     Template {
-        key: PROJECT_TYPE_TASKS,
+        key: "tasks",
         title: "Task board",
         subtitle: "Plain issue tracking — a repository is optional.",
         icon: "square-kanban",
@@ -88,7 +86,7 @@ const TEMPLATES: [Template; 3] = [
         repo_leads: false,
     },
     Template {
-        key: PROJECT_TYPE_FEEDBACK,
+        key: "feedback",
         title: "Feedback board",
         subtitle: "Public board — anyone with the link can read it.",
         icon: "megaphone",
@@ -490,7 +488,7 @@ impl CreateProjectDialogView {
                     })
                     .cursor_pointer()
                     .child(
-                        crate::icons::project_icon_name_glyph(template.icon, key)
+                        crate::icons::project_icon_name_glyph(template.icon)
                             .small()
                             .flex_shrink_0()
                             .text_color(if selected {

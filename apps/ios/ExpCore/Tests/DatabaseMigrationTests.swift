@@ -229,7 +229,10 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(sessionIssueId)
         XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
-        // v4 project-type columns must be present after a full migration.
+        // v4 project columns must be present after a full migration. `type` is
+        // now dead server-side (EXP-129) but the local column survives as a
+        // NOT-NULL-with-default("dev") relic — SQLite can't cheaply drop it and
+        // inserts that omit it fall back to the default, so it stays harmless.
         let projectCols = try columnNames(pool, "projects")
         XCTAssertTrue(projectCols.contains("type"))
         XCTAssertTrue(projectCols.contains("public_show_comments"))

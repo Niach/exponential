@@ -36,12 +36,6 @@ data class ProjectEntity(
     val slug: String,
     val prefix: String,
     val color: String,
-    // Legacy board type (contract projectTypeValues = dev|tasks|feedback). The
-    // project-type collapse (EXP-121) turned publicness into `is_public` and the
-    // glyph into `icon`; `type` is still dual-written server-side and will be
-    // dropped later, so we keep parsing/storing it for tolerance but no longer
-    // gate any behavior on it. Defaulted for tolerant decode of any legacy row.
-    val type: String = "dev",
     // Publicness (EXP-121) — true for anonymously-readable boards. Replaces the
     // old `type == "feedback"` check as the single public signal.
     @ColumnInfo(name = "is_public") @SerialName("is_public") @JsonNames("isPublic") val isPublic: PgBool = false,

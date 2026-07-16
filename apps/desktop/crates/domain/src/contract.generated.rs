@@ -6,7 +6,6 @@ pub const ISSUE_STATUS_DISPLAY_ORDER: &[&str] = &["in_progress", "in_review", "t
 pub const ISSUE_PRIORITY_VALUES: &[&str] = &["none", "urgent", "high", "medium", "low"];
 pub const ISSUE_PRIORITY_DISPLAY_ORDER: &[&str] = &["urgent", "high", "medium", "low", "none"];
 pub const WORKSPACE_ROLE_VALUES: &[&str] = &["owner", "member"];
-pub const PROJECT_TYPE_VALUES: &[&str] = &["dev", "tasks", "feedback"];
 pub const PROJECT_ICON_VALUES: &[&str] = &["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"];
 pub const COMMENT_KIND_VALUES: &[&str] = &["regular"];
 pub const NOTIFICATION_TYPE_VALUES: &[&str] = &["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"];
@@ -17,9 +16,6 @@ pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_chang
 
 pub const WORKSPACE_ROLE_OWNER: &str = "owner";
 pub const WORKSPACE_ROLE_MEMBER: &str = "member";
-pub const PROJECT_TYPE_DEV: &str = "dev";
-pub const PROJECT_TYPE_TASKS: &str = "tasks";
-pub const PROJECT_TYPE_FEEDBACK: &str = "feedback";
 pub const COMMENT_KIND_REGULAR: &str = "regular";
 pub const NOTIFICATION_TYPE_ISSUE_ASSIGNED: &str = "issue_assigned";
 pub const NOTIFICATION_TYPE_ISSUE_COMMENT: &str = "issue_comment";

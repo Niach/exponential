@@ -5,9 +5,7 @@ import { projects, repositories } from "@/db/schema"
 import { and, eq, isNotNull, isNull } from "drizzle-orm"
 import {
   projectIconSchema,
-  projectTypeSchema,
   PROJECT_TRASH_RETENTION_MS,
-  type ProjectType,
 } from "@exp/db-schema/domain"
 import {
   assertProjectMember,
@@ -79,25 +77,6 @@ function isUniqueViolation(err: unknown): boolean {
   return isUniqueViolation(candidate.cause)
 }
 
-// Dual-write of the legacy `type` column while shipped native clients still
-// read it (dropped in the min-version-gated finale): public → feedback, else
-// repo-backed → dev, else tasks.
-function deriveLegacyType(
-  isPublic: boolean,
-  repositoryId: string | null
-): ProjectType {
-  return isPublic ? `feedback` : repositoryId ? `dev` : `tasks`
-}
-
-// The deprecated `type` input survives as an alias for external MCP clients:
-// only 'feedback' ever mapped to publicness.
-function isPublicFromInput(
-  isPublic: boolean | undefined,
-  type: ProjectType | undefined
-): boolean | undefined {
-  return isPublic ?? (type === undefined ? undefined : type === `feedback`)
-}
-
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -130,11 +109,9 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // Public-board switch (replaces type='feedback'). The deprecated
-        // `type` alias below still maps for external MCP clients.
+        // Public-board switch: anonymously readable feedback board.
         isPublic: z.boolean().optional(),
         icon: projectIconSchema.nullish(),
-        type: projectTypeSchema.optional(),
         // Anonymous-visitor visibility toggles (public boards only; inert on
         // private projects).
         publicShowComments: z.boolean().optional(),
@@ -151,7 +128,7 @@ export const projectsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
-      const isPublic = isPublicFromInput(input.isPublic, input.type) ?? false
+      const isPublic = input.isPublic ?? false
       const repositoryInput = input.repository
       const inlineConnect =
         repositoryInput != null && `fullName` in repositoryInput
@@ -203,7 +180,6 @@ export const projectsRouter = router({
               color: input.color ?? `#6366f1`,
               isPublic,
               icon: input.icon ?? null,
-              type: deriveLegacyType(isPublic, repositoryId),
               publicShowComments: input.publicShowComments ?? true,
               publicShowActivity: input.publicShowActivity ?? false,
               repositoryId,
@@ -278,13 +254,6 @@ export const projectsRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        // Repos attach/detach freely on any project; only the dual-written
-        // legacy `type` needs the current publicness to stay consistent.
-        const [row] = await tx
-          .select({ isPublic: projects.isPublic })
-          .from(projects)
-          .where(eq(projects.id, input.projectId))
-          .limit(1)
         const repositoryId =
           input.repositoryId === null
             ? null
@@ -295,10 +264,7 @@ export const projectsRouter = router({
               )
         const [project] = await tx
           .update(projects)
-          .set({
-            repositoryId,
-            type: deriveLegacyType(row?.isPublic ?? false, repositoryId),
-          })
+          .set({ repositoryId })
           .where(eq(projects.id, input.projectId))
           .returning()
         return { project, txId }
@@ -314,11 +280,9 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // Public-board switch; the deprecated `type` alias still maps for
-        // external MCP clients (only 'feedback' ever meant public).
+        // Public-board switch: anonymously readable feedback board.
         isPublic: z.boolean().optional(),
         icon: projectIconSchema.nullable().optional(),
-        type: projectTypeSchema.optional(),
         publicShowComments: z.boolean().optional(),
         publicShowActivity: z.boolean().optional(),
         helpdeskEnabled: z.boolean().optional(),
@@ -331,9 +295,8 @@ export const projectsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, type: legacyType, ...updates } = input
-      const isPublicUpdate = isPublicFromInput(updates.isPublic, legacyType)
-      updates.isPublic = isPublicUpdate
+      const { id, ...updates } = input
+      const isPublicUpdate = updates.isPublic
 
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
@@ -362,7 +325,6 @@ export const projectsRouter = router({
         .select({
           isProtected: projects.isProtected,
           isPublic: projects.isPublic,
-          repositoryId: projects.repositoryId,
         })
         .from(projects)
         .where(eq(projects.id, id))
@@ -380,14 +342,9 @@ export const projectsRouter = router({
         })
       }
 
-      // Dual-write the legacy type while natives still read it.
-      const nextIsPublic = isPublicUpdate ?? current?.isPublic ?? false
       const [project] = await ctx.db
         .update(projects)
-        .set({
-          ...updates,
-          type: deriveLegacyType(nextIsPublic, current?.repositoryId ?? null),
-        })
+        .set(updates)
         .where(eq(projects.id, id))
         .returning()
 
@@ -504,9 +461,9 @@ export const projectsRouter = router({
           slug: projects.slug,
           prefix: projects.prefix,
           color: projects.color,
-          type: projects.type,
           icon: projects.icon,
           isPublic: projects.isPublic,
+          repositoryId: projects.repositoryId,
           deletedAt: projects.deletedAt,
         })
         .from(projects)

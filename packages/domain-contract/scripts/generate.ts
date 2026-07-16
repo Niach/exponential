@@ -25,7 +25,6 @@ interface Contract {
   issueStatus: Section
   issuePriority: Section
   workspaceRole: Section
-  projectType: Section
   projectIcon: Section
   commentKind: Section
   notificationType: Section
@@ -122,7 +121,6 @@ ${swiftStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder 
 ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${swiftStringArray("projectTypeValues", contract.projectType.values)}
 ${swiftStringArray("projectIconValues", contract.projectIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
@@ -132,7 +130,6 @@ ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
-${swiftNamedValues("projectType", contract.projectType.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
@@ -150,7 +147,6 @@ ${kotlinStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder
 ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${kotlinStringArray("projectTypeValues", contract.projectType.values)}
 ${kotlinStringArray("projectIconValues", contract.projectIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
@@ -160,7 +156,6 @@ ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
-${kotlinNamedValues("projectType", contract.projectType.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
@@ -180,7 +175,6 @@ ${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? c
 ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
-${rustStrSlice("projectTypeValues", contract.projectType.values)}
 ${rustStrSlice("projectIconValues", contract.projectIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
@@ -190,7 +184,6 @@ ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
-${rustNamedValues("projectType", contract.projectType.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}

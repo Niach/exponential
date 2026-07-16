@@ -10,7 +10,6 @@ export interface DomainContract {
   issueStatus: { values: readonly string[]; displayOrder: readonly string[] }
   issuePriority: { values: readonly string[]; displayOrder: readonly string[] }
   workspaceRole: { values: readonly string[] }
-  projectType: { values: readonly string[] }
   projectIcon: { values: readonly string[] }
   commentKind: { values: readonly string[] }
   notificationType: { values: readonly string[] }

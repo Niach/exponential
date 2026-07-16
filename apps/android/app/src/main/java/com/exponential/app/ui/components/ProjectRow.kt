@@ -37,7 +37,7 @@ fun ProjectRow(
     modifier: Modifier = Modifier,
 ) {
     val color = remember(project.color) { parseColor(project.color) }
-    val icon = remember(project.icon, project.type) { projectIcon(project) }
+    val icon = remember(project.icon, project.isPublic, project.repositoryId) { projectIcon(project) }
     Row(
         modifier = modifier
             .fillMaxWidth()

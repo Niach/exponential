@@ -9,7 +9,6 @@ public enum DomainContract {
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     public static let workspaceRoleValues: [String] = ["owner", "member"]
-    public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
     public static let projectIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
     public static let commentKindValues: [String] = ["regular"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
@@ -20,9 +19,6 @@ public enum DomainContract {
 
     public static let workspaceRoleOwner: String = "owner"
     public static let workspaceRoleMember: String = "member"
-    public static let projectTypeDev: String = "dev"
-    public static let projectTypeTasks: String = "tasks"
-    public static let projectTypeFeedback: String = "feedback"
     public static let commentKindRegular: String = "regular"
     public static let notificationTypeIssueAssigned: String = "issue_assigned"
     public static let notificationTypeIssueComment: String = "issue_comment"
