@@ -43,6 +43,10 @@ jobs:
     # EXP-111's migration 0023), and nothing else in CI ever executes the
     # migrations. Run the full chain from scratch against a real Postgres,
     # then the custom triggers that deploys apply on top.
+    # EXP-137: additionally detect SILENT drift — a migration that executes
+    # cleanly but no longer matches its snapshot (b934ab4d: 0026 lost its
+    # DROP statements), leaving every DB that applied it permanently
+    # diverged from the drizzle schema with no later error.
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -66,6 +70,34 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Apply migrations from scratch
         run: bun run migrate
+      - name: Detect silent migration drift
+        # Assert `drizzle-kit push` is a NO-OP on the freshly-migrated DB:
+        # dump the schema, push, dump again — any delta means the migration
+        # chain did not faithfully produce packages/db-schema (a migration
+        # file drifted from its snapshot, or schema.ts changed without a
+        # generated migration), and the diff shows the drift as the DDL push
+        # had to apply. Same-DB before/after keeps the comparison
+        # byte-stable (no cross-DB pg_dump ordering to normalize). pg_dump
+        # runs in the service container (the runner's client is older than
+        # the server); the \restrict guard token pg_dump emits is a per-dump
+        # random nonce, hence stripped; -N drizzle excludes the migration
+        # ledger, which push never manages. Runs BEFORE the trigger step so
+        # trigger objects never enter the dumps. The step timeout guards
+        # against drizzle-kit's interactive rename prompt, reachable only
+        # when drift already exists (ambiguous add+drop column pair).
+        timeout-minutes: 10
+        run: |
+          dump_schema() {
+            docker exec ${{ job.services.postgres.id }} pg_dump -U postgres --schema-only --no-owner --no-privileges -N drizzle exponential \
+              | grep -vE '^\\(un)?restrict '
+          }
+          dump_schema > /tmp/schema-before.sql
+          (cd apps/web && bun x drizzle-kit push --force)
+          dump_schema > /tmp/schema-after.sql
+          if ! diff -u /tmp/schema-before.sql /tmp/schema-after.sql; then
+            echo '::error::Silent migration drift: the migrated DB does not match packages/db-schema. Either a migration SQL file no longer matches its snapshot (lost-DROP class, see b934ab4d) or schema.ts changed without a generated migration. The diff above is the DDL drizzle-kit push applied to reconcile.'
+            exit 1
+          fi
       - name: Apply custom triggers
         # Use the service container's own psql (mirrors the documented
         # deploy command) — ON_ERROR_STOP so SQL errors fail the job.
