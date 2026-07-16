@@ -22,7 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -57,10 +60,21 @@ fun UpdateRequiredScreen(info: UpdateGate.UpgradeInfo) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start,
     ) {
+        // MUST be the plain vector, never R.mipmap.ic_launcher: the launcher
+        // icon only exists as an adaptive-icon XML (mipmap-anydpi-v26), which
+        // painterResource rejects with an IllegalArgumentException — crashing
+        // the app at the exact moment the 426 gate tries to show this screen
+        // (EXP-138). The foreground's logo circle spans 66/108 of the adaptive
+        // viewport, so scale it back up to a 64dp visual; the outer clip cuts
+        // the stroke tails that overflow the circle (normally hidden by the
+        // adaptive-icon mask).
         Image(
-            painter = painterResource(R.mipmap.ic_launcher),
+            painter = painterResource(R.drawable.ic_launcher_foreground),
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
+            modifier = Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .scale(108f / 66f),
         )
         Spacer(Modifier.height(24.dp))
         Text(
