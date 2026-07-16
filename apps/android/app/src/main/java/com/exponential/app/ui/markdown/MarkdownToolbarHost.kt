@@ -9,18 +9,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 
 /**
@@ -53,29 +57,51 @@ val LocalMarkdownToolbarController = compositionLocalOf<MarkdownToolbarControlle
 fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
     val controller = remember { MarkdownToolbarController() }
     CompositionLocalProvider(LocalMarkdownToolbarController provides controller) {
+        // Show only while a field is focused AND the keyboard is up; imePadding
+        // then seats the bar directly on top of the keyboard and rides its
+        // animation.
+        val model = controller.activeModel
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val toolbarVisible = model?.focusedRowId != null && imeVisible
+        // While the bar is up it floats OVER the bottom of the content, so the
+        // content is inset by the bar's measured height — otherwise the bar
+        // covers exactly the focused line / the comment composer's send row
+        // that imePadding just brought above the keyboard (EXP-135).
+        var toolbarHeightPx by remember { mutableIntStateOf(0) }
+        val density = LocalDensity.current
+        val bottomInset = if (toolbarVisible) with(density) { toolbarHeightPx.toDp() } else 0.dp
         Box(Modifier.fillMaxSize()) {
-            content()
-            MarkdownToolbarOverlay(
-                controller = controller,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            Box(Modifier.fillMaxSize().padding(bottom = bottomInset)) {
+                content()
+            }
+            if (toolbarVisible && model != null) {
+                MarkdownToolbarOverlay(
+                    controller = controller,
+                    model = model,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onHeightChanged = { toolbarHeightPx = it },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun MarkdownToolbarOverlay(controller: MarkdownToolbarController, modifier: Modifier = Modifier) {
-    val model = controller.activeModel ?: return
-    // Show only while a field is focused AND the keyboard is up; imePadding then
-    // seats the bar directly on top of the keyboard and rides its animation.
-    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    if (model.focusedRowId == null || !imeVisible) return
+private fun MarkdownToolbarOverlay(
+    controller: MarkdownToolbarController,
+    model: EditorModel,
+    modifier: Modifier = Modifier,
+    onHeightChanged: (Int) -> Unit = {},
+) {
     // Near-opaque zinc surface + top hairline: the bar floats over arbitrary
     // content, so a translucent fill left the pill nearly invisible (EXP-25).
     Column(
         modifier
             .fillMaxWidth()
             .imePadding()
+            // Measured AFTER imePadding so the reported height is the bar
+            // itself, not bar + keyboard.
+            .onSizeChanged { onHeightChanged(it.height) }
             .background(GlassTokens.BackgroundBottom.copy(alpha = 0.97f)),
     ) {
         Box(
