@@ -21,7 +21,7 @@ enum class IssueStatus(val wire: String, val label: String) {
     Backlog("backlog", "Backlog"),
     Todo("todo", "Todo"),
     InProgress("in_progress", "In progress"),
-    InReview("in_review", "In Review"),
+    InReview("in_review", "In review"),
     Done("done", "Done"),
     Cancelled("cancelled", "Cancelled"),
     Duplicate("duplicate", "Duplicate");

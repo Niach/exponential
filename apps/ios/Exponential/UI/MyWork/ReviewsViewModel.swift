@@ -18,7 +18,8 @@ struct ReviewEntry: Identifiable {
     var prUrl: String? { representative.prUrl }
     var prNumber: Int? { representative.prNumber }
     var branch: String? { representative.branch }
-    /// Sorted identifiers of every linked issue (for the batch row subtitle).
+    /// Identifiers of every linked issue, newest first — mirrors `issues`
+    /// (for the batch row subtitle).
     var identifiers: [String] { issues.compactMap { $0.identifier } }
 }
 

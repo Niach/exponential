@@ -109,7 +109,13 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
   )
 
   return useMemo(() => {
-    const list = (issues ?? []) as Issue[]
+    // Archived issues are hidden on every other surface (and mobile Reviews
+    // already excludes them) — drop them at the issue level, like Android's
+    // DAO filter: a batch PR entry survives with its remaining issues and
+    // disappears only when ALL of its issues are archived.
+    const list = ((issues ?? []) as Issue[]).filter(
+      (issue) => issue.archivedAt == null
+    )
 
     // Collapse issues sharing a prUrl into ONE entry (EXP-131: a batch PR must
     // not render flattened). Issues without a prUrl can't collide — keyed by id.

@@ -329,13 +329,22 @@ pub fn review_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
         .read(cx)
         .iter()
         .filter(|issue| {
-            issue.pr_state.as_deref() == Some("open")
+            is_reviewable(issue)
                 && projects
                     .get(&issue.project_id)
                     .is_some_and(|project| project.workspace_id == workspace_id)
         })
         .cloned()
         .collect()
+}
+
+/// The per-issue Reviews predicate: an OPEN pull request on a NON-archived
+/// issue. Archived issues are hidden on every other surface (the boards go
+/// through `issues_in_*`, which filter `archived_at`) — Reviews drops them at
+/// the issue level too, mobile parity: a batch PR entry survives with its
+/// remaining issues and disappears only when ALL of its issues are archived.
+fn is_reviewable(issue: &domain::rows::Issue) -> bool {
+    issue.pr_state.as_deref() == Some("open") && issue.archived_at.is_none()
 }
 
 /// One Reviews entry: the issue(s) behind a single open PR. A plain
@@ -565,4 +574,32 @@ mod tests {
         assert_eq!(repos[1].pulls.len(), 1);
     }
 
+    fn issue(pr_state: Option<&str>, archived_at: Option<&str>) -> domain::rows::Issue {
+        serde_json::from_value(json!({
+            "id": "i-1",
+            "project_id": "p-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": "t",
+            "status": "in_review",
+            "pr_state": pr_state,
+            "archived_at": archived_at,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn reviews_exclude_archived_issues() {
+        // Open PR on a live issue → in the queue.
+        assert!(is_reviewable(&issue(Some("open"), None)));
+        // Archived issues are hidden everywhere else (boards, mobile Reviews)
+        // — an open PR must not resurrect one in Reviews.
+        assert!(!is_reviewable(&issue(
+            Some("open"),
+            Some("2026-07-15T08:00:00Z")
+        )));
+        // Non-open PR states never review, archived or not.
+        assert!(!is_reviewable(&issue(Some("merged"), None)));
+        assert!(!is_reviewable(&issue(None, None)));
+    }
 }

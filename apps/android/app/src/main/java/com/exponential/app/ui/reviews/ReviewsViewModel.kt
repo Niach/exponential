@@ -108,8 +108,8 @@ class ReviewsViewModel @Inject constructor(
             }
 
         // Group entries by project, newest entry first within each project, and
-        // order the projects by their newest entry (parity with the web board's
-        // recency bias).
+        // order the projects by their sortOrder (name tiebreak) — parity with
+        // web/iOS/desktop, which all walk projects in board order.
         val groups = entries
             .groupBy { it.projectId }
             .mapNotNull { (projectId, projectEntries) ->
@@ -121,9 +121,9 @@ class ReviewsViewModel @Inject constructor(
                     },
                 )
             }
-            .sortedByDescending { group ->
-                group.entries.firstOrNull()?.let { sortableTimestamp(it.representative.createdAt) } ?: ""
-            }
+            .sortedWith(
+                compareBy({ it.project.sortOrder }, { it.project.name.lowercase() })
+            )
 
         return ReviewsState(groups = groups, loaded = true)
     }
