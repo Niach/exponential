@@ -1,13 +1,16 @@
 //! Workspace settings + account screens (masterplan-v3 §4.2 "Settings" /
 //! "Account", §7.9 integrations surface).
 //!
-//! Web parity targets: `routes/w/$workspaceSlug/settings/index.tsx` and its
-//! `components/workspace/*-section.tsx` cards, plus
-//! `routes/_authenticated/account/{integrations,notifications}.tsx`. The
-//! workspace-settings screen mirrors the web route's structure: **one
-//! scrolling column of stacked section cards** (`mx-auto max-w-2xl space-y-6
-//! p-6` — no master-detail nav), in the web's card order with the web's
-//! `isOwner &&` gating; each pane mirrors its web card field-for-field.
+//! Web parity targets: the `routes/t/$workspaceSlug/settings/` pages and
+//! their `components/workspace/*-section.tsx` cards, plus
+//! `routes/_authenticated/account/notifications.tsx`. The workspace-settings
+//! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
+//! left nav with the web's groups — **Team** (General, Members, Labels) and
+//! **Projects** (Projects, Repositories) — plus the desktop-only **This
+//! device** group (Coding, Local repositories); the detail column shows ONE
+//! selected pane with the web's `isOwner &&` gating (General additionally
+//! hides when solo — the pane renders nothing there, matching the web); each
+//! pane mirrors its web card field-for-field.
 //!
 //! Navigation INTO these screens: the sidebar footer account
 //! dropdown dispatches `OpenSettings` / `OpenAccount` (see `sidebar.rs` +
@@ -32,9 +35,9 @@ mod workspace_general;
 pub use account::AccountView;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 use sync::Store;
@@ -51,11 +54,112 @@ use self::coding::CodingPane;
 use workspace_general::GeneralPane;
 
 // ---------------------------------------------------------------------------
+// Section nav model (EXP-146 grouped master-detail)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SettingsSection {
+    General,
+    Members,
+    Labels,
+    Projects,
+    Repositories,
+    Coding,
+    LocalRepos,
+}
+
+struct NavItem {
+    label: &'static str,
+    section: SettingsSection,
+}
+
+struct NavGroup {
+    label: &'static str,
+    items: &'static [NavItem],
+}
+
+/// The web's `SETTINGS_NAV` groups minus the web-only Billing/Widget items,
+/// plus the desktop-only "This device" group. Order defines both the nav and
+/// the non-owner fallback (first visible item).
+const NAV_GROUPS: &[NavGroup] = &[
+    NavGroup {
+        label: "Team",
+        items: &[
+            NavItem {
+                label: "General",
+                section: SettingsSection::General,
+            },
+            NavItem {
+                label: "Members",
+                section: SettingsSection::Members,
+            },
+            NavItem {
+                label: "Labels",
+                section: SettingsSection::Labels,
+            },
+        ],
+    },
+    NavGroup {
+        label: "Projects",
+        items: &[
+            NavItem {
+                label: "Projects",
+                section: SettingsSection::Projects,
+            },
+            NavItem {
+                label: "Repositories",
+                section: SettingsSection::Repositories,
+            },
+        ],
+    },
+    NavGroup {
+        label: "This device",
+        items: &[
+            NavItem {
+                label: "Coding",
+                section: SettingsSection::Coding,
+            },
+            NavItem {
+                label: "Local repositories",
+                section: SettingsSection::LocalRepos,
+            },
+        ],
+    },
+];
+
+/// Web nav `visible` gating: General/Projects/Repositories are owner-only,
+/// and General additionally hides when solo (GeneralPane renders nothing
+/// there, mirroring the web section's `if (solo) return null`).
+fn section_visible(section: SettingsSection, owner: bool, solo: bool) -> bool {
+    match section {
+        SettingsSection::General => owner && !solo,
+        SettingsSection::Projects | SettingsSection::Repositories => owner,
+        _ => true,
+    }
+}
+
+/// The selected section, clamped to what's visible. Clamped at render time —
+/// never mutated — so a membership change that hides the selection falls back
+/// (to Members, the first never-gated item) and restores it if ownership
+/// returns.
+fn effective_selection(selected: SettingsSection, owner: bool, solo: bool) -> SettingsSection {
+    if section_visible(selected, owner, solo) {
+        return selected;
+    }
+    NAV_GROUPS
+        .iter()
+        .flat_map(|group| group.items)
+        .map(|item| item.section)
+        .find(|&section| section_visible(section, owner, solo))
+        .expect("Members is never gated")
+}
+
+// ---------------------------------------------------------------------------
 // Workspace settings shell
 // ---------------------------------------------------------------------------
 
-/// The workspace-settings screen (`Screen::Settings`) — the web route's
-/// single-scroll stacked-cards page (billing/widget/danger-zone cards
+/// The workspace-settings screen (`Screen::Settings`) — the web settings
+/// pages' grouped master-detail layout (billing/widget/danger-zone
 /// skipped: web-only, §4.9).
 pub struct SettingsView {
     nav: Entity<Navigation>,
@@ -70,6 +174,9 @@ pub struct SettingsView {
     /// §4.7 desktop-only Local repositories section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated, after Coding.
     local_repos: Entity<LocalReposPane>,
+    /// The nav selection; clamped through `effective_selection` at render
+    /// time so gated sections never show for non-owners.
+    selected: SettingsSection,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -103,6 +210,7 @@ impl SettingsView {
             repositories,
             coding,
             local_repos,
+            selected: SettingsSection::General,
             _subscriptions: subscriptions,
         }
     }
@@ -135,60 +243,110 @@ impl Render for SettingsView {
             )
         };
 
-        // Web `routes/w/$workspaceSlug/settings/index.tsx`: ONE scrolling
-        // centered column (`mx-auto max-w-2xl space-y-6 p-6`) of stacked
-        // section cards — subtitle, Separator, then the cards in web order
-        // with the web's `isOwner &&` gating: General · Projects ·
-        // Repositories (owner-only) · Members (always), Separator, Labels
-        // (always). Billing/widget/danger-zone are web-only (§4.9).
-        let mut sections = v_flex()
-            .w_full()
-            .max_w(px(672.))
-            .p_4()
-            .gap_4()
-            .child(
+        // Web settings layout route (EXP-146): grouped left nav + one
+        // selected section pane in the detail column.
+        let effective = effective_selection(self.selected, owner, solo);
+
+        let mut nav = v_flex().p_2().gap_0p5();
+        for group in NAV_GROUPS {
+            let visible: Vec<&NavItem> = group
+                .items
+                .iter()
+                .filter(|item| section_visible(item.section, owner, solo))
+                .collect();
+            if visible.is_empty() {
+                continue;
+            }
+            nav = nav.child(
                 div()
+                    .px_2()
+                    .pt_2()
+                    .pb_0p5()
                     .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
-                    .child(subtitle),
-            )
-            .child(separator(cx));
-        if owner {
-            sections = sections
-                .child(self.general.clone())
-                .child(self.projects.clone())
-                .child(self.repositories.clone());
+                    .child(group.label),
+            );
+            for item in visible {
+                let section = item.section;
+                let is_selected = section == effective;
+                nav = nav.child(
+                    h_flex()
+                        .id(item.label)
+                        .w_full()
+                        .px_2()
+                        .py_1()
+                        .rounded(cx.theme().radius)
+                        .text_sm()
+                        .cursor_pointer()
+                        .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.6)))
+                        .hover(|this| this.bg(cx.theme().accent.opacity(0.3)))
+                        .child(item.label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.selected = section;
+                            cx.notify();
+                        })),
+                );
+            }
         }
-        sections = sections
-            .child(self.members.clone())
-            .child(separator(cx))
-            .child(self.labels.clone())
-            // Desktop-only §7.7 block: launcher settings + tooling doctor +
-            // the §7.2 personal-key status row. Local per-install state — no
-            // owner gate, no web-parity counterpart. §4.7 Local repositories
-            // (clone disk usage + prune/remove) rides the same local block.
-            .child(separator(cx))
-            .child(self.coding.clone())
-            .child(self.local_repos.clone());
+
+        let pane: gpui::AnyElement = match effective {
+            SettingsSection::General => self.general.clone().into_any_element(),
+            SettingsSection::Members => self.members.clone().into_any_element(),
+            SettingsSection::Labels => self.labels.clone().into_any_element(),
+            SettingsSection::Projects => self.projects.clone().into_any_element(),
+            SettingsSection::Repositories => self.repositories.clone().into_any_element(),
+            SettingsSection::Coding => self.coding.clone().into_any_element(),
+            SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
+        };
 
         v_flex()
             .size_full()
             .child(screen_header(title, cx))
             .child(
-                div()
-                    .id("settings-scroll")
+                h_flex()
                     .flex_1()
                     .w_full()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .child(h_flex().w_full().justify_center().child(sections)),
+                    .child(
+                        div()
+                            .id("settings-nav")
+                            .w(px(200.))
+                            .h_full()
+                            .flex_shrink_0()
+                            .border_r_1()
+                            .border_color(cx.theme().border)
+                            .overflow_y_scroll()
+                            .child(nav),
+                    )
+                    .child(
+                        // Scroll id keyed by section so each section keeps an
+                        // independent scroll offset.
+                        div()
+                            .id(SharedString::from(format!("settings-detail-{effective:?}")))
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_y_scroll()
+                            .child(
+                                h_flex().w_full().justify_center().child(
+                                    v_flex()
+                                        .w_full()
+                                        .max_w(px(672.))
+                                        .p_4()
+                                        .gap_4()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(subtitle),
+                                        )
+                                        .child(pane),
+                                ),
+                            ),
+                    ),
             )
     }
-}
-
-/// Web `Separator`: a 1px full-width border line.
-fn separator(cx: &App) -> gpui::Div {
-    div().h_px().w_full().flex_shrink_0().bg(cx.theme().border)
 }
 
 
@@ -444,4 +602,60 @@ pub(crate) fn open_url(cx: &mut App, url: String) {
 /// HTTP 412). Drives the §4.9 "Upgrade on the web" notice.
 pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
     matches!(err, api::ApiError::Http { status: 412, .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owner_defaults_to_general() {
+        assert_eq!(
+            effective_selection(SettingsSection::General, true, false),
+            SettingsSection::General
+        );
+    }
+
+    #[test]
+    fn non_owner_falls_back_to_members() {
+        for gated in [
+            SettingsSection::General,
+            SettingsSection::Projects,
+            SettingsSection::Repositories,
+        ] {
+            assert_eq!(
+                effective_selection(gated, false, false),
+                SettingsSection::Members
+            );
+        }
+    }
+
+    #[test]
+    fn solo_owner_hides_general() {
+        // GeneralPane renders nothing when solo (web parity), so the nav must
+        // hide it and the default selection must fall through to Members.
+        assert!(!section_visible(SettingsSection::General, true, true));
+        assert_eq!(
+            effective_selection(SettingsSection::General, true, true),
+            SettingsSection::Members
+        );
+        // Solo does NOT gate the other owner sections.
+        assert!(section_visible(SettingsSection::Projects, true, true));
+    }
+
+    #[test]
+    fn device_sections_never_gated() {
+        for section in [SettingsSection::Coding, SettingsSection::LocalRepos] {
+            assert!(section_visible(section, false, true));
+            assert_eq!(effective_selection(section, false, true), section);
+        }
+    }
+
+    #[test]
+    fn ungated_selection_is_kept() {
+        assert_eq!(
+            effective_selection(SettingsSection::Labels, false, false),
+            SettingsSection::Labels
+        );
+    }
 }

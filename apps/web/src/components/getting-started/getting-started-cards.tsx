@@ -151,9 +151,8 @@ export function GettingStartedCards({
         {canManageWidgets && (
           <Button size="sm" asChild>
             <Link
-              to="/t/$workspaceSlug/settings"
+              to="/t/$workspaceSlug/settings/widget"
               params={{ workspaceSlug }}
-              hash="feedback-widget"
             >
               Create a widget
             </Link>

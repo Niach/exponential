@@ -32,9 +32,11 @@ async function createWidget(
   workspaceSlug: string,
   domains: string
 ): Promise<string> {
-  await page.goto(`/t/${workspaceSlug}/settings`)
+  // Settings is split into per-section pages (EXP-146) — widgets live on
+  // their own page.
+  await page.goto(`/t/${workspaceSlug}/settings/widget`)
   await expect(
-    page.getByRole(`heading`, { name: `Workspace Settings` })
+    page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
   ).toBeVisible()
 
   await page.getByRole(`button`, { name: `New widget` }).click()
