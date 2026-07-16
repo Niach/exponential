@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { ArrowLeft, Check, Github, Globe } from "lucide-react"
 import type { ProjectIcon } from "@exp/db-schema/domain"
+import type { Workspace } from "@/db/schema"
 import { PROJECT_TEMPLATES, type ProjectTemplate } from "@/lib/project-types"
 import {
   Dialog,
@@ -21,6 +22,11 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/project"
 import { useCreateProject } from "@/hooks/use-create-project"
+import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
+
+// The disable-with-explanation hint for the owner-only public option
+// (projects.create rejects isPublic from non-owners — EXP-133).
+const OWNER_ONLY_PUBLIC_HINT = `Only team owners can create public boards.`
 
 // The chosen backing repo: either an existing registry repo (by id) or a
 // brand-new one picked through the GithubRepoPicker (connected inline by
@@ -32,13 +38,17 @@ type RepoSelection =
 export function CreateProjectDialog({
   open,
   onOpenChange,
-  workspaceId,
+  workspace,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  workspaceId: string
+  workspace: Workspace
 }) {
+  const workspaceId = workspace.id
   const { createProject } = useCreateProject()
+  // Public boards are owner-only on the server (assertWorkspaceOwner in
+  // projects.create) — non-owners get the option disabled with a hint.
+  const { isOwner } = useWorkspacePermissions(workspace)
   // Templates only pre-set the toggles below — every project has the same
   // shape (repo optional, publicness a switch).
   const [template, setTemplate] = useState<ProjectTemplate | null>(null)
@@ -120,7 +130,9 @@ export function CreateProjectDialog({
       prefix,
       color,
       icon,
-      isPublic,
+      // Clamped in case membership loaded after a public template was picked
+      // — the server would reject a non-owner's isPublic anyway.
+      isPublic: isOwner && isPublic,
       repository,
     })
     setSubmitting(false)
@@ -169,27 +181,31 @@ export function CreateProjectDialog({
 
           {template === null ? (
             <div className="space-y-2">
-              {PROJECT_TEMPLATES.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => applyTemplate(option)}
-                  className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-accent/40"
-                >
-                  <option.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 text-sm font-medium">
-                      {option.label}
-                      {option.defaults.isPublic && (
-                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
+              {PROJECT_TEMPLATES.map((option) => {
+                const ownerLocked = option.defaults.isPublic && !isOwner
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    disabled={ownerLocked}
+                    onClick={() => applyTemplate(option)}
+                    className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+                  >
+                    <option.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        {option.label}
+                        {option.defaults.isPublic && (
+                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {ownerLocked ? OWNER_ONLY_PUBLIC_HINT : option.description}
+                      </span>
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -280,13 +296,16 @@ export function CreateProjectDialog({
                   Public board
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Anyone with the link can read it.
+                  {isOwner
+                    ? `Anyone with the link can read it.`
+                    : OWNER_ONLY_PUBLIC_HINT}
                 </p>
               </div>
               <Switch
                 id="project-public"
                 checked={isPublic}
                 onCheckedChange={setIsPublic}
+                disabled={!isOwner}
               />
             </div>
 

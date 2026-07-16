@@ -20,6 +20,7 @@
 //! Opened by the sidebar's Projects `+` via the [`NewProject`]
 //! action; [`init`] owns the handler.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
@@ -54,6 +55,10 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 
 /// Web default project color (`create-project-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
+
+/// Disable-with-explanation hint for the owner-only public option
+/// (`projects.create` rejects `isPublic` from non-owners — EXP-133).
+const OWNER_ONLY_PUBLIC_HINT: &str = "Only team owners can create public boards.";
 
 /// A quickstart template: `(key, title, subtitle, icon, is_public, repo_leads)`.
 /// The key is an opaque card identifier (never sent to the server). Picking one
@@ -370,7 +375,8 @@ impl CreateProjectDialogView {
             workspace_id: self.workspace_id.clone(),
             name,
             prefix,
-            is_public: self.is_public,
+            // Clamped — the server rejects a non-owner's isPublic.
+            is_public: self.is_public && crate::settings::is_owner(cx, &self.workspace_id),
             icon: Some(self.icon.to_string()),
             color: Some(self.color.clone()),
             repository,
@@ -462,7 +468,10 @@ impl CreateProjectDialogView {
     /// Feedback board — each with a glyph, title, and one-liner. Picking one
     /// seeds `is_public` + `icon` + `repo_leads`; the repository stays optional
     /// on every template and the "Public" toggle can still override the seed.
+    /// Public-board templates are owner-only on the server, so non-owners get
+    /// the card dimmed + non-clickable with a hint (EXP-133).
     fn template_selector(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let owner = crate::settings::is_owner(cx, &self.workspace_id);
         let mut grid = v_flex().gap_2();
         for template in &TEMPLATES {
             let key = template.key;
@@ -470,61 +479,71 @@ impl CreateProjectDialogView {
             let is_public = template.is_public;
             let repo_leads = template.repo_leads;
             let selected = self.template == key;
+            let owner_locked = template.is_public && !owner;
             let view = cx.entity().clone();
-            grid = grid.child(
-                h_flex()
-                    .id(SharedString::from(format!("project-template-{key}")))
-                    .w_full()
-                    .gap_3()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(if selected {
-                        cx.theme().primary
-                    } else {
-                        cx.theme().border
-                    })
-                    .cursor_pointer()
-                    .child(
-                        crate::icons::project_icon_name_glyph(template.icon)
-                            .small()
-                            .flex_shrink_0()
-                            .text_color(if selected {
-                                cx.theme().primary
-                            } else {
-                                cx.theme().muted_foreground
-                            }),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(template.title),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(template.subtitle),
-                            ),
-                    )
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            if this.template != key {
-                                this.template = key;
-                                this.icon = icon;
-                                this.is_public = is_public;
-                                this.repo_leads = repo_leads;
-                                cx.notify();
-                            }
-                        });
-                    }),
-            );
+            let mut card = h_flex()
+                .id(SharedString::from(format!("project-template-{key}")))
+                .w_full()
+                .gap_3()
+                .items_center()
+                .px_3()
+                .py_2()
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_color(if selected {
+                    cx.theme().primary
+                } else {
+                    cx.theme().border
+                })
+                .child(
+                    crate::icons::project_icon_name_glyph(template.icon)
+                        .small()
+                        .flex_shrink_0()
+                        .text_color(if owner_locked {
+                            cx.theme().muted_foreground.opacity(0.5)
+                        } else if selected {
+                            cx.theme().primary
+                        } else {
+                            cx.theme().muted_foreground
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .when(owner_locked, |this| {
+                                    this.text_color(cx.theme().muted_foreground)
+                                })
+                                .child(template.title),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(if owner_locked {
+                                    OWNER_ONLY_PUBLIC_HINT
+                                } else {
+                                    template.subtitle
+                                }),
+                        ),
+                );
+            if !owner_locked {
+                card = card.cursor_pointer().on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| {
+                        if this.template != key {
+                            this.template = key;
+                            this.icon = icon;
+                            this.is_public = is_public;
+                            this.repo_leads = repo_leads;
+                            cx.notify();
+                        }
+                    });
+                });
+            }
+            grid = grid.child(card);
         }
 
         v_flex()
@@ -534,8 +553,10 @@ impl CreateProjectDialogView {
     }
 
     /// The "Public" toggle: a public board is readable by anyone with the link.
-    /// Seeded by the template, but the user can flip it independently.
+    /// Seeded by the template, but the user can flip it independently. Owner-
+    /// only on the server — disabled with a hint for non-owners (EXP-133).
     fn public_toggle(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let owner = crate::settings::is_owner(cx, &self.workspace_id);
         let view = cx.entity().clone();
         v_flex().gap_2().child(field_label(cx, "Visibility")).child(
             h_flex()
@@ -545,7 +566,7 @@ impl CreateProjectDialogView {
                     Switch::new("project-public")
                         .small()
                         .checked(self.is_public)
-                        .disabled(self.submitting)
+                        .disabled(self.submitting || !owner)
                         .on_click(move |checked: &bool, _, cx| {
                             let checked = *checked;
                             view.update(cx, |this, cx| {
@@ -558,7 +579,11 @@ impl CreateProjectDialogView {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child("Public — anyone with the link can read it"),
+                        .child(if owner {
+                            "Public — anyone with the link can read it"
+                        } else {
+                            OWNER_ONLY_PUBLIC_HINT
+                        }),
                 ),
         )
     }

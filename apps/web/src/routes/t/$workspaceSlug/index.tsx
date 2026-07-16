@@ -62,7 +62,7 @@ function WorkspaceIndexPage() {
         <CreateProjectDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
-          workspaceId={workspace.id}
+          workspace={workspace}
         />
       )}
     </div>

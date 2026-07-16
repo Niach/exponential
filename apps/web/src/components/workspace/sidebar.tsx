@@ -523,7 +523,7 @@ export function WorkspaceSidebar({
         <CreateProjectDialog
           open={createProjectOpen}
           onOpenChange={setCreateProjectOpen}
-          workspaceId={workspace.id}
+          workspace={workspace}
         />
       )}
       {isAdminUser(session?.user) && (
