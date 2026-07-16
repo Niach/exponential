@@ -2,6 +2,7 @@ import {
   cropToViewport,
   encodeScreenshot,
 } from "./image"
+import { isReadableIframe } from "./pii-mask"
 
 // Engine abstraction: snapDOM today, a marker.io-style server-side renderer
 // or native tab capture can slot in later without touching the UI.
@@ -64,7 +65,9 @@ export async function captureScreenshot(
         // The widget excludes itself from the clone — capture runs before
         // the panel opens, so at most the floating button is at stake.
         excludeSelectors: [`[data-exponential-widget]`],
-        keepNode: (el) => !tainted.has(el),
+        // Readable iframes are dropped whole: snapDOM rasterizes them before
+        // the pii-mask plugin can walk their text (see isReadableIframe).
+        keepNode: (el) => !tainted.has(el) && !isReadableIframe(el),
         dpr: Math.min(window.devicePixelRatio || 1, 2),
       }),
       captureTimeoutMs
