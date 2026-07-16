@@ -480,6 +480,16 @@ private struct BlockTextEditor: UIViewRepresentable {
         func textViewDidBeginEditing(_ tv: UITextView) {
             guard let blockId else { return }
             model?.setFocused(blockId)
+            // SwiftUI's keyboard avoidance only shrinks the safe area — it
+            // never scrolls a UIKit first responder into view, so a focused
+            // block near the bottom (the comment composer) stayed half-hidden
+            // behind the keyboard (EXP-135). Reveal the caret once the
+            // keyboard animation and the avoidance insets have settled.
+            Task { [weak self, weak tv] in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard let self, let tv, tv.isFirstResponder else { return }
+                self.scrollCaretIntoView(tv)
+            }
         }
 
         func textViewDidEndEditing(_ tv: UITextView) {
@@ -493,6 +503,27 @@ private struct BlockTextEditor: UIViewRepresentable {
             guard let model, let blockId else { return }
             let snapshot = NSAttributedString(attributedString: tv.attributedText)
             model.updateText(id: blockId, content: snapshot)
+            // Keep the caret visible as typing grows the block (a no-op when
+            // it already is — scrollRectToVisible ignores visible rects).
+            if tv.isFirstResponder {
+                scrollCaretIntoView(tv)
+            }
+        }
+
+        /// Scrolls the nearest enclosing scroll view (the SwiftUI ScrollView
+        /// hosting the editor) so the caret AND a margin below it are visible.
+        /// The margin keeps the row under the focused field — the comment
+        /// composer's send button — above the keyboard too (EXP-135).
+        private func scrollCaretIntoView(_ tv: UITextView) {
+            guard let selection = tv.selectedTextRange else { return }
+            var ancestor = tv.superview
+            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            guard let scrollView = ancestor as? UIScrollView else { return }
+            let caret = tv.caretRect(for: selection.end)
+            guard !caret.isNull, !caret.isInfinite else { return }
+            var target = tv.convert(caret, to: scrollView)
+            target.size.height += 88
+            scrollView.scrollRectToVisible(target, animated: true)
         }
 
         func textViewDidChangeSelection(_ tv: UITextView) {
