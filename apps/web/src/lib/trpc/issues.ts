@@ -30,7 +30,6 @@ import {
 } from "@/lib/integrations/github-pr"
 import {
   githubAppConfigured,
-  resolveRepoInstallationToken,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToWorkspace } from "@/lib/trpc/integrations"
@@ -957,7 +956,11 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (v7: every member is invited/trusted — the
       // old public-workspace moderator clamp is gone with self-service joins).
-      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
+      const { workspaceId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
 
       const [row] = await ctx.db
         .select({
@@ -1008,11 +1011,26 @@ export const issuesRouter = router({
           message: `GitHub App is not configured on this instance`,
         })
       }
-      const token = await resolveRepoInstallationToken(repoFullName)
-      if (!token) {
+      const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+      if (!resolved) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `GitHub App is not installed on ${repoFullName}`,
+        })
+      }
+      // Link-gate (mirrors prFiles): the installation serving this repo must
+      // still be claimed by the issue's workspace — a deliberately severed
+      // GitHub connection must not keep authorizing PR writes through an old
+      // prUrl.
+      if (
+        !(await isInstallationLinkedToWorkspace(
+          workspaceId,
+          resolved.installationId
+        ))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
         })
       }
 
@@ -1020,7 +1038,7 @@ export const issuesRouter = router({
         await mergePullRequest({
           repo: repoFullName,
           prNumber: row.prNumber,
-          token,
+          token: resolved.token,
           commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
         })
       } catch (err) {
@@ -1083,7 +1101,11 @@ export const issuesRouter = router({
   closePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ closed: true }> => {
-      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
+      const { workspaceId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
 
       const [row] = await ctx.db
         .select({
@@ -1130,11 +1152,26 @@ export const issuesRouter = router({
           message: `GitHub App is not configured on this instance`,
         })
       }
-      const token = await resolveRepoInstallationToken(repoFullName)
-      if (!token) {
+      const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+      if (!resolved) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `GitHub App is not installed on ${repoFullName}`,
+        })
+      }
+      // Link-gate (mirrors prFiles): the installation serving this repo must
+      // still be claimed by the issue's workspace — a deliberately severed
+      // GitHub connection must not keep authorizing PR writes through an old
+      // prUrl.
+      if (
+        !(await isInstallationLinkedToWorkspace(
+          workspaceId,
+          resolved.installationId
+        ))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
         })
       }
 
@@ -1142,7 +1179,7 @@ export const issuesRouter = router({
         await closePullRequest({
           repo: repoFullName,
           prNumber: row.prNumber,
-          token,
+          token: resolved.token,
         })
       } catch (err) {
         if (err instanceof GitHubMergeError) {
