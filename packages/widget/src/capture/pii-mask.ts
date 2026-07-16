@@ -61,6 +61,27 @@ export function maskEmailsInTree(root: Node): void {
   maskFormValues(root)
 }
 
+// snapDOM rasterizes a readable (same-origin) iframe to an <img> DURING clone
+// construction — before afterClone runs — so the tree walker above never sees
+// its text and emails inside it would reach the screenshot unmasked. Masking
+// the iframe's live document instead is off the table: it mutates the host
+// page and a framework re-render could leave redaction bullets behind. So
+// readable iframes are excluded from capture via the `filter` option, which
+// snapDOM evaluates before its iframe branch; filterMode `hide` swaps in an
+// invisible same-size box. Cross-origin iframes are unreadable and can't
+// leak — snapDOM's own skip path keeps handling those.
+export function isReadableIframe(el: Element): boolean {
+  if (el.tagName !== `IFRAME`) return false
+  try {
+    return !!(
+      (el as HTMLIFrameElement).contentDocument ??
+      (el as HTMLIFrameElement).contentWindow?.document
+    )
+  } catch {
+    return false
+  }
+}
+
 export const piiMaskPlugin: SnapdomPlugin = {
   name: `exp-pii-mask`,
   afterClone(context) {
