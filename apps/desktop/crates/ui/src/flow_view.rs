@@ -79,9 +79,11 @@ impl FlowView {
             // A session spawn just created a worktree + branch on disk (and
             // an exit may precede a cleanup) — nudge a LOCAL branch re-read
             // so the graph gains the lane immediately instead of waiting for
-            // the next auto-sync tick.
+            // the next auto-sync tick. Also re-render directly: the EXP-102
+            // sweep/delete guards read the live-session set.
             cx.observe(&local_sessions, |this: &mut Self, _, cx| {
                 this.git_bar.update(cx, |bar, cx| bar.reread_local(cx));
+                cx.notify();
             }),
             // The view-branch highlight lives on the rail state.
             cx.observe(&shared, |_, _, cx| cx.notify()),
@@ -227,8 +229,8 @@ impl FlowView {
                 .title(SharedString::from(format!("Delete {branch}?")))
                 .description(
                     "Deletes the local branch and its worktree — including any \
-                     uncommitted changes in that worktree. Branches on origin \
-                     are untouched.",
+                     uncommitted changes and unpushed commits. Branches on \
+                     origin are untouched.",
                 )
                 .button_props(DialogButtonProps::default().ok_text("Delete branch"))
                 .on_ok(move |_, _, cx| {
@@ -246,6 +248,19 @@ impl FlowView {
     /// its next branch read).
     fn delete_lane(&mut self, branch: String, cx: &mut gpui::Context<Self>) {
         if self.busy {
+            return;
+        }
+        // EXP-102: re-check at confirm time — a session could have spawned
+        // onto this lane while the dialog sat open, and removing its
+        // worktree would pull the running claude PTY's cwd out from under it.
+        if crate::coding_flow::LocalSessions::global(cx)
+            .read(cx)
+            .is_branch_live(&branch)
+        {
+            self.error = Some(
+                format!("{branch} has a running coding session — stop it before deleting.").into(),
+            );
+            cx.notify();
             return;
         }
         let Some(clone) = self.git_bar.read(cx).clone_dir() else {
@@ -278,15 +293,20 @@ impl FlowView {
 
     /// The sweep's targets (EXP-93): every merged lane that isn't checked out
     /// — the default lane never carries a merged PR tone, and the current
-    /// branch can't lose its working tree.
+    /// branch can't lose its working tree. Lanes hosting a LIVE local coding
+    /// session are excluded (EXP-102): a merged-but-still-running lane must
+    /// not lose the session's cwd.
     pub fn sweep_candidates(&self, cx: &mut gpui::Context<Self>) -> Vec<String> {
-        self.build_flow(cx)
-            .lanes
+        let flow = self.build_flow(cx);
+        let sessions = crate::coding_flow::LocalSessions::global(cx);
+        let sessions = sessions.read(cx);
+        flow.lanes
             .iter()
             .filter(|lane| {
                 matches!(lane.pr, crate::flow_lanes::PrTone::Merged)
                     && !lane.current
                     && !matches!(lane.kind, LaneKind::Default)
+                    && !sessions.is_branch_live(&lane.branch)
             })
             .map(|lane| lane.branch.clone())
             .collect()
@@ -325,8 +345,9 @@ impl FlowView {
                 )))
                 .description(
                     "Deletes the local branch and worktree of every merged lane. \
-                     A worktree with uncommitted changes is skipped — nothing is \
-                     force-removed. Branches on origin are untouched.",
+                     A lane with uncommitted changes or unpushed commits is \
+                     skipped — nothing is force-removed. Branches on origin are \
+                     untouched.",
                 )
                 .button_props(DialogButtonProps::default().ok_text("Sweep"))
                 .on_ok(move |_, _, cx| {
@@ -343,6 +364,19 @@ impl FlowView {
     /// git-bar refresh; the removed/skipped summary lands in `notice`.
     fn sweep_merged(&mut self, branches: Vec<String>, cx: &mut gpui::Context<Self>) {
         if self.busy {
+            return;
+        }
+        // EXP-102: same confirm-time re-check as the per-lane delete — drop
+        // any lane a session spawned onto while the dialog sat open.
+        let branches: Vec<String> = {
+            let sessions = crate::coding_flow::LocalSessions::global(cx);
+            let sessions = sessions.read(cx);
+            branches
+                .into_iter()
+                .filter(|branch| !sessions.is_branch_live(branch))
+                .collect()
+        };
+        if branches.is_empty() {
             return;
         }
         let Some(clone) = self.git_bar.read(cx).clone_dir() else {
@@ -379,6 +413,7 @@ impl FlowView {
         lane: &Lane,
         connector: &crate::flow_lanes::LaneConnector,
         viewing: bool,
+        session_live: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -576,8 +611,14 @@ impl FlowView {
                         .ghost()
                         .xsmall()
                         .icon(Icon::new(IconName::Delete))
-                        .tooltip("Delete branch and its worktree…")
-                        .disabled(self.busy)
+                        // EXP-102: a lane with a live local coding session
+                        // must keep its worktree — the session's cwd.
+                        .tooltip(if session_live {
+                            "A coding session is running on this branch — stop it first"
+                        } else {
+                            "Delete branch and its worktree…"
+                        })
+                        .disabled(self.busy || session_live)
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             cx.stop_propagation();
                             this.prompt_delete_lane(delete_branch.clone(), window, cx);
@@ -625,8 +666,11 @@ impl Render for FlowView {
             .view_branch()
             .map(str::to_string);
 
+        let local_sessions = crate::coding_flow::LocalSessions::global(cx);
+
         let mut section = v_flex().w_full().p_1().px_2();
         for (lane, connector) in flow.lanes.iter().zip(&lane_connectors) {
+            let session_live = local_sessions.read(cx).is_branch_live(&lane.branch);
             let viewing = match &lane.issue_id {
                 Some(issue_id) => active_issue.as_deref() == Some(issue_id.as_str()),
                 None => {
@@ -637,7 +681,7 @@ impl Render for FlowView {
                         }
                 }
             };
-            section = section.child(self.render_lane(lane, connector, viewing, cx));
+            section = section.child(self.render_lane(lane, connector, viewing, session_live, cx));
         }
         if let Some(error) = &self.error {
             section = section.child(

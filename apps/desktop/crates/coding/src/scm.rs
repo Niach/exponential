@@ -513,6 +513,24 @@ pub fn delete_branch_and_worktree(clone: &Path, branch: &str) -> Result<(), GitE
     delete_branch(clone, branch)
 }
 
+/// Commits reachable from `branch` but from NO remote ref (`git rev-list
+/// --count <branch> --not --remotes`) — the sweep's lost-work probe
+/// (EXP-101). A merged lane can still carry post-merge local commits with a
+/// clean tree; `branch -D` would strand them in the object store. Zero means
+/// every commit is on some remote and the local branch is safe to drop.
+pub fn unpushed_count(clone: &Path, branch: &str) -> Result<u32, GitError> {
+    let raw = run_git(
+        Some(clone),
+        &["rev-list", "--count", branch, "--not", "--remotes"],
+        None,
+        "git rev-list --count",
+    )?;
+    raw.trim().parse().map_err(|_| GitError {
+        op: "count unpushed commits".to_string(),
+        detail: format!("unexpected rev-list output: {raw:?}"),
+    })
+}
+
 /// Outcome of a bulk sweep (EXP-93): lanes removed + skipped
 /// `(branch, reason)` pairs.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -523,13 +541,29 @@ pub struct SweepResult {
 
 /// Bulk cleanup for merged lanes (EXP-93 sweep button): for each branch,
 /// remove its session worktree and delete the local branch. Unlike the
-/// per-lane delete, a worktree with uncommitted changes is **skipped and
-/// reported** — a bulk action never force-removes work (the settings-pane
-/// prune rule). A branch without a worktree just loses the local branch.
-/// Origin is never touched. Blocking; callers run it off the foreground.
+/// per-lane delete, a worktree with uncommitted changes — or a branch with
+/// commits on no remote (EXP-101) — is **skipped and reported**; a bulk
+/// action never force-removes work (the settings-pane prune rule). A branch
+/// without a worktree just loses the local branch. Origin is never touched.
+/// Blocking; callers run it off the foreground.
 pub fn sweep_branches(clone: &Path, branches: &[String]) -> SweepResult {
     let mut result = SweepResult::default();
     for branch in branches {
+        // EXP-101: a clean tree does not mean pushed work — refuse to drop
+        // commits no remote holds (an unreadable probe skips too).
+        match unpushed_count(clone, branch) {
+            Ok(0) => {}
+            Ok(_) => {
+                result
+                    .skipped
+                    .push((branch.clone(), "unpushed commits".to_string()));
+                continue;
+            }
+            Err(err) => {
+                result.skipped.push((branch.clone(), err.detail));
+                continue;
+            }
+        }
         let outcome = match worktree_for_branch(clone, branch) {
             Some(worktree) if is_dirty(&worktree).unwrap_or(true) => {
                 result
@@ -1137,6 +1171,15 @@ detached
         std::fs::remove_dir_all(wt_root).ok();
     }
 
+    /// A bare `origin` remote holding every current local branch — the
+    /// EXP-101 sweep tests need pushed lanes (an unpushed lane is skipped).
+    fn add_pushed_origin(repo: &Path) {
+        let origin = repo.join("origin.git");
+        git(repo, &["init", "--quiet", "--bare", origin.to_str().unwrap()]);
+        git(repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(repo, &["push", "--quiet", "origin", "--all"]);
+    }
+
     #[test]
     fn sweep_branches_removes_clean_lanes_and_skips_dirty_worktrees() {
         let d = temp_dir("sweep");
@@ -1159,6 +1202,7 @@ detached
         std::fs::write(wt_root.join("exp-EXP-2").join("f.txt"), "dirty").unwrap();
         // EXP-3 is a branch-only lane (no worktree).
         run_git(Some(r), &["branch", "exp/EXP-3"], None, "git branch").unwrap();
+        add_pushed_origin(r);
 
         let result = sweep_branches(
             r,
@@ -1180,6 +1224,47 @@ detached
         assert!(!names.contains(&"exp/EXP-1".to_string()));
         assert!(names.contains(&"exp/EXP-2".to_string()));
         assert!(!names.contains(&"exp/EXP-3".to_string()));
+        std::fs::remove_dir_all(wt_root).ok();
+    }
+
+    #[test]
+    fn sweep_branches_skips_lanes_with_unpushed_commits() {
+        let d = temp_dir("sweep-unpushed");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "x");
+        commit_all(r, "init");
+        let wt_root = crate::git_worktree::worktrees_dir(r);
+        let wt = wt_root.join("exp-EXP-9");
+        run_git(
+            Some(r),
+            &["worktree", "add", "-b", "exp/EXP-9", wt.to_str().unwrap()],
+            None,
+            "git worktree add",
+        )
+        .unwrap();
+        add_pushed_origin(r);
+        // A post-push local commit with a CLEAN tree — the EXP-101 case: only
+        // the unpushed-count probe stands between it and `branch -D`.
+        std::fs::write(wt.join("late.txt"), "post-merge work").unwrap();
+        git(&wt, &["add", "-A"]);
+        git(&wt, &["commit", "--quiet", "-m", "post-merge"]);
+
+        let result = sweep_branches(r, &["exp/EXP-9".to_string()]);
+        assert_eq!(result.removed, 0);
+        assert_eq!(
+            result.skipped,
+            vec![("exp/EXP-9".to_string(), "unpushed commits".to_string())]
+        );
+        assert!(wt.exists());
+        assert!(branches(r).unwrap().iter().any(|b| b.name == "exp/EXP-9"));
+
+        // Pushing the commit clears the guard — the lane sweeps clean.
+        git(&wt, &["push", "--quiet", "origin", "exp/EXP-9"]);
+        let result = sweep_branches(r, &["exp/EXP-9".to_string()]);
+        assert_eq!(result.removed, 1);
+        assert!(result.skipped.is_empty());
+        assert!(!wt.exists());
         std::fs::remove_dir_all(wt_root).ok();
     }
 
