@@ -10,7 +10,7 @@ export type BoardRow = {
   status: IssueStatus
   priority: Priority
   label?: { name: string; dot: string }
-  assignee?: "AC" // undefined = no avatar
+  assignee?: string // avatar initials; undefined = no avatar
   due?: string // "Jul 15"
 }
 

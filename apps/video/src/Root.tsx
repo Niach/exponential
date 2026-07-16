@@ -4,10 +4,19 @@ import { WebUiDemo } from "./Video"
 import { ShipsItsOwnIssues } from "./ships/ShipsItsOwnIssues"
 import { LaunchSpot } from "./spot/LaunchSpot"
 import { LaunchSpotVertical } from "./spot-vertical/LaunchSpotVertical"
+import { ClosedLoop, DURATION_IN_FRAMES as CLOSED_LOOP_FRAMES, FPS as CLOSED_LOOP_FPS } from "./closedloop"
 
 export const RemotionRoot: React.FC = () => {
   return (
     <>
+      <Composition
+        id="ClosedLoop"
+        component={ClosedLoop}
+        durationInFrames={CLOSED_LOOP_FRAMES}
+        fps={CLOSED_LOOP_FPS}
+        width={1920}
+        height={1080}
+      />
       <Composition
         id="LaunchSpot"
         component={LaunchSpot}

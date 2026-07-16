@@ -427,7 +427,8 @@ export const BoardTool: React.FC<{
   prDotId?: { id: string; at: number } // 6px green PR dot pops after the identifier
   regroup?: { id: string; t: number; from?: IssueStatus } // FLIP slide between groups; from = group being left (defaults to the row's base status)
   showLabels?: boolean // ref truth: the real 260px sidebar board hides label chips (titles win)
-}> = ({ frame, rows, overrides, cascadeAt, hover, selectedId, prDotId, regroup, showLabels = true }) => {
+  insertAt?: { id: string; at: number } // row pops in at `at`: height 0→ROW_H + fade, rows below slide down
+}> = ({ frame, rows, overrides, cascadeAt, hover, selectedId, prDotId, regroup, showLabels = true, insertAt }) => {
   const eff = rows.map((r) => ({ ...r, ...(overrides?.[r.id] ?? {}) }))
   const t = regroup ? Math.min(1, Math.max(0, regroup.t)) : 1
   const layoutB = computeLayout(eff)
@@ -441,12 +442,28 @@ export const BoardTool: React.FC<{
       )
     : layoutB
 
+  // Insert pop: before `insertAt.at` the row is absent (layoutIns positions rule);
+  // over INSERT_DUR frames it grows 0→ROW_H while rows below slide down.
+  const INSERT_DUR = 12
+  const tIns =
+    insertAt === undefined
+      ? 1
+      : interpolate(frame, [insertAt.at, insertAt.at + INSERT_DUR], [0, 1], { ...CLAMP, easing: EASE })
+  const layoutIns =
+    insertAt === undefined || tIns >= 1 ? undefined : computeLayout(eff.filter((r) => r.id !== insertAt.id))
+
   const yOf = (key: string): number => {
     const b = layoutB.get(key)
     const a = layoutA.get(key)
-    if (!b) return a ? a.y : 0
-    if (!a || a.y === b.y) return b.y
-    return interpolate(t, [0, 1], [a.y, b.y], { ...CLAMP, easing: EASE })
+    let y: number
+    if (!b) y = a ? a.y : 0
+    else if (!a || a.y === b.y) y = b.y
+    else y = interpolate(t, [0, 1], [a.y, b.y], { ...CLAMP, easing: EASE })
+    if (layoutIns !== undefined && insertAt !== undefined && key !== insertAt.id) {
+      const pre = layoutIns.get(key)
+      if (pre !== undefined && pre.y !== y) y = pre.y + (y - pre.y) * tIns
+    }
+    return y
   }
 
   const hoverOpacity = (id: string): number => {
@@ -471,7 +488,8 @@ export const BoardTool: React.FC<{
     const placedB = layoutB.get(headerKey)
     if (!placedB) continue
     const countA = layoutA.get(headerKey)?.count ?? placedB.count
-    const count = t < 0.5 ? countA : placedB.count
+    let count = t < 0.5 ? countA : placedB.count
+    if (layoutIns !== undefined && tIns < 0.5) count = layoutIns.get(headerKey)?.count ?? count
     items.push(
       <div
         key={headerKey}
@@ -502,6 +520,8 @@ export const BoardTool: React.FC<{
     for (const row of members) {
       const placedRow = layoutB.get(row.id)
       if (!placedRow) continue
+      const isInserted = insertAt !== undefined && insertAt.id === row.id
+      if (isInserted && frame < insertAt.at) continue
       const isMover = regroup !== undefined && regroup.id === row.id
       const inFlight = isMover && t > 0 && t < 1
       const hoverO = hoverOpacity(row.id)
@@ -515,6 +535,13 @@ export const BoardTool: React.FC<{
       // Status-glyph pop as the mover lands in its new group (t-driven, deterministic).
       const iconScale =
         isMover && t > 0 ? interpolate(t, [0, 0.18, 0.38], [0.4, 1.18, 1], CLAMP) : 1
+      // Inserted-row entrance: height 0→ROW_H + fade, plus a soft indigo flash that decays.
+      const insertFlash = isInserted
+        ? interpolate(frame, [insertAt.at + 2, insertAt.at + 44], [0.22, 0], { ...CLAMP, easing: EASE })
+        : 0
+      const insertStyle: React.CSSProperties = isInserted
+        ? { height: Math.max(0, ROW_H * tIns), overflow: `hidden`, opacity: tIns }
+        : {}
       items.push(
         <div
           key={row.id}
@@ -533,8 +560,12 @@ export const BoardTool: React.FC<{
             zIndex: inFlight ? 5 : undefined,
             boxShadow: inFlight ? `0 4px 16px rgba(0,0,0,${0.5 * 4 * t * (1 - t)})` : undefined,
             ...enter(placedRow.index),
+            ...insertStyle,
           }}
         >
+          {insertFlash > 0 ? (
+            <div style={{ position: `absolute`, inset: 0, backgroundColor: `rgba(99,102,241,${insertFlash})` }} />
+          ) : null}
           {hoverO > 0 && !selected ? (
             <div
               style={{
@@ -672,7 +703,9 @@ export const ReviewsTool: React.FC<{
   morphAt?: number // global frame the CURRENT mergeState began — drives the 6f width/color morph
   hover?: boolean // cursor over the merge button
   rowFade?: number // 0→1 row fade + height collapse (drive before/while switching to "gone")
-}> = ({ frame, mergeState, morphAt, hover, rowFade }) => {
+  row?: { id: string; title: string; sub: string } // PR row content (default: the ships REVIEW_ROW)
+  project?: string // group header project name (default "Exponential")
+}> = ({ frame, mergeState, morphAt, hover, rowFade, row = REVIEW_ROW, project = `Exponential` }) => {
   const collapse = mergeState === `gone` ? 1 : Math.min(1, Math.max(0, rowFade ?? 0))
   const ROW_FULL = 48
 
@@ -716,7 +749,7 @@ export const ReviewsTool: React.FC<{
       {/* group header: project dot + name */}
       <div style={{ height: ROW_H, display: `flex`, alignItems: `center`, gap: 8, padding: `0 12px` }}>
         <span style={{ width: 8, height: 8, flex: `none`, borderRadius: 999, backgroundColor: C.indigoSoft }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>Exponential</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>{project}</span>
       </div>
       {/* the one PR row (collapses via rowFade / "gone") */}
       <div style={{ height: ROW_FULL * (1 - collapse), opacity: 1 - collapse, overflow: `hidden` }}>
@@ -725,7 +758,7 @@ export const ReviewsTool: React.FC<{
             <span style={{ color: C.green, display: `flex`, flex: `none` }}>
               <GitPullRequestIcon size={14} />
             </span>
-            <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.muted, flex: `none` }}>{REVIEW_ROW.id}</span>
+            <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.muted, flex: `none` }}>{row.id}</span>
             <span
               style={{
                 flex: 1,
@@ -737,7 +770,7 @@ export const ReviewsTool: React.FC<{
                 textOverflow: `ellipsis`,
               }}
             >
-              {REVIEW_ROW.title}
+              {row.title}
             </span>
             {button}
           </div>
@@ -753,7 +786,7 @@ export const ReviewsTool: React.FC<{
               textOverflow: `ellipsis`,
             }}
           >
-            {REVIEW_ROW.sub}
+            {row.sub}
           </div>
         </div>
       </div>
