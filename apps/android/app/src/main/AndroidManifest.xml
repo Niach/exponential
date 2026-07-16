@@ -111,6 +111,14 @@
             </intent-filter>
         </service>
 
+        <!-- The push relay sends notification-type FCM messages, so with the
+             app backgrounded the FCM SDK renders the notification itself
+             (FcmService is never called) and would fall back to the launcher
+             icon — which is not alpha-safe for the status bar (EXP-143). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
+
     </application>
 
 </manifest>

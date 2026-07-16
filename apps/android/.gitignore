@@ -24,3 +24,6 @@ fastlane/test_output
 fastlane/*.json
 .bundle/
 vendor/bundle/
+
+# Kotlin 2.x build session metadata
+.kotlin/
