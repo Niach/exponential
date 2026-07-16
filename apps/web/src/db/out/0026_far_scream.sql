@@ -6,3 +6,6 @@ UPDATE "projects" SET "icon" = CASE "type"
   WHEN 'tasks' THEN 'square-kanban'
   ELSE 'code'
 END WHERE "icon" IS NULL;--> statement-breakpoint
+DROP INDEX "idx_projects_feedback";--> statement-breakpoint
+ALTER TABLE "projects" DROP COLUMN "type";--> statement-breakpoint
+DROP TYPE "public"."project_type";
