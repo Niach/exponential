@@ -79,6 +79,10 @@ pub struct TerminalTab {
     /// Live OSC 0/2 title (§6.6 `Title`/`ResetTitle`); `None` falls back to
     /// the default.
     pub(crate) osc_title: Option<SharedString>,
+    /// Identity re-attached to live OSC titles (EXP-145): claude replaces the
+    /// whole title with its task description, dropping the `EXP-42` the
+    /// kind-default carried — a prefixed tab shows `EXP-42 · <osc title>`.
+    pub(crate) title_prefix: Option<SharedString>,
     pub(crate) on_exit: Option<ExitHook>,
     /// Keeps the manager's `TerminalViewEvent` subscription alive.
     pub(crate) _subscription: Subscription,
@@ -88,6 +92,15 @@ impl TerminalTab {
     /// Effective strip title: live OSC title, else the kind default.
     pub fn title(&self) -> &SharedString {
         self.osc_title.as_ref().unwrap_or(&self.default_title)
+    }
+
+    /// Display form of a live OSC title (EXP-145): prepend [`Self::title_prefix`]
+    /// (`EXP-42 · <osc title>`) — unless the emitted title already contains
+    /// the prefix, so it never doubles up. The manager applies this when it
+    /// stores the OSC title; a title *reset* still falls back to the
+    /// kind-default, which carries the identity on its own.
+    pub(crate) fn decorate_osc_title(&self, title: SharedString) -> SharedString {
+        decorate_osc_title(self.title_prefix.as_deref(), title)
     }
 
     pub fn status(&self) -> TabStatus {
@@ -107,6 +120,14 @@ impl TerminalTab {
     }
 }
 
+/// [`TerminalTab::decorate_osc_title`]'s pure core (testable without a view).
+fn decorate_osc_title(prefix: Option<&str>, title: SharedString) -> SharedString {
+    match prefix {
+        Some(prefix) if !title.contains(prefix) => format!("{prefix} · {title}").into(),
+        _ => title,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +138,34 @@ mod tests {
         let b = TabId::next();
         assert_ne!(a, b);
         assert!(b.0 > a.0);
+    }
+
+    #[test]
+    fn osc_title_gets_the_issue_prefix() {
+        // EXP-145: claude's OSC title is its task description — the tab must
+        // keep showing which issue it belongs to.
+        assert_eq!(
+            decorate_osc_title(Some("EXP-109"), "Fix trashed notifications".into()),
+            SharedString::from("EXP-109 · Fix trashed notifications")
+        );
+    }
+
+    #[test]
+    fn osc_title_prefix_never_doubles() {
+        // An OSC title already naming the issue stays as-is.
+        assert_eq!(
+            decorate_osc_title(Some("EXP-109"), "EXP-109: fix notifications".into()),
+            SharedString::from("EXP-109: fix notifications")
+        );
+    }
+
+    #[test]
+    fn osc_title_without_prefix_passes_through() {
+        // Shell / run tabs carry no prefix — OSC titles land verbatim.
+        assert_eq!(
+            decorate_osc_title(None, "vim README.md".into()),
+            SharedString::from("vim README.md")
+        );
     }
 
     #[test]

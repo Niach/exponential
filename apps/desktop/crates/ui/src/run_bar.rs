@@ -462,7 +462,7 @@ impl RunBar {
                     let id = existing.id;
                     manager.close_tab(id, cx);
                 }
-                manager.open_tab(TabKind::Run(config_id.clone()), title, &spec, None, cx)
+                manager.open_tab(TabKind::Run(config_id.clone()), title, None, &spec, None, cx)
             })
             .map(|_| ())
             .map_err(|err| SharedString::from(format!("Launch failed: {err}")))
@@ -595,6 +595,7 @@ impl RunBar {
                     manager.open_tab(
                         TabKind::ClaudeTask,
                         task.tab_title.clone(),
+                        None,
                         &task.spawn,
                         Some(on_exit),
                         cx,

@@ -287,6 +287,10 @@ pub struct PreparedLaunch {
     pub spawn: SpawnSpec,
     /// Tab strip default title (`claude · EXP-42` / `claude · EXP-42 +2`).
     pub tab_title: String,
+    /// Issue identity re-attached to live OSC titles (EXP-145): `EXP-42` /
+    /// `EXP-42 +2` — claude's OSC titles replace the whole tab title, so the
+    /// strip shows `EXP-42 · <claude's title>`.
+    pub tab_title_prefix: String,
     /// The row's start scope, re-sent with every heartbeat (EXP-105): a ping
     /// that finds the row swept (suspend outlived the staleness window)
     /// re-creates it server-side under the same id.
@@ -481,11 +485,11 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // the native permission posture, and the prompt positional-last (bytes
     // typed into the PTY before the TUI enters raw mode get swallowed during
     // startup, so the prompt must never be delivered via stdin).
-    let (args, issue_identifier, tab_title) = match req {
+    let (args, issue_identifier, tab_title_prefix) = match req {
         PrepareRequest::Issue(issue_req) => (
             session_args(&issue_req.options, delivery.positional()),
             issue_req.issue_identifier.clone(),
-            format!("claude · {}", issue_req.issue_identifier),
+            issue_req.issue_identifier.clone(),
         ),
         PrepareRequest::Batch(batch_req) => {
             let first = batch_req
@@ -497,10 +501,11 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             (
                 session_args(&batch_req.options, delivery.positional()),
                 format!("batch-{}", batch_req.batch_id),
-                format!("claude · {first} +{extra}"),
+                format!("{first} +{extra}"),
             )
         }
     };
+    let tab_title = format!("claude · {tab_title_prefix}");
     let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
         .args(args)
         .cwd(&worktree)
@@ -539,6 +544,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         branch,
         spawn,
         tab_title,
+        tab_title_prefix,
         heartbeat_scope,
     }))
 }
@@ -581,7 +587,7 @@ pub fn spawn_prepared_with(
     exit_notify: Option<ExitNotify>,
 ) -> Result<LaunchOutcome, CodingError> {
     let PreparedLaunch {
-        session_id, worktree, branch, spawn, tab_title, heartbeat_scope, ..
+        session_id, worktree, branch, spawn, tab_title, tab_title_prefix, heartbeat_scope, ..
     } = prepared;
 
     // Liveness heartbeat: the server's staleness sweep deletes `running`
@@ -629,7 +635,14 @@ pub fn spawn_prepared_with(
     let tab_id = manager
         .update(cx, |manager, cx| -> Result<TabId, CodingError> {
             let tab_id = manager
-                .open_tab(TabKind::Claude, tab_title, &spawn, Some(on_exit), cx)
+                .open_tab(
+                    TabKind::Claude,
+                    tab_title,
+                    Some(tab_title_prefix.into()),
+                    &spawn,
+                    Some(on_exit),
+                    cx,
+                )
                 .map_err(|e| CodingError::Terminal(format!("spawn claude tab: {e}")))?;
             Ok(tab_id)
         })
@@ -868,6 +881,8 @@ mod tests {
         assert_eq!(prepared.branch, "exp/EXP-42");
         assert_eq!(prepared.worktree, worktree);
         assert_eq!(prepared.tab_title, "claude · EXP-42");
+        // EXP-145: the identifier rides along so live OSC titles keep it.
+        assert_eq!(prepared.tab_title_prefix, "EXP-42");
         // P9 refresher inputs: the server-confirmed repo id + the clone path
         // under the repos root (independent of the fake worktree location).
         assert_eq!(prepared.repository_id, "repo-1");
@@ -1018,6 +1033,7 @@ mod tests {
         assert_eq!(prepared.session_id, "sess-b");
         assert_eq!(prepared.branch, "exp/batch-a1b2c3d4");
         assert_eq!(prepared.tab_title, "claude · EXP-42 +1");
+        assert_eq!(prepared.tab_title_prefix, "EXP-42 +1");
         assert_eq!(prepared.issue_identifier, "batch-a1b2c3d4");
         // P9 refresher inputs ride along (repo id from the request's group,
         // clone path under the repos root).

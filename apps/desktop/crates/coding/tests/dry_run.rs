@@ -322,6 +322,8 @@ fn main() {
     );
     assert_eq!(prepared.spawn.cwd.as_deref(), Some(expected_worktree.as_path()));
     assert_eq!(prepared.tab_title, "claude · GATE-99");
+    // EXP-145: the identifier rides along so live OSC titles keep it.
+    assert_eq!(prepared.tab_title_prefix, "GATE-99");
     eprintln!("dry_run e2e: steps 0–6 verified (worktree, remote, .exp-mcp.json, direct prompt, spawn spec)");
 
     // ---- steps 7–8: spawn the stub through a real headless TerminalManager;

@@ -142,12 +142,17 @@ impl TerminalManager {
         if let Some(cwd) = cwd {
             spec = spec.cwd(cwd);
         }
-        self.open_tab(TabKind::Shell, title, &spec, None, cx)
+        self.open_tab(TabKind::Shell, title, None, &spec, None, cx)
     }
 
     /// The one general entry point every tab kind goes through — the dock's
     /// `+` today, §07's Start-coding launcher (`Claude`) and run-bar play
     /// (`Run`, argv-direct per §6.13/§7.3.5) in Phase 5.
+    ///
+    /// `title_prefix` is the issue identity re-attached to live OSC titles
+    /// (EXP-145, e.g. `EXP-42`): claude replaces the whole title with its
+    /// task description, and an issue-bound tab must keep saying which issue
+    /// it is. `None` for tabs with no issue identity (shell, run configs).
     ///
     /// `on_exit` fires exactly once with the captured [`ChildExit`] (§6.7);
     /// the Phase-5 launcher ends the `coding_sessions` row from it.
@@ -155,6 +160,7 @@ impl TerminalManager {
         &mut self,
         kind: TabKind,
         default_title: impl Into<SharedString>,
+        title_prefix: Option<SharedString>,
         spec: &SpawnSpec,
         on_exit: Option<ExitHook>,
         cx: &mut Context<Self>,
@@ -169,7 +175,8 @@ impl TerminalManager {
             TerminalViewEvent::TitleChanged => {
                 let title = view.read(cx).title().cloned();
                 if let Some(tab) = this.tab_mut(id) {
-                    tab.osc_title = title;
+                    let decorated = title.map(|title| tab.decorate_osc_title(title));
+                    tab.osc_title = decorated;
                     cx.notify();
                 }
             }
@@ -185,6 +192,7 @@ impl TerminalManager {
             status: TabStatus::Running,
             default_title: default_title.into(),
             osc_title: None,
+            title_prefix,
             on_exit,
             _subscription: subscription,
         });
