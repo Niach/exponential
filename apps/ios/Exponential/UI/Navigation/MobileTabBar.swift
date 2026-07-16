@@ -1,18 +1,19 @@
 import ExpUI
 import SwiftUI
 
-/// Linear-style floating bottom navigation: a glass pill with the four
-/// top-level destinations (Issues, My Work — with an unread dot — Agents —
-/// with a running-session dot — and Search; order per EXP-81) plus
-/// a detached circular compose button on the right. Attached via
-/// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
-/// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
-/// (EXP-36). MainNavigator hides it on detail screens.
+/// Linear-style floating bottom navigation: a glass pill with the five
+/// top-level destinations (Issues, My Work — with an unread dot — Reviews —
+/// its own entry beside My Work per EXP-147 — Agents — with a running-session
+/// dot — and Search; order per EXP-81) plus a detached circular compose button
+/// on the right. Attached via `.overlay(alignment: .bottom)` so content
+/// scrolls underneath it; each bar-visible scrollable reserves clearance with
+/// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let issuesActive: Bool
     let searchActive: Bool
     let agentsActive: Bool
     let myWorkActive: Bool
+    let reviewsActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
     let showsCompose: Bool
@@ -20,6 +21,7 @@ struct MobileTabBar: View {
     let onSearch: () -> Void
     let onAgents: () -> Void
     let onMyWork: () -> Void
+    let onReviews: () -> Void
     let onCompose: () -> Void
 
     /// SF Symbols has no robot-head glyph, so the Agents tab draws a bundled
@@ -45,6 +47,15 @@ struct MobileTabBar: View {
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
+                // Reviews sits beside My Work (EXP-147) — the same open-PR
+                // glyph the in_review status uses.
+                tab(
+                    glyph: .system("arrow.triangle.pull"),
+                    label: "Reviews",
+                    active: reviewsActive,
+                    action: onReviews
+                )
+                .accessibilityIdentifier("tab-reviews")
                 tab(
                     glyph: .asset("tab-robot"),
                     label: "Agents",
@@ -98,7 +109,7 @@ struct MobileTabBar: View {
     ) -> some View {
         Button(action: action) {
             glyphImage(glyph, active: active)
-                // 44pt (HIG minimum) instead of the old 56pt: four tabs + the
+                // 44pt (HIG minimum) instead of the old 56pt: five tabs + the
                 // compose circle must fit a 375pt screen (SE/mini).
                 .frame(width: 44, height: 42)
                 .overlay(alignment: .topTrailing) {
@@ -140,7 +151,8 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Issues list, Search results, Agents, My Work's inbox/my-issues) applies
+    /// (Issues list, Search results, Agents, My Work's inbox/my-issues,
+    /// Reviews) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a
     /// bar-less surface.

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inbox
@@ -33,10 +34,11 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Linear-style floating bottom navigation: a dark pill with the four top-level
+// Linear-style floating bottom navigation: a dark pill with the five top-level
 // destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
-// with an unread dot — Agents — with a green live dot — and Search;
-// order per EXP-81) plus a detached circular compose button on the right.
+// with an unread dot — Reviews — its own entry beside My Work per EXP-147 —
+// Agents — with a green live dot — and Search; order per EXP-81) plus a
+// detached circular compose button on the right.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
@@ -58,6 +60,7 @@ fun BottomNavBar(
     searchActive: Boolean,
     agentsActive: Boolean,
     personalActive: Boolean,
+    reviewsActive: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
     showsCompose: Boolean,
@@ -65,6 +68,7 @@ fun BottomNavBar(
     onSearch: () -> Unit,
     onAgents: () -> Unit,
     onPersonal: () -> Unit,
+    onReviews: () -> Unit,
     onCompose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -95,6 +99,14 @@ fun BottomNavBar(
                 active = personalActive,
                 showDot = unreadCount > 0,
                 onClick = onPersonal,
+            )
+            // Reviews sits beside My Work (EXP-147) — the same open-PR glyph
+            // the Reviews rows use.
+            TabItem(
+                icon = Icons.AutoMirrored.Filled.CallMerge,
+                contentDescription = "Reviews",
+                active = reviewsActive,
+                onClick = onReviews,
             )
             TabItem(
                 icon = Icons.Filled.SmartToy,

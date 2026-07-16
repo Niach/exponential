@@ -11,6 +11,9 @@ enum AppRoute: Hashable {
     /// Nothing external ever landed on the old inbox route — notification
     /// taps deep-link straight to the issue.
     case myWork
+    /// Reviews (EXP-147): the open-PR list, its own tab beside My Work —
+    /// no longer a segment inside it.
+    case reviews
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
@@ -314,6 +317,7 @@ struct MainNavigator: View {
                     searchActive: isOnSearch,
                     agentsActive: isOnAgents,
                     myWorkActive: isOnMyWork,
+                    reviewsActive: isOnReviews,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     showsCompose: resolvedComposeTarget != nil,
@@ -321,6 +325,7 @@ struct MainNavigator: View {
                     onSearch: { if !isOnSearch { path = [.search] } },
                     onAgents: { if !isOnAgents { path = [.agents] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
+                    onReviews: { if !isOnReviews { path = [.reviews] } },
                     onCompose: { composeTarget = resolvedComposeTarget }
                 )
             }
@@ -335,12 +340,12 @@ struct MainNavigator: View {
     // MARK: - Tab bar
 
     /// The bar floats only over the top-level surfaces (Issues root, Search,
-    /// Agents, My Work, pushed project lists); detail and settings screens get
-    /// the full height back.
+    /// Agents, My Work, Reviews, pushed project lists); detail and settings
+    /// screens get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .search, .agents, .myWork, .project:
+        case .search, .agents, .myWork, .reviews, .project:
             return true
         default:
             return false
@@ -349,6 +354,11 @@ struct MainNavigator: View {
 
     private var isOnMyWork: Bool {
         if case .myWork = path.last { return true }
+        return false
+    }
+
+    private var isOnReviews: Bool {
+        if case .reviews = path.last { return true }
         return false
     }
 
@@ -364,8 +374,8 @@ struct MainNavigator: View {
 
     /// Compose targets the project in view: a pushed project list wins,
     /// otherwise the Issues tab root composes into its current project. The
-    /// other surfaces (Search, Agents, My Work) hide the button — creating an
-    /// issue without a project context is ambiguous.
+    /// other surfaces (Search, Agents, My Work, Reviews) hide the button —
+    /// creating an issue without a project context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
         if case let .project(accountId, id)? = path.last {
             return ComposeTarget(accountId: accountId, projectId: id)
@@ -411,6 +421,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .myWork:
             MyWorkView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case .reviews:
+            ReviewsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .project(accountId, id):
             IssueListView(projectId: id)
