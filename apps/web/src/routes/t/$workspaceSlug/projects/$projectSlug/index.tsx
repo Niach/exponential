@@ -180,9 +180,9 @@ function ProjectPage() {
           emptyStateExtra={
             permissions.isMember ? (
               <GettingStartedSection
+                workspace={workspace}
                 workspaceSlug={workspaceSlug}
                 projectIsPublic={project.isPublic}
-                canManageWidgets={permissions.canManageWidgets}
               />
             ) : undefined
           }

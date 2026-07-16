@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { buildMcpServersConfig, buildWidgetSnippet } from "./widget-snippet"
+import {
+  buildCodexMcpAddCommand,
+  buildMcpAddCommand,
+  buildMcpEndpoint,
+  buildMcpRemoteBridgeCommand,
+  buildMcpServersConfig,
+  buildWidgetSnippet,
+} from "./widget-snippet"
 
 describe(`buildWidgetSnippet`, () => {
   it(`points the loader at the given origin and inlines the key`, () => {
@@ -17,5 +24,31 @@ describe(`buildMcpServersConfig`, () => {
         exponential: { url: `https://app.exponential.at/api/mcp` },
       },
     })
+  })
+})
+
+describe(`per-client MCP snippets (EXP-141)`, () => {
+  const origin = `https://selfhost.example`
+
+  it(`buildMcpEndpoint appends /api/mcp to the origin`, () => {
+    expect(buildMcpEndpoint(origin)).toBe(`https://selfhost.example/api/mcp`)
+  })
+
+  it(`buildMcpAddCommand registers an http user-scope server for claude`, () => {
+    expect(buildMcpAddCommand(origin)).toBe(
+      `claude mcp add --transport http --scope user exponential https://selfhost.example/api/mcp`
+    )
+  })
+
+  it(`buildCodexMcpAddCommand adds the server then logs in via OAuth`, () => {
+    expect(buildCodexMcpAddCommand(origin)).toBe(
+      `codex mcp add exponential --url https://selfhost.example/api/mcp\ncodex mcp login exponential`
+    )
+  })
+
+  it(`buildMcpRemoteBridgeCommand bridges stdio clients via mcp-remote`, () => {
+    expect(buildMcpRemoteBridgeCommand(origin)).toBe(
+      `npx mcp-remote https://selfhost.example/api/mcp`
+    )
   })
 })

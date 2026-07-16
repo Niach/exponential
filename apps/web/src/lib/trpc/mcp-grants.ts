@@ -37,6 +37,18 @@ async function getMemberWorkspaces(userId: string) {
 }
 
 export const mcpGrantsRouter = router({
+  // Whether the calling user has EVER completed an MCP OAuth consent (any
+  // grant row, any client). Powers the getting-started checklist's MCP entry
+  // (EXP-141) — a pure existence check, no scope details.
+  hasAny: authedProcedure.query(async ({ ctx }) => {
+    const [row] = await db
+      .select({ id: mcpGrants.id })
+      .from(mcpGrants)
+      .where(eq(mcpGrants.userId, ctx.session.user.id))
+      .limit(1)
+    return { hasAny: Boolean(row) }
+  }),
+
   // Client display info for the consent screen. Authed-only and limited to
   // name/icon — never the secret.
   consentInfo: authedProcedure

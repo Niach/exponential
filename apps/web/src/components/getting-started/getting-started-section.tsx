@@ -14,9 +14,9 @@ import {
 // (users.gettingStartedDismissedAt, surfaced read-only on the session); the
 // sidebar's Getting started entry stays as the re-entry point.
 export function GettingStartedSection({
+  workspace,
   workspaceSlug,
   projectIsPublic,
-  canManageWidgets,
 }: Omit<GettingStartedCardsProps, `layout`>) {
   const { data: session, isPending } = useSession()
   const [dismissed, setDismissed] = useState(false)
@@ -52,9 +52,9 @@ export function GettingStartedSection({
         </Button>
       </div>
       <GettingStartedCards
+        workspace={workspace}
         workspaceSlug={workspaceSlug}
         projectIsPublic={projectIsPublic}
-        canManageWidgets={canManageWidgets}
         layout="grid"
       />
     </div>

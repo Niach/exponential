@@ -25,8 +25,9 @@ import { useCreateProject } from "@/hooks/use-create-project"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 
 // The disable-with-explanation hint for the owner-only public option
-// (projects.create rejects isPublic from non-owners — EXP-133).
-const OWNER_ONLY_PUBLIC_HINT = `Only team owners can create public boards.`
+// (projects.create rejects isPublic from non-owners — EXP-133). Exported for
+// the getting-started feedback-board entry, which gates the same action.
+export const OWNER_ONLY_PUBLIC_HINT = `Only team owners can create public boards.`
 
 // The chosen backing repo: either an existing registry repo (by id) or a
 // brand-new one picked through the GithubRepoPicker (connected inline by
@@ -39,10 +40,14 @@ export function CreateProjectDialog({
   open,
   onOpenChange,
   workspace,
+  initialTemplate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspace: Workspace
+  // Skip the template chooser and open directly on this template's form
+  // (EXP-141 — the getting-started CTAs preset e.g. `feedback`).
+  initialTemplate?: ProjectTemplate[`key`]
 }) {
   const workspaceId = workspace.id
   const { createProject } = useCreateProject()
@@ -97,6 +102,18 @@ export function CreateProjectDialog({
     setIsPublic(next.defaults.isPublic)
     setShowRepo(next.defaults.suggestsRepo)
   }
+
+  // Preset template: applied on open (the close path resets to the chooser via
+  // resetAll, so re-opening with the prop lands on the form again).
+  useEffect(() => {
+    if (!open || !initialTemplate) return
+    const preset = PROJECT_TEMPLATES.find(
+      (option) => option.key === initialTemplate
+    )
+    if (preset) applyTemplate(preset)
+    // applyTemplate only fans out to state setters — safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTemplate])
 
   const handleNameChange = (value: string) => {
     setName(value)
