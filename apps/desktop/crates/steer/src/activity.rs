@@ -432,15 +432,25 @@ pub fn munge_project_dir(path: &Path) -> String {
 /// The pending plan's markdown body, read from `~/.claude/plans` (EXP-150).
 /// `claude` writes the plan file BEFORE showing the approval picker, so this
 /// is the only full-body source available at pending time (the transcript's
-/// `input.plan` twin lands only after approval). Candidates are `*.md` files
-/// modified at/after the session spawn; when the picker rendered the plan's
-/// first line on screen, a candidate containing it wins (disambiguates
-/// concurrent sessions — the dir is global, not per-project), else newest
-/// mtime. Best-effort: `None` falls back to a fixed headline.
+/// `input.plan` twin lands only after approval). Best-effort: `None` falls
+/// back to a fixed headline.
 fn plan_body(after: SystemTime, must_contain: Option<&str>) -> Option<String> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let dir = PathBuf::from(home).join(".claude").join("plans");
-    let mut candidates: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(&dir)
+    plan_body_in(&dir, after, must_contain)
+}
+
+/// [`plan_body`] on an explicit dir (unit-testable). Candidates are `*.md`
+/// files modified at/after the session spawn; when the picker rendered the
+/// plan's first line on screen, a candidate containing it wins (disambiguates
+/// concurrent sessions — the dir is global, not per-project). Without a
+/// needle (the bare "Exit plan mode?" variant) — or when the needle matches
+/// no candidate — a body is attached ONLY when there is exactly one
+/// candidate: with two concurrent sessions the newest file may belong to the
+/// OTHER session's workspace, and a missing body is strictly better than a
+/// cross-workspace plan leak.
+fn plan_body_in(dir: &Path, after: SystemTime, must_contain: Option<&str>) -> Option<String> {
+    let mut candidates: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(dir)
         .ok()?
         .flatten()
         .filter(|entry| {
@@ -462,9 +472,10 @@ fn plan_body(after: SystemTime, must_contain: Option<&str>) -> Option<String> {
             }
         }
     }
-    candidates
-        .first()
-        .and_then(|(_, path)| std::fs::read_to_string(path).ok())
+    match &candidates[..] {
+        [(_, only)] => std::fs::read_to_string(only).ok(),
+        _ => None,
+    }
 }
 
 /// The newest non-sidechain session transcript in `dir` modified at/after
@@ -1201,6 +1212,63 @@ mod tests {
             }
             other => panic!("expected narration + one plan question, got {other:?}"),
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fresh temp plans dir with the given `(name, body)` files, plus an
+    /// `after` timestamp that predates all of them.
+    fn plan_dir(tag: &str, files: &[(&str, &str)]) -> (PathBuf, SystemTime) {
+        let dir = std::env::temp_dir().join(format!("exp-plans-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        (dir, SystemTime::now() - Duration::from_secs(60))
+    }
+
+    #[test]
+    fn needle_less_plan_body_attaches_only_when_unambiguous() {
+        // Single candidate ⇒ no ambiguity possible ⇒ body attaches.
+        let (dir, after) = plan_dir("single", &[("a.md", "## Plan A")]);
+        assert_eq!(
+            plan_body_in(&dir, after, None).as_deref(),
+            Some("## Plan A")
+        );
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Two concurrent-session candidates and no on-screen needle ⇒ the
+        // newest file may belong to the OTHER session — no body (the
+        // question falls back to the fixed headline).
+        let (dir, after) = plan_dir("multi", &[("a.md", "## Plan A"), ("b.md", "## Plan B")]);
+        assert_eq!(plan_body_in(&dir, after, None), None);
+        // A blank needle (trimmed empty) is the same as no needle.
+        assert_eq!(plan_body_in(&dir, after, Some("  ")), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plan_body_needle_disambiguates_concurrent_candidates() {
+        let (dir, after) = plan_dir(
+            "needle",
+            &[("a.md", "## Plan A\nsteps"), ("b.md", "## Plan B\nsteps")],
+        );
+        assert_eq!(
+            plan_body_in(&dir, after, Some("## Plan B")).as_deref(),
+            Some("## Plan B\nsteps")
+        );
+        // A needle matching NO candidate must not fall back to "newest"
+        // while multiple candidates exist — same cross-session ambiguity.
+        assert_eq!(plan_body_in(&dir, after, Some("## Plan C")), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plan_body_ignores_files_older_than_spawn() {
+        let (dir, _) = plan_dir("stale", &[("old.md", "## Stale plan")]);
+        // Spawn time after the file's mtime ⇒ no candidates ⇒ no body.
+        let after = SystemTime::now() + Duration::from_secs(60);
+        assert_eq!(plan_body_in(&dir, after, None), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
