@@ -169,6 +169,9 @@ const DiffCell: React.FC<{ side: Side | null; bgAlpha: number }> = ({ side, bgAl
   )
 }
 
+export type DiffFileSpec = { status: string; path: string; selected?: boolean }
+export type DiffHeaderSpec = { branch: string; pr: string; stats: { files: number; add: number; del: number } }
+
 export type ChangesPaneProps = {
   frame: number
   /** Global frame the diff area starts painting in (file header, then 1 row/frame). Undefined = resting (all painted). */
@@ -179,11 +182,30 @@ export type ChangesPaneProps = {
   scrollY?: number
   /** Global frame the selected file-list row tint fades in (6f). Undefined = shown from the start. */
   fileSelectAt?: number
+  /** Header content (branch · PR · stats). Default: the ships DIFF_HEADER fixture. */
+  header?: DiffHeaderSpec
+  /** File list. Default: the ships DIFF_FILES fixture. */
+  files?: readonly DiffFileSpec[]
+  /** Unified diff rows (paired side-by-side here). Default: the ships DIFF_ROWS fixture. */
+  rows?: readonly DiffRow[]
+  /** Selected file's own +N −N header-band stats. Default: the ships FILE_STATS. */
+  fileStats?: { add: number; del: number }
 }
 
-export const ChangesPane: React.FC<ChangesPaneProps> = ({ frame, paintAt, statsRollAt, scrollY = 0, fileSelectAt }) => {
-  const add = statsRollAt === undefined ? DIFF_HEADER.stats.add : rollNum(frame, statsRollAt, statsRollAt + 12, 0, DIFF_HEADER.stats.add)
-  const del = statsRollAt === undefined ? DIFF_HEADER.stats.del : rollNum(frame, statsRollAt, statsRollAt + 12, 0, DIFF_HEADER.stats.del)
+export const ChangesPane: React.FC<ChangesPaneProps> = ({
+  frame,
+  paintAt,
+  statsRollAt,
+  scrollY = 0,
+  fileSelectAt,
+  header = DIFF_HEADER,
+  files = DIFF_FILES,
+  rows,
+  fileStats = FILE_STATS,
+}) => {
+  const pairs = rows === undefined ? PAIRS : buildPairs(rows)
+  const add = statsRollAt === undefined ? header.stats.add : rollNum(frame, statsRollAt, statsRollAt + 12, 0, header.stats.add)
+  const del = statsRollAt === undefined ? header.stats.del : rollNum(frame, statsRollAt, statsRollAt + 12, 0, header.stats.del)
 
   // Paint-in: file header reveals at paintAt, display row i at paintAt + 1 + i.
   const revealO = (at: number | undefined) =>
@@ -222,11 +244,11 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({ frame, paintAt, statsR
         <span style={{ color: C.muted, display: "flex", alignItems: "center" }}>
           <GitBranchIcon />
         </span>
-        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.text }}>{DIFF_HEADER.branch}</span>
+        <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.text }}>{header.branch}</span>
         <span style={{ fontSize: 12, color: C.dim }}>·</span>
-        <span style={{ fontSize: 12, color: C.muted }}>{DIFF_HEADER.pr}</span>
+        <span style={{ fontSize: 12, color: C.muted }}>{header.pr}</span>
         <span style={{ fontSize: 12, color: C.dim }}>·</span>
-        <span style={{ fontSize: 12, color: C.muted }}>{`${DIFF_HEADER.stats.files} files`}</span>
+        <span style={{ fontSize: 12, color: C.muted }}>{`${header.stats.files} files`}</span>
         <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${add}`}</span>
         <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${del}`}</span>
         <div style={{ flex: 1 }} />
@@ -264,7 +286,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({ frame, paintAt, statsR
       {/* ── Body: 240px file list + side-by-side diff ── */}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${C.border}`, paddingTop: 4 }}>
-          {DIFF_FILES.map((f) => {
+          {files.map((f) => {
             const selected = "selected" in f && f.selected === true
             return (
               <div
@@ -324,14 +346,14 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({ frame, paintAt, statsR
               }}
             >
               <span style={{ fontFamily: MONO_FONT, fontSize: 12, fontWeight: 700, color: C.text }}>
-                {DIFF_FILES[0].path}
+                {files[0]?.path ?? ""}
               </span>
               <div style={{ flex: 1 }} />
-              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${FILE_STATS.add}`}</span>
-              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${FILE_STATS.del}`}</span>
+              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${fileStats.add}`}</span>
+              <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffDel }}>{`−${fileStats.del}`}</span>
             </div>
 
-            {PAIRS.map((row, i) => {
+            {pairs.map((row, i) => {
               const at = paintAt === undefined ? undefined : paintAt + 1 + i
               if (row.t === "hunk") {
                 return (

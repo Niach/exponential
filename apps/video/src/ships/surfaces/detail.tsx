@@ -335,7 +335,7 @@ const MarkdownToolbar: React.FC = () => (
 const popIn = (frame: number, at: number | undefined) =>
   at === undefined || frame < at ? 0 : spring({ frame: frame - at, fps: 30, config: POP })
 
-const BugChip: React.FC = () => (
+const LabelPill: React.FC<{ name: string; dot: string }> = ({ name, dot }) => (
   <div
     style={{
       display: "inline-flex",
@@ -347,8 +347,8 @@ const BugChip: React.FC = () => (
       border: `1px solid ${C.border}`,
     }}
   >
-    <div style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: LABELS.bug.dot }} />
-    <span style={{ fontSize: 12, color: C.muted }}>{LABELS.bug.name}</span>
+    <div style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: dot }} />
+    <span style={{ fontSize: 12, color: C.muted }}>{name}</span>
   </div>
 )
 
@@ -401,15 +401,56 @@ const PropValue: React.FC<{ icon: React.ReactNode; children: React.ReactNode; mu
   </div>
 )
 
-const PropsPanel: React.FC<{ frame: number; staggerAt?: number; status: IssueStatus; priority: Priority }> = ({
-  frame,
-  staggerAt,
-  status,
-  priority,
-}) => {
+// Issue content shown by the pane. Everything defaults to the ships HERO
+// fixture so existing callers render exactly as before.
+export type DetailIssueContent = {
+  id: string
+  title: string
+  descriptionParas: readonly string[]
+  switcher: string
+  activity: readonly { actor: string; text: string }[]
+  imagesMeta?: string // "0 images" meta row text
+  pr?: number // default PR-chip label number
+  label?: { name: string; dot: string }
+  due?: string
+  release?: string
+  project?: string
+  projectColor?: string
+}
+
+const HERO_ISSUE: DetailIssueContent = {
+  id: HERO.id,
+  title: HERO.title,
+  descriptionParas: HERO.descriptionParas,
+  switcher: HERO.switcher,
+  activity: HERO.activity,
+  imagesMeta: "0 images",
+  pr: HERO.pr,
+  label: LABELS.bug,
+  due: BOARD.find((r) => r.id === HERO.id)?.due ?? "Jul 15",
+  release: RELEASE.name,
+  project: IDENTITY.project,
+  projectColor: IDENTITY.projectColor,
+}
+
+const PropsPanel: React.FC<{
+  frame: number
+  staggerAt?: number
+  status: IssueStatus
+  priority: Priority
+  issue: DetailIssueContent
+  showRelease: boolean
+}> = ({ frame, staggerAt, status, priority, issue, showRelease }) => {
   const st = STATUS_META[status]
   const pr = PRIO_META[priority]
-  const due = BOARD.find((r) => r.id === HERO.id)?.due ?? "Jul 15"
+  const due = issue.due
+  const label = issue.label
+  // Keep the stagger rhythm stable regardless of which optional groups render.
+  let index = 1
+  const nextIndex = () => {
+    index += 1
+    return index
+  }
   return (
     <div
       style={{
@@ -428,22 +469,32 @@ const PropsPanel: React.FC<{ frame: number; staggerAt?: number; status: IssueSta
       <PropGroup label="Priority" frame={frame} staggerAt={staggerAt} index={1}>
         <PropValue icon={<pr.Icon size={14} style={{ color: pr.color }} />}>{pr.label}</PropValue>
       </PropGroup>
-      <PropGroup label="Labels" frame={frame} staggerAt={staggerAt} index={2}>
-        <div style={{ height: 22, display: "flex", alignItems: "center" }}>
-          <BugChip />
-        </div>
-      </PropGroup>
-      <PropGroup label="Release" frame={frame} staggerAt={staggerAt} index={3}>
-        <PropValue icon={<IcRocket size={14} style={{ color: C.muted }} />}>{RELEASE.name}</PropValue>
-      </PropGroup>
-      <PropGroup label="Due date" frame={frame} staggerAt={staggerAt} index={4}>
-        <PropValue icon={<IcCalendarDays size={14} style={{ color: C.muted }} />}>{due}</PropValue>
+      {label !== undefined ? (
+        <PropGroup label="Labels" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+          <div style={{ height: 22, display: "flex", alignItems: "center" }}>
+            <LabelPill name={label.name} dot={label.dot} />
+          </div>
+        </PropGroup>
+      ) : null}
+      {showRelease ? (
+        <PropGroup label="Release" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+          <PropValue icon={<IcRocket size={14} style={{ color: C.muted }} />}>{issue.release ?? RELEASE.name}</PropValue>
+        </PropGroup>
+      ) : null}
+      <PropGroup label="Due date" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
+        {due !== undefined ? (
+          <PropValue icon={<IcCalendarDays size={14} style={{ color: C.muted }} />}>{due}</PropValue>
+        ) : (
+          <PropValue icon={<IcCalendarDays size={14} style={{ color: C.muted }} />} muted>
+            Add due date
+          </PropValue>
+        )}
         <div style={{ height: 22, marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
           <IcRepeat size={13} style={{ color: C.muted }} />
           <span style={{ fontSize: 12.5, color: C.muted }}>Add recurrence</span>
         </div>
       </PropGroup>
-      <PropGroup label="Project" frame={frame} staggerAt={staggerAt} index={5}>
+      <PropGroup label="Project" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
         <div style={{ height: 22, display: "flex", alignItems: "center" }}>
           <div
             style={{
@@ -456,8 +507,8 @@ const PropsPanel: React.FC<{ frame: number; staggerAt?: number; status: IssueSta
               backgroundColor: C.accentBg,
             }}
           >
-            <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: IDENTITY.projectColor }} />
-            <span style={{ fontSize: 12, color: C.text }}>{IDENTITY.project}</span>
+            <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: issue.projectColor ?? IDENTITY.projectColor }} />
+            <span style={{ fontSize: 12, color: C.text }}>{issue.project ?? IDENTITY.project}</span>
           </div>
         </div>
       </PropGroup>
@@ -490,6 +541,10 @@ export type IssueDetailPaneProps = {
   status?: IssueStatus
   priority?: Priority
   subscribed?: boolean
+  /** Issue content (title/description/activity/properties). Default: the ships HERO. */
+  issue?: DetailIssueContent
+  /** Render the RELEASE properties group (default true — the ships film shows it). */
+  showRelease?: boolean
   width?: number
   height?: number
 }
@@ -507,6 +562,8 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   status = "todo",
   priority = "high",
   subscribed = true,
+  issue = HERO_ISSUE,
+  showRelease = true,
   width = DEFAULT_W,
   height = DEFAULT_H,
 }) => {
@@ -595,7 +652,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         </span>
         <div style={{ flex: 1 }} />
         {/* switcher */}
-        <span style={{ fontSize: 12.5, color: C.muted }}>{HERO.switcher}</span>
+        <span style={{ fontSize: 12.5, color: C.muted }}>{issue.switcher}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted }}>
             <IcChevronUp size={13} />
@@ -630,7 +687,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             >
               <IcGitPr size={12} style={{ color: C.green }} />
               <span style={{ fontFamily: MONO_FONT, fontSize: 11, color: C.text, whiteSpace: "nowrap" }}>
-                {prChip.label ?? `PR #${HERO.pr}`}
+                {prChip.label ?? `PR #${issue.pr ?? HERO.pr}`}
               </span>
             </div>
           </div>
@@ -716,30 +773,30 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             {/* centered content column */}
             <div style={{ marginLeft: colMargin, width: COL_W, padding: `0 ${PAD_X}px` }}>
               <div style={{ paddingTop: 22, height: 28, fontSize: 20, fontWeight: 600, letterSpacing: -0.2, lineHeight: "28px", boxSizing: "content-box" }}>
-                {HERO.title}
+                {issue.title}
               </div>
               {/* editor box: toolbar + description */}
               <div style={{ marginTop: 12, border: `1px solid ${C.border}`, borderRadius: 6, height: 166, overflow: "hidden" }}>
                 <MarkdownToolbar />
                 <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {HERO.descriptionParas.map((para) => (
+                  {issue.descriptionParas.map((para) => (
                     <p key={para.slice(0, 24)} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: DESC_FG }}>
                       {para}
                     </p>
                   ))}
                 </div>
               </div>
-              <div style={{ marginTop: 8, height: 16, fontSize: 12, color: C.muted, textAlign: "right" }}>0 images</div>
+              <div style={{ marginTop: 8, height: 16, fontSize: 12, color: C.muted, textAlign: "right" }}>{issue.imagesMeta ?? "0 images"}</div>
             </div>
             {/* full-bleed divider */}
             <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}` }} />
             {/* activity + composer (re-centered) */}
             <div style={{ marginLeft: colMargin, width: COL_W, padding: `14px ${PAD_X}px 0` }}>
               <div style={{ height: 16, fontSize: 12, fontWeight: 500, color: C.muted }}>
-                {`Activity (${HERO.activity.length})`}
+                {`Activity (${issue.activity.length})`}
               </div>
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column" }}>
-                {HERO.activity.map((item) => {
+                {issue.activity.map((item) => {
                   const Icon = activityIconFor(item.text)
                   return (
                     <div key={item.text} style={{ height: 24, display: "flex", alignItems: "center", gap: 9 }}>
@@ -785,7 +842,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             </div>
           </div>
           {/* properties panel */}
-          <PropsPanel frame={frame} staggerAt={staggerAt} status={status} priority={priority} />
+          <PropsPanel frame={frame} staggerAt={staggerAt} status={status} priority={priority} issue={issue} showRelease={showRelease} />
         </div>
       ) : null}
     </div>

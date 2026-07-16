@@ -11,6 +11,10 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
+import {
+  DEFAULT_ACCENT,
+  WidgetLauncherPreview,
+} from "@/components/widget-launcher-preview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,21 +55,6 @@ function parseDomains(value: string): string[] {
     .split(/[\n,]/)
     .map((domain) => domain.trim())
     .filter((domain) => domain.length > 0)
-}
-
-// Mirrors the widget bundle's theme.defaultAccent / pickForeground so the
-// launcher preview matches what embedders actually see.
-const DEFAULT_ACCENT = `#e5e5e5`
-
-function previewForeground(color: string): string {
-  const match = /^#([0-9a-f]{6})$/i.exec(color.trim())
-  if (!match) return `#171717`
-  const value = Number.parseInt(match[1], 16)
-  const luminance =
-    0.2126 * ((value >> 16) & 0xff) +
-    0.7152 * ((value >> 8) & 0xff) +
-    0.0722 * (value & 0xff)
-  return luminance > 140 ? `#171717` : `#fafafa`
 }
 
 type WidgetPosition = `bottom-left` | `bottom-right`
@@ -533,16 +522,10 @@ export function WorkspaceWidgetSection({
               <span className="text-xs text-muted-foreground">
                 Launcher preview
               </span>
-              <span
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold shadow"
-                style={{
-                  backgroundColor: formAccent || DEFAULT_ACCENT,
-                  color: previewForeground(formAccent || DEFAULT_ACCENT),
-                }}
-              >
-                <MessageSquarePlus className="h-4 w-4" />
-                {formButtonLabel.trim() || `Feedback`}
-              </span>
+              <WidgetLauncherPreview
+                accentColor={formAccent || undefined}
+                label={formButtonLabel.trim() || undefined}
+              />
             </div>
             {formError && (
               <p className="text-sm text-destructive">{formError}</p>

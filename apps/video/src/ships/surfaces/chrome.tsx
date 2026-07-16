@@ -307,18 +307,52 @@ const RAIL_Y: Record<RailIconId, number> = {
 }
 const RAIL_DIVIDER_Y = 73
 
-const RAIL_ITEMS: { id: RailIconId; Icon: React.FC<{ size?: number }> }[] = [
-  { id: "search", Icon: SearchIcon },
-  { id: "inbox", Icon: InboxIcon },
-  { id: "agents", Icon: CircleUserIcon },
-  { id: "issues", Icon: ListTodoIcon },
-  { id: "reviews", Icon: GitPullRequestIcon },
-  { id: "releases", Icon: RocketIcon },
-  { id: "files", Icon: FolderIcon },
-  { id: "source-control", Icon: GitMergeIcon },
-  { id: "settings", Icon: SettingsIcon },
-  { id: "account", Icon: CircleUserIcon },
+const RAIL_ICON: Record<RailIconId, React.FC<{ size?: number }>> = {
+  search: SearchIcon,
+  inbox: InboxIcon,
+  agents: CircleUserIcon,
+  issues: ListTodoIcon,
+  reviews: GitPullRequestIcon,
+  releases: RocketIcon,
+  files: FolderIcon,
+  "source-control": GitMergeIcon,
+  settings: SettingsIcon,
+  account: CircleUserIcon,
+}
+
+const DEFAULT_RAIL_IDS: RailIconId[] = [
+  "search",
+  "inbox",
+  "agents",
+  "issues",
+  "reviews",
+  "releases",
+  "files",
+  "source-control",
+  "settings",
+  "account",
 ]
+
+// Y map for an arbitrary icon list, following the ref rhythm: first icon at 57,
+// divider, then a 24px pitch from 89; settings/account stay pinned low. For the
+// default list this reproduces RAIL_Y exactly.
+const railYMap = (ids: RailIconId[]): Record<string, number> => {
+  const map: Record<string, number> = {}
+  let slot = 0
+  ids.forEach((id, i) => {
+    if (id === "settings" || id === "account") {
+      map[id] = RAIL_Y[id]
+      return
+    }
+    if (i === 0) {
+      map[id] = 57
+      return
+    }
+    map[id] = 89 + 24 * slot
+    slot += 1
+  })
+  return map
+}
 
 // Cursor-targeting helper: window-local center of a rail icon button.
 export const railIconCenter = (id: string): { x: number; y: number } => ({
@@ -334,16 +368,19 @@ export type IconRailProps = {
   activeTransition?: { from: string; at: number }
   dots?: string[] // rail ids that carry a small amber top-right dot
   dotColor?: string
+  icons?: RailIconId[] // rail icon set (default: the full ships rail incl. releases)
 }
 
-export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransition, dots = [], dotColor = C.synNumber }) => {
+export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransition, dots = [], dotColor = C.synNumber, icons }) => {
+  const ids = icons ?? DEFAULT_RAIL_IDS
+  const yMap = icons === undefined ? (RAIL_Y as Record<string, number>) : railYMap(ids)
   const t = activeTransition
     ? interpolate(frame, [activeTransition.at, activeTransition.at + 10], [0, 1], { ...CLAMP, easing: EASE })
     : 1
   const fromId = activeTransition?.from
   // Accent bar center Y (slides between icons during a transition).
-  const toY = RAIL_Y[active as RailIconId] ?? RAIL_Y.issues
-  const fromY = fromId !== undefined ? (RAIL_Y[fromId as RailIconId] ?? toY) : toY
+  const toY = yMap[active] ?? yMap.issues ?? RAIL_Y.issues
+  const fromY = fromId !== undefined ? (yMap[fromId] ?? toY) : toY
   const barY = fromY + (toY - fromY) * t
 
   const tintOf = (id: RailIconId): string => {
@@ -387,13 +424,15 @@ export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransit
           backgroundColor: C.indigoSoft,
         }}
       />
-      {RAIL_ITEMS.map(({ id, Icon }) => (
+      {ids.map((id) => {
+        const Icon = RAIL_ICON[id]
+        return (
         <div
           key={id}
           style={{
             position: "absolute",
             left: WIN.rail / 2 - 11,
-            top: RAIL_Y[id] - WIN.topBar - 11,
+            top: (yMap[id] ?? RAIL_Y[id]) - WIN.topBar - 11,
             width: 22,
             height: 22,
             borderRadius: 5,
@@ -419,7 +458,8 @@ export const IconRail: React.FC<IconRailProps> = ({ frame, active, activeTransit
             />
           ) : null}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

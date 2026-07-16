@@ -8,7 +8,6 @@ import {
   IcGitPullRequest,
   IcInbox,
   IcListTodo,
-  IcRocket,
   IcSearch,
   IcSettings,
   type IdeIcon,
@@ -72,12 +71,6 @@ export function Rail() {
         active={tool === `reviews`}
         dot={openReviews > 0}
         onClick={on(() => setTool(`reviews`))}
-      />
-      <RailBtn
-        Icon={IcRocket}
-        title="Releases"
-        active={tool === `releases`}
-        onClick={on(() => setTool(`releases`))}
       />
       <div className="ide-rail-div" />
       <RailBtn

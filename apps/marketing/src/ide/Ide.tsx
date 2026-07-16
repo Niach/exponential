@@ -4,10 +4,9 @@ import {
   CHANGES,
   COMMITS,
   INBOX_ITEMS,
+  batchCodingScriptFor,
   codingScriptFor,
   getIssue,
-  getRelease,
-  releaseCodingScriptFor,
   type Change,
   type Commit,
   type FilterTab,
@@ -35,6 +34,7 @@ import { ScTab } from "./SourceControl"
 import { TerminalDock } from "./Terminal"
 import { StartCodingDialog } from "./StartCodingDialog"
 import { IcInbox, IcX } from "./icons"
+import { useDemoScale } from "../lib/use-demo-scale"
 
 const BASE_W = 960
 const IDE_H = 640
@@ -71,22 +71,6 @@ const initialState = (view: IdeView): InitState => {
     default:
       return { tool: `issues`, tabs: [], active: null, selectedFile: null }
   }
-}
-
-function useIdeScale() {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [scale, setScale] = useState(1)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof ResizeObserver === `undefined`) return undefined
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? BASE_W
-      setScale(w >= BASE_W ? 1 : Math.max(w / BASE_W, 0.3))
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  return { ref, scale }
 }
 
 function EmptyState() {
@@ -176,7 +160,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [staged, setStaged] = useState<Set<string>>(new Set())
   const [commits, setCommits] = useState<Commit[]>(COMMITS)
   const [ahead, setAhead] = useState(0)
-  const [selectedRelease, setSelectedRelease] = useState<string | null>(null)
   const [coding, setCoding] = useState<CodingState>(`idle`)
   const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
   const [pendingCoding, setPendingCoding] = useState<CodingTarget | null>(null)
@@ -198,12 +181,12 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     [],
   )
 
-  /* The scripted Claude session for whichever issue or release is coding. */
+  /* The scripted Claude session — single-issue or batch, by target kind. */
   const codingScript = useMemo(() => {
     if (!codingTarget) return []
     return codingTarget.kind === `issue`
       ? codingScriptFor(getIssue(codingTarget.id))
-      : releaseCodingScriptFor(getRelease(codingTarget.id))
+      : batchCodingScriptFor(codingTarget.issueIds.map(getIssue))
   }, [codingTarget])
 
   /* Typed-out Claude session. Instant when prefers-reduced-motion. */
@@ -211,9 +194,13 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     if (coding !== `running` || !codingTarget) return undefined
     const finish = () => {
       setCoding(`ended`)
-      if (codingTarget.kind === `issue`) {
-        setCodedIssues((prev) => new Set(prev).add(codingTarget.id))
-      }
+      /* A batch run ships every checked issue in its one combined PR. */
+      const finished = codingTarget.kind === `issue` ? [codingTarget.id] : codingTarget.issueIds
+      setCodedIssues((prev) => {
+        const next = new Set(prev)
+        finished.forEach((id) => next.add(id))
+        return next
+      })
     }
     if (prefersReducedMotion()) {
       setScriptPos({ done: codingScript.length, chars: 0 })
@@ -315,8 +302,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
         ),
       )
     },
-    selectedRelease,
-    selectRelease: setSelectedRelease,
     coding,
     codingTarget,
     codingScript,
@@ -324,9 +309,8 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     pendingCoding,
     requestCoding: (target) => setPendingCoding(target),
     cancelStartCoding: () => setPendingCoding(null),
-    confirmStartCoding: () => {
-      if (!pendingCoding) return
-      setCodingTarget(pendingCoding)
+    confirmStartCoding: (target) => {
+      setCodingTarget(target)
       setPendingCoding(null)
       setCoding(`running`)
       setRunId((n) => n + 1)
@@ -341,7 +325,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     setDockTab,
   }
 
-  const { ref, scale } = useIdeScale()
+  const { ref, scale } = useDemoScale(BASE_W)
 
   return (
     <div

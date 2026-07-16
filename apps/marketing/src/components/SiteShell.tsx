@@ -1,17 +1,26 @@
-import type { ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
 import { ExpLogo, IcArrow, IcGithub } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
 export function SiteHeader() {
+  /* Transparent at rest, glass once scrolled (site.css .is-scrolled). */
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener(`scroll`, onScroll, { passive: true })
+    return () => window.removeEventListener(`scroll`, onScroll)
+  }, [])
+
   return (
     <>
       {/* Every page renders SiteHeader exactly once, so this puts the
           feedback widget on all routes (WidgetEmbed renders nothing and
           guards against double-injection). */}
       <WidgetEmbed />
-      <header className="topbar">
+      <header className={`topbar${scrolled ? ` is-scrolled` : ``}`}>
         <div className="shell topbar-inner">
           <a className="brand" href="/">
             <ExpLogo size={22} />

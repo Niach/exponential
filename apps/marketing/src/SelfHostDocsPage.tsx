@@ -42,7 +42,7 @@ export function SelfHostDocsPage() {
           </div>
         </section>
 
-        <DocsLayout sections={SECTIONS}>
+        <DocsLayout sections={SECTIONS} currentPath="/docs/self-host/">
           {/* ── 01 Installation ── */}
           <DocsSection id="installation" num="01" label="Installation">
             <h2>Installation</h2>
@@ -179,11 +179,12 @@ docker run -d --name exponential-web \\
           <DocsSection id="github-app" num="02" label="GitHub App">
             <h2>GitHub App</h2>
             <p>
-              Every project is backed by exactly one GitHub repository, so a
-              GitHub App is a <strong>hard prerequisite</strong> for creating
-              projects. The server uses it to mint short-lived per-repo
-              installation tokens — no personal access tokens, no stored user
-              OAuth tokens.
+              Dev projects are backed by a GitHub repository, so a GitHub App
+              is a <strong>prerequisite for coding sessions and PRs</strong>
+              {` `}
+              (task and feedback boards need none). The server uses it to mint
+              short-lived per-repo installation tokens — no personal access
+              tokens, no stored user OAuth tokens.
             </p>
 
             <h3>1. Create the App</h3>
@@ -255,7 +256,7 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             <h3>4. Connect an account</h3>
             <p>
               Restart the app, then connect a GitHub account from{` `}
-              <strong>workspace settings → Repositories</strong>. With the OAuth
+              <strong>Team settings → Repositories</strong>. With the OAuth
               credentials above configured, this opens a lightweight GitHub
               authorization — one consent screen, and if you manage several
               installations you pick which to connect from an in-app account
@@ -265,7 +266,7 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             </p>
             <DocsCallout kind="note" title="If the App loses repo access">
               Drop a repo from the installation on GitHub and{` `}
-              <strong>workspace settings → Repositories</strong> flags it with a
+              <strong>Team settings → Repositories</strong> flags it with a
               {` `}
               <strong>&quot;no access — re-grant on GitHub&quot;</strong> badge
               and a re-grant link; coding-session token minting fails with a
@@ -392,8 +393,8 @@ PUSH_RELAY_SECRET=<shared secret>
                 Show Google sign-in button (default: <code>false</code>).
               </EnvVar>
               <EnvVar name="GITHUB_APP_ID">
-                GitHub App numeric ID — required to connect repositories and
-                create projects.
+                GitHub App numeric ID — required to connect repositories
+                (coding sessions and PRs).
               </EnvVar>
               <EnvVar name="GITHUB_APP_SLUG">
                 GitHub App URL slug (builds the install link).

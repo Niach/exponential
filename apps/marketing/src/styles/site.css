@@ -18,14 +18,26 @@
 }
 
 /* ─── Top bar ─── */
+/* Transparent while the page rests at the top; gains its glass once the
+   user scrolls (SiteHeader toggles .is-scrolled at >8px). */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 50;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid transparent;
+  transition:
+    background 250ms ease,
+    border-color 250ms ease;
+}
+
+.topbar.is-scrolled {
   background: rgba(10, 10, 10, 0.8);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
+  border-bottom-color: var(--border);
 }
 
 .topbar-inner {
@@ -81,7 +93,11 @@
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 140ms, border-color 140ms, color 140ms;
+  transition:
+    background 140ms,
+    border-color 140ms,
+    color 140ms,
+    transform 150ms ease;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -161,7 +177,26 @@ h1.hero-title {
   letter-spacing: 0.12em;
   color: var(--fg-muted);
   margin-bottom: 14px;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Leading dash — motion drives --eyebrow-draw 0→1 on reveal (eyebrowDraw in
+   lib/animations.ts); the default 1 keeps it drawn wherever no motion runs. */
+.section-eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: var(--fg-muted);
+  transform: scaleX(var(--eyebrow-draw, 1));
+  transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-eyebrow::before {
+    transform: none;
+  }
 }
 
 /* ─── Sections ─── */
@@ -185,4 +220,23 @@ h2.section-title {
   color: var(--fg-muted);
   max-width: 600px;
   margin: 0 0 48px;
+}
+
+/* ── Micro-interactions (home agent) ── */
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+/* Word-stagger spans in the hero H1 — inline-block so transforms apply;
+   the JSX keeps real space text nodes between words, so spacing and
+   wrapping stay native. */
+.hero-word {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover {
+    transform: none;
+  }
 }

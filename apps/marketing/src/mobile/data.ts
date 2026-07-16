@@ -1,6 +1,6 @@
 export type MobPriority = `none` | `high` | `medium`
 
-export type MobStatus = `in_progress` | `todo` | `backlog` | `done`
+export type MobStatus = `in_progress` | `in_review` | `todo` | `backlog` | `done`
 
 export type MobIssue = {
   identifier: string
@@ -32,15 +32,21 @@ export const mobGroups: MobGroup[] = [
     ],
   },
   {
-    status: `todo`,
-    label: `Todo`,
+    status: `in_review`,
+    label: `In Review`,
     issues: [
       {
         identifier: `EXP-11`,
         title: `Issue board keyboard navigation`,
         priority: `medium`,
-        status: `todo`,
+        status: `in_review`,
       },
+    ],
+  },
+  {
+    status: `todo`,
+    label: `Todo`,
+    issues: [
       {
         identifier: `EXP-12`,
         title: `Attachment paste uploads`,
@@ -229,23 +235,8 @@ export const mobSteerFeed: MobFeedItem[] = [
 
 export const mobSteerDiff = { files: 1, add: 41, del: 3 }
 
-/* ─── Releases tab fixtures — mirrors the IDE release fixtures ─── */
-
-export type MobRelease = {
-  name: string
-  target?: string
-  shipped?: string
-  done: number
-  total: number
-  coding?: boolean
-}
-
-export const mobReleases: MobRelease[] = [
-  { name: `Live steer v2`, target: `Jul 15`, done: 1, total: 4, coding: true },
-  { name: `Terminal polish`, shipped: `Jul 2`, done: 1, total: 1 },
-]
-
-/* ─── Inbox tab fixtures — single activity stream ─── */
+/* ─── My Work inbox fixtures — single activity stream (the My Work tab
+   merges these with the `mobAssigned` "My Issues" section) ─── */
 
 export type MobInboxType = `pr_opened` | `pr_merged` | `comment` | `assigned`
 
@@ -297,6 +288,7 @@ export const mobDetailIssue = {
   identifier: `EXP-8`,
   title: `Live-steer terminal reconnect`,
   status: `In Progress`,
+  statusKey: `in_progress` as MobStatus,
   priority: `High`,
   assignee: { initials: `DS`, name: `Danny Strähhuber` },
   description: [

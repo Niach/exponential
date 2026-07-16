@@ -12,7 +12,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
 import type { Workspace } from "@/db/schema"
 
@@ -27,10 +26,9 @@ export function GettingStartedButton({
   workspace: Workspace | null | undefined
 }) {
   const [open, setOpen] = useState(false)
-  const permissions = useWorkspacePermissions(workspace)
 
-  // Close the sheet when a card's link navigates (e.g. "Create a widget" →
-  // workspace settings) — otherwise it would keep covering the new page.
+  // Close the sheet when a card's link navigates (e.g. "Set up in team
+  // settings") — otherwise it would keep covering the new page.
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   useEffect(() => {
     setOpen(false)
@@ -56,11 +54,16 @@ export function GettingStartedButton({
             </SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-6">
-            <GettingStartedCards
-              workspaceSlug={workspaceSlug}
-              canManageWidgets={permissions.canManageWidgets}
-              layout="stack"
-            />
+            {/* The checklist needs the workspace row (signals + permissions
+                derive from it) — while it syncs, the sheet chrome alone is
+                fine. */}
+            {workspace && (
+              <GettingStartedCards
+                workspace={workspace}
+                workspaceSlug={workspaceSlug}
+                layout="stack"
+              />
+            )}
           </div>
         </SheetContent>
       </Sheet>

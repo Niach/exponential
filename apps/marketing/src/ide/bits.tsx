@@ -6,6 +6,7 @@ import {
   IcCircle,
   IcCircleCheck,
   IcCircleDashed,
+  IcGitPullRequest,
   IcMinus,
   IcSigHigh,
   IcSigLow,
@@ -22,8 +23,11 @@ export function StatusIcon({ status, size = 14 }: { status: IssueStatus; size?: 
       return <IcCircle size={size} className="ide-c-fg" />
     case `in_progress`:
       return <IcTimer size={size} className="ide-c-yellow" />
+    case `in_review`:
+      /* Green PR glyph — set when a PR opens for the issue */
+      return <IcGitPullRequest size={size} className="ide-c-green" />
     case `done`:
-      return <IcCircleCheck size={size} className="ide-c-green" />
+      return <IcCircleCheck size={size} className="ide-c-blue" />
   }
 }
 

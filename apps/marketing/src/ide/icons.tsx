@@ -42,7 +42,6 @@ import {
   Plus,
   RefreshCw,
   RemoveFormatting,
-  Rocket,
   Search,
   Send,
   Settings,
@@ -93,7 +92,6 @@ export const IcChevDown = wrap(ChevronDown)
 export const IcChevUp = wrap(ChevronUp)
 export const IcChevRight = wrap(ChevronRight)
 export const IcChevLeft = wrap(ChevronLeft)
-export const IcRocket = wrap(Rocket)
 export const IcPlay = wrap(Play)
 export const IcCheck = wrap(Check)
 export const IcRefresh = wrap(RefreshCw)

@@ -99,7 +99,7 @@ export const DialogScrim: React.FC<{ frame: number; in: number; out: number }> =
 }
 
 // ── Shared control primitives ─────────────────────────────────────────────────
-const CheckBox: React.FC<{
+export const CheckBox: React.FC<{
   frame: number
   x: number
   y: number
@@ -134,7 +134,7 @@ const CheckBox: React.FC<{
 }
 
 // Labeled select (label 12px/500 muted above a h30 bordered box).
-const SelectBox: React.FC<{
+export const SelectBox: React.FC<{
   frame: number
   x: number
   boxY: number // top of the box; label renders at boxY − 20
@@ -259,10 +259,10 @@ const SelectMenu: React.FC<{
 }
 
 // Footer button pair (outline Cancel + primary Start coding → Starting…).
-const CANCEL_W = 72
-const PRIMARY_W = 108
-const BTN_H = 28
-const FooterButtons: React.FC<{
+export const CANCEL_W = 72
+export const PRIMARY_W = 108
+export const BTN_H = 28
+export const FooterButtons: React.FC<{
   frame: number
   y: number
   rightEdge: number // dialog-local right edge of the primary button
@@ -323,7 +323,7 @@ const FooterButtons: React.FC<{
 }
 
 // ── Dialog shell (card + title + ×, appear spring, collapse toward the dock) ──
-const DialogShell: React.FC<{
+export const DialogShell: React.FC<{
   frame: number
   appearAt: number
   collapseAt?: number
@@ -394,7 +394,7 @@ const DialogShell: React.FC<{
   )
 }
 
-const captionStyle = (x: number, y: number, w: number): React.CSSProperties => ({
+export const captionStyle = (x: number, y: number, w: number): React.CSSProperties => ({
   position: "absolute",
   left: x,
   top: y,
@@ -404,7 +404,7 @@ const captionStyle = (x: number, y: number, w: number): React.CSSProperties => (
   color: C.muted,
 })
 
-const PLAN_CAPTION = `Present a plan for approval before making changes (native Claude plan mode). After approving, Shift+Tab switches to skip-permissions for a prompt-free run.`
+export const PLAN_CAPTION = `Present a plan for approval before making changes (native Claude plan mode). After approving, Shift+Tab switches to skip-permissions for a prompt-free run.`
 
 // ── Issue variant (420px, S5) ─────────────────────────────────────────────────
 const I = {

@@ -11,13 +11,21 @@ const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
   const upserts: Record<string, unknown>[] = []
   const callLog: string[] = []
+  const whereArgs: unknown[] = []
   const oAuthConsent = vi.fn()
 
-  function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
+  function selectChain(): Promise<unknown[]> &
+    Record<string, (...args: unknown[]) => unknown> {
     const p = Promise.resolve(selectQueue.shift() ?? []) as Promise<unknown[]> &
-      Record<string, () => unknown>
-    for (const m of [`from`, `innerJoin`, `where`, `orderBy`, `limit`]) {
+      Record<string, (...args: unknown[]) => unknown>
+    for (const m of [`from`, `innerJoin`, `orderBy`, `limit`]) {
       p[m] = () => p
+    }
+    // The fake never evaluates SQL — record the where clause so user-scoping
+    // can still be asserted (see findParamValues below).
+    p.where = (...args: unknown[]) => {
+      whereArgs.push(args[0])
+      return p
     }
     return p
   }
@@ -35,7 +43,7 @@ const h = vi.hoisted(() => {
     }),
   }
 
-  return { selectQueue, upserts, callLog, oAuthConsent, fakeDb }
+  return { selectQueue, upserts, callLog, whereArgs, oAuthConsent, fakeDb }
 })
 
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
@@ -58,15 +66,54 @@ function caller() {
   } as never)
 }
 
+// Recursively collect every bound parameter value from a drizzle SQL object
+// (Param nodes carry a string `value`) — how the tests see what a recorded
+// where clause was actually scoped to.
+function findParamValues(
+  node: unknown,
+  out: string[] = [],
+  seen = new Set<object>()
+): string[] {
+  if (!node || typeof node !== `object` || seen.has(node)) return out
+  seen.add(node)
+  const record = node as Record<string, unknown>
+  if (typeof record.value === `string`) out.push(record.value)
+  for (const value of Object.values(record)) findParamValues(value, out, seen)
+  return out
+}
+
 beforeEach(() => {
   h.selectQueue.length = 0
   h.upserts.length = 0
   h.callLog.length = 0
+  h.whereArgs.length = 0
   h.oAuthConsent.mockReset()
   // Default: consent succeeds and returns the client callback URL.
   h.oAuthConsent.mockImplementation(async () => {
     h.callLog.push(`consent`)
     return { redirectURI: REDIRECT }
+  })
+})
+
+describe(`mcpGrants.hasAny — user-level MCP-connected existence check (EXP-141)`, () => {
+  it(`returns false when the user has no grant rows`, async () => {
+    h.selectQueue.push([])
+    await expect(caller().hasAny()).resolves.toEqual({ hasAny: false })
+  })
+
+  it(`returns true when the user has a grant row`, async () => {
+    h.selectQueue.push([{ id: `grant-1` }])
+    await expect(caller().hasAny()).resolves.toEqual({ hasAny: true })
+  })
+
+  it(`scopes the lookup to the calling user — someone else's rows never count`, async () => {
+    // The fake db can't evaluate SQL, so "another user's row only" is asserted
+    // structurally: the recorded where clause must bind the CALLER's id — the
+    // filter that keeps foreign rows out of the real query.
+    h.selectQueue.push([{ id: `grant-of-someone-else` }])
+    await caller().hasAny()
+    expect(h.whereArgs).toHaveLength(1)
+    expect(findParamValues(h.whereArgs[0])).toContain(`actor`)
   })
 })
 

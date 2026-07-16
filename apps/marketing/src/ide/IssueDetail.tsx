@@ -6,7 +6,7 @@ import {
   ISSUE_BODY,
   PRIORITY_LABEL,
   PROJECT,
-  releaseFor,
+  REVIEWS,
   STATUS_LABEL,
   type ActivityItem,
   type Issue,
@@ -22,6 +22,7 @@ import {
   IcCircleX,
   IcClearFmt,
   IcCode,
+  IcGitPullRequest,
   IcH1,
   IcH2,
   IcH3,
@@ -33,7 +34,6 @@ import {
   IcListOrdered,
   IcPlay,
   IcQuote,
-  IcRocket,
   IcSend,
   IcStrike,
   IcTag,
@@ -156,7 +156,8 @@ function PropGroup({ label, children }: { label: string; children: React.ReactNo
 }
 
 function PropsPanel({ issue }: { issue: Issue }) {
-  const release = releaseFor(issue.id)
+  /* One PR per issue — in_review issues carry their open PR. */
+  const review = REVIEWS.find((r) => r.issueId === issue.id)
   return (
     <div className="ide-props">
       <PropGroup label="Status">
@@ -197,19 +198,14 @@ function PropsPanel({ issue }: { issue: Issue }) {
           {issue.due ?? <span className="ide-c-muted">Add due date</span>}
         </button>
       </PropGroup>
-      <PropGroup label="Release">
-        {release ? (
+      {issue.status === `in_review` && review && (
+        <PropGroup label="Pull request">
           <button className="ide-prop-btn" type="button">
-            <IcRocket size={14} className="ide-c-muted" />
-            {release.name}
+            <IcGitPullRequest size={14} className="ide-c-green" />
+            {`#${review.prNumber} · ${review.branch}`}
           </button>
-        ) : (
-          <button className="ide-prop-btn ide-c-muted" type="button">
-            <IcRocket size={14} />
-            Add to release
-          </button>
-        )}
-      </PropGroup>
+        </PropGroup>
+      )}
       <PropGroup label="Project">
         <span className="ide-prop-chip">
           <span className="ide-proj-dot" style={{ background: PROJECT.color }} />
@@ -231,8 +227,13 @@ export function IssueDetail({ issueId }: { issueId: string }) {
 
   const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
   const activity = [...baseActivity, ...extraComments]
+  /* Coding pill lights for a plain run on this issue AND for a batch run
+     that includes it — a batch ships every checked issue. */
   const codingHere =
-    coding === `running` && codingTarget?.kind === `issue` && codingTarget.id === issue.id
+    coding === `running` &&
+    (codingTarget?.kind === `issue`
+      ? codingTarget.id === issue.id
+      : (codingTarget?.issueIds.includes(issue.id) ?? false))
   /* EXP-8 ships with its diff fixture; other issues earn one by finishing a run. */
   const hasChanges = isExp8 || codedIssues.has(issue.id)
 
