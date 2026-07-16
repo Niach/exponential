@@ -1,10 +1,12 @@
-import { addDays, addMonths, addWeeks } from "date-fns"
 import { z } from "zod"
 
 export const issueStatusValues = [
   `backlog`,
   `todo`,
   `in_progress`,
+  // PR opened, awaiting review/merge — the coding flow parks issues here
+  // between "PR opened" and "PR merged" (which lands them in `done`).
+  `in_review`,
   `done`,
   `cancelled`,
   // Terminal resolution: this issue is a duplicate of `issues.duplicateOfId`.
@@ -77,15 +79,6 @@ export const CODING_SESSION_STALE_HOURS = 2
 export const CODING_SESSION_STALE_MS =
   CODING_SESSION_STALE_HOURS * 60 * 60 * 1000
 
-export const recurrenceUnitValues = [`day`, `week`, `month`] as const
-
-// Selectable recurrence interval options shown in the editor. Mirrors
-// packages/domain-contract/contract.json (kept in sync by the domain-contract
-// drift test in apps/web).
-export const recurrenceIntervals = [
-  1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30,
-] as const
-
 // Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
 
@@ -154,7 +147,6 @@ export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
 export type ProjectType = (typeof projectTypeValues)[number]
 export type ProjectIcon = (typeof projectIconValues)[number]
-export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
@@ -171,14 +163,12 @@ export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const projectTypeSchema = z.enum(projectTypeValues)
 export const projectIconSchema = z.enum(projectIconValues)
-export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
-export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)
 
@@ -204,6 +194,7 @@ export function getCommentBodyText(body: unknown): string {
 
 export const issueStatusOrder: IssueStatus[] = [
   `in_progress`,
+  `in_review`,
   `todo`,
   `backlog`,
   `done`,
@@ -227,26 +218,6 @@ export function normalizeIssueDescriptionText(text: string) {
 export function toIssueDescription(text: string): string | null {
   const trimmed = normalizeIssueDescriptionText(text)
   return trimmed ? trimmed : null
-}
-
-export function addRecurrence(
-  date: Date,
-  interval: number,
-  unit: RecurrenceUnit
-): Date {
-  switch (unit) {
-    case `day`:
-      return addDays(date, interval)
-    case `week`:
-      return addWeeks(date, interval)
-    case `month`:
-      return addMonths(date, interval)
-  }
-}
-
-export function formatRecurrence(interval: number, unit: RecurrenceUnit) {
-  const noun = interval === 1 ? unit : `${unit}s`
-  return interval === 1 ? `Every ${noun}` : `Every ${interval} ${noun}`
 }
 
 export function formatDateForMutation(date: Date | null | undefined) {

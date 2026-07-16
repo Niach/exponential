@@ -4,11 +4,10 @@
 import Foundation
 
 public enum DomainContract {
-    public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "done", "cancelled", "duplicate"]
-    public static let issueStatusDisplayOrder: [String] = ["in_progress", "todo", "backlog", "done", "cancelled", "duplicate"]
+    public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+    public static let issueStatusDisplayOrder: [String] = ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
-    public static let recurrenceUnitValues: [String] = ["day", "week", "month"]
     public static let workspaceRoleValues: [String] = ["owner", "member"]
     public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
     public static let projectIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
@@ -18,7 +17,6 @@ public enum DomainContract {
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved"]
-    public static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
     public static let workspaceRoleOwner: String = "owner"
     public static let workspaceRoleMember: String = "member"

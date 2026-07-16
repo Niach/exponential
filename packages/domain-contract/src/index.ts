@@ -9,7 +9,6 @@ import contractJson from "../contract.json" with { type: "json" }
 export interface DomainContract {
   issueStatus: { values: readonly string[]; displayOrder: readonly string[] }
   issuePriority: { values: readonly string[]; displayOrder: readonly string[] }
-  recurrenceUnit: { values: readonly string[] }
   workspaceRole: { values: readonly string[] }
   projectType: { values: readonly string[] }
   projectIcon: { values: readonly string[] }
@@ -19,7 +18,6 @@ export interface DomainContract {
   codingSessionStatus: { values: readonly string[] }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
-  recurrenceIntervals: readonly number[]
 }
 
 export const contract = contractJson as unknown as DomainContract

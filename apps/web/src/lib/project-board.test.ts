@@ -27,8 +27,6 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     number: 1,
     priority: `none`,
     projectId: `project-1`,
-    recurrenceInterval: null,
-    recurrenceUnit: null,
     duplicateOfId: null,
     prUrl: null,
     prNumber: null,

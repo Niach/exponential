@@ -6,6 +6,7 @@ import {
   CircleDashed,
   CircleX,
   Copy,
+  GitPullRequest,
   Minus,
   SignalHigh,
   SignalLow,
@@ -43,10 +44,16 @@ export const issueStatusOptions = [
     color: `text-yellow-500`,
   },
   {
+    value: `in_review`,
+    label: `In Review`,
+    icon: GitPullRequest,
+    color: `text-green-500`,
+  },
+  {
     value: `done`,
     label: `Done`,
     icon: CircleCheck,
-    color: `text-green-500`,
+    color: `text-blue-500`,
   },
   {
     value: `cancelled`,

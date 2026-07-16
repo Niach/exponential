@@ -23,7 +23,7 @@ export type TabPreset = `all` | `active` | `backlog`
 
 export const tabPresetStatuses: Record<TabPreset, IssueStatus[]> = {
   all: [],
-  active: [`in_progress`, `todo`],
+  active: [`in_progress`, `in_review`, `todo`],
   backlog: [`backlog`],
 }
 

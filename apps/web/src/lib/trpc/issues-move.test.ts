@@ -57,10 +57,6 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   collectIssueAttachmentStorageKeysInTx: vi.fn(async () => []),
   deleteStorageObjects: vi.fn(),
 }))
-vi.mock(`@/lib/issue-recurrence`, () => ({
-  cloneIssueForRecurrence: vi.fn(),
-  copyRecurrenceAttachments: vi.fn(),
-}))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetAssignmentNotify: vi.fn(),
   fireAndForgetIssueMentionNotify: vi.fn(),

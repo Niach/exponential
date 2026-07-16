@@ -9,9 +9,21 @@ import { trpc } from "@/lib/trpc-client"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { Issue, Project, Workspace } from "@/db/schema"
 
+// One open PR. A batch coding run links several issues to the same prUrl —
+// they all ride ONE entry (EXP-131, never one row per issue); merging/closing
+// through the representative issue acts on the PR, and the webhook then
+// completes every linked issue.
+export interface ReviewEntry {
+  key: string
+  // Representative row (newest) — carries prUrl/prNumber/branch for actions.
+  issue: Issue
+  // Every linked issue, newest first (length 1 for a plain single-issue PR).
+  issues: Issue[]
+}
+
 export interface ReviewGroup {
   project: Project
-  issues: Issue[]
+  entries: ReviewEntry[]
 }
 
 export interface ExternalPullGroup {
@@ -98,13 +110,34 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
 
   return useMemo(() => {
     const list = (issues ?? []) as Issue[]
-    const byProject = new Map<string, Issue[]>()
+
+    // Collapse issues sharing a prUrl into ONE entry (EXP-131: a batch PR must
+    // not render flattened). Issues without a prUrl can't collide — keyed by id.
+    const entriesByKey = new Map<string, ReviewEntry>()
     for (const issue of list) {
-      const bucket = byProject.get(issue.projectId)
-      if (bucket) {
-        bucket.push(issue)
+      const key = issue.prUrl ?? issue.id
+      const entry = entriesByKey.get(key)
+      if (entry) {
+        entry.issues.push(issue)
       } else {
-        byProject.set(issue.projectId, [issue])
+        entriesByKey.set(key, { key, issue, issues: [issue] })
+      }
+    }
+
+    const byProject = new Map<string, ReviewEntry[]>()
+    for (const entry of entriesByKey.values()) {
+      entry.issues.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+      entry.issue = entry.issues[0]
+      // A batch PR's issues may span projects sharing one repo — the entry
+      // lives under the representative (newest) issue's project.
+      const bucket = byProject.get(entry.issue.projectId)
+      if (bucket) {
+        bucket.push(entry)
+      } else {
+        byProject.set(entry.issue.projectId, [entry])
       }
     }
 
@@ -115,9 +148,10 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
       if (!bucket) continue
       bucket.sort(
         (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          new Date(b.issue.createdAt).getTime() -
+          new Date(a.issue.createdAt).getTime()
       )
-      groups.push({ project, issues: bucket })
+      groups.push({ project, entries: bucket })
     }
 
     const externalCount = externalGroups.reduce(
@@ -128,7 +162,7 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
     return {
       groups,
       externalGroups,
-      count: list.length + externalCount,
+      count: entriesByKey.size + externalCount,
       // A workspace with no projects skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without

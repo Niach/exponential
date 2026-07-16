@@ -7,10 +7,9 @@ import {
   Loader2,
   X,
 } from "lucide-react"
-import type { Issue } from "@/db/schema"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
-import { useReviewsData } from "@/hooks/use-reviews-data"
+import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
 import { trpc } from "@/lib/trpc-client"
 import { getInitials } from "@/lib/utils"
@@ -63,18 +62,18 @@ function ReviewsPage() {
     removeExternalPull,
   } = useReviewsData(workspace)
 
-  // The row whose confirm dialog is open, and the rows with an in-flight
-  // merge. A successful merge keeps its spinner until the Electric echo flips
-  // prState and the row leaves the list; external PRs have no echo and are
-  // removed locally on success.
-  const [mergeTarget, setMergeTarget] = useState<Issue | null>(null)
+  // The entry whose confirm dialog is open, and the entries with an in-flight
+  // merge (keyed by entry.key). A successful merge keeps its spinner until the
+  // Electric echo flips prState and the entry leaves the list; external PRs
+  // have no echo and are removed locally on success.
+  const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
   // The reject path (EXP-100): close WITHOUT merging — deliberately subtle
   // (hover-revealed ghost ×); merge stays the primary action. Same spinner
-  // semantics as merge: success waits for the Electric echo to drop the row.
-  const [closeTarget, setCloseTarget] = useState<Issue | null>(null)
+  // semantics as merge: success waits for the Electric echo to drop the entry.
+  const [closeTarget, setCloseTarget] = useState<ReviewEntry | null>(null)
   const [closingIds, setClosingIds] = useState<Set<string>>(new Set())
 
   const openIssue = (projectSlug: string, issueIdentifier: string) => {
@@ -85,32 +84,34 @@ function ReviewsPage() {
   }
 
   const confirmMerge = () => {
-    const issue = mergeTarget
-    if (!issue) return
+    const entry = mergeTarget
+    if (!entry) return
     setMergeTarget(null)
-    setMergingIds((prev) => new Set(prev).add(issue.id))
-    trpc.issues.mergePr.mutate({ issueId: issue.id }).catch(() => {
+    setMergingIds((prev) => new Set(prev).add(entry.key))
+    // Merging through the representative issue merges the ONE PR — the server
+    // then completes every linked issue.
+    trpc.issues.mergePr.mutate({ issueId: entry.issue.id }).catch(() => {
       // The global mutation toast already surfaced the error; just unstick
       // the row spinner so the merge can be retried.
       setMergingIds((prev) => {
         const next = new Set(prev)
-        next.delete(issue.id)
+        next.delete(entry.key)
         return next
       })
     })
   }
 
   const confirmClose = () => {
-    const issue = closeTarget
-    if (!issue) return
+    const entry = closeTarget
+    if (!entry) return
     setCloseTarget(null)
-    setClosingIds((prev) => new Set(prev).add(issue.id))
-    trpc.issues.closePr.mutate({ issueId: issue.id }).catch(() => {
+    setClosingIds((prev) => new Set(prev).add(entry.key))
+    trpc.issues.closePr.mutate({ issueId: entry.issue.id }).catch(() => {
       // The global mutation toast already surfaced the error; just unstick
       // the row spinner so the close can be retried.
       setClosingIds((prev) => {
         const next = new Set(prev)
-        next.delete(issue.id)
+        next.delete(entry.key)
         return next
       })
     })
@@ -192,19 +193,21 @@ function ReviewsPage() {
                   {group.project.name}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {group.issues.length}
+                  {group.entries.length}
                 </span>
               </div>
 
-              {group.issues.map((issue) => {
+              {group.entries.map((entry) => {
+                const issue = entry.issue
+                const isBatch = entry.issues.length > 1
                 const assignee = issue.assigneeId
                   ? userMap.get(issue.assigneeId)
                   : undefined
-                const merging = mergingIds.has(issue.id)
-                const closing = closingIds.has(issue.id)
+                const merging = mergingIds.has(entry.key)
+                const closing = closingIds.has(entry.key)
                 return (
                   <div
-                    key={issue.id}
+                    key={entry.key}
                     className="group/row grid h-11 cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 hover:bg-muted/50"
                     onClick={() =>
                       openIssue(group.project.slug, issue.identifier)
@@ -213,10 +216,23 @@ function ReviewsPage() {
                   >
                     <GitPullRequest className="h-4 w-4 text-emerald-500" />
                     <span className="truncate font-mono text-xs text-muted-foreground">
-                      {issue.identifier}
+                      {isBatch && issue.prNumber
+                        ? `#${issue.prNumber}`
+                        : issue.identifier}
                     </span>
                     <span className="min-w-0 truncate pr-2 text-sm">
-                      {issue.title}
+                      {isBatch ? (
+                        <>
+                          {`${entry.issues.length} issues`}
+                          <span className="ml-2 font-mono text-xs text-muted-foreground">
+                            {entry.issues
+                              .map((linked) => linked.identifier)
+                              .join(`, `)}
+                          </span>
+                        </>
+                      ) : (
+                        issue.title
+                      )}
                     </span>
                     <div className="flex items-center gap-2">
                       {issue.branch && (
@@ -271,7 +287,7 @@ function ReviewsPage() {
                         disabled={merging || closing}
                         onClick={(e) => {
                           e.stopPropagation()
-                          setCloseTarget(issue)
+                          setCloseTarget(entry)
                         }}
                       >
                         {closing ? (
@@ -286,7 +302,7 @@ function ReviewsPage() {
                         disabled={merging || closing}
                         onClick={(e) => {
                           e.stopPropagation()
-                          setMergeTarget(issue)
+                          setMergeTarget(entry)
                         }}
                       >
                         {merging ? (
@@ -416,9 +432,18 @@ function ReviewsPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{`Merge ${mergeTarget?.identifier}?`}</DialogTitle>
+            <DialogTitle>
+              {mergeTarget && mergeTarget.issues.length > 1
+                ? `Merge PR #${mergeTarget.issue.prNumber}?`
+                : `Merge ${mergeTarget?.issue.identifier}?`}
+            </DialogTitle>
             <DialogDescription>
-              {`Squash-merges pull request #${mergeTarget?.prNumber} (${mergeTarget?.branch}) into the repository's default branch via the GitHub App.`}
+              {`Squash-merges pull request #${mergeTarget?.issue.prNumber} (${mergeTarget?.issue.branch}) into the repository's default branch via the GitHub App.`}
+              {mergeTarget && mergeTarget.issues.length > 1
+                ? ` Completes all ${mergeTarget.issues.length} linked issues: ${mergeTarget.issues
+                    .map((linked) => linked.identifier)
+                    .join(`, `)}.`
+                : ``}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -438,9 +463,18 @@ function ReviewsPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{`Close ${closeTarget?.identifier}'s pull request?`}</DialogTitle>
+            <DialogTitle>
+              {closeTarget && closeTarget.issues.length > 1
+                ? `Close PR #${closeTarget.issue.prNumber}?`
+                : `Close ${closeTarget?.issue.identifier}'s pull request?`}
+            </DialogTitle>
             <DialogDescription>
-              {`Closes pull request #${closeTarget?.prNumber} (${closeTarget?.branch}) on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
+              {`Closes pull request #${closeTarget?.issue.prNumber} (${closeTarget?.issue.branch}) on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
+              {closeTarget && closeTarget.issues.length > 1
+                ? ` The PR is linked to ${closeTarget.issues.length} issues: ${closeTarget.issues
+                    .map((linked) => linked.identifier)
+                    .join(`, `)}.`
+                : ``}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

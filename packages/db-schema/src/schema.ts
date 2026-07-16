@@ -38,8 +38,6 @@ import {
   prStateValues,
   projectTypeSchema,
   projectTypeValues,
-  recurrenceUnitSchema,
-  recurrenceUnitValues,
   subscriberSourceSchema,
   subscriberSourceValues,
   workspaceRoleSchema,
@@ -72,11 +70,6 @@ export const workspaceMemberRoleEnum = pgEnum(
 )
 
 export const projectTypeEnum = pgEnum(`project_type`, projectTypeValues)
-
-export const recurrenceUnitEnum = pgEnum(
-  `recurrence_unit`,
-  recurrenceUnitValues
-)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 
@@ -310,8 +303,6 @@ export const issues = pgTable(
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
-    recurrenceInterval: integer(`recurrence_interval`),
-    recurrenceUnit: recurrenceUnitEnum(`recurrence_unit`),
     // Duplicate resolution: this issue is a duplicate of the canonical issue.
     // 1:1 (no relation graph); pairs with status='duplicate'.
     duplicateOfId: uuid(`duplicate_of_id`).references(
@@ -1110,7 +1101,6 @@ export const selectIssueSchema = createSelectSchema(issues, {
   description: issueDescriptionSchema.nullable(),
   priority: issuePrioritySchema,
   status: issueStatusSchema,
-  recurrenceUnit: recurrenceUnitSchema.nullable(),
   prState: prStateSchema.nullable(),
 })
 export const createIssueSchema = createInsertSchema(issues).omit({

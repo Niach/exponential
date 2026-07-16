@@ -77,6 +77,55 @@ export async function findIssueIdByBranch(
   return movedEvent?.issueId ?? null
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// Coding-flow status transitions (EXP-120): an opened PR parks its issue in
+// `in_review`; a merged PR completes it (`done`). Explicit human resolutions
+// (cancelled/duplicate) and already-reached targets are never overridden, so
+// the webhook/cron/MCP writers stay idempotent.
+const IN_REVIEW_FROM_STATUSES = new Set([`backlog`, `todo`, `in_progress`])
+const DONE_FROM_STATUSES = new Set([
+  `backlog`,
+  `todo`,
+  `in_progress`,
+  `in_review`,
+])
+
+// Shared in-transaction status writer for the PR lifecycle: flips the issue's
+// status (stamping/clearing completedAt) and records the status_changed
+// activity event. No notification fan-out here — the pr_opened/pr_merged
+// notifications already cover the same moment.
+export async function applyPrLifecycleStatusInTx(
+  tx: Tx,
+  opts: {
+    issueId: string
+    workspaceId: string
+    actorUserId: string | null
+    currentStatus: string
+    to: `in_review` | `done`
+  }
+): Promise<void> {
+  const eligible =
+    opts.to === `done` ? DONE_FROM_STATUSES : IN_REVIEW_FROM_STATUSES
+  if (!eligible.has(opts.currentStatus)) return
+
+  await tx
+    .update(issues)
+    .set({
+      status: opts.to,
+      completedAt: opts.to === `done` ? new Date() : null,
+    })
+    .where(eq(issues.id, opts.issueId))
+
+  await recordIssueEvent(tx, {
+    issueId: opts.issueId,
+    workspaceId: opts.workspaceId,
+    actorUserId: opts.actorUserId,
+    type: `status_changed`,
+    payload: { from: opts.currentStatus, to: opts.to },
+  })
+}
+
 // Pure transition guard for the merge/close writers below. One PR per issue
 // (a batch PR may be linked to several issues, but each issue has exactly one
 // linked PR): only the LINKED PR may flip the issue's prState — the webhook's
@@ -119,7 +168,11 @@ export async function applyPrOpenedState(opts: {
     void txId
 
     const [current] = await tx
-      .select({ prUrl: issues.prUrl, workspaceId: projects.workspaceId })
+      .select({
+        prUrl: issues.prUrl,
+        status: issues.status,
+        workspaceId: projects.workspaceId,
+      })
       .from(issues)
       .innerJoin(projects, eq(projects.id, issues.projectId))
       .where(eq(issues.id, opts.issueId))
@@ -148,6 +201,15 @@ export async function applyPrOpenedState(opts: {
         prNumber: opts.prNumber,
         branch: opts.branch,
       },
+    })
+
+    // An open PR moves the issue into review (EXP-120).
+    await applyPrLifecycleStatusInTx(tx, {
+      issueId: opts.issueId,
+      workspaceId: current.workspaceId,
+      actorUserId: opts.actorUserId ?? null,
+      currentStatus: current.status,
+      to: `in_review`,
     })
     return true
   })
@@ -186,6 +248,7 @@ export async function applyPrMergeState(opts: {
       .select({
         prState: issues.prState,
         prUrl: issues.prUrl,
+        status: issues.status,
         workspaceId: projects.workspaceId,
       })
       .from(issues)
@@ -214,6 +277,15 @@ export async function applyPrMergeState(opts: {
       actorUserId: opts.actorUserId ?? null,
       type: `pr_merged`,
       payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
+    })
+
+    // The merged PR completes the issue (EXP-120: in_review → done).
+    await applyPrLifecycleStatusInTx(tx, {
+      issueId: opts.issueId,
+      workspaceId: current.workspaceId,
+      actorUserId: opts.actorUserId ?? null,
+      currentStatus: current.status,
+      to: `done`,
     })
     return true
   })

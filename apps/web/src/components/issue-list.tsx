@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import { Plus, ChevronRight, ListTodo, Repeat, SearchX } from "lucide-react"
+import { Plus, ChevronRight, ListTodo, SearchX } from "lucide-react"
 import type { IssueStatus } from "@/lib/domain"
 import type { IssueGroup } from "@/lib/project-board"
 
@@ -21,7 +21,8 @@ const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `rgba(113, 113, 122, 0.08)`,
   todo: `rgba(212, 212, 216, 0.08)`,
   in_progress: `rgba(234, 179, 8, 0.10)`,
-  done: `rgba(34, 197, 94, 0.10)`,
+  in_review: `rgba(34, 197, 94, 0.10)`,
+  done: `rgba(59, 130, 246, 0.10)`,
   cancelled: `rgba(113, 113, 122, 0.08)`,
   duplicate: `rgba(113, 113, 122, 0.08)`,
 }
@@ -434,12 +435,6 @@ export function IssueList({
                         />
                       </div>
                       <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
-                        {issue.recurrenceInterval !== null && (
-                          <Repeat
-                            className="size-3 shrink-0 text-muted-foreground"
-                            aria-label="Recurring"
-                          />
-                        )}
                         <span className="truncate">{issue.title}</span>
                       </span>
                       <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
