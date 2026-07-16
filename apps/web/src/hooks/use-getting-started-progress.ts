@@ -24,7 +24,6 @@ export function useGettingStartedProgress(
   workspace: Workspace | null | undefined
 ): {
   loading: boolean
-  resolved: boolean
   signals: GettingStartedSignals
   permissions: WorkspacePermissions
 } {
@@ -67,6 +66,14 @@ export function useGettingStartedProgress(
   const [hasWidget, setHasWidget] = useState<boolean | null>(null)
   const [mcpConnected, setMcpConnected] = useState<boolean | null>(null)
 
+  // Workspace-scoped answers must not leak across a workspace switch — the
+  // sidebar keeps this hook mounted, and a stale `true` would flash the new
+  // workspace's steps as done.
+  useEffect(() => {
+    setGithubInstalled(null)
+    setHasWidget(null)
+  }, [workspaceId])
+
   const isMember = permissions.isMember
   useEffect(() => {
     if (!resolved || !isMember || !workspaceId) return
@@ -75,7 +82,12 @@ export function useGettingStartedProgress(
       trpc.integrations.github.status
         .query({ workspaceId })
         .then((status) => {
-          if (!cancelled) setGithubInstalled(status.installed)
+          if (cancelled) return
+          setGithubInstalled(status.installed)
+          // The listener only exists to catch not-installed → installed
+          // (returning from the GitHub install tab); once installed there is
+          // nothing left to detect, so stop re-querying on every focus.
+          if (status.installed) window.removeEventListener(`focus`, check)
         })
         .catch(() => {
           if (!cancelled) setGithubInstalled(false)
@@ -154,5 +166,5 @@ export function useGettingStartedProgress(
     (canManageWidgets && hasWidget === null) ||
     mcpConnected === null
 
-  return { loading, resolved, signals, permissions }
+  return { loading, signals, permissions }
 }

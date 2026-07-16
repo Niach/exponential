@@ -28,6 +28,7 @@ import {
 import { HomePage } from "../src/HomePage"
 import { PricingPage } from "../src/PricingPage"
 import { DownloadPage } from "../src/DownloadPage"
+import { DOCS_NAV } from "../src/lib/docs-nav"
 import { DocsPage } from "../src/DocsPage"
 import { GettingStartedDocsPage } from "../src/GettingStartedDocsPage"
 import { IssuesDocsPage } from "../src/IssuesDocsPage"
@@ -249,6 +250,25 @@ function writeLlmsTxt(): void {
   console.log(`wrote dist/llms.txt (${PAGES.length} pages)`)
 }
 
+/* Docs-nav parity: the sidebar/hub list (DOCS_NAV) and the prerender
+   registry (PAGES) enumerate the docs pages independently — a page present
+   in one but not the other silently ships a broken nav or an orphan URL,
+   so the build refuses instead. */
+function assertDocsNavParity(): void {
+  const navPaths = new Set(DOCS_NAV.map((entry) => entry.path))
+  const docsPages = new Set(
+    PAGES.filter((p) => p.path.startsWith(`/docs/`)).map((p) => p.path)
+  )
+  const notInPages = [...navPaths].filter((path) => !docsPages.has(path))
+  const notInNav = [...docsPages].filter((path) => !navPaths.has(path))
+  if (notInPages.length || notInNav.length) {
+    throw new Error(
+      `docs nav parity: DOCS_NAV-only: [${notInPages.join(`, `)}] PAGES-only: [${notInNav.join(`, `)}]`
+    )
+  }
+}
+
+assertDocsNavParity()
 for (const page of PAGES) prerenderPage(page)
 writeSitemap()
 writeLlmsTxt()

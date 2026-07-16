@@ -2,9 +2,12 @@
 
    CRITICAL: this file is statically imported by HomePage, which is
    renderToString'd under Bun by scripts/prerender.tsx — it must import
-   NOTHING from remotion or @video. The Remotion Player (and the composition
-   itself) live in the lazy chunk ./LoopMoviePlayer, dynamically imported
-   when the section scrolls near (IntersectionObserver, 300px early).
+   NOTHING from remotion. The ONE allowed @video import is the remotion-free
+   data module @video/closedloop/chapters (chapter ids/labels shared with the
+   composition so the rail can't drift); the Remotion Player and the
+   composition itself live in the lazy chunk ./LoopMoviePlayer, dynamically
+   imported when the section scrolls near (IntersectionObserver, 300px
+   early).
 
    Pre-mount the wrapper reserves the full 16:9 box (CLS-safe) and shows a
    rendered poster frame; the chapter rail below is real HTML (SEO / no-JS).
@@ -12,6 +15,7 @@
    starts the movie on click. */
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Play } from "lucide-react"
+import { CHAPTER_INFO } from "@video/closedloop/chapters"
 
 /* The imperative surface LoopMoviePlayer hands back once mounted. Defined
    here (not in the player chunk) so this file stays remotion-free. */
@@ -21,16 +25,11 @@ export type LoopMovieController = {
   pause: () => void
 }
 
-/* Mirrors CHAPTERS in apps/video/src/closedloop/timeline.ts — same five
-   entries, same order. Labels/phrases render statically for SEO; the frame
-   numbers stay inside the lazy chunk (the player seeks by index). */
-const CHAPTER_META = [
-  { id: `feedback`, label: `Feedback`, phrase: `a user reports a bug` },
-  { id: `issue`, label: `Issue`, phrase: `lands on the board` },
-  { id: `code`, label: `Code`, phrase: `Claude writes the fix` },
-  { id: `merge`, label: `Merge`, phrase: `review, merge` },
-  { id: `shipped`, label: `Shipped`, phrase: `the reporter hears back` },
-] as const
+/* The composition's own chapter metadata (remotion-free module) — same
+   list CHAPTERS is built from, so the rail and the film can't drift.
+   Labels/phrases render statically for SEO; the frame numbers stay inside
+   the lazy chunk (the player seeks by index). */
+const CHAPTER_META = CHAPTER_INFO
 
 const POSTER_ALT = `The Exponential desktop IDE mid-loop: a bug reported from the feedback widget has become an issue, a Claude coding session is writing the fix, and a pull request is on its way to merge.`
 

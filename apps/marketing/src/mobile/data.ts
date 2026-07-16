@@ -288,6 +288,7 @@ export const mobDetailIssue = {
   identifier: `EXP-8`,
   title: `Live-steer terminal reconnect`,
   status: `In Progress`,
+  statusKey: `in_progress` as MobStatus,
   priority: `High`,
   assignee: { initials: `DS`, name: `Danny Strähhuber` },
   description: [

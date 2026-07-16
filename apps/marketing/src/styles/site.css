@@ -229,14 +229,10 @@ h2.section-title {
 }
 
 /* Word-stagger spans in the hero H1 — inline-block so transforms apply;
-   the JSX keeps real spaces between words for natural wrapping. */
+   the JSX keeps real space text nodes between words, so spacing and
+   wrapping stay native. */
 .hero-word {
   display: inline-block;
-  margin-right: 0.28em;
-}
-
-.hero-word:last-child {
-  margin-right: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

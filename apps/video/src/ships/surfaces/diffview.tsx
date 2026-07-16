@@ -346,7 +346,7 @@ export const ChangesPane: React.FC<ChangesPaneProps> = ({
               }}
             >
               <span style={{ fontFamily: MONO_FONT, fontSize: 12, fontWeight: 700, color: C.text }}>
-                {files[0].path}
+                {files[0]?.path ?? ""}
               </span>
               <div style={{ flex: 1 }} />
               <span style={{ fontFamily: MONO_FONT, fontSize: 12, color: C.diffAdd }}>{`+${fileStats.add}`}</span>

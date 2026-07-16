@@ -5,6 +5,7 @@
 // last frame matches the first (camera, FAB, cursor) for a seamless loop.
 
 import { interpolate, spring } from "remotion"
+import { CHAPTER_INFO } from "./chapters"
 import { SETTLE, WIN } from "../ships/theme"
 import type { CamKey, CursorKey } from "../ships/rig"
 import { DETAIL_ANCHORS } from "../ships/surfaces/detail"
@@ -32,15 +33,22 @@ export const SCENE = {
   end: DURATION_IN_FRAMES,
 } as const
 
-// Chapter markers for the marketing player scrubber.
+// Chapter markers for the marketing player scrubber — the id/label/phrase
+// metadata lives in chapters.ts (remotion-free, shared with the marketing
+// rail); only the frame mapping is authored here.
 export type Chapter = { id: string; label: string; frame: number }
-export const CHAPTERS: Chapter[] = [
-  { id: "feedback", label: "Feedback", frame: SCENE.site },
-  { id: "issue", label: "Issue", frame: SCENE.board },
-  { id: "code", label: "Code", frame: SCENE.dialog },
-  { id: "merge", label: "Merge", frame: SCENE.diff },
-  { id: "shipped", label: "Shipped", frame: SCENE.email },
-]
+const CHAPTER_FRAMES: Record<string, number> = {
+  feedback: SCENE.site,
+  issue: SCENE.board,
+  code: SCENE.dialog,
+  merge: SCENE.diff,
+  shipped: SCENE.email,
+}
+export const CHAPTERS: Chapter[] = CHAPTER_INFO.map(({ id, label }) => {
+  const frame = CHAPTER_FRAMES[id]
+  if (frame === undefined) throw new Error(`chapter ${id} has no frame`)
+  return { id, label, frame }
+})
 
 // ── Camera (single global key list; 1-frame gaps = hard cuts under whip blur) ─
 export const CAMERA_KEYS: CamKey[] = [

@@ -46,14 +46,14 @@ import {
 
 /* ─── Small glyph helpers ─── */
 
-/* Inline hexes mirror the shared tokens.css semantics
-   (--st-progress / --st-review / --st-done / --neutral / --fg) */
+/* CSS custom properties resolve inside inline styles, so these reference
+   tokens.css directly — the single palette source. */
 const statusColor: Record<MobStatus, string> = {
-  in_progress: `#facc15`,
-  in_review: `#22c55e`,
-  todo: `#fafafa`,
-  backlog: `#a1a1a1`,
-  done: `#3b82f6`,
+  in_progress: `var(--st-progress)`,
+  in_review: `var(--st-review)`,
+  todo: `var(--fg)`,
+  backlog: `var(--fg-muted)`,
+  done: `var(--st-done)`,
 }
 
 const StatusIcon = ({
@@ -74,10 +74,10 @@ const StatusIcon = ({
 
 const PriorityIcon = ({ priority }: { priority: MobPriority }) => {
   if (priority === `high`)
-    return <IcSignalHigh size={15} style={{ color: `#f97316` }} />
+    return <IcSignalHigh size={15} style={{ color: `var(--pr-high)` }} />
   if (priority === `medium`)
-    return <IcSignalMedium size={15} style={{ color: `#facc15` }} />
-  return <IcMinus size={15} style={{ color: `#5b5b60` }} />
+    return <IcSignalMedium size={15} style={{ color: `var(--st-progress)` }} />
+  return <IcMinus size={15} style={{ color: `var(--fg-dim)` }} />
 }
 
 const BatteryGlyph = () => (
@@ -530,14 +530,14 @@ const IssueScreen = () => {
         <div className={`mob-prop-row`}>
           <span className={`mob-prop-key`}>Status</span>
           <span className={`mob-prop-value`}>
-            <IcTimer size={15} style={{ color: `#facc15` }} />
+            <StatusIcon status={issue.statusKey} />
             {issue.status}
           </span>
         </div>
         <div className={`mob-prop-row`}>
           <span className={`mob-prop-key`}>Priority</span>
           <span className={`mob-prop-value`}>
-            <IcSignalHigh size={15} style={{ color: `#f97316` }} />
+            <IcSignalHigh size={15} style={{ color: `var(--pr-high)` }} />
             {issue.priority}
           </span>
         </div>

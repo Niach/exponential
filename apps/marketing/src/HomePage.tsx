@@ -42,15 +42,16 @@ export function HomePage() {
             initial={`hidden`}
             animate={`visible`}
           >
+            {/* Words are individually animated spans; the real space text
+                nodes between them keep copy/screen-reader output intact. */}
             <motion.h1 className={`hero-title`} variants={heroTitleStagger}>
               {HERO_TITLE_WORDS.map((word, index) => (
-                <motion.span
-                  key={index}
-                  className={`hero-word`}
-                  variants={heroWord}
-                >
-                  {word}
-                </motion.span>
+                <span key={index}>
+                  <motion.span className={`hero-word`} variants={heroWord}>
+                    {word}
+                  </motion.span>
+                  {index < HERO_TITLE_WORDS.length - 1 ? ` ` : null}
+                </span>
               ))}
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>

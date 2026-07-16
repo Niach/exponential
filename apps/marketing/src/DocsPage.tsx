@@ -16,18 +16,6 @@ const SECTIONS: DocsSectionType[] = [
   { id: `community`, num: `04`, label: `Community & help` },
 ]
 
-/* Card blurbs for the hub grid, keyed by DOCS_NAV path. */
-const CARD_DESCRIPTIONS: Record<string, string> = {
-  "/docs/getting-started/": `Sign up, create your first project, connect GitHub, invite your team.`,
-  "/docs/issues/": `The board, statuses, markdown, mentions, notifications, and how issues link to PRs.`,
-  "/docs/coding/": `Hand issues to Claude from the desktop IDE — single runs, batch runs, steer, review, merge.`,
-  "/docs/feedback/": `Feedback projects, public boards, and the built-in email helpdesk.`,
-  "/docs/widget/": `Embed the feedback button on any site — snippet, JS API, screenshots.`,
-  "/docs/mcp/": `Connect Claude, ChatGPT, Cursor, or any MCP client to your issues.`,
-  "/docs/apps/": `The desktop IDE and the iOS / Android companions — install, push, steer.`,
-  "/docs/self-host/": `Run the whole stack on your own server with Docker Compose.`,
-}
-
 export function DocsPage() {
   return (
     <>
@@ -127,9 +115,7 @@ export function DocsPage() {
                   <span className="docs-card-title">
                     {page.label} <IcChev size={13} />
                   </span>
-                  <span className="docs-card-desc">
-                    {CARD_DESCRIPTIONS[page.path]}
-                  </span>
+                  <span className="docs-card-desc">{page.blurb}</span>
                 </a>
               ))}
             </div>
