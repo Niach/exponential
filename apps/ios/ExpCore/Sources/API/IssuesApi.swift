@@ -13,8 +13,6 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var dueTime: String?
     public var endTime: String?
     public var labelIds: [String]?
-    public var recurrenceInterval: Int?
-    public var recurrenceUnit: String?
 
     public init(
         projectId: String,
@@ -26,9 +24,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         dueDate: String? = nil,
         dueTime: String? = nil,
         endTime: String? = nil,
-        labelIds: [String]? = nil,
-        recurrenceInterval: Int? = nil,
-        recurrenceUnit: String? = nil
+        labelIds: [String]? = nil
     ) {
         self.projectId = projectId
         self.title = title
@@ -40,8 +36,6 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.dueTime = dueTime
         self.endTime = endTime
         self.labelIds = labelIds
-        self.recurrenceInterval = recurrenceInterval
-        self.recurrenceUnit = recurrenceUnit
     }
 }
 
@@ -55,8 +49,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var dueDate: String?
     public var dueTime: String?
     public var endTime: String?
-    public var recurrenceInterval: Int?
-    public var recurrenceUnit: String?
     /// Canonical issue this one duplicates — set together with
     /// `status = "duplicate"` in ONE update so the marking is atomic.
     public var duplicateOfId: String?
@@ -76,8 +68,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         dueDate: String? = nil,
         dueTime: String? = nil,
         endTime: String? = nil,
-        recurrenceInterval: Int? = nil,
-        recurrenceUnit: String? = nil,
         duplicateOfId: String? = nil,
         archivedAt: String? = nil,
         explicitNulls: Set<String> = []
@@ -91,8 +81,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.dueDate = dueDate
         self.dueTime = dueTime
         self.endTime = endTime
-        self.recurrenceInterval = recurrenceInterval
-        self.recurrenceUnit = recurrenceUnit
         self.duplicateOfId = duplicateOfId
         self.archivedAt = archivedAt
         self.explicitNulls = explicitNulls
@@ -100,7 +88,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, priority, assigneeId, description
-        case dueDate, dueTime, endTime, recurrenceInterval, recurrenceUnit
+        case dueDate, dueTime, endTime
         case duplicateOfId, archivedAt
     }
 
@@ -115,8 +103,6 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(dueDate, forKey: .dueDate, in: &c)
         try encodeNullable(dueTime, forKey: .dueTime, in: &c)
         try encodeNullable(endTime, forKey: .endTime, in: &c)
-        try encodeNullable(recurrenceInterval, forKey: .recurrenceInterval, in: &c)
-        try encodeNullable(recurrenceUnit, forKey: .recurrenceUnit, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
         try encodeNullable(archivedAt, forKey: .archivedAt, in: &c)
     }
@@ -141,6 +127,18 @@ public struct DeleteIssueInput: Encodable, Sendable {
 /// Input for `issues.closePr` (EXP-100): close the issue's open PR WITHOUT
 /// merging (the reject path — the work exists but the issue got dropped).
 public struct ClosePrInput: Encodable, Sendable {
+    public let issueId: String
+
+    public init(issueId: String) {
+        self.issueId = issueId
+    }
+}
+
+/// Input for `issues.mergePr`: squash-merge the issue's open PR via the GitHub
+/// App. For a batch PR (one PR linked to several issues) the server resolves
+/// the PR to ALL its linked issues, so passing any one of them merges the PR
+/// and completes them all.
+public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
 
     public init(issueId: String) {
@@ -264,6 +262,13 @@ public final class IssuesApi: Sendable {
     /// via the GitHub App; the `prState` flip arrives through Electric sync.
     public func closePr(accountId: String, issueId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.closePr", input: ClosePrInput(issueId: issueId))
+    }
+
+    /// Squash-merge the issue's open PR via the GitHub App (EXP-131). Server
+    /// resolves a batch PR to every linked issue, so merging completes them all;
+    /// the `prState`/`status` flips arrive through Electric sync.
+    public func mergePr(accountId: String, issueId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.mergePr", input: MergePrInput(issueId: issueId))
     }
 
     /// Move the issue to another project in the same workspace (EXP-57). The

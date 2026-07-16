@@ -9,6 +9,7 @@ extension IssueStatus {
         case .backlog: StatusColor.backlog
         case .todo: StatusColor.todo
         case .inProgress: StatusColor.inProgress
+        case .inReview: StatusColor.inReview
         case .done: StatusColor.done
         case .cancelled: StatusColor.cancelled
         case .duplicate: StatusColor.duplicate

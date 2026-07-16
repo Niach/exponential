@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 8)
+        XCTAssertEqual(try appliedMigrations(pool).count, 10)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 8)
+        XCTAssertEqual(try appliedMigrations(pool).count, 10)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 8)
+        XCTAssertEqual(try appliedMigrations(pool).count, 10)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -106,7 +106,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 8)
+        XCTAssertEqual(try appliedMigrations(pool).count, 10)
         let tokenColumn = try pool.read { db in
             try db.columns(in: "workspace_invites").first { $0.name == "token" }
         }
@@ -166,6 +166,34 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(surviving, 1)
     }
 
+    // EXP-107: a device that ran the original v1 create (with the recurrence
+    // columns) must have both dropped by v10, while its issue rows survive. The
+    // current v1 body no longer creates those columns, so hand-add them to the
+    // issues table (the release-drop test's playbook) before running v10.
+    func testV10DropsRecurrenceColumns() throws {
+        let pool = try makePool("drop-recurrence")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v9_project_is_public_icon")
+        try pool.write { db in
+            try db.alter(table: "issues") { t in t.add(column: "recurrence_interval", .integer) }
+            try db.alter(table: "issues") { t in t.add(column: "recurrence_unit", .text) }
+            try db.execute(sql: """
+                INSERT INTO "issues"
+                    ("id", "project_id", "creator_id", "title", "created_at", "updated_at")
+                VALUES ('i1', 'p1', 'u1', 'keep me', '2026-01-01', '2026-01-01')
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
+        // The dropped columns are in-place surgery — the row must survive.
+        let surviving = try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM issues")
+        }
+        XCTAssertEqual(surviving, 1)
+    }
+
     // Idempotency: running the full migrator twice on the same file is a no-op,
     // never a duplicate-column throw.
     func testReMigrateIsIdempotent() throws {
@@ -191,6 +219,10 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try pool.read { db in try db.tableExists("releases") })
         XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
+        // EXP-107: the recurrence feature is deleted — a fresh install must have
+        // neither recurrence column on issues.
+        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
         // coding_sessions.issue_id stays nullable (issueless batch sessions).
         let sessionIssueId = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "issue_id" }

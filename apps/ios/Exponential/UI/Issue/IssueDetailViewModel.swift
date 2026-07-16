@@ -400,14 +400,6 @@ final class IssueDetailViewModel {
         }
     }
 
-    func setRecurrence(interval: Int?, unit: RecurrenceUnit?) async {
-        guard let issue else { return }
-        var input = UpdateIssueInput(id: issue.id, recurrenceInterval: interval, recurrenceUnit: unit?.rawValue)
-        if interval == nil { input.explicitNulls.insert("recurrenceInterval") }
-        if unit == nil { input.explicitNulls.insert("recurrenceUnit") }
-        await update(input)
-    }
-
     /// Create a workspace label and assign it to this issue in one step
     /// (parity with Android's createAndAssignLabel).
     func createAndAssignLabel(name: String, color: String) async {

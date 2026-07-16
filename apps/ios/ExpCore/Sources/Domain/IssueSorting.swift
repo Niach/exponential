@@ -5,7 +5,7 @@ import Foundation
 /// Android, desktop). Group ORDER itself is unchanged
 /// (`IssueStatus.displayOrder`); this governs order WITHIN a status group:
 ///
-/// - backlog / todo / in_progress: OVERDUE FIRST (dueDate < today), then
+/// - backlog / todo / in_progress / in_review: OVERDUE FIRST (dueDate < today), then
 ///   priority rank urgent(0) → none(4) ascending, then dueDate ascending with
 ///   nil LAST, then issue `number` ascending NUMERICALLY (nil last — never the
 ///   identifier string, which sorts "EXP-9" after "EXP-10").
@@ -48,7 +48,7 @@ public enum IssueSorting {
             if a.updatedAt != b.updatedAt {
                 return b.updatedAt < a.updatedAt ? .orderedAscending : .orderedDescending
             }
-        case .backlog, .todo, .inProgress:
+        case .backlog, .todo, .inProgress, .inReview:
             let aOverdue = isOverdue(a, today: today)
             let bOverdue = isOverdue(b, today: today)
             if aOverdue != bOverdue { return aOverdue ? .orderedAscending : .orderedDescending }

@@ -206,8 +206,6 @@ final class SearchViewModel {
             sortOrder: nil,
             completedAt: nil,
             archivedAt: nil,
-            recurrenceInterval: nil,
-            recurrenceUnit: nil,
             duplicateOfId: nil,
             prUrl: nil,
             prNumber: nil,
