@@ -50,6 +50,9 @@
         the plain form, and <b>Take screenshot</b> captures this page (without
         the widget itself) and drops into the annotation editor.</p>
         <p>Add <code>?position=bottom-right</code> to flip the launcher side.
+        Add <code>?margin=24</code> to give the body a 24px margin — the default
+        <code>margin:0</code> hides viewport-crop origin bugs, so scroll down a
+        viewport and take a screenshot to check the capture still aligns.
         In the editor, pick the <b>Crop</b> tool and drag a rectangle: the
         dimmed region is trimmed on submit, annotations stay editable and
         offset correctly, and <b>Remove crop</b> undoes it. Cancelling straight
@@ -94,7 +97,11 @@
 
       // ?key=expw_… lets you point the demo at a real widget config.
       // ?position=bottom-right|bottom-left exercises the launcher side.
+      // ?margin=N gives the body an N-px margin to exercise the crop origin.
       var params = new URLSearchParams(location.search)
+      if (params.get("margin")) {
+        document.body.style.margin = params.get("margin") + "px"
+      }
       ExponentialWidget.init({
         key: params.get("key") || "expw_demo0000000000000000000000000000",
         position: params.get("position") || "bottom-left",

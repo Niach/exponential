@@ -55,7 +55,10 @@ export const maxSubmitRequestBytes = maxImageUploadBytes + 2 * 1024 * 1024
 export class WidgetRequestError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    // Additive structured hint for the client's email-recovery flow. Only
+    // email failures carry a code; validation behavior is otherwise unchanged.
+    readonly code?: `invalid_email` | `email_required`
   ) {
     super(message)
   }
@@ -250,7 +253,16 @@ export async function createWidgetSubmission(args: {
     userId: formData.get(`userId`) ?? undefined,
   })
   if (!fields.success) {
-    throw new WidgetRequestError(400, `Invalid submission fields`)
+    // Flag an implicated email so the client can re-reveal its email input
+    // instead of surfacing a generic failure over a hidden identity address.
+    const emailIssue = fields.error.issues.some(
+      (issue) => issue.path[0] === `email`
+    )
+    throw new WidgetRequestError(
+      400,
+      `Invalid submission fields`,
+      emailIssue ? `invalid_email` : undefined
+    )
   }
 
   // The panel's required-email gate is advisory only — it vanishes when the
@@ -258,7 +270,7 @@ export async function createWidgetSubmission(args: {
   // never see it. Enforce the board owner's policy here so every report on a
   // required-email board stays contactable via the resolution email.
   if (config.formConfig?.emailRequired === true && !fields.data.email) {
-    throw new WidgetRequestError(400, `Email is required`)
+    throw new WidgetRequestError(400, `Email is required`, `email_required`)
   }
 
   const customData = parseJsonField(
@@ -506,7 +518,16 @@ export async function createWidgetSupportSubmission(args: {
     userId: formData.get(`userId`) ?? undefined,
   })
   if (!fields.success) {
-    throw new WidgetRequestError(400, `Invalid submission fields`)
+    // A missing OR malformed support email both produce a path[0] === 'email'
+    // issue — flag it so the client re-reveals its email input.
+    const emailIssue = fields.error.issues.some(
+      (issue) => issue.path[0] === `email`
+    )
+    throw new WidgetRequestError(
+      400,
+      `Invalid submission fields`,
+      emailIssue ? `invalid_email` : undefined
+    )
   }
 
   const customData = parseJsonField(

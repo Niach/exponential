@@ -64,9 +64,18 @@ public enum MarkdownConversion {
 
             if let isCode = attrs[.markdownCodeBlock] as? Bool, isCode {
                 inTableBlock = false
+                let lang = attrs[.markdownCodeBlockLang] as? String
+                // Back-to-back fences with DIFFERENT languages must not merge
+                // into the first fence: close the open one, then the reopen logic
+                // below starts a fresh fence with the new language. (Same-lang or
+                // both-untagged adjacent fences still merge — content-equivalent.)
+                if inCodeBlock, lang != codeBlockLang {
+                    markdown += "```\n"
+                    inCodeBlock = false
+                }
                 if !inCodeBlock {
                     if i > 0 { markdown += "\n" }
-                    codeBlockLang = attrs[.markdownCodeBlockLang] as? String
+                    codeBlockLang = lang
                     markdown += "```\(codeBlockLang ?? "")\n"
                     inCodeBlock = true
                 }
@@ -76,7 +85,10 @@ public enum MarkdownConversion {
             }
 
             if inCodeBlock {
-                markdown += "```\n"
+                // Close without a trailing newline: the block separator below (or
+                // the table branch) supplies the spacing, so a fence followed by
+                // another block no longer accretes an extra blank line per save.
+                markdown += "```"
                 inCodeBlock = false
                 codeBlockLang = nil
             }
@@ -270,7 +282,12 @@ private class BlockCollector {
 
     func flushText() {
         let content = NSMutableAttributedString(attributedString: currentText)
-        if content.length > 0, content.string.hasSuffix("\n") {
+        // Drop the trailing newline only when it is the base-attributed
+        // block-separator between this run and the next block. A CODE-attributed
+        // trailing newline is fence content (a blank line inside the fence), so
+        // it must survive — paired with the code-aware split, it round-trips.
+        if content.length > 0, content.string.hasSuffix("\n"),
+           (content.attribute(.markdownCodeBlock, at: content.length - 1, effectiveRange: nil) as? Bool) != true {
             content.deleteCharacters(in: NSRange(location: content.length - 1, length: 1))
         }
         blocks.append(.text(id: UUID(), attributedContent: content))
@@ -354,7 +371,13 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         attrs[.backgroundColor] = MarkdownStyle.codeBlockBackground
         attrs[.markdownCodeBlock] = true
         if let lang, !lang.isEmpty { attrs[.markdownCodeBlockLang] = lang }
-        let text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
+        var text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
+        // A fence containing only blank lines would otherwise append an EMPTY run
+        // and vanish (attributes can't ride a zero-length string) — restore one
+        // newline so the code attribute has a character to carry. Keep dropLast
+        // for normal fences (removing it would show a phantom trailing blank line
+        // inside every code block in the editor).
+        if text.isEmpty && !literal.isEmpty { text = "\n" }
         collector.currentText.append(NSAttributedString(string: text, attributes: attrs))
         context.needsBlockSeparator = true
 
@@ -599,6 +622,17 @@ private func splitIntoParagraphs(_ attrStr: NSAttributedString) -> [NSRange] {
         }
         let trimmedRange = NSRange(location: lineRange.location, length: end - lineRange.location)
         if trimmedRange.length > 0 {
+            ranges.append(trimmedRange)
+        } else if trimmedRange.location < length,
+                  (attrStr.attribute(.markdownCodeBlock, at: trimmedRange.location, effectiveRange: nil) as? Bool) == true {
+            // A blank line INSIDE a fenced code block is content, not block
+            // spacing — keep the zero-length range so the save path writes the
+            // empty line back into the fence. Gating on the attribute (not
+            // emitting every zero-length line) keeps the paragraphs array
+            // byte-identical for non-code documents, so list/heading spacing is
+            // untouched. The base-attributed block-separator newline is never a
+            // standalone zero-length line (it terminates the preceding content
+            // line), so ordinary blank lines still stay dropped.
             ranges.append(trimmedRange)
         }
         start = NSMaxRange(lineRange)

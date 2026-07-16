@@ -63,36 +63,56 @@ export function screenshotFilename(blob: Blob): string {
   return `screenshot.png`
 }
 
+export interface ViewportCropArgs {
+  sourceCssWidth: number
+  // Document-space origin of the captured element (its border-box top-left).
+  // snapDOM rasterizes document.body, whose origin is offset by any body
+  // margin — the viewport's document origin is (scrollX, scrollY), so the crop
+  // starts at (scroll − origin) × factor. Passing origin explicitly (rather
+  // than assuming zero) keeps the crop correct for any body margin and for a
+  // future non-body capture root.
+  originX: number
+  originY: number
+  scrollX: number
+  scrollY: number
+  viewportWidth: number
+  viewportHeight: number
+}
+
+// Pure viewport-crop geometry in the source canvas's pixel space, split out so
+// it can be unit-tested (happy-dom's canvas 2d context is null, so any
+// canvas-level test silently hits cropToViewport's uncropped fallback).
+// Returns null when the crop degenerates (scrolled past the captured content).
+export function viewportCropRect(
+  source: Dimensions,
+  args: ViewportCropArgs
+): { x: number; y: number; width: number; height: number } | null {
+  const factor = args.sourceCssWidth > 0 ? source.width / args.sourceCssWidth : 1
+  const x = Math.max(0, Math.floor((args.scrollX - args.originX) * factor))
+  const y = Math.max(0, Math.floor((args.scrollY - args.originY) * factor))
+  const width = Math.min(source.width - x, Math.ceil(args.viewportWidth * factor))
+  const height = Math.min(
+    source.height - y,
+    Math.ceil(args.viewportHeight * factor)
+  )
+  if (width <= 0 || height <= 0) return null
+  return { x, y, width, height }
+}
+
 // Crop the full-page capture down to the visible viewport, then downscale to
 // the target edge. `sourceCssWidth` is the CSS-pixel width of the captured
-// element so we can derive the raster scale factor.
+// element so we can derive the raster scale factor; `originX`/`originY` are its
+// document-space origin (see ViewportCropArgs).
 export function cropToViewport(
   source: HTMLCanvasElement,
-  args: {
-    sourceCssWidth: number
-    scrollX: number
-    scrollY: number
-    viewportWidth: number
-    viewportHeight: number
-    maxEdge: number
-  }
+  args: ViewportCropArgs & { maxEdge: number }
 ): HTMLCanvasElement {
   const factor =
     args.sourceCssWidth > 0 ? source.width / args.sourceCssWidth : 1
-  const cropX = Math.max(0, Math.floor(args.scrollX * factor))
-  const cropY = Math.max(0, Math.floor(args.scrollY * factor))
-  const cropWidth = Math.min(
-    source.width - cropX,
-    Math.ceil(args.viewportWidth * factor)
-  )
-  const cropHeight = Math.min(
-    source.height - cropY,
-    Math.ceil(args.viewportHeight * factor)
-  )
+  const rect = viewportCropRect(source, args)
+  if (!rect) return source
 
-  if (cropWidth <= 0 || cropHeight <= 0) return source
-
-  const target = fitWithin(cropWidth, cropHeight, args.maxEdge * factor)
+  const target = fitWithin(rect.width, rect.height, args.maxEdge * factor)
   const scaled = fitWithin(target.width, target.height, args.maxEdge)
 
   const output = document.createElement(`canvas`)
@@ -102,10 +122,10 @@ export function cropToViewport(
   if (!context) return source
   context.drawImage(
     source,
-    cropX,
-    cropY,
-    cropWidth,
-    cropHeight,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
     0,
     0,
     scaled.width,

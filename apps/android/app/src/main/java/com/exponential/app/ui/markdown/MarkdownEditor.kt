@@ -57,6 +57,9 @@ fun MarkdownEditor(
     // Workspace members offered by @mention autocomplete (agents excluded by the
     // caller). Empty disables the affordance.
     mentionMembers: List<MentionMember> = emptyList(),
+    // Reports whether any field of this editor holds focus. Lets the host gate a
+    // live remote-apply on "not currently editing" (issue detail description).
+    onFocusChanged: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!editable) {
@@ -80,6 +83,7 @@ fun MarkdownEditor(
     val currentOnChange by rememberUpdatedState(onChange)
     val currentUploader by rememberUpdatedState(onUploadImage)
     val currentInitialPending by rememberUpdatedState(initialPendingImages)
+    val currentOnFocusChanged by rememberUpdatedState(onFocusChanged)
 
     // Wire edits → markdown out (once; closure reads the latest onChange).
     LaunchedEffect(model) {
@@ -95,6 +99,13 @@ fun MarkdownEditor(
             // images carried in via [initialPendingImages] (shared content).
             seedPendingPreviews(context, model, currentInitialPending)
         }
+    }
+
+    // Report focus transitions to the host (same focusedRowId idiom the toolbar
+    // registration below uses). load() never fires onEdit, so a live remote-apply
+    // driven off this signal doesn't loop back through onChange.
+    LaunchedEffect(model.focusedRowId) {
+        currentOnFocusChanged?.invoke(model.focusedRowId != null)
     }
 
     val pickImage = rememberLauncherForActivityResult(

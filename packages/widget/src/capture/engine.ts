@@ -58,7 +58,7 @@ export async function captureScreenshot(
 ): Promise<Blob | null> {
   try {
     const tainted = findTaintedCanvases()
-    const bodyWidth = document.body.getBoundingClientRect().width
+    const bodyRect = document.body.getBoundingClientRect()
 
     const canvas = await withTimeout(
       engine.capture({
@@ -74,7 +74,11 @@ export async function captureScreenshot(
     )
 
     const cropped = cropToViewport(canvas, {
-      sourceCssWidth: bodyWidth,
+      sourceCssWidth: bodyRect.width,
+      // getBoundingClientRect is viewport-relative; adding scroll lifts it to
+      // the document-space origin snapDOM rasterizes from.
+      originX: bodyRect.left + window.scrollX,
+      originY: bodyRect.top + window.scrollY,
       scrollX: window.scrollX,
       scrollY: window.scrollY,
       viewportWidth: window.innerWidth,

@@ -3,7 +3,7 @@ import {
   andClauses,
   buildWhereClause,
   getPublicProjectScope,
-  getUserWorkspaceIds,
+  getUserProjectIds,
   orClauses,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
@@ -15,8 +15,11 @@ export const Route = createFileRoute(`/api/shapes/attachments`)({
         table: `attachments`,
         getWhere: async (userId) => {
           if (userId) {
-            const workspaceIds = await getUserWorkspaceIds(userId)
-            return buildWhereClause(`workspace_id`, workspaceIds)
+            // Members: project-scoped so a trashed project's attachments drop
+            // out of sync for the 48h trash window along with the project
+            // itself (project_id is trigger-denormalized and never null here).
+            const projectIds = await getUserProjectIds(userId)
+            return buildWhereClause(`project_id`, projectIds)
           }
           // Anonymous: issue/description attachments of every public board;
           // comment attachments only where comments are public. (The byte

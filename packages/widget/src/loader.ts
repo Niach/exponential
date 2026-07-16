@@ -3,6 +3,8 @@
 // prefetches the remote config, and injects widget.js on first open. Must
 // never throw into the host page.
 import type {
+  ExponentialWidgetCustomData,
+  ExponentialWidgetIdentity,
   ExponentialWidgetInitOptions,
   ExponentialWidgetStub,
   QueuedCall,
@@ -27,6 +29,33 @@ function currentScriptSrc(): string | null {
 
 function warn(message: string): void {
   console.warn(`[ExponentialWidget] ${message}`)
+}
+
+// A deliberately loose pre-filter, kept LOOSER than the server's z.email() so
+// it never rejects an address the server would accept — the reveal-email
+// recovery flow is the real safety net for anything that slips through. Never
+// tighten this past the server's validation.
+function looksLikeEmail(value: string): boolean {
+  return value.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+// Clamp a name/userId patch field in place: drop non-strings (keeping the
+// previous value), trim + cap at the server's 255-char limit, leave undefined
+// untouched so identify({name: undefined}) keeps clearing the field.
+function clampText(
+  patch: ExponentialWidgetIdentity,
+  field: `name` | `userId`
+): void {
+  const value = patch[field]
+  if (value === undefined) return
+  if (typeof value !== `string`) {
+    delete patch[field]
+    warn(`identify: invalid ${field} dropped`)
+    return
+  }
+  const trimmed = value.trim()
+  if (trimmed.length > 255) warn(`identify: ${field} truncated to 255 chars`)
+  patch[field] = trimmed.slice(0, 255)
 }
 
 function start(): void {
@@ -184,13 +213,46 @@ function start(): void {
 
     identify(identity) {
       if (!state) return
-      state.identity = { ...state.identity, ...identity }
+      // Sanitize a copy so a rejected field keeps its previous value; an
+      // explicit `undefined` still merges through to clear the field.
+      const patch: ExponentialWidgetIdentity = { ...identity }
+      if (patch.email !== undefined) {
+        const email =
+          typeof patch.email === `string` ? patch.email.trim() : null
+        if (email && looksLikeEmail(email)) {
+          patch.email = email
+        } else {
+          delete patch.email
+          warn(`identify: invalid email dropped`)
+        }
+      }
+      clampText(patch, `name`)
+      clampText(patch, `userId`)
+      state.identity = { ...state.identity, ...patch }
       state.bundle?.stateChanged()
     },
 
     setCustomData(data) {
       if (!state) return
-      state.customData = { ...state.customData, ...data }
+      // Validate the MERGED blob: a small later call can push the accumulated
+      // data over the server's 8KB field cap. Reject wholesale (keep the last
+      // valid state — truncating JSON would break parsing) and store the
+      // round-tripped parse so a host mutating a nested object AFTER the call
+      // can't re-inflate the stored blob past this check (the api-client
+      // re-stringifies at submit time).
+      const merged = { ...state.customData, ...data }
+      let json: string
+      try {
+        json = JSON.stringify(merged)
+      } catch {
+        warn(`setCustomData: value is not serializable, call ignored`)
+        return
+      }
+      if (typeof json !== `string` || json.length > 8 * 1024) {
+        warn(`setCustomData: payload exceeds 8KB, call ignored`)
+        return
+      }
+      state.customData = JSON.parse(json) as ExponentialWidgetCustomData
       state.bundle?.stateChanged()
     },
 

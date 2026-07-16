@@ -218,25 +218,31 @@ fn bind_scalars_not_json_blobs() {
     assert_eq!(row.get("number"), Some(&Value::String("1".into())));
     assert_eq!(row.get("sort_order"), Some(&Value::String("1.5".into())));
 
-    // Bools → canonical "t"/"f" (workspaces.is_public is a bool column).
-    let workspaces = shape_by_name("workspaces").unwrap();
+    // Bools → canonical "t"/"f" (projects.is_public is a bool column).
+    let projects = shape_by_name("projects").unwrap();
     store
         .apply_batch(
-            workspaces,
+            projects,
             &[
-                insert("w-1", json!({"id": "w-1", "name": "A", "is_public": true})),
-                insert("w-2", json!({"id": "w-2", "name": "B", "is_public": false})),
+                insert(
+                    "p-1",
+                    json!({"id": "p-1", "workspace_id": "w-1", "name": "A", "is_public": true}),
+                ),
+                insert(
+                    "p-2",
+                    json!({"id": "p-2", "workspace_id": "w-1", "name": "B", "is_public": false}),
+                ),
             ],
             None,
         )
         .unwrap();
-    let rows = store.read_all(workspaces).unwrap();
+    let rows = store.read_all(projects).unwrap();
     assert_eq!(
-        row_by_id(&rows, "w-1").get("is_public"),
+        row_by_id(&rows, "p-1").get("is_public"),
         Some(&Value::String("t".into()))
     );
     assert_eq!(
-        row_by_id(&rows, "w-2").get("is_public"),
+        row_by_id(&rows, "p-2").get("is_public"),
         Some(&Value::String("f".into()))
     );
 }

@@ -288,10 +288,10 @@ impl Render for GeneralPane {
 
         let mut pane = v_flex().gap_4().child(general);
 
-        // Danger Zone (web settings/index.tsx): owner + non-public + team-only
-        // (the solo case already returned above).
-        let synced_public = workspace.is_public == Some(true);
-        if owner && !synced_public {
+        // Danger Zone (web settings/index.tsx): owner + team-only (the solo
+        // case already returned above). Workspaces are always private now — no
+        // publicness gate.
+        if owner {
             let workspace_id = workspace.id.clone();
             let workspace_name = workspace.name.clone();
             pane = pane.child(

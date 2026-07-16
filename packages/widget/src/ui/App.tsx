@@ -43,6 +43,28 @@ export interface Screenshot {
   objectUrl: string
 }
 
+// A failure that implicates the email address: the structured code from
+// current servers, or — for old self-hosted servers that predate codes — a
+// bare 400 whose message matches their frozen email-failure copy. Other
+// code-less 400s (oversized meta/customData, bad screenshot) must NOT
+// discard a valid identity email: revealing the field would blame the
+// address for a failure it can't fix.
+function isEmailFailure(result: {
+  status: number | null
+  code: string | null
+  message: string
+}): boolean {
+  if (result.code === `invalid_email` || result.code === `email_required`) {
+    return true
+  }
+  return (
+    result.code === null &&
+    result.status === 400 &&
+    (result.message === `Invalid submission fields` ||
+      result.message === `Email is required`)
+  )
+}
+
 export function App({ state }: { state: WidgetRuntimeState }) {
   const [phase, setPhase] = useState<UiPhase>({ kind: `closed` })
   // Which pane the panel shows: the card home (both modes), or one form
@@ -72,6 +94,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const pendingFlattenRef = useRef<Promise<Blob | null> | null>(null)
   // Re-render when identify()/setCustomData() land after mount.
   const [, bumpVersion] = useState(0)
+  // The identity email the server refused: while set, the derived
+  // identityEmail below is nulled, which re-reveals the Panel's email input so
+  // the visitor can recover. Storing the failing STRING (not a boolean) means a
+  // later identify() with a different address heals automatically.
+  const [failedIdentityEmail, setFailedIdentityEmail] = useState<string | null>(
+    null
+  )
   const phaseRef = useRef(phase)
   phaseRef.current = phase
   const baseRef = useRef(base)
@@ -118,6 +147,10 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   }, [replaceBase])
 
   const open = useCallback(() => {
+    // A board whose config resolved disabled must never open — this is the
+    // single gate that also covers the openRequested auto-open below when the
+    // config disabled the widget before the bundle finished loading.
+    if (state.disabled) return
     if (phaseRef.current.kind !== `closed`) return
     // Both modes enabled → the card home; a single mode skips it and opens
     // that form directly (feedback-only configs behave exactly like before).
@@ -158,16 +191,21 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // the config lands so gates like emailRequired (and remote accent/label)
   // reflect the board's real settings. The loader's own `.then` (registered
   // at init, before this bundle could load) has already written state.config
-  // by the time this continuation runs.
+  // and state.disabled by the time this continuation runs, so reading
+  // state.disabled here is safe. A config that resolves the widget disabled
+  // tears down any panel the reporter opened during the race; the
+  // unconditional bump also guarantees a render that drops the FAB.
   useEffect(() => {
     let cancelled = false
     void state.configPromise.then(() => {
-      if (!cancelled) bumpVersion((version) => version + 1)
+      if (cancelled) return
+      if (state.disabled) close()
+      bumpVersion((version) => version + 1)
     })
     return () => {
       cancelled = true
     }
-  }, [state])
+  }, [state, close])
 
   const retake = useCallback(() => {
     // Close the panel, recapture without it, reopen.
@@ -242,6 +280,14 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     []
   )
 
+  // The usable identity email: the host-provided address unless the server
+  // just refused it, in which case it's nulled so the Panel reveals its email
+  // input and the submit paths fall back to the typed value instead.
+  const identityEmail =
+    state.identity.email && state.identity.email !== failedIdentityEmail
+      ? state.identity.email
+      : null
+
   const submit = useCallback(
     async (form: { title: string; description: string; email: string }) => {
       setPhase({ kind: `submitting` })
@@ -254,11 +300,15 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       const screenshotBlob = pendingFlatten
         ? await pendingFlatten
         : (screenshot?.blob ?? null)
+      // True when the submission relied on the hidden identity email (the
+      // reporter typed none) — only then does an email rejection warrant
+      // revealing the input.
+      const usedIdentityEmail = !form.email && identityEmail !== null
       const result = await submitFeedback({
         state,
         title: form.title,
         description: form.description,
-        email: form.email || state.identity.email || null,
+        email: form.email || identityEmail,
         screenshot: screenshotBlob,
         meta: collectEnvMeta(),
       })
@@ -283,19 +333,34 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         )
         return null
       }
+      // Revealing the input is gated on usedIdentityEmail, so a
+      // visitor-typed bad email just gets the friendlier message on the
+      // already-visible field.
+      if (usedIdentityEmail && isEmailFailure(result)) {
+        setFailedIdentityEmail(identityEmail)
+      }
       setPhase({ kind: `open` })
-      return result.message
+      return result.code === `invalid_email`
+        ? `Please enter a valid email address.`
+        : result.code === `email_required`
+          ? `Your email is required.`
+          : result.message
     },
-    [state, screenshot, replaceBase]
+    [state, screenshot, replaceBase, identityEmail]
   )
 
   const submitSupport = useCallback(
     async (form: { message: string; email: string }) => {
       setPhase({ kind: `submitting` })
+      // Panel resolves email to identityEmail when hidden, else the typed
+      // value — so a match (or empty) means the identity address was used.
+      const usedIdentityEmail =
+        identityEmail !== null &&
+        (form.email === identityEmail || !form.email)
       const result = await submitSupportRequest({
         state,
         message: form.message,
-        email: form.email || state.identity.email || ``,
+        email: form.email || identityEmail || ``,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
@@ -314,14 +379,23 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         }, 6_000)
         return null
       }
+      if (usedIdentityEmail && isEmailFailure(result)) {
+        setFailedIdentityEmail(identityEmail)
+      }
       setPhase({ kind: `open` })
-      return result.message
+      return result.code === `invalid_email`
+        ? `Please enter a valid email address.`
+        : result.code === `email_required`
+          ? `Your email is required.`
+          : result.message
     },
-    [state]
+    [state, identityEmail]
   )
 
   const showButton =
-    state.options.showButton !== false && phase.kind !== `annotating`
+    state.options.showButton !== false &&
+    phase.kind !== `annotating` &&
+    !state.disabled
   const panelVisible =
     phase.kind === `open` ||
     phase.kind === `submitting` ||
@@ -389,7 +463,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           screenshot={screenshot}
           flattening={flattening}
           captureFailed={captureFailed}
-          identityEmail={state.identity.email ?? null}
+          identityEmail={identityEmail}
           emailRequired={state.config?.form?.emailRequired === true}
           onClose={close}
           onCapture={takeScreenshot}

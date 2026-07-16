@@ -25,7 +25,9 @@ use crate::hydrate::{
     tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
 };
 
-/// `workspaces` shape row.
+/// `workspaces` shape row. Workspaces are always private (publicness lives on
+/// feedback-board projects, not the workspace) — the shape carries no
+/// `is_public`/`public_write_policy`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Workspace {
     pub id: String,
@@ -34,10 +36,6 @@ pub struct Workspace {
     pub slug: Option<String>,
     #[serde(default)]
     pub icon_url: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_public: Option<bool>,
-    #[serde(default)]
-    pub public_write_policy: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -447,15 +445,20 @@ mod tests {
     }
 
     #[test]
-    fn workspace_bool_hydrates_from_text_form() {
+    fn workspace_hydrates_and_ignores_stray_public_columns() {
+        // Workspaces are always private — the shape has no
+        // is_public/public_write_policy field. A row from an older server that
+        // still serves those columns must hydrate anyway (row structs carry no
+        // deny_unknown_fields, so the extra keys are simply ignored).
         let ws: Workspace = serde_json::from_value(json!({
             "id": "w-1",
             "name": "Exponential",
             "slug": "exponential",
-            "is_public": "t"
+            "is_public": "t",
+            "public_write_policy": "authenticated"
         }))
         .unwrap();
-        assert_eq!(ws.is_public, Some(true));
+        assert_eq!(ws.slug.as_deref(), Some("exponential"));
     }
 
     #[test]

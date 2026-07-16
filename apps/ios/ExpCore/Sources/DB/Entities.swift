@@ -175,8 +175,10 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
 // Custom Codable: the is_public / icon / public-visibility columns land in a
 // shape rotation; a pre-rotation snapshot (or a partial update touching other
 // columns) may omit them, so decode each permissively with the schema default
-// instead of throwing. `is_public`/`public_show_*` may arrive as JSON bool or
-// 0/1.
+// instead of throwing. Booleans and sort_order come off the Electric wire as
+// JSON strings (Postgres text — "true"/"false"/"t"/"f"/"1"/"0" for bools,
+// "2"/"3.5" for sort_order) but as native scalars from tRPC/fixtures, so they go
+// through the type-aware wire decoders.
 extension ProjectEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -186,26 +188,18 @@ extension ProjectEntity: Codable {
         slug = try c.decode(String.self, forKey: .slug)
         prefix = try c.decode(String.self, forKey: .prefix)
         color = try c.decodeIfPresent(String.self, forKey: .color)
-        sortOrder = try c.decodeIfPresent(Double.self, forKey: .sortOrder)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         archivedAt = try c.decodeIfPresent(String.self, forKey: .archivedAt)
         githubRepo = try c.decodeIfPresent(String.self, forKey: .githubRepo)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
-        isPublic = Self.decodeBool(c, .isPublic, default: false)
+        isPublic = c.decodeWireBool(forKey: .isPublic, default: false)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        publicShowComments = Self.decodeBool(c, .publicShowComments, default: true)
-        publicShowActivity = Self.decodeBool(c, .publicShowActivity, default: false)
-        isProtected = Self.decodeBool(c, .isProtected, default: false)
+        publicShowComments = c.decodeWireBool(forKey: .publicShowComments, default: true)
+        publicShowActivity = c.decodeWireBool(forKey: .publicShowActivity, default: false)
+        isProtected = c.decodeWireBool(forKey: .isProtected, default: false)
         previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
-    }
-
-    private static func decodeBool(
-        _ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys, default def: Bool
-    ) -> Bool {
-        if let b = try? c.decode(Bool.self, forKey: key) { return b }
-        if let i = try? c.decode(Int.self, forKey: key) { return i != 0 }
-        return def
     }
 }
 
@@ -324,7 +318,7 @@ extension IssueEntity: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         projectId = try container.decode(String.self, forKey: .projectId)
-        number = try container.decodeIfPresent(Int.self, forKey: .number)
+        number = try container.decodeWireInt(forKey: .number)
         identifier = try container.decodeIfPresent(String.self, forKey: .identifier)
         title = try container.decode(String.self, forKey: .title)
         status = try container.decode(String.self, forKey: .status)
@@ -334,12 +328,12 @@ extension IssueEntity: Codable {
         dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
         dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
         endTime = try container.decodeIfPresent(String.self, forKey: .endTime)
-        sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder)
+        sortOrder = try container.decodeWireDouble(forKey: .sortOrder)
         completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
         archivedAt = try container.decodeIfPresent(String.self, forKey: .archivedAt)
         duplicateOfId = try container.decodeIfPresent(String.self, forKey: .duplicateOfId)
         prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
-        prNumber = try container.decodeIfPresent(Int.self, forKey: .prNumber)
+        prNumber = try container.decodeWireInt(forKey: .prNumber)
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
@@ -431,7 +425,7 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
 
 // MARK: - Label
 
-public struct LabelEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "labels"
 
     public let id: String
@@ -466,6 +460,23 @@ public struct LabelEntity: Codable, FetchableRecord, PersistableRecord, Identifi
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom Codable: sort_order arrives off the Electric wire as a JSON string
+// (Postgres text) but as a native number from tRPC/fixtures — decode it through
+// the type-aware wire helper. A same-file extension keeps encode(to:) synthesis
+// (the same pattern IssueEntity / CommentEntity use).
+extension LabelEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        name = try c.decode(String.self, forKey: .name)
+        color = try c.decode(String.self, forKey: .color)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -529,21 +540,18 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         case updatedAt = "updated_at"
     }
 
-    // Electric may omit is_agent or deliver it as 0/1; decode permissively so an
-    // older row (or a non-agent payload without the field) doesn't fail.
+    // is_agent comes off the Electric wire as a JSON string ("true"/"t"/"1"
+    // etc.), a native bool from tRPC/fixtures, or may be absent on an older row —
+    // decode it permissively through the type-aware wire helper (absent → the
+    // false default). Without the string form, a wire "true" silently defaulted
+    // to false and iOS never saw an agent user from a full-row message.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         email = try c.decode(String.self, forKey: .email)
         image = try c.decodeIfPresent(String.self, forKey: .image)
-        if let b = try? c.decode(Bool.self, forKey: .isAgent) {
-            isAgent = b
-        } else if let i = try? c.decode(Int.self, forKey: .isAgent) {
-            isAgent = i != 0
-        } else {
-            isAgent = false
-        }
+        isAgent = c.decodeWireBool(forKey: .isAgent, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
@@ -729,7 +737,7 @@ extension CommentEntity: Codable {
 
 // MARK: - Attachment
 
-public struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "attachments"
 
     public let id: String
@@ -790,6 +798,31 @@ public struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Ide
         case storageKey = "storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom Codable: size_bytes / width / height arrive off the Electric wire as
+// JSON strings (Postgres text) but as native numbers from tRPC/fixtures — decode
+// them through the type-aware wire helpers. A same-file extension keeps
+// encode(to:) synthesis. size_bytes is NOT NULL; a hypothetical absent value
+// falls back to 0 (the SQLite column default) rather than killing the row.
+extension AttachmentEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        issueId = try c.decode(String.self, forKey: .issueId)
+        commentId = try c.decodeIfPresent(String.self, forKey: .commentId)
+        uploaderId = try c.decode(String.self, forKey: .uploaderId)
+        filename = try c.decode(String.self, forKey: .filename)
+        contentType = try c.decode(String.self, forKey: .contentType)
+        sizeBytes = try c.decodeWireInt(forKey: .sizeBytes) ?? 0
+        storageKey = try c.decode(String.self, forKey: .storageKey)
+        url = try c.decode(String.self, forKey: .url)
+        width = try c.decodeWireInt(forKey: .width)
+        height = try c.decodeWireInt(forKey: .height)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -896,8 +929,11 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
     }
 }
 
-// Custom Codable: Electric may deliver `unsubscribed` as JSON boolean (true/false)
-// or as the integer 0/1 (SQLite-style). Decode permissively.
+// Custom Codable: `unsubscribed` comes off the Electric wire as a JSON string
+// ("t"/"true"/"1" or "f"/"false"/"0"), a native bool from tRPC/fixtures, or the
+// integer 0/1. Decode permissively through the type-aware wire helper. Without
+// the string form, a wire "t"/"true" silently defaulted to false and iOS never
+// saw an unsubscribed=true row from a full-row message.
 extension IssueSubscriberEntity {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -907,13 +943,7 @@ extension IssueSubscriberEntity {
         email = try container.decodeIfPresent(String.self, forKey: .email)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
         source = try container.decode(String.self, forKey: .source)
-        if let boolValue = try? container.decode(Bool.self, forKey: .unsubscribed) {
-            unsubscribed = boolValue
-        } else if let intValue = try? container.decode(Int.self, forKey: .unsubscribed) {
-            unsubscribed = intValue != 0
-        } else {
-            unsubscribed = false
-        }
+        unsubscribed = container.decodeWireBool(forKey: .unsubscribed, default: false)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
     }

@@ -4,7 +4,7 @@ import {
   buildTextInClause,
   buildWhereClause,
   getPublicProjectScope,
-  getUserWorkspaceIds,
+  getUserProjectIds,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
@@ -20,8 +20,10 @@ const ANONYMOUS_EVENT_TYPES = [
   `label_removed`,
 ]
 
-// Activity-log timeline events. Members: workspace-scoped (workspace_id is
-// denormalized from issue→project by a trigger so the filter stays stable).
+// Activity-log timeline events. Members: project-scoped (project_id is
+// denormalized from issue→project by a trigger and never null here) so a
+// trashed project's events drop out of sync for the 48h trash window along
+// with the project itself.
 // Anonymous: project-scoped to public boards that opted into showing activity.
 export const Route = createFileRoute(`/api/shapes/issue-events`)({
   server: {
@@ -30,8 +32,8 @@ export const Route = createFileRoute(`/api/shapes/issue-events`)({
         table: `issue_events`,
         getWhere: async (userId) => {
           if (userId) {
-            const workspaceIds = await getUserWorkspaceIds(userId)
-            return buildWhereClause(`workspace_id`, workspaceIds)
+            const projectIds = await getUserProjectIds(userId)
+            return buildWhereClause(`project_id`, projectIds)
           }
           const scope = await getPublicProjectScope()
           return andClauses(

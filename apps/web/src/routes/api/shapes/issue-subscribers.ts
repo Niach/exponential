@@ -1,13 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getUserWorkspaceIds,
+  getUserProjectIds,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Subscription rows, workspace-scoped (workspace_id is denormalized from
-// issue→project by a trigger). Clients use these to render the per-issue
-// subscribe toggle with live state.
+// Subscription rows, project-scoped (project_id is denormalized from
+// issue→project by a trigger and never null here) so a trashed project's
+// subscriptions drop out of sync for the 48h trash window along with the
+// project itself. Clients use these to render the per-issue subscribe toggle
+// with live state.
 //
 // `email` (widget reporter PII, masterplan §6.5 "Reporter PII stays
 // owner-only") is deliberately excluded via the columns allowlist — no client
@@ -32,8 +34,8 @@ export const Route = createFileRoute(`/api/shapes/issue-subscribers`)({
           `updated_at`,
         ],
         getWhere: async (userId) => {
-          const workspaceIds = userId ? await getUserWorkspaceIds(userId) : []
-          return buildWhereClause(`workspace_id`, workspaceIds)
+          const projectIds = userId ? await getUserProjectIds(userId) : []
+          return buildWhereClause(`project_id`, projectIds)
         },
       }),
     },

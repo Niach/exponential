@@ -2,15 +2,37 @@ import GRDB
 import XCTest
 @testable import ExpCore
 
-// EXP-1#13 hardening gate: locks the Electric wire-format mapping (controls
-// including snapshot-end, string-coerced values, partial updates) and the
+// Hardening gate: locks the Electric wire-format mapping (controls including
+// snapshot-end, type-aware entity decoding, raw partial updates) and the
 // persisted 409-refetch state (needs_refetch / is_live on electric_offsets,
 // including the additive v2 migration an upgrading install runs).
 final class ShapeClientTests: XCTestCase {
     private struct Row: Codable, Equatable, Sendable {
         let id: String
+        let title: String
         let done: Bool
         let count: Int
+
+        init(id: String, title: String, done: Bool, count: Int) {
+            self.id = id
+            self.title = title
+            self.done = done
+            self.count = count
+        }
+
+        enum CodingKeys: String, CodingKey { case id, title, done, count }
+
+        // Mirrors the real entities: `title` is a required String (its absence in
+        // a changed-columns-only update is what forces the .partialUpdate
+        // fallback), while `done`/`count` go through the type-aware wire helpers —
+        // so this fixture locks the helpers and the client mapping together.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            title = try c.decode(String.self, forKey: .title)
+            done = c.decodeWireBool(forKey: .done, default: false)
+            count = try c.decodeWireInt(forKey: .count) ?? 0
+        }
     }
 
     private var tempDir: URL!
@@ -75,26 +97,53 @@ final class ShapeClientTests: XCTestCase {
 
     // MARK: - Operations
 
-    func testDecodesInsertWithStringCoercedValues() {
-        // Electric sends all column values as strings; decode must coerce.
+    func testDecodesInsertWithWireStringValues() {
+        // Electric sends all column values as strings; type-aware decoding maps
+        // the numeric/boolean fields while keeping String fields verbatim.
         let messages = decode(#"""
         [
           {
             "headers": {"operation": "insert"},
             "key": "\"public\".\"test\"/\"a1\"",
-            "value": {"id": "a1", "done": "true", "count": "3"}
+            "value": {"id": "a1", "title": "Hello", "done": "true", "count": "3"}
           }
         ]
         """#)
         XCTAssertEqual(messages.count, 1)
         guard case let .insert(key, value) = messages[0] else { return XCTFail("expected insert") }
         XCTAssertEqual(key, #""public"."test"/"a1""#)
-        XCTAssertEqual(value, Row(id: "a1", done: true, count: 3))
+        XCTAssertEqual(value, Row(id: "a1", title: "Hello", done: true, count: 3))
+    }
+
+    func testStringFieldsKeepNumericAndBooleanLookingText() {
+        // THE regression for the permanent-drop bug: a String field whose value
+        // LOOKS numeric/boolean must decode as the verbatim string, never coerced
+        // to Int/Bool/Double (which then failed the String re-decode and dropped
+        // the row forever).
+        for raw in ["404", "true", "3.5"] {
+            let messages = decode(#"""
+            [
+              {
+                "headers": {"operation": "insert"},
+                "key": "\"public\".\"test\"/\"a1\"",
+                "value": {"id": "a1", "title": "\#(raw)", "done": "false", "count": "0"}
+              }
+            ]
+            """#)
+            XCTAssertEqual(messages.count, 1, "expected one message for title \(raw)")
+            guard case let .insert(_, value) = messages[0] else {
+                return XCTFail("expected insert for title \(raw)")
+            }
+            XCTAssertEqual(value.title, raw)
+        }
     }
 
     func testUpdateWithPartialColumnsFallsBackToPartialUpdate() {
-        // An update carrying only changed columns can't decode to a full Row —
-        // it must surface as .partialUpdate with the coerced column payload.
+        // An update carrying only changed columns can't decode to a full Row
+        // (required `title` is absent) — it surfaces as .partialUpdate. The
+        // payload now carries the RAW wire values (strings); the apply side
+        // (SQLite affinity + boolCols) owns conversion, so nothing is coerced
+        // here.
         let messages = decode(#"""
         [
           {
@@ -111,7 +160,7 @@ final class ShapeClientTests: XCTestCase {
         XCTAssertEqual(key, #""public"."test"/"a1""#)
         let decoded = try? JSONSerialization.jsonObject(with: columns) as? [String: Any]
         XCTAssertEqual(decoded?["id"] as? String, "a1")
-        XCTAssertEqual(decoded?["done"] as? Bool, false)
+        XCTAssertEqual(decoded?["done"] as? String, "false")
     }
 
     func testDecodesDeleteWithoutValue() {

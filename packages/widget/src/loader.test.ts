@@ -178,3 +178,84 @@ describe(`loader`, () => {
     expect(stateChanged).toHaveBeenCalled()
   })
 })
+
+describe(`loader identity + custom data clamp`, () => {
+  const initAndImport = async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+  }
+
+  it(`drops an invalid email, keeps the previous valid one, and warns`, async () => {
+    await initAndImport()
+    window.ExponentialWidget!.identify({ email: `good@acme.com` })
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    window.ExponentialWidget!.identify({ email: `not-an-email` })
+    expect(window.__expWidget!.identity.email).toBe(`good@acme.com`)
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it(`truncates an overlong name and userId to 255 chars`, async () => {
+    await initAndImport()
+    vi.spyOn(console, `warn`).mockImplementation(() => {})
+    window.ExponentialWidget!.identify({
+      name: `x`.repeat(300),
+      userId: `y`.repeat(300),
+    })
+    expect(window.__expWidget!.identity.name).toHaveLength(255)
+    expect(window.__expWidget!.identity.userId).toHaveLength(255)
+  })
+
+  it(`still clears a field via identify({ email: undefined })`, async () => {
+    await initAndImport()
+    window.ExponentialWidget!.identify({ email: `good@acme.com` })
+    expect(window.__expWidget!.identity.email).toBe(`good@acme.com`)
+    window.ExponentialWidget!.identify({ email: undefined })
+    expect(window.__expWidget!.identity.email).toBeUndefined()
+  })
+
+  it(`ignores a merged customData blob over 8KB wholesale and warns`, async () => {
+    await initAndImport()
+    window.ExponentialWidget!.setCustomData({ plan: `pro` })
+    expect(window.__expWidget!.customData).toEqual({ plan: `pro` })
+
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    window.ExponentialWidget!.setCustomData({ blob: `x`.repeat(9000) })
+    // Keep-last-valid: the previous data survives untouched.
+    expect(window.__expWidget!.customData).toEqual({ plan: `pro` })
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it(`accepts an under-limit customData merge`, async () => {
+    await initAndImport()
+    window.ExponentialWidget!.setCustomData({ plan: `pro` })
+    window.ExponentialWidget!.setCustomData({ tier: `gold` })
+    expect(window.__expWidget!.customData).toEqual({ plan: `pro`, tier: `gold` })
+  })
+
+  it(`ignores a circular customData value without throwing`, async () => {
+    await initAndImport()
+    window.ExponentialWidget!.setCustomData({ plan: `pro` })
+    vi.spyOn(console, `warn`).mockImplementation(() => {})
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(() =>
+      (window.ExponentialWidget!.setCustomData as (data: unknown) => void)(
+        circular
+      )
+    ).not.toThrow()
+    expect(window.__expWidget!.customData).toEqual({ plan: `pro` })
+  })
+
+  it(`clamps identity calls queued before the loader took over`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    // A good then a bad email queued through the snippet stub: after drain the
+    // bad one must have been dropped, leaving the earlier valid address.
+    window.ExponentialWidget!.identify({ email: `good@acme.com` })
+    window.ExponentialWidget!.identify({ email: `not-an-email` })
+    vi.spyOn(console, `warn`).mockImplementation(() => {})
+    await importLoader()
+    expect(window.__expWidget!.identity.email).toBe(`good@acme.com`)
+  })
+})

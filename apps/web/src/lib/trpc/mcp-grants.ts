@@ -15,8 +15,13 @@ import { authedProcedure, router } from "@/lib/trpc"
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
 // what the user can grant, and the accept/deny action that both persists the
 // workspace/project selection (mcp_grants) and completes the better-auth
-// consent hop. The grant row is written BEFORE the authorization code becomes
-// exchangeable, so a token can never be used ungoverned.
+// consent hop. Consent completion — which mints the authorization code — runs
+// FIRST; the grant upsert runs only after it succeeds, so a failed consent
+// never rewrites an existing grant. This stays race-free: the code value
+// reaches the MCP client only through the redirectURI this mutation returns,
+// and the upsert completes before the mutation returns, so nothing can exchange
+// the code before the grant row exists. A token whose (user, client) pair has
+// no grant row resolves to no access anyway (see lib/mcp/scope.ts).
 
 async function getMemberWorkspaces(userId: string) {
   return db
@@ -89,9 +94,11 @@ export const mcpGrantsRouter = router({
     }
   }),
 
-  // Accept: validate + persist the selection, then complete the better-auth
-  // consent (mints the code and returns the client's callback URL).
-  // Deny: complete the consent negatively — no grant is written or changed.
+  // Accept: validate the selection, complete the better-auth consent (mints the
+  // code, throws on an expired/replayed consent code), and only then persist the
+  // selection — the redirect carrying the code is returned after the grant row
+  // is written. Deny: complete the consent negatively — no grant is written or
+  // changed.
   grantAndConsent: authedProcedure
     .input(
       z.object({
@@ -172,6 +179,16 @@ export const mcpGrantsRouter = router({
         })
       }
 
+      // Consent first: this mints the authorization code and throws when the
+      // consent code is expired or already redeemed, in which case the existing
+      // grant must stay untouched. The code is handed to the client only via
+      // the returned redirectURI, so writing the grant before returning still
+      // closes the mint→grant gap. If this upsert somehow fails after a
+      // successful consent, the code is consumed but never delivered and the
+      // user re-runs the flow; the old (or absent) grant keeps governing any
+      // token — do not "fix" this by reordering.
+      const consent = await completeConsent()
+
       await db
         .insert(mcpGrants)
         .values({
@@ -191,6 +208,6 @@ export const mcpGrantsRouter = router({
           },
         })
 
-      return completeConsent()
+      return consent
     }),
 })

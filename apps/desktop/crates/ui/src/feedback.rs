@@ -1,43 +1,33 @@
-//! "Send Feedback" — join + open the PUBLIC feedback board in-app.
+//! "Send Feedback" — open the PUBLIC feedback board in-app for members,
+//! otherwise hand off to the cloud `/feedback` page in the browser.
 //!
-//! Web parity: `/w/feedback` shows `WorkspaceJoinGate`
-//! (`components/workspace/join-gate.tsx`) to a signed-in non-member — under
-//! the v6 membership-only sync a public board never syncs until the user
-//! explicitly joins via the self-service `workspaceMembers.join` (public-only
-//! server-side). The desktop mirrors that flow instead of always bouncing to
-//! the browser:
+//! Since v7 the public board is a read-only feedback-type PROJECT inside an
+//! otherwise-private workspace; workspace-level publicness and the
+//! self-service join are gone. The desktop mirrors iOS/Android:
 //!
-//! 1. board already synced (member) → switch the window to it;
+//! 1. board already synced (member) → open its project board in-app;
 //! 2. otherwise resolve the bootstrap board via the public
 //!    `workspaces.getBySlug` query (slug `feedback`, seeded by
-//!    `bootstrap-cloud.ts`) — a member whose sync lags switches directly, a
-//!    non-member gets a join-gate dialog (the web card's copy) whose Join
-//!    button calls `workspaceMembers.join`, gates on the workspace appearing
-//!    in the synced collection (§4.1), then switches;
-//! 3. anything unavailable — signed out, a self-hosted instance without the
-//!    public board (NOT_FOUND), a non-public slug squatter, transport errors
-//!    — falls back to the cloud `/feedback` page in the system browser.
+//!    `bootstrap-cloud.ts`) — a member whose sync merely lags waits for the
+//!    workspace + board project to land, then opens in-app;
+//! 3. everything else — signed out, a non-member (the mobile/desktop clients
+//!    only sync membership-scoped shapes, so a non-member cannot render the
+//!    board locally; the anonymous read-only view lives on the web), a
+//!    self-hosted instance without the public board (NOT_FOUND), a non-public
+//!    slug squatter, or a transport failure — falls back to the cloud
+//!    `/feedback` page in the system browser.
 //!
-//! Participant/anonymization semantics need no extra work here: once joined,
-//! the synced `is_public`/`public_write_policy` fields drive the existing
-//! permission gating, and public-board co-members render anonymized via
-//! `domain::rows::member_fallback_label` — same as web/iOS/Android.
+//! There is no join flow: public boards are read-only for non-members.
+//! Anonymization semantics need no extra work here — public-board co-members
+//! render via `domain::rows::member_fallback_label`, same as web/iOS/Android.
 
-use gpui::{
-    div, px, App, AppContext as _, AsyncWindowContext, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
-};
+use gpui::{App, AsyncWindowContext, Window};
 use sync::Store;
 
-use crate::actions::SendFeedback;
-use crate::navigation::switch_workspace;
+use crate::actions::{OpenProject, SendFeedback};
 use crate::queries;
 
-/// The bootstrap public feedback board's slug (web `/w/feedback`;
+/// The bootstrap public feedback board's slug (web `/t/feedback`;
 /// `bootstrap-cloud.ts` `PUBLIC_WORKSPACE_SLUG`).
 const FEEDBACK_WORKSPACE_SLUG: &str = "feedback";
 
@@ -56,29 +46,46 @@ fn open(cx: &mut App) {
         return;
     }
     crate::navigation::on_active_window(cx, |window, cx| {
-        // Fast path: already a member — the board is in the synced set
-        // (membership is exactly what makes it sync, v6).
+        // Fast path: already a member — the board's project is in the synced
+        // set (membership is exactly what makes it sync). Requiring a PUBLIC
+        // project (not just the slugged workspace) preserves the squatter
+        // guard: a private self-host workspace that owns the `feedback` slug
+        // never opens through Send Feedback.
         let synced = Store::global(cx)
             .collections()
             .workspaces
             .read(cx)
             .iter()
-            .find(|workspace| {
-                workspace.slug.as_deref() == Some(FEEDBACK_WORKSPACE_SLUG)
-                    && workspace.is_public == Some(true)
-            })
-            .map(|workspace| workspace.id.clone());
-        if let Some(workspace_id) = synced {
-            switch_workspace(window, cx, workspace_id);
+            .find(|workspace| workspace.slug.as_deref() == Some(FEEDBACK_WORKSPACE_SLUG))
+            .and_then(|workspace| {
+                let projects = Store::global(cx)
+                    .collections()
+                    .projects_in_workspace(&workspace.id, cx);
+                projects
+                    .iter()
+                    .find(|project| project.is_public == Some(true))
+                    .map(|project| project.id.clone())
+            });
+        if let Some(project_id) = synced {
+            open_board(window, cx, project_id);
             return;
         }
-        resolve_and_gate(window, cx);
+        resolve_and_route(window, cx);
     });
 }
 
-/// Non-member path: `workspaces.getBySlug` → member-but-lagging switch, or
-/// the join-gate dialog, or the browser fallback.
-fn resolve_and_gate(window: &mut Window, cx: &mut App) {
+/// Open a project's board in-app — the canonical path (the `OpenProject`
+/// handler resolves the project's workspace, switches the window's workspace
+/// if needed, scopes to the project, and activates the All-Issues tool
+/// window; there is no separate board screen).
+fn open_board(window: &mut Window, cx: &mut App, project_id: String) {
+    window.dispatch_action(Box::new(OpenProject { project_id }), cx);
+}
+
+/// Resolve path: `workspaces.getBySlug` → in-app (member of a board-hosting
+/// workspace) after the workspace + board project sync in, or the browser
+/// fallback for every other outcome.
+fn resolve_and_route(window: &mut Window, cx: &mut App) {
     let Some(trpc) = queries::trpc_client(cx) else {
         browser_fallback(cx.background_executor());
         return;
@@ -94,12 +101,13 @@ fn resolve_and_gate(window: &mut Window, cx: &mut App) {
                 .await;
 
             let workspace = match resolved {
-                Ok(workspace) if workspace.is_public == Some(true) => workspace,
+                Ok(workspace) if should_open_in_app(&workspace) => workspace,
                 Ok(_) => {
-                    // A non-public workspace owns the slug (self-host oddity)
-                    // — never self-join it.
+                    // Non-member, or an instance whose `feedback` workspace has
+                    // no public board — the cloud page serves the anonymous
+                    // read-only view.
                     log::info!(
-                        "[ui] feedback: `{FEEDBACK_WORKSPACE_SLUG}` workspace is not public; opening the browser"
+                        "[ui] feedback: `{FEEDBACK_WORKSPACE_SLUG}` not openable in-app (non-member or no public board); opening the browser"
                     );
                     browser_fallback_async(window);
                     return;
@@ -113,61 +121,53 @@ fn resolve_and_gate(window: &mut Window, cx: &mut App) {
                 }
             };
 
-            if workspace.membership.is_some() {
-                // Already a member, sync just hasn't caught up (the fast
-                // path missed) — gate like the invite-accept flow, then
-                // switch.
-                let workspace_id = workspace.id.clone();
-                queries::await_row_visible(&workspaces, &workspace_id, window).await;
-                let _ = window.update(|window, cx| {
-                    switch_workspace(window, cx, workspace_id);
-                });
-                return;
+            // Member whose sync merely lags (the fast path missed): wait for
+            // the workspace and its board project to land, then open.
+            queries::await_row_visible(&workspaces, &workspace.id, window).await;
+            let project_id = await_board_project(&workspace.id, window).await;
+            match project_id {
+                Some(project_id) => {
+                    let _ = window
+                        .update(|window, cx| open_board(window, cx, project_id));
+                }
+                None => browser_fallback_async(window),
             }
-
-            let _ = window.update(|window, cx| open_join_gate(window, cx, workspace));
         })
         .detach();
 }
 
-/// The explicit-consent gate (web `WorkspaceJoinGate` card): joining a public
-/// board is never silent — it makes the user a visible (anonymized)
-/// participant and starts syncing the board.
-fn open_join_gate(window: &mut Window, cx: &mut App, workspace: api::workspaces::WorkspaceBySlugOut) {
-    if window.has_active_dialog(cx) {
-        return; // never stack over an open modal
-    }
-    let name = workspace
-        .name
-        .clone()
-        .unwrap_or_else(|| "the feedback board".to_string());
-    let title = SharedString::from(format!("Join {name}"));
-    let view = cx.new(|_| FeedbackJoinGate {
-        workspace_id: workspace.id,
-        joining: false,
-        error: None,
-    });
-    window.open_dialog(cx, move |dialog, _window, cx| {
-        let busy = view.read(cx).joining;
-        dialog
-            .w(px(416.))
-            .title(title.clone())
-            .overlay_closable(!busy)
-            .keyboard(!busy)
-            .on_ok({
-                let view = view.clone();
-                move |_, window, cx| {
-                    view.update(cx, |view, cx| view.join(window, cx));
-                    false
-                }
+/// Bounded wait for the feedback board's project row to sync into the local
+/// collection (a member's board arrives once membership rotates the shape
+/// scope). Mirrors [`queries::await_row_visible`]'s shape but keys off a
+/// predicate rather than an id. Returns the picked project id, or `None` on
+/// timeout / closed window (→ browser fallback).
+async fn await_board_project(workspace_id: &str, window: &mut AsyncWindowContext) -> Option<String> {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(60);
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        let picked = window
+            .update(|_, cx| {
+                let projects = Store::global(cx)
+                    .collections()
+                    .projects_in_workspace(workspace_id, cx);
+                pick_board_project(&projects).map(|project| project.id.clone())
             })
-            .child(view.clone())
-    });
+            .ok()?; // window gone — nothing left to open
+        if picked.is_some() {
+            return picked;
+        }
+        if std::time::Instant::now() >= deadline {
+            log::warn!("[ui] feedback: board project never synced for workspace {workspace_id}");
+            return None;
+        }
+        window.background_executor().timer(POLL).await;
+    }
 }
 
-/// Open the cloud `/feedback` page in the system browser — the pre-v6
-/// behavior, kept as the fallback (self-hosted instances have no public
-/// board; their feedback lands on the cloud).
+/// Open the cloud `/feedback` page in the system browser — the fallback for
+/// every non-in-app outcome (signed out, non-member, self-hosted instances
+/// without a public board, transport failures).
 fn browser_fallback(executor: &gpui::BackgroundExecutor) {
     let url = format!(
         "{}/feedback",
@@ -186,110 +186,73 @@ fn browser_fallback_async(window: &AsyncWindowContext) {
     browser_fallback(window.background_executor());
 }
 
-struct FeedbackJoinGate {
-    workspace_id: String,
-    joining: bool,
-    error: Option<SharedString>,
+/// In-app only for a member of a workspace that actually hosts a public board.
+fn should_open_in_app(ws: &api::workspaces::WorkspaceBySlugOut) -> bool {
+    ws.has_public_board && ws.membership.is_some()
 }
 
-impl FeedbackJoinGate {
-    /// `workspaceMembers.join` → gate on the workspaces echo → switch (the
-    /// same close-and-navigate flow as the invite accept).
-    fn join(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.joining {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
-            return;
-        };
-        let workspace_id = self.workspace_id.clone();
-        self.joining = true;
-        self.error = None;
-        cx.notify();
+/// The board project to open: prefer a public one, fall back to the first
+/// (iOS/Android parity — `getBySlug` already vouched that the workspace hosts
+/// a public board).
+fn pick_board_project(projects: &[domain::rows::Project]) -> Option<&domain::rows::Project> {
+    projects
+        .iter()
+        .find(|project| project.is_public == Some(true))
+        .or_else(|| projects.first())
+}
 
-        cx.spawn_in(window, async move |this, window| {
-            let join_id = workspace_id.clone();
-            let result = window
-                .background_executor()
-                .spawn(async move { api::workspaces::workspace_members_join(&trpc, &join_id) })
-                .await;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-            match result {
-                Ok(_) => {
-                    // §4.1 gated flow: membership changes the shape scope —
-                    // wait for the board to appear before switching.
-                    let workspaces = window
-                        .update(|_, cx| Store::global(cx).collections().workspaces.clone())
-                        .ok();
-                    if let Some(workspaces) = workspaces {
-                        queries::await_row_visible(&workspaces, &workspace_id, window).await;
-                    }
-                    let _ = this.update_in(window, |_, window, cx| {
-                        window.close_dialog(cx);
-                        switch_workspace(window, cx, workspace_id);
-                    });
-                }
-                Err(err) => {
-                    let _ = this.update_in(window, |this, _, cx| {
-                        this.joining = false;
-                        this.error = Some(format!("{err}").into());
-                        cx.notify();
-                    });
-                }
-            }
-        })
-        .detach();
+    fn by_slug(value: serde_json::Value) -> api::workspaces::WorkspaceBySlugOut {
+        serde_json::from_value(value).unwrap()
     }
-}
 
-impl Render for FeedbackJoinGate {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Web join-gate copy, verbatim.
-        let mut body = v_flex().gap_3().child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    "This is a public board. Join it to browse issues, follow discussions \
-                     and share feedback. You can leave again anytime from the board settings.",
-                ),
-        );
-        if let Some(error) = &self.error {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
+    fn project(id: &str, is_public: Option<bool>) -> domain::rows::Project {
+        let mut obj = json!({ "id": id, "workspace_id": "w-1", "name": id });
+        if let Some(public) = is_public {
+            obj["is_public"] = json!(public);
         }
-        body.child(
-            h_flex()
-                .justify_end()
-                .gap_2()
-                .child(
-                    Button::new("feedback-join-cancel")
-                        .outline()
-                        .small()
-                        .label("Cancel")
-                        .disabled(self.joining)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if this.joining {
-                                return;
-                            }
-                            window.close_dialog(cx);
-                        })),
-                )
-                .child(
-                    Button::new("feedback-join-primary")
-                        .primary()
-                        .small()
-                        .label(if self.joining { "Joining…" } else { "Join board" })
-                        .disabled(self.joining)
-                        .loading(self.joining)
-                        .on_click(cx.listener(|this, _, window, cx| this.join(window, cx))),
-                ),
-        )
+        serde_json::from_value(obj).unwrap()
+    }
+
+    #[test]
+    fn should_open_in_app_requires_member_and_board() {
+        // Member of a board-hosting workspace → in-app.
+        assert!(should_open_in_app(&by_slug(json!({
+            "id": "w-1", "hasPublicBoard": true, "membership": "member"
+        }))));
+        // Member but no public board → browser.
+        assert!(!should_open_in_app(&by_slug(json!({
+            "id": "w-1", "hasPublicBoard": false, "membership": "owner"
+        }))));
+        // Non-member of a board-hosting workspace → browser (the web serves
+        // the anonymous read-only view).
+        assert!(!should_open_in_app(&by_slug(json!({
+            "id": "w-1", "hasPublicBoard": true, "membership": null
+        }))));
+        // Older server omits `hasPublicBoard` (defaults false) → browser.
+        assert!(!should_open_in_app(&by_slug(json!({
+            "id": "w-1", "membership": "member"
+        }))));
+    }
+
+    #[test]
+    fn pick_board_project_prefers_public_then_first() {
+        let private = project("p-priv", Some(false));
+        let public = project("p-pub", Some(true));
+
+        // Prefers the public project even when a private one sorts first.
+        let projects = vec![private.clone(), public.clone()];
+        assert_eq!(pick_board_project(&projects).unwrap().id, "p-pub");
+
+        // No public project → the first row (getBySlug already vouched).
+        let projects = vec![project("p-a", Some(false)), project("p-b", None)];
+        assert_eq!(pick_board_project(&projects).unwrap().id, "p-a");
+
+        // Empty → None (→ browser fallback).
+        assert!(pick_board_project(&[]).is_none());
     }
 }

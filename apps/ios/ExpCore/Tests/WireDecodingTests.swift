@@ -1,0 +1,158 @@
+import XCTest
+@testable import ExpCore
+
+// Locks the type-aware wire decoding (WireDecoding.swift + the per-entity
+// decoders). Electric's shape wire format delivers every column as a JSON
+// string, so these fixtures feed string-shaped JSON straight into the real
+// entities and assert numeric/boolean fields parse while String fields keep
+// their verbatim (numeric/boolean-looking) text. Also covers the native-JSON
+// (tRPC/fixture) scalar form and the helper edge cases.
+final class WireDecodingTests: XCTestCase {
+    private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+        try JSONDecoder().decode(T.self, from: Data(json.utf8))
+    }
+
+    // MARK: - Issue
+
+    func testIssueDecodesWireStringNumbersAndKeepsNumericTitle() throws {
+        let issue = try decode(IssueEntity.self, #"""
+        {
+          "id": "i1", "project_id": "p1", "title": "404",
+          "status": "todo", "priority": "none",
+          "number": "7", "pr_number": "12", "sort_order": "3.5",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(issue.number, 7)
+        XCTAssertEqual(issue.prNumber, 12)
+        XCTAssertEqual(issue.sortOrder, 3.5)
+        XCTAssertEqual(issue.title, "404")
+    }
+
+    func testIssueDecodesNativeJSONNumbers() throws {
+        // The tRPC/fixture form uses native JSON scalars — still valid.
+        let issue = try decode(IssueEntity.self, #"""
+        {
+          "id": "i1", "project_id": "p1", "title": "Real",
+          "status": "todo", "priority": "none",
+          "number": 7, "sort_order": 3.5,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(issue.number, 7)
+        XCTAssertEqual(issue.sortOrder, 3.5)
+        XCTAssertNil(issue.prNumber)
+    }
+
+    // MARK: - Label
+
+    func testLabelDecodesWireSortOrderAndKeepsBooleanLookingName() throws {
+        let label = try decode(LabelEntity.self, #"""
+        {
+          "id": "l1", "workspace_id": "w1", "name": "true", "color": "#fff",
+          "sort_order": "1.5",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(label.sortOrder, 1.5)
+        XCTAssertEqual(label.name, "true")
+    }
+
+    // MARK: - Project (locks the t/f Postgres text forms too)
+
+    func testProjectDecodesWireBoolsAndSortOrder() throws {
+        let project = try decode(ProjectEntity.self, #"""
+        {
+          "id": "p1", "workspace_id": "w1", "name": "P", "slug": "p", "prefix": "P",
+          "sort_order": "2", "is_public": "true", "is_protected": "t",
+          "public_show_comments": "false", "public_show_activity": "f",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(project.sortOrder, 2)
+        XCTAssertTrue(project.isPublic)
+        XCTAssertTrue(project.isProtected)
+        XCTAssertFalse(project.publicShowComments)
+        XCTAssertFalse(project.publicShowActivity)
+    }
+
+    // MARK: - Attachment
+
+    func testAttachmentDecodesWireIntsAndKeepsNumericFilename() throws {
+        let attachment = try decode(AttachmentEntity.self, #"""
+        {
+          "id": "a1", "workspace_id": "w1", "issue_id": "i1", "uploader_id": "u1",
+          "filename": "3.5", "content_type": "image/png",
+          "size_bytes": "12345", "storage_key": "k", "url": "/x",
+          "width": "800", "height": "600",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(attachment.sizeBytes, 12345)
+        XCTAssertEqual(attachment.width, 800)
+        XCTAssertEqual(attachment.height, 600)
+        XCTAssertEqual(attachment.filename, "3.5")
+    }
+
+    // MARK: - User (regression for the latent always-false is_agent bug)
+
+    func testUserDecodesWireStringIsAgent() throws {
+        let user = try decode(UserEntity.self, #"""
+        {
+          "id": "u1", "email": "u@example.com", "is_agent": "true",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertTrue(user.isAgent)
+    }
+
+    // MARK: - IssueSubscriber (bare Postgres "t")
+
+    func testIssueSubscriberDecodesWirePostgresTrue() throws {
+        let sub = try decode(IssueSubscriberEntity.self, #"""
+        {
+          "id": "s1", "issue_id": "i1", "workspace_id": "w1", "source": "manual",
+          "unsubscribed": "t",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertTrue(sub.unsubscribed)
+    }
+
+    // MARK: - Helper edges
+
+    func testWireIntThrowsOnUnparseableString() {
+        // Garbage in a numeric field must surface as a decode drop, not silently
+        // become nil.
+        XCTAssertThrowsError(try decode(IssueEntity.self, #"""
+        {
+          "id": "i1", "project_id": "p1", "title": "t",
+          "status": "todo", "priority": "none", "number": "not-a-number",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#))
+    }
+
+    func testWireIntAbsentOrNullIsNil() throws {
+        let issue = try decode(IssueEntity.self, #"""
+        {
+          "id": "i1", "project_id": "p1", "title": "t",
+          "status": "todo", "priority": "none", "number": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(issue.number)   // explicit JSON null
+        XCTAssertNil(issue.prNumber) // absent key
+    }
+
+    func testWireBoolUnknownStringFallsBackToDefault() throws {
+        // is_agent's default is false; an unrecognized string keeps the default.
+        let user = try decode(UserEntity.self, #"""
+        {
+          "id": "u1", "email": "u@example.com", "is_agent": "maybe",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertFalse(user.isAgent)
+    }
+}

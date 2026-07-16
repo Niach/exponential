@@ -3,7 +3,7 @@
 // against older servers that never send it.
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WidgetRuntimeState } from "./types"
-import { submitFeedback } from "./api-client"
+import { submitFeedback, submitSupportRequest } from "./api-client"
 
 const makeState = (): WidgetRuntimeState => ({
   protocol: 1,
@@ -38,10 +38,35 @@ const submit = (state: WidgetRuntimeState) =>
     },
   })
 
+const submitSupport = (state: WidgetRuntimeState) =>
+  submitSupportRequest({
+    state,
+    message: `Login is broken`,
+    email: `user@example.com`,
+    meta: {
+      url: `https://host.example/page`,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      screenWidth: 1600,
+      screenHeight: 900,
+      devicePixelRatio: 1,
+    },
+  })
+
 const mockFetchJson = (body: unknown) => {
   const fetchMock = vi.fn(async () => ({
     ok: true,
     status: 200,
+    json: async () => body,
+  }))
+  vi.stubGlobal(`fetch`, fetchMock)
+  return fetchMock
+}
+
+const mockFetchError = (status: number, body: unknown) => {
+  const fetchMock = vi.fn(async () => ({
+    ok: false,
+    status,
     json: async () => body,
   }))
   vi.stubGlobal(`fetch`, fetchMock)
@@ -94,6 +119,58 @@ describe(`submitFeedback response parsing`, () => {
       ok: true,
       identifier: null,
       url: null,
+    })
+  })
+})
+
+describe(`submit error status + code parsing`, () => {
+  it(`surfaces the status and structured code on a coded 400`, async () => {
+    mockFetchError(400, {
+      error: `Invalid submission fields`,
+      code: `invalid_email`,
+    })
+    expect(await submit(makeState())).toEqual({
+      ok: false,
+      message: `Invalid submission fields`,
+      status: 400,
+      code: `invalid_email`,
+    })
+  })
+
+  it(`returns code null on a 400 without a structured code`, async () => {
+    mockFetchError(400, { error: `Invalid meta` })
+    expect(await submit(makeState())).toEqual({
+      ok: false,
+      message: `Invalid meta`,
+      status: 400,
+      code: null,
+    })
+  })
+
+  it(`surfaces status null on a network error`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => {
+        throw new Error(`offline`)
+      })
+    )
+    expect(await submit(makeState())).toMatchObject({
+      ok: false,
+      status: null,
+      code: null,
+    })
+  })
+
+  it(`submitSupportRequest surfaces the status and code too`, async () => {
+    mockFetchError(400, {
+      error: `Invalid submission fields`,
+      code: `invalid_email`,
+    })
+    expect(await submitSupport(makeState())).toEqual({
+      ok: false,
+      message: `Invalid submission fields`,
+      status: 400,
+      code: `invalid_email`,
     })
   })
 })

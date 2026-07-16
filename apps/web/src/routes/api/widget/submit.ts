@@ -99,7 +99,11 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
     return jsonResponse(201, { ok: true, ...result }, cors)
   } catch (error) {
     if (error instanceof WidgetRequestError) {
-      return jsonResponse(error.status, { error: error.message }, cors)
+      return jsonResponse(
+        error.status,
+        { error: error.message, ...(error.code ? { code: error.code } : {}) },
+        cors
+      )
     }
     console.error(`widget submit error`, error)
     return jsonResponse(500, { error: `Internal error` }, cors)

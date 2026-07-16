@@ -237,6 +237,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
       await expect(attempt).rejects.toMatchObject({
         status: 400,
         message: `Email is required`,
+        code: `email_required`,
       })
       expect(h.inserts.length).toBe(0)
       expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
@@ -445,6 +446,54 @@ describe(`widget modes`, () => {
       `feedback`,
       `support`,
     ])
+  })
+})
+
+// The submit route relays WidgetRequestError.code into the JSON body; the
+// client uses it to re-reveal a hidden identity-email input. Validation
+// behavior (statuses/messages) is unchanged — only the code is additive.
+describe(`structured email error codes`, () => {
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.assertCanUseHelpdesk.mockClear()
+    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
+  })
+
+  it(`flags invalid_email when a feedback email is malformed`, async () => {
+    const form = submitForm()
+    form.set(`email`, `user#tag@example.com`)
+    await expect(
+      createWidgetSubmission({ config, formData: form, userAgent: null })
+    ).rejects.toMatchObject({ status: 400, code: `invalid_email` })
+    expect(h.inserts.length).toBe(0)
+  })
+
+  it(`flags invalid_email when a support email is malformed`, async () => {
+    const form = new FormData()
+    form.set(`mode`, `support`)
+    form.set(`message`, `Please help me`)
+    form.set(`email`, `user#tag@example.com`)
+    await expect(
+      createWidgetSupportSubmission({
+        config: supportConfig,
+        formData: form,
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, code: `invalid_email` })
+    expect(h.inserts.length).toBe(0)
+  })
+
+  it(`leaves a non-email field failure uncoded`, async () => {
+    const form = submitForm()
+    form.set(`name`, `x`.repeat(300))
+    const error = await createWidgetSubmission({
+      config,
+      formData: form,
+      userAgent: null,
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(WidgetRequestError)
+    expect((error as WidgetRequestError).status).toBe(400)
+    expect((error as WidgetRequestError).code).toBeUndefined()
   })
 })
 

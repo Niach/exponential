@@ -4,7 +4,15 @@ import { screenshotFilename } from "./capture/image"
 
 export type SubmitResult =
   | { ok: true; identifier: string | null; url: string | null }
-  | { ok: false; message: string }
+  | {
+      ok: false
+      message: string
+      // The HTTP status (null on a network error) and the server's additive
+      // structured error code (null when absent) drive App's email-recovery
+      // reveal.
+      status: number | null
+      code: string | null
+    }
 
 // Support mode (EXP-130): files a helpdesk ticket. The reply channel is the
 // reporter's email — the server mails them a magic conversation link.
@@ -37,15 +45,20 @@ export async function submitSupportRequest(args: {
       return {
         ok: false,
         message: `Too many requests right now — try again in a minute.`,
+        status: 429,
+        code: null,
       }
     }
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {
         error?: string
+        code?: string
       } | null
       return {
         ok: false,
         message: body?.error ?? `Something went wrong. Please try again.`,
+        status: response.status,
+        code: body?.code ?? null,
       }
     }
     const body = (await response.json().catch(() => null)) as {
@@ -53,7 +66,12 @@ export async function submitSupportRequest(args: {
     } | null
     return { ok: true, identifier: body?.identifier ?? null, url: null }
   } catch {
-    return { ok: false, message: `Network error. Please try again.` }
+    return {
+      ok: false,
+      message: `Network error. Please try again.`,
+      status: null,
+      code: null,
+    }
   }
 }
 
@@ -96,15 +114,20 @@ export async function submitFeedback(args: {
       return {
         ok: false,
         message: `Too many reports right now — try again in a minute.`,
+        status: 429,
+        code: null,
       }
     }
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {
         error?: string
+        code?: string
       } | null
       return {
         ok: false,
         message: body?.error ?? `Something went wrong. Please try again.`,
+        status: response.status,
+        code: body?.code ?? null,
       }
     }
     const body = (await response.json().catch(() => null)) as {
@@ -119,6 +142,11 @@ export async function submitFeedback(args: {
       url: typeof body?.url === `string` ? body.url : null,
     }
   } catch {
-    return { ok: false, message: `Network error. Please try again.` }
+    return {
+      ok: false,
+      message: `Network error. Please try again.`,
+      status: null,
+      code: null,
+    }
   }
 }

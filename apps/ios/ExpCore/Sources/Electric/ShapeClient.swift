@@ -319,12 +319,16 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
     }
 
     // Internal (not private) so ExpCoreTests can lock the wire-format mapping
-    // (controls incl. snapshot-end, string-coerced values, partial updates).
+    // (controls incl. snapshot-end, type-aware entity decoding, raw partial
+    // updates).
     func decodeMessages(_ data: Data) -> [ShapeMessage<T>] {
         guard !data.isEmpty else { return [] }
 
-        // Electric sends a JSON array of message objects. Parse using JSONSerialization
-        // for maximum flexibility, then re-encode individual values for Codable decoding.
+        // Electric sends a JSON array of message objects. Parse with
+        // JSONSerialization, then re-encode each value for type-aware Codable
+        // decoding: every column arrives as a JSON string, and the entities' wire
+        // decoders accept both the string and native-scalar forms per field (see
+        // WireDecoding.swift) — no whole-row blind coercion.
         guard let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             logger.warning("[\(self.shapeName)] top-level decode failed")
             return []
@@ -357,12 +361,12 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         let decodedValue: T? = {
             guard let value = rawValue else { return nil }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-            if let decoded = try? JSONDecoder().decode(T.self, from: jsonData) {
-                return decoded
-            }
-            let coerced = coerceStringValues(value)
-            guard let coercedData = try? JSONSerialization.data(withJSONObject: coerced) else { return nil }
-            return try? JSONDecoder().decode(T.self, from: coercedData)
+            // Single strict decode: the entities' per-field wire decoders accept
+            // both string and native-scalar column values, so a well-formed full
+            // row always decodes. A failure here is a genuine bad/partial row —
+            // surfaced as a loud decode drop (reportDecodeDrop) rather than
+            // silently coerced, which matches Android.
+            return try? JSONDecoder().decode(T.self, from: jsonData)
         }()
 
         switch operation {
@@ -380,9 +384,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             if let value = decodedValue {
                 return .update(key: key, value: value)
             }
+            // A partial (changed-columns-only) update can't decode to a full T.
+            // Carry the RAW wire dict as the partial payload — the apply side
+            // owns type conversion (SQLite affinity for numerics, boolCols for
+            // booleans). Coercing here is what used to corrupt TEXT columns
+            // (a title "true" stored as the integer 1).
             guard let rawValue else { return nil }
-            let coerced = coerceStringValues(rawValue)
-            guard let columnData = try? JSONSerialization.data(withJSONObject: coerced) else { return nil }
+            guard let columnData = try? JSONSerialization.data(withJSONObject: rawValue) else { return nil }
             return .partialUpdate(key: key, columns: columnData)
         case "delete":
             return .delete(key: key, value: decodedValue)
@@ -399,29 +407,4 @@ public enum ShapeError: Error {
     /// the shape loop for good on this case.
     case upgradeRequired
     case httpError(Int)
-}
-
-// Electric SQL sends all column values as strings in the wire format.
-// This function attempts to coerce string values that look like numbers/bools
-// into their native JSON types so Codable decoding succeeds.
-private func coerceStringValues(_ dict: [String: Any]) -> [String: Any] {
-    var result = [String: Any]()
-    for (key, value) in dict {
-        if let str = value as? String {
-            if str == "true" {
-                result[key] = true
-            } else if str == "false" {
-                result[key] = false
-            } else if str.contains("."), let d = Double(str) {
-                result[key] = d
-            } else if let i = Int(str) {
-                result[key] = i
-            } else {
-                result[key] = str
-            }
-        } else {
-            result[key] = value
-        }
-    }
-    return result
 }

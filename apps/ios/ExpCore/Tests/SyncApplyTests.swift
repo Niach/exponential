@@ -48,6 +48,41 @@ final class SyncApplyTests: XCTestCase {
         try pool.read { try UserEntity.fetchOne($0, key: id) }
     }
 
+    private func seedIssue(id: String, title: String) throws {
+        try pool.write { db in
+            try IssueEntity(
+                id: id, projectId: "p1", number: 1, identifier: "EXP-1", title: title,
+                description: nil, status: "todo", priority: "none", assigneeId: nil,
+                creatorId: "u1", dueDate: nil, dueTime: nil, endTime: nil, sortOrder: 1.0,
+                completedAt: nil, archivedAt: nil, duplicateOfId: nil, prUrl: nil,
+                prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
+                createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+            ).save(db)
+        }
+    }
+
+    private func issueKey(_ id: String) -> String { #""public"."issues"/"\#(id)""# }
+
+    private func fetchIssue(_ id: String) throws -> IssueEntity? {
+        try pool.read { try IssueEntity.fetchOne($0, key: id) }
+    }
+
+    private func seedSubscriber(id: String, unsubscribed: Bool) throws {
+        try pool.write { db in
+            try IssueSubscriberEntity(
+                id: id, issueId: "i1", userId: "u1", email: nil, workspaceId: "ws1",
+                source: "manual", unsubscribed: unsubscribed,
+                createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+            ).save(db)
+        }
+    }
+
+    private func subscriberKey(_ id: String) -> String { #""public"."issue_subscribers"/"\#(id)""# }
+
+    private func fetchSubscriber(_ id: String) throws -> IssueSubscriberEntity? {
+        try pool.read { try IssueSubscriberEntity.fetchOne($0, key: id) }
+    }
+
     // MARK: - Tests
 
     func testUnknownColumnPartialAppliesKnownSubset() async throws {
@@ -129,5 +164,49 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNotNil(try fetchUser("a"))
         XCTAssertNotNil(try fetchUser("b"))
         XCTAssertEqual(try fetchUser("target")?.name, "Renamed")
+    }
+
+    // MARK: - Type-aware partial apply (the wire-decoding fix's apply half)
+
+    func testPartialUpdateKeepsBooleanLookingTitleText() async throws {
+        // Raw wire partials carry strings; a TEXT column must keep the exact
+        // bytes. The old coercing pipeline turned "true" into the integer 1 and
+        // "404" into the number 404 before binding — corrupting the title.
+        for raw in ["true", "404"] {
+            try seedIssue(id: "i1", title: "seed")
+            let message = ShapeMessage<IssueEntity>.partialUpdate(
+                key: issueKey("i1"), columns: columns(["title": raw])
+            )
+            try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
+            XCTAssertEqual(try fetchIssue("i1")?.title, raw)
+        }
+    }
+
+    func testPartialUpdateCoercesBooleanColumnFromWireString() async throws {
+        // BOOLEAN columns are the affinity exception: a wire "true"/"t" must map
+        // to a real Bool binding so GRDB's Bool read doesn't fail on TEXT.
+        for raw in ["true", "t"] {
+            try seedSubscriber(id: "s1", unsubscribed: false)
+            let message = ShapeMessage<IssueSubscriberEntity>.partialUpdate(
+                key: subscriberKey("s1"), columns: columns(["unsubscribed": raw])
+            )
+            try await applyBatch(
+                messages: [message], name: "issue-subscribers",
+                table: "issue_subscribers", pool: pool
+            )
+            XCTAssertEqual(try fetchSubscriber("s1")?.unsubscribed, true)
+        }
+    }
+
+    func testPartialUpdateNumericStringsUseColumnAffinity() async throws {
+        // INTEGER/REAL columns rely on SQLite affinity to convert numeric text.
+        try seedIssue(id: "i2", title: "seed")
+        let message = ShapeMessage<IssueEntity>.partialUpdate(
+            key: issueKey("i2"), columns: columns(["number": "7", "sort_order": "3.5"])
+        )
+        try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
+        let issue = try fetchIssue("i2")
+        XCTAssertEqual(issue?.number, 7)
+        XCTAssertEqual(issue?.sortOrder, 3.5)
     }
 }

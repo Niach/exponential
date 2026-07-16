@@ -408,6 +408,15 @@ class IssueDetailViewModel @Inject constructor(
         _descriptionSaveError.value = null
     }
 
+    /**
+     * Drop not-yet-saved local description input — the screen applied a remote
+     * value over it (live apply or banner reload), so a later dispose-time flush
+     * would revert the teammate's edit.
+     */
+    fun discardPendingDescription() {
+        descriptionInput.value = null
+    }
+
     // The backing repo's full name (owner/name) for the project + issue coding
     // chips. repository_id rides on the synced projects shape; the name is a
     // server-only tRPC read, cached per (account, workspace) so the chip doesn't
@@ -532,6 +541,12 @@ class IssueDetailViewModel @Inject constructor(
                     UpdateIssueInput(id = issueId, description = sanitized)
                 )
                 _descriptionSaveError.value = null
+                // Consume the pending input only if the user hasn't typed since —
+                // otherwise a later dispose-time flush would re-save this now
+                // already-persisted text over a teammate's subsequent remote edit.
+                // The same String instance flows through descriptionInput, so the
+                // reference-identity compareAndSet matches.
+                descriptionInput.compareAndSet(text, null)
                 return
             } catch (e: CancellationException) {
                 throw e

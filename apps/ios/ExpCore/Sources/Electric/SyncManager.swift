@@ -367,13 +367,20 @@ private func parseKeyComponents(_ key: String) -> [String] {
 private final class SchemaCache: @unchecked Sendable {
     static let shared = SchemaCache()
     private let lock = NSLock()
-    private var tables: [String: (pk: [String], cols: Set<String>)] = [:]
+    private var tables: [String: (pk: [String], cols: Set<String>, boolCols: Set<String>)] = [:]
 
-    func schema(for table: String, db: Database) throws -> (pk: [String], cols: Set<String>) {
+    func schema(for table: String, db: Database) throws -> (pk: [String], cols: Set<String>, boolCols: Set<String>) {
         if let cached = lock.withLock({ tables[table] }) { return cached }
+        let columnInfos = try db.columns(in: table)
         let pk = try db.primaryKey(table).columns
-        let cols = Set(try db.columns(in: table).map(\.name))
-        let entry = (pk: pk, cols: cols)
+        let cols = Set(columnInfos.map(\.name))
+        // Boolean columns need explicit t/true/1//f/false/0 mapping on the
+        // partial-update path: a raw wire "true" isn't numeric text, so SQLite
+        // affinity would store it AS TEXT in the INTEGER-affinity BOOLEAN column
+        // and GRDB's Bool read would then fail. Every bool column is declared
+        // `.boolean` → "BOOLEAN" in the migration DDL.
+        let boolCols = Set(columnInfos.filter { $0.type.uppercased().contains("BOOL") }.map(\.name))
+        let entry = (pk: pk, cols: cols, boolCols: boolCols)
         lock.withLock { tables[table] = entry }
         return entry
     }
@@ -413,14 +420,30 @@ private func applyPartialUpdate(name: String, key: String, columnData: Data, tab
     let setClauses = known.keys.sorted().map { "\"\($0)\" = :\($0)" }
     let sql = "UPDATE \"\(table)\" SET \(setClauses.joined(separator: ", ")) WHERE \"id\" = :_pk_id"
 
+    // Partial payloads are the RAW Electric wire values (strings). SQLite column
+    // affinity converts numeric text for INTEGER/REAL columns, and TEXT columns
+    // keep the exact bytes — so a title that merely looks numeric/boolean is
+    // never corrupted. BOOLEAN columns are the exception (see sqlValue): a wire
+    // "true" must map to a real Bool binding, not TEXT, or GRDB's read fails.
     var args: [String: (any DatabaseValueConvertible)?] = ["_pk_id": id]
     for (col, val) in known {
-        args[col] = sqlValue(from: val)
+        args[col] = sqlValue(from: val, isBoolean: schema.boolCols.contains(col))
     }
     try db.execute(sql: sql, arguments: StatementArguments(args))
 }
 
-private func sqlValue(from value: Any) -> (any DatabaseValueConvertible)? {
+private func sqlValue(from value: Any, isBoolean: Bool) -> (any DatabaseValueConvertible)? {
+    // Boolean columns only: map the raw Postgres text forms to a real Bool
+    // binding (→ integer 1/0). Numeric/TEXT columns rely on SQLite affinity, so
+    // they must NEVER be pre-coerced here — that is what used to store a title
+    // "true" as the integer 1.
+    if isBoolean, let s = value as? String {
+        switch s.lowercased() {
+        case "t", "true", "1": return true
+        case "f", "false", "0": return false
+        default: return s  // unrecognized: bind as-is (degenerate, no worse than before)
+        }
+    }
     switch value {
     case let s as String: return s
     case let i as Int: return i

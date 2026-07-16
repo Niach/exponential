@@ -236,8 +236,8 @@ pub(crate) fn is_owner(cx: &App, workspace_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Web `useIsSolo`: true while data loads (bias hidden), false for a public
-/// workspace, else "≤1 human member" (agents excluded).
+/// Web `useIsSolo`: true while data loads (bias hidden), else "≤1 human
+/// member" (agents excluded).
 pub(crate) fn is_solo_workspace(cx: &App, workspace_id: &str) -> bool {
     let collections = Store::global(cx).collections();
     if !collections.workspace_members.read(cx).is_ready()
@@ -245,11 +245,8 @@ pub(crate) fn is_solo_workspace(cx: &App, workspace_id: &str) -> bool {
     {
         return true;
     }
-    let Some(workspace) = collections.workspaces.read(cx).get(workspace_id) else {
+    if collections.workspaces.read(cx).get(workspace_id).is_none() {
         return true;
-    };
-    if workspace.is_public == Some(true) {
-        return false;
     }
     let users = collections.users.read(cx);
     let human_members = collections

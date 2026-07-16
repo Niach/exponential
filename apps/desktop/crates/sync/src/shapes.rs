@@ -88,16 +88,11 @@ pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "workspaces",
         path: "/api/shapes/workspaces",
-        columns: &[
-            "id",
-            "name",
-            "slug",
-            "icon_url",
-            "is_public",
-            "public_write_policy",
-            "created_at",
-            "updated_at",
-        ],
+        // Workspaces are always private — no is_public/public_write_policy
+        // (publicness lives on feedback-board projects). A pre-fix install
+        // keeps those as orphaned local TEXT columns (heal_missing_columns is
+        // additive-only); the allowlist drops the keys on upsert.
+        columns: &["id", "name", "slug", "icon_url", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {

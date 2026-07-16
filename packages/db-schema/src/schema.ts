@@ -668,8 +668,10 @@ export const issueSubscribers = pgTable(
     }),
     // Set for widget_reporter rows; null for member rows.
     email: varchar({ length: 320 }),
-    // Denormalized from issue→project by populate_issue_subscriber_workspace_id
-    // so the Electric shape filter stays workspace-scoped (stable, no 409 churn).
+    // Denormalized from issue→project by populate_issue_subscriber_workspace_id.
+    // Retained for notification fan-out and workspace-level queries; the Electric
+    // shape filter is project-scoped (see the project_id column below) so a
+    // trashed project's subscriptions drop out of member sync.
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -76,8 +77,10 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
+import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
 // iOS-parity issue detail: a centered "Issue" nav title, an identifier chip +
@@ -112,8 +115,11 @@ fun IssueDetailScreen(
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val issue = state.issue
-    var titleField by remember { mutableStateOf("") }
-    var descriptionField by remember { mutableStateOf("") }
+    // Remote-reconciled title/description: seed on first load, live-apply a remote
+    // edit while clean, stash + banner while dirty (field-level last-write-wins).
+    // remember(issue?.id) gives the per-issue reset the old seed effect provided.
+    val titleSync = remember(issue?.id) { RemoteSyncedText(normalizeForEcho = { it.trim() }) }
+    val descriptionSync = remember(issue?.id) { RemoteSyncedText(normalizeForEcho = ::stripDraftImages) }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
     var assigneeMenuOpen by remember { mutableStateOf(false) }
@@ -128,11 +134,15 @@ fun IssueDetailScreen(
     // The picked target project, pending the move confirmation (EXP-57).
     var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.ProjectEntity?>(null) }
 
-    LaunchedEffect(issue?.id) {
-        if (issue != null) {
-            titleField = issue.title
-            descriptionField = extractDescriptionMarkdown(issue.description)
-        }
+    LaunchedEffect(titleSync, issue?.title) {
+        issue?.title?.let { titleSync.syncRemote(it) }
+    }
+    val remoteDescription = issue?.let { extractDescriptionMarkdown(it.description) }
+    LaunchedEffect(descriptionSync, remoteDescription) {
+        remoteDescription?.let { descriptionSync.syncRemote(it) }
+        // A clean live-apply supersedes any not-yet-flushed local input: without
+        // this, the dispose-time flush would re-save text the user no longer sees.
+        if (remoteDescription != null && !descriptionSync.isDirty) viewModel.discardPendingDescription()
     }
 
     // Surface failed description saves (retries exhausted) — the draft is
@@ -315,6 +325,19 @@ fun IssueDetailScreen(
                 }
             }
 
+            // Conflict affordance: a remote edit to the title or description
+            // arrived while that field was dirty/focused, so it was stashed rather
+            // than clobbering the local edit. Tapping discards local text for the
+            // remote value (until then it's last-write-wins — the local save
+            // still overwrites the remote, matching iOS).
+            if (titleSync.pendingRemote != null || descriptionSync.pendingRemote != null) {
+                Spacer(Modifier.height(8.dp))
+                RemoteEditBanner(onReload = {
+                    titleSync.reloadPending()
+                    if (descriptionSync.reloadPending()) viewModel.discardPendingDescription()
+                })
+            }
+
             // Canonical-issue banner (masterplan §5e): "Duplicate of {IDENTIFIER}"
             // with a clickable pill through to the canonical issue + Unmark.
             if (issue.duplicateOfId != null) {
@@ -376,8 +399,8 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(8.dp))
             // Large title (borderless, save on focus-loss)
             BasicTextField(
-                value = titleField,
-                onValueChange = { titleField = it },
+                value = titleSync.text,
+                onValueChange = { titleSync.onUserEdit(it) },
                 readOnly = !isModerator,
                 textStyle = MaterialTheme.typography.headlineSmall.copy(
                     color = MaterialTheme.colorScheme.onSurface,
@@ -386,12 +409,16 @@ fun IssueDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .onFocusChanged { focus ->
-                        if (isModerator && !focus.isFocused && titleField.isNotBlank() && titleField != issue.title) {
-                            viewModel.updateTitle(titleField)
+                        titleSync.setFocused(focus.isFocused)
+                        // Dirty is measured against the seed BASELINE, not the live
+                        // row: a remote rename the user never touched leaves the
+                        // field clean, so blur fires no save and the rename stands.
+                        if (isModerator && !focus.isFocused && titleSync.text.isNotBlank() && titleSync.isDirty) {
+                            viewModel.updateTitle(titleSync.text)
                         }
                     },
                 decorationBox = { inner ->
-                    if (titleField.isEmpty()) {
+                    if (titleSync.text.isEmpty()) {
                         Text(
                             "Title",
                             style = MaterialTheme.typography.headlineSmall,
@@ -409,15 +436,16 @@ fun IssueDetailScreen(
                     .map { MentionMember(it.name ?: it.email, it.email) }
             }
             MarkdownEditor(
-                markdown = descriptionField,
+                markdown = descriptionSync.text,
                 editable = isModerator,
                 onChange = {
-                    descriptionField = it
+                    descriptionSync.onUserEdit(it)
                     viewModel.updateDescription(it)
                 },
                 onUploadImage = if (isModerator) { uri -> viewModel.uploadImage(uri) } else null,
                 imageUploadEnabled = isModerator,
                 mentionMembers = mentionMembers,
+                onFocusChanged = { descriptionSync.setFocused(it) },
             )
             DisposableEffect(Unit) {
                 onDispose { viewModel.flushDescription() }
@@ -651,6 +679,35 @@ fun IssueDetailScreen(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+// Non-blocking conflict banner: a teammate changed the title or description
+// while this field was being edited, so the remote value was stashed. Tapping
+// discards the local edit and loads the remote value. Matches the SyncBannerRow
+// glass-row idiom.
+@Composable
+private fun RemoteEditBanner(onReload: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .clickable { onReload() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            Icons.Filled.Refresh,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Text(
+            "Updated by someone else — tap to reload",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }
 }

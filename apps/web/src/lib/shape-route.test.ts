@@ -3,6 +3,12 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 import { Route as projectsRoute } from "@/routes/api/shapes/projects"
 import { Route as usersRoute } from "@/routes/api/shapes/users"
 import { Route as workspaceInvitesRoute } from "@/routes/api/shapes/workspace-invites"
+import { Route as commentsRoute } from "@/routes/api/shapes/comments"
+import { Route as issueEventsRoute } from "@/routes/api/shapes/issue-events"
+import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
+import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
+import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
+import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 
 const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   () => ({
@@ -17,6 +23,7 @@ const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
 // DB-touching scope resolvers.
 const membership = vi.hoisted(() => ({
   getUserWorkspaceIds: vi.fn(),
+  getUserProjectIds: vi.fn(),
   getPublicProjectScope: vi.fn(),
   getReadableUserIdsInWorkspaces: vi.fn(),
 }))
@@ -36,6 +43,7 @@ vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
   return {
     ...actual,
     getUserWorkspaceIds: membership.getUserWorkspaceIds,
+    getUserProjectIds: membership.getUserProjectIds,
     getPublicProjectScope: membership.getPublicProjectScope,
     getReadableUserIdsInWorkspaces: membership.getReadableUserIdsInWorkspaces,
   }
@@ -308,5 +316,127 @@ describe(`shape column + trash contracts`, () => {
       `updated_at`,
     ])
     expect(columns).not.toContain(`token`)
+  })
+})
+
+describe(`trash-aware child shapes`, () => {
+  beforeEach(() => {
+    resolveSession.mockReset()
+    prepareElectricUrl.mockReset()
+    proxyElectricRequest.mockReset()
+    membership.getUserWorkspaceIds.mockReset()
+    membership.getUserProjectIds.mockReset()
+    membership.getPublicProjectScope.mockReset()
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+  })
+
+  // The five issue-child shapes with a NOT NULL project_id all scope members
+  // by project (never workspace) so a trashed project's children drop out of
+  // sync. buildWhereClause sorts the id list, so the SQL is byte-stable.
+  const childRoutes = [
+    [`comments`, commentsRoute],
+    [`issue-events`, issueEventsRoute],
+    [`issue-labels`, issueLabelsRoute],
+    [`issue-subscribers`, issueSubscribersRoute],
+    [`attachments`, attachmentsRoute],
+  ] as const
+
+  it.each(childRoutes)(
+    `%s member branch is project-scoped and byte-stable`,
+    async (_name, route) => {
+      const originUrl = new URL(`https://electric.example/v1/shape`)
+      resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+      prepareElectricUrl.mockReturnValue(originUrl)
+      // Unsorted on purpose — the emitted clause must come out sorted.
+      membership.getUserProjectIds.mockResolvedValue([`p-2`, `p-1`])
+
+      await shapeHandler(route)({
+        request: new Request(`https://example.com/api/shapes/x`, {
+          headers: { authorization: `Bearer t` },
+        }),
+      })
+
+      expect(originUrl.searchParams.get(`where`)).toBe(
+        `"project_id" IN ('p-1','p-2')`
+      )
+      // Members must no longer resolve through the workspace-id path.
+      expect(membership.getUserWorkspaceIds).not.toHaveBeenCalled()
+    }
+  )
+
+  it(`issue-subscribers keeps the email-excluding columns pin on the member path`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserProjectIds.mockResolvedValue([`p-1`])
+
+    // A client attempting to widen the allowlist to `email` must be overridden.
+    await shapeHandler(issueSubscribersRoute)({
+      request: new Request(
+        `https://example.com/api/shapes/issue-subscribers?columns=email`,
+        { headers: { authorization: `Bearer t` } }
+      ),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).not.toContain(`email`)
+    expect(columns).toContain(`workspace_id`)
+    expect(originUrl.searchParams.get(`where`)).toBe(`"project_id" IN ('p-1')`)
+  })
+
+  it(`coding-sessions member composite keeps batch (null-project) rows`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserWorkspaceIds.mockResolvedValue([`w-2`, `w-1`])
+    membership.getUserProjectIds.mockResolvedValue([`p-1`])
+
+    await shapeHandler(codingSessionsRoute)({
+      request: new Request(`https://example.com/api/shapes/coding-sessions`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    // Byte-stable composite is the contract — sorted lists, fixed literal,
+    // fixed parenthesization.
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("workspace_id" IN ('w-1','w-2')) AND (("project_id" IS NULL) OR ("project_id" IN ('p-1')))`
+    )
+  })
+
+  it(`coding-sessions member with zero non-trashed projects still syncs batch rows`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserWorkspaceIds.mockResolvedValue([`w-1`])
+    membership.getUserProjectIds.mockResolvedValue([])
+
+    await shapeHandler(codingSessionsRoute)({
+      request: new Request(`https://example.com/api/shapes/coding-sessions`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    // The project sentinel matches nothing, but batch rows (project_id NULL)
+    // still sync via the OR.
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("workspace_id" IN ('w-1')) AND (("project_id" IS NULL) OR ("project_id" = '00000000-0000-0000-0000-000000000000'))`
+    )
+  })
+
+  it(`coding-sessions anonymous clause stays byte-identical to the sentinel`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(codingSessionsRoute)({
+      request: new Request(`https://example.com/api/shapes/coding-sessions`),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"workspace_id" = '00000000-0000-0000-0000-000000000000'`
+    )
+    expect(membership.getUserWorkspaceIds).not.toHaveBeenCalled()
+    expect(membership.getUserProjectIds).not.toHaveBeenCalled()
   })
 })
