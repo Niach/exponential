@@ -204,6 +204,13 @@
       "when": 1784205029045,
       "tag": "0028_smart_toad_men",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1784211244133,
+      "tag": "0029_greedy_rick_jones",
+      "breakpoints": true
     }
   ]
 }
