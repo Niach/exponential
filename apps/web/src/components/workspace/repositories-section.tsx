@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { Link, useParams } from "@tanstack/react-router"
 import {
   AlertTriangle,
   Building2,
@@ -38,7 +39,6 @@ import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
-import { scrollToPlans } from "@/components/workspace/billing-section"
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
@@ -68,6 +68,10 @@ export function WorkspaceRepositoriesSection({
   // the chips above Connect. Linking happens via the OAuth claim flow
   // (connectUrl) or the install-page round-trip fallback (installUrl).
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
+
+  // Billing lives on its own settings page since EXP-146 — the plan-cap
+  // upgrade nudge links there instead of scrolling within this page.
+  const { workspaceSlug } = useParams({ strict: false })
 
   const refresh = useCallback(async () => {
     try {
@@ -275,12 +279,17 @@ export function WorkspaceRepositoriesSection({
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="min-w-0 flex-1">{limitError}</span>
-              {/* JS scroll to the plan-comparison grid in the billing section
-                  above (not an <a href="#…">) so repeat clicks always scroll
-                  even when the hash is already set (EXP-35). */}
-              <Button size="sm" variant="outline" onClick={scrollToPlans}>
-                Upgrade
-              </Button>
+              {workspaceSlug && (
+                <Button asChild size="sm" variant="outline">
+                  <Link
+                    to="/t/$workspaceSlug/settings/billing"
+                    params={{ workspaceSlug }}
+                    hash="plans"
+                  >
+                    Upgrade
+                  </Link>
+                </Button>
+              )}
             </div>
           )}
 

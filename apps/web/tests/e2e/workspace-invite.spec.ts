@@ -7,11 +7,14 @@ function getWorkspaceSlug(currentUrl: string) {
   return workspaceSlug
 }
 
+// Settings is split into per-section pages (EXP-146) — the member list and
+// invite UI live on the Members page. The heading is "Settings" while the
+// workspace is still solo and "Team Settings" once it has members.
 async function openWorkspaceSettings(page: Page) {
-  await page.getByLabel(`Workspace switcher`).click()
-  await page.getByRole(`menuitem`, { name: `Workspace settings` }).click()
+  const workspaceSlug = getWorkspaceSlug(page.url())
+  await page.goto(`/t/${workspaceSlug}/settings/members`)
   await expect(
-    page.getByRole(`heading`, { name: `Workspace Settings` })
+    page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
   ).toBeVisible()
 }
 
@@ -79,7 +82,7 @@ test(`generates an invite and accepts it with a second user`, async ({
 
   await page.reload()
   await expect(
-    page.getByRole(`heading`, { name: `Workspace Settings` })
+    page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
   ).toBeVisible()
   await expect(page.getByText(`${app.owner.name} (you)`)).toBeVisible()
   await expect(page.getByText(app.member.name, { exact: true })).toBeVisible()
