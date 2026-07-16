@@ -383,7 +383,7 @@ pub fn attach_publisher(
         // the TermHandle is the EXP-72 bracketed-paste gate for text frames.
         write_input: pty_writer_input_hook(writer, term.clone()),
         // TRUE geometry for `hello`/re-`hello` (Send+Sync TermHandle, no gpui).
-        geometry: term_geometry_hook(term),
+        geometry: term_geometry_hook(term.clone()),
         // The rest marshal to the foreground (they touch the gpui-held term).
         resize: Arc::new(move |cols, rows| {
             let _ = resize_tx.send(SteerUiEvent::Resize(cols, rows));
@@ -441,7 +441,12 @@ pub fn attach_publisher(
     // drops the sends.
     let activity_active = Arc::new(AtomicBool::new(true));
     spawn_activity_emitter(
-        EmitterConfig { worktree },
+        EmitterConfig {
+            worktree,
+            // The live grid: the emitter watches it for the plan-approval
+            // picker, which the transcript can't show while PENDING (EXP-150).
+            term: Some(term),
+        },
         handle.activity_sender(),
         activity_active.clone(),
     );

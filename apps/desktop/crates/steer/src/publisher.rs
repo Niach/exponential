@@ -227,7 +227,7 @@ pub fn term_geometry_hook(
 /// Control-path commands (§8.4 backpressure rule: these ride an UNBOUNDED
 /// channel — never dropped, never reordered against each other).
 #[derive(Clone, Debug, PartialEq)]
-enum PublisherCmd {
+pub(crate) enum PublisherCmd {
     /// Local window resized the grid — forward so viewers reflow.
     LocalResize { cols: u16, rows: u16 },
     /// §8.5 "Take over": publisher-sent `claim` force-clears the remote
@@ -282,6 +282,14 @@ impl ActivitySender {
     /// Publish one already-redacted activity event (best-effort).
     pub fn send(&self, event: ActivityEvent) {
         let _ = self.cmd_tx.send(PublisherCmd::Activity(event));
+    }
+
+    /// Test-only pair: a sender plus the receiving end to assert on what the
+    /// activity emitter actually published.
+    #[cfg(test)]
+    pub(crate) fn test_pair() -> (Self, flume::Receiver<PublisherCmd>) {
+        let (cmd_tx, rx) = flume::unbounded();
+        (Self { cmd_tx }, rx)
     }
 }
 
