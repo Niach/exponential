@@ -624,8 +624,13 @@ fn event_row(
                 .flex_shrink_0(),
         )
         .child(
+            // flex_1 gives the truncating phrase a DEFINITE width — gpui's
+            // ellipsis measures against available space, and inside an
+            // auto-width flex item that space collapses, truncating the text
+            // long before the row edge (EXP-144).
             h_flex()
                 .gap_1()
+                .flex_1()
                 .min_w_0()
                 .overflow_hidden()
                 .child(
@@ -633,10 +638,12 @@ fn event_row(
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(cx.theme().foreground)
                         .whitespace_nowrap()
+                        .flex_shrink_0()
                         .child(SharedString::from(actor_name)),
                 )
                 .child(
                     div()
+                        .min_w_0()
                         .whitespace_nowrap()
                         .overflow_hidden()
                         .text_ellipsis()
