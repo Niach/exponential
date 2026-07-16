@@ -68,21 +68,54 @@
   margin: 4px 0 10px;
 }
 
-.docs-nav a {
+/* Cross-page nav: every docs page is a link; the current page expands its
+   numbered sections (scroll-spy) inline beneath it. */
+.docs-nav-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.docs-nav-page-link {
   display: flex;
   align-items: center;
-  gap: 10px;
   font-size: 13px;
   color: var(--fg-muted);
-  padding: 6px 12px 6px 14px;
+  padding: 5px 12px 5px 14px;
   border-left: 2px solid transparent;
   border-radius: 0 6px 6px 0;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
 
-.docs-nav a:hover { color: var(--fg); }
+.docs-nav-page-link:hover { color: var(--fg); }
 
-.docs-nav a.is-active {
+.docs-nav-page-link.is-current {
+  color: var(--fg);
+  font-weight: 600;
+  border-left-color: var(--fg);
+}
+
+.docs-nav-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 8px;
+}
+
+.docs-nav-sections a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  padding: 5px 12px 5px 26px;
+  border-left: 2px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+
+.docs-nav-sections a:hover { color: var(--fg); }
+
+.docs-nav-sections a.is-active {
   color: var(--fg);
   border-left-color: var(--fg);
   background: var(--bg-elev);
@@ -96,7 +129,7 @@
   min-width: 16px;
 }
 
-.docs-nav a.is-active .docs-nav-num { color: var(--fg-muted); }
+.docs-nav-sections a.is-active .docs-nav-num { color: var(--fg-muted); }
 
 /* Content */
 .docs-content {
@@ -212,6 +245,56 @@
   display: flex;
   justify-content: center;
   padding: 8px 0;
+}
+
+.docs-embed-caption {
+  font-family: var(--font-mono);
+  font-size: 11px !important;
+  color: var(--fg-dim) !important;
+  letter-spacing: 0.02em;
+  margin: -12px 0 20px !important;
+}
+
+/* Hub "Browse the docs" card grid (generated from DOCS_NAV) */
+.docs-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 20px;
+}
+
+.docs-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border) !important;
+  transition: border-color 140ms, background 140ms;
+}
+
+.docs-card:hover {
+  border-color: var(--input);
+  background: var(--bg-soft);
+}
+
+.docs-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docs-card-title svg { color: var(--fg-dim); }
+
+.docs-card-desc {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
 }
 
 /* Code blocks */
@@ -395,16 +478,42 @@
     padding: 0;
     margin: 0 0 4px;
   }
-  .docs-nav a {
+  /* Page-chips row: dissolve the per-page wrappers so every page link is a
+     chip; the current page's sections drop to their own chips row below
+     (order pushes them last, flex-basis forces the line break). */
+  .docs-nav-page { display: contents; }
+  .docs-nav-page-link {
     border-left: none;
     border-radius: 6px;
     padding: 5px 9px;
     font-size: 12.5px;
   }
-  .docs-nav a.is-active {
+  .docs-nav-page-link.is-current {
     background: var(--bg-soft);
     color: var(--fg);
   }
+  .docs-nav-sections {
+    order: 10;
+    flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 6px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .docs-nav-sections a {
+    border-left: none;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .docs-nav-sections a.is-active {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .docs-cards { grid-template-columns: 1fr; }
   .docs-env-list { grid-template-columns: 1fr; }
   .docs-env-list dt {
     border-bottom: none;

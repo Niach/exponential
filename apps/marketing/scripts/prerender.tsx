@@ -29,6 +29,13 @@ import { HomePage } from "../src/HomePage"
 import { PricingPage } from "../src/PricingPage"
 import { DownloadPage } from "../src/DownloadPage"
 import { DocsPage } from "../src/DocsPage"
+import { GettingStartedDocsPage } from "../src/GettingStartedDocsPage"
+import { IssuesDocsPage } from "../src/IssuesDocsPage"
+import { CodingDocsPage } from "../src/CodingDocsPage"
+import { FeedbackDocsPage } from "../src/FeedbackDocsPage"
+import { WidgetDocsPage } from "../src/WidgetDocsPage"
+import { McpDocsPage } from "../src/McpDocsPage"
+import { AppsDocsPage } from "../src/AppsDocsPage"
 import { SelfHostDocsPage } from "../src/SelfHostDocsPage"
 import { PrivacyPage } from "../src/PrivacyPage"
 import { TermsPage } from "../src/TermsPage"
@@ -45,6 +52,13 @@ const COMPONENTS: Record<string, ComponentType> = {
   "/pricing/": PricingPage,
   "/download/": DownloadPage,
   "/docs/": DocsPage,
+  "/docs/getting-started/": GettingStartedDocsPage,
+  "/docs/issues/": IssuesDocsPage,
+  "/docs/coding/": CodingDocsPage,
+  "/docs/feedback/": FeedbackDocsPage,
+  "/docs/widget/": WidgetDocsPage,
+  "/docs/mcp/": McpDocsPage,
+  "/docs/apps/": AppsDocsPage,
   "/docs/self-host/": SelfHostDocsPage,
   "/privacy/": PrivacyPage,
   "/terms/": TermsPage,
@@ -187,7 +201,20 @@ ${urls.join(`\n`)}
 function writeLlmsTxt(): void {
   const SECTIONS: { heading: string; paths: string[] }[] = [
     { heading: `Product`, paths: [`/`, `/pricing/`, `/download/`] },
-    { heading: `Docs`, paths: [`/docs/`, `/docs/self-host/`] },
+    {
+      heading: `Docs`,
+      paths: [
+        `/docs/`,
+        `/docs/getting-started/`,
+        `/docs/issues/`,
+        `/docs/coding/`,
+        `/docs/feedback/`,
+        `/docs/widget/`,
+        `/docs/mcp/`,
+        `/docs/apps/`,
+        `/docs/self-host/`,
+      ],
+    },
     {
       heading: `Company & legal`,
       paths: [`/contact/`, `/privacy/`, `/terms/`, `/imprint/`],

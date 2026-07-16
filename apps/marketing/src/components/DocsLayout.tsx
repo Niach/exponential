@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react"
 import { IcCheck, IcCopy } from "./icons"
+import { DOCS_NAV } from "../lib/docs-nav"
 
 export type DocsSection = {
   id: string
@@ -15,9 +16,11 @@ export type DocsSection = {
 
 export function DocsLayout({
   sections,
+  currentPath,
   children,
 }: {
   sections: DocsSection[]
+  currentPath: string
   children: ReactNode
 }) {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? ``)
@@ -57,19 +60,40 @@ export function DocsLayout({
   return (
     <div className="shell docs-layout">
       <aside className="docs-sidebar">
-        <nav className="docs-nav" aria-label="Docs sections">
-          <span className="docs-nav-title">On this page</span>
-          {sections.map((s) => (
-            <a
-              key={s.id}
-              href={`#${s.id}`}
-              className={activeId === s.id ? `is-active` : ``}
-              onClick={(e) => handleClick(e, s.id)}
-            >
-              <span className="docs-nav-num">{s.num}</span>
-              <span>{s.label}</span>
-            </a>
-          ))}
+        <nav className="docs-nav" aria-label="Docs">
+          <span className="docs-nav-title">Docs</span>
+          {DOCS_NAV.map((page) => {
+            const isCurrent = page.path === currentPath
+            return (
+              <div
+                key={page.path}
+                className={`docs-nav-page${isCurrent ? ` is-current` : ``}`}
+              >
+                <a
+                  href={page.path}
+                  className={`docs-nav-page-link${isCurrent ? ` is-current` : ``}`}
+                  aria-current={isCurrent ? `page` : undefined}
+                >
+                  {page.label}
+                </a>
+                {isCurrent && sections.length > 0 && (
+                  <div className="docs-nav-sections">
+                    {sections.map((s) => (
+                      <a
+                        key={s.id}
+                        href={`#${s.id}`}
+                        className={activeId === s.id ? `is-active` : ``}
+                        onClick={(e) => handleClick(e, s.id)}
+                      >
+                        <span className="docs-nav-num">{s.num}</span>
+                        <span>{s.label}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
       </aside>
       <article className="docs-content">{children}</article>
