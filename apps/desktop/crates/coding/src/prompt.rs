@@ -9,8 +9,10 @@
 //! ([`deliver_prompt_file`]).
 //!
 //! The named MCP tools are real and verified: `exponential_pr_open` (the
-//! server opens + links the PR through the GitHub App) and
-//! `exponential_issues_update_status`. The desktop never opens the PR itself
+//! server opens + links the PR through the GitHub App),
+//! `exponential_issues_update_status`, and `exponential_comments_list`
+//! (accepts human identifiers, so the prompt passes the issue identifier —
+//! the launcher never needs the UUID). The desktop never opens the PR itself
 //! — Claude does, via MCP. The plan/approval gate is NOT prompt text
 //! anymore: native plan mode (`--permission-mode plan`,
 //! [`crate::argv::permission_args`]) owns it.
@@ -88,7 +90,10 @@ pub fn render_prompt(identifier: &str, title: &str, description: Option<&str>) -
     let body = issue_body(description);
     format!(
         "Please read the issue context below and work on **{identifier}: {title}** in this \
-repository. Implement the change, then commit and push your branch and open a pull \
+repository. BEFORE implementing anything, read the issue's full comment thread by \
+calling the `exponential_comments_list` MCP tool with issueId `{identifier}` — \
+comments often refine or override the description and are part of the requirements. \
+Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
 with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
@@ -125,7 +130,10 @@ mod tests {
 
     /// The §7.1 step-5 template — exact bytes for a described issue.
     const EXPECTED: &str = "Please read the issue context below and work on **EXP-42: Fix login flicker** in this \
-repository. Implement the change, then commit and push your branch and open a pull \
+repository. BEFORE implementing anything, read the issue's full comment thread by \
+calling the `exponential_comments_list` MCP tool with issueId `EXP-42` — \
+comments often refine or override the description and are part of the requirements. \
+Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
 with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
@@ -170,6 +178,7 @@ The login page flickers on slow connections.
         let prompt = render_prompt("EXP-1", "T", None);
         assert!(prompt.contains("`exponential_pr_open`"));
         assert!(prompt.contains("`exponential_issues_update_status`"));
+        assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
         assert!(prompt.contains("`in_progress` when you start"));
         assert!(prompt.contains("Do not use `gh`."));
         // Native plan mode owns the approval gate — the prompt must not

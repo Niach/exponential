@@ -24,8 +24,9 @@ pub struct BatchPromptArgs<'a> {
 
 /// Render the batch seed prompt: ground rules + workflow + one context
 /// section per issue. Mirrors the single-issue template's contract anchors
-/// (`exponential_pr_open`, `exponential_issues_update_status`, `in_progress`,
-/// no `gh`) and carries NO plan-gate text — native plan mode owns the approval
+/// (`exponential_pr_open`, `exponential_issues_update_status`,
+/// `exponential_comments_list` read-the-thread-first, `in_progress`, no `gh`)
+/// and carries NO plan-gate text — native plan mode owns the approval
 /// gate. Opening the PR flips every issue to `in_review` server-side and
 /// merging it completes them to `done`, so the agent only sets `in_progress`.
 pub fn render_batch_prompt(args: &BatchPromptArgs<'_>) -> String {
@@ -55,16 +56,19 @@ MCP tools.
 
 ## Workflow
 
-1. You may set each issue's status with `exponential_issues_update_status` \
+1. BEFORE implementing anything, read EVERY issue's full comment thread by \
+calling the `exponential_comments_list` MCP tool with each issueId — comments \
+often refine or override the descriptions and are part of the requirements.
+2. You may set each issue's status with `exponential_issues_update_status` \
 (`in_progress` when you start it). Opening the combined PR moves every issue to \
 `in_review` automatically, and merging it later completes them to `done` — you \
 do not set those yourself.
-2. Implement the issues; commit with clear messages and push the branch: \
+3. Implement the issues; commit with clear messages and push the branch: \
 `git push -u origin {branch}`.
-3. Open ONE combined pull request for the whole batch by calling the \
+4. Open ONE combined pull request for the whole batch by calling the \
 `exponential_pr_open` MCP tool with `issueIds: [{issue_ids}]` and \
 `head: \"{branch}\"` (base defaults to `{default_branch}`).
-4. End with a short per-issue summary (what changed, anything left open).
+5. End with a short per-issue summary (what changed, anything left open).
 
 ## Issue context
 "
@@ -136,6 +140,8 @@ mod tests {
         assert!(prompt.contains("base defaults to `main`"));
         assert!(prompt.contains("git push -u origin exp/batch-a1b2c3d4"));
         assert!(prompt.contains("`exponential_issues_update_status`"));
+        assert!(prompt.contains("`exponential_comments_list`"));
+        assert!(prompt.contains("read EVERY issue's full comment thread"));
         assert!(prompt.contains("`in_progress` when you start"));
         assert!(prompt.contains("Do not use `gh`"));
         assert!(prompt.contains("Never force-push"));
