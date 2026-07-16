@@ -44,8 +44,10 @@ use domain::rows::{Issue, Label, Project, User};
 use crate::icons::{option_icon, ExpIcon};
 use crate::queries;
 
-/// Web `w-72` sidebar width.
-const PANEL_WIDTH: f32 = 288.;
+/// Detail sidebar width — narrower than the web's `w-72` (288px): the
+/// desktop panel holds compact chip controls, so 288px left it mostly
+/// empty (EXP-144).
+const PANEL_WIDTH: f32 = 240.;
 
 pub struct PropertiesPanel {
     issue_id: Option<String>,
