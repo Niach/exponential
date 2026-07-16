@@ -405,8 +405,8 @@ fn full_protocol_flow_against_the_real_relay() {
     let runtime = SteerRuntime::new().unwrap();
 
     // ── Control channel: online presence + remote start routing (§8.3) ────
-    let started_issues: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let started_clone = started_issues.clone();
+    let started: Arc<Mutex<Vec<steer::RemoteStart>>> = Arc::new(Mutex::new(Vec::new()));
+    let started_clone = started.clone();
     let control = spawn_control_channel(
         &runtime,
         DeviceIdentity {
@@ -416,7 +416,7 @@ fn full_protocol_flow_against_the_real_relay() {
         Arc::new(BunControlApi {
             relay_port: relay.port,
         }),
-        Arc::new(move |issue_id| started_clone.lock().unwrap().push(issue_id)),
+        Arc::new(move |start| started_clone.lock().unwrap().push(start)),
     );
 
     // The device appears in the phone picker's backing endpoint.
@@ -426,6 +426,7 @@ fn full_protocol_flow_against_the_real_relay() {
     });
 
     // Remote "Start on my desktop" → start_session lands on our socket.
+    // Option-less body (an old client) → every option arrives None.
     let start_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueId":"issue-remote-1"}"#;
     let response = http_request(
         relay.port,
@@ -437,8 +438,39 @@ fn full_protocol_flow_against_the_real_relay() {
     .expect("POST /start");
     assert!(response.contains("\"ok\":true"), "start routed: {response}");
     wait_for("start_session delivery", || {
-        started_issues.lock().unwrap().contains(&"issue-remote-1".to_string())
+        started.lock().unwrap().iter().any(|s| s.issue_id == "issue-remote-1")
     });
+    {
+        let starts = started.lock().unwrap();
+        let start = starts.iter().find(|s| s.issue_id == "issue-remote-1").unwrap();
+        assert_eq!(start.model, None);
+        assert_eq!(start.effort, None);
+        assert_eq!(start.ultracode, None);
+        assert_eq!(start.plan_mode, None);
+    }
+
+    // Start-coding dialog options (EXP-149) ride the same route end-to-end.
+    let options_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueId":"issue-remote-2","model":"opus","effort":"","ultracode":true,"planMode":true}"#;
+    let response = http_request(
+        relay.port,
+        "POST",
+        "/start",
+        &[("x-relay-secret", SECRET), ("content-type", "application/json")],
+        Some(options_body),
+    )
+    .expect("POST /start with options");
+    assert!(response.contains("\"ok\":true"), "options start routed: {response}");
+    wait_for("start_session options delivery", || {
+        started.lock().unwrap().iter().any(|s| s.issue_id == "issue-remote-2")
+    });
+    {
+        let starts = started.lock().unwrap();
+        let start = starts.iter().find(|s| s.issue_id == "issue-remote-2").unwrap();
+        assert_eq!(start.model.as_deref(), Some("opus"));
+        assert_eq!(start.effort.as_deref(), Some(""));
+        assert_eq!(start.ultracode, Some(true));
+        assert_eq!(start.plan_mode, Some(true));
+    }
 
     // ── Publisher: hello with true geometry, room goes live (§8.4) ────────
     let recorded = Arc::new(Recorded::default());

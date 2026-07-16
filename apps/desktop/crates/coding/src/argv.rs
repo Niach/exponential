@@ -68,8 +68,8 @@ pub struct LaunchOptions {
 }
 
 impl LaunchOptions {
-    /// The settings-default options for a SINGLE-ISSUE run — what a relay
-    /// start (no dialog) runs with.
+    /// The settings-default options for a SINGLE-ISSUE run (the local
+    /// Start-coding dialog's seed values).
     pub fn issue_defaults(settings: &Settings) -> Self {
         Self {
             model: settings.claude_model.clone(),
@@ -86,6 +86,36 @@ impl LaunchOptions {
             effort: settings.claude_effort.clone(),
             ultracode: settings.batch_ultracode,
             plan_mode: settings.batch_plan_mode,
+        }
+    }
+
+    /// Options for a RELAY-triggered single-issue start (EXP-149): the remote
+    /// client's Start-coding dialog choices, normalized against the closed
+    /// alias sets, over settings defaults for anything it didn't send.
+    /// `effort: Some("")` is an explicit "CLI default" and beats a non-blank
+    /// settings effort. Plan mode defaults OFF when absent (F7 — an
+    /// option-less start must never park an unattended desktop at the
+    /// plan-approval TUI); a remote client sending `plan_mode: true` opted in
+    /// knowingly.
+    pub fn remote_issue(
+        settings: &Settings,
+        model: Option<&str>,
+        effort: Option<&str>,
+        ultracode: Option<bool>,
+        plan_mode: Option<bool>,
+    ) -> Self {
+        use crate::settings::{normalize_choice, EFFORT_LEVELS, MODEL_ALIASES};
+        Self {
+            model: match model {
+                Some(model) => normalize_choice(model, &MODEL_ALIASES, &settings.claude_model),
+                None => settings.claude_model.clone(),
+            },
+            effort: match effort {
+                Some(effort) => normalize_choice(effort, &EFFORT_LEVELS, ""),
+                None => settings.claude_effort.clone(),
+            },
+            ultracode: ultracode.unwrap_or(settings.issue_ultracode),
+            plan_mode: plan_mode.unwrap_or(false),
         }
     }
 }
@@ -253,5 +283,51 @@ mod tests {
         assert_eq!(batch.effort, "");
         assert!(!batch.plan_mode);
         assert!(batch.ultracode);
+    }
+
+    #[test]
+    fn remote_issue_all_absent_matches_pre_options_relay_behavior() {
+        // The F7 baseline: settings model/effort/ultracode, plan mode OFF —
+        // exactly what an option-less relay start ran before EXP-149.
+        let mut settings = Settings::default();
+        settings.claude_model = "opus".to_string();
+        settings.claude_effort = "high".to_string();
+        settings.issue_ultracode = true;
+        settings.issue_plan_mode = true; // must NOT leak into a remote start
+        let opts = LaunchOptions::remote_issue(&settings, None, None, None, None);
+        assert_eq!(opts.model, "opus");
+        assert_eq!(opts.effort, "high");
+        assert!(opts.ultracode);
+        assert!(!opts.plan_mode);
+    }
+
+    #[test]
+    fn remote_issue_applies_and_normalizes_sent_options() {
+        let mut settings = Settings::default();
+        settings.claude_effort = "high".to_string();
+
+        let opts = LaunchOptions::remote_issue(
+            &settings,
+            Some("Sonnet"),
+            Some("max"),
+            Some(false),
+            Some(true),
+        );
+        assert_eq!(opts.model, "sonnet", "case-normalized");
+        assert_eq!(opts.effort, "max");
+        assert!(!opts.ultracode);
+        assert!(opts.plan_mode, "explicit remote opt-in");
+
+        // Bogus model falls back to the settings model, never to a crash or
+        // a raw pass-through to the CLI argv.
+        let opts = LaunchOptions::remote_issue(&settings, Some("gpt-6"), None, None, None);
+        assert_eq!(opts.model, "fable");
+
+        // Explicit blank effort = "CLI default" and beats the settings value.
+        let opts = LaunchOptions::remote_issue(&settings, None, Some(""), None, None);
+        assert_eq!(opts.effort, "");
+        // Bogus effort also degrades to blank (omit --effort).
+        let opts = LaunchOptions::remote_issue(&settings, None, Some("extreme"), None, None);
+        assert_eq!(opts.effort, "");
     }
 }

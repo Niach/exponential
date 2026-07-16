@@ -197,10 +197,24 @@ export type RelayStartResult =
   | { ok: true }
   | { ok: false; status: number; reason: string }
 
-/** POST /start — route a remote start to the device's control socket. */
+/**
+ * Launch options a remote start may carry (EXP-149) — the client's
+ * Start-coding dialog choices. All optional; an absent field means "desktop
+ * settings default" (and plan mode OFF). `effort: ""` is an explicit
+ * "CLI default" (omit --effort), distinct from absent.
+ */
+export interface SteerStartOptions {
+  model?: string
+  effort?: string
+  ultracode?: boolean
+  planMode?: boolean
+}
+
+/** POST /start — route a remote start to the device's control socket.
+ * Undefined option fields are dropped by JSON.stringify — never sent. */
 export async function relayPostStart(
   config: SteerRelayConfig,
-  body: { userId: string; deviceId: string; issueId: string },
+  body: { userId: string; deviceId: string; issueId: string } & SteerStartOptions,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<RelayStartResult> {
   const res = await fetchImpl(`${steerHttpBase(config.url)}/start`, {

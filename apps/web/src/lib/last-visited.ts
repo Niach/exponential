@@ -3,10 +3,10 @@
 // project navigation, and the root redirect (`routes/index.tsx`) reads it so
 // app entry jumps back to where the user left off instead of `/t/default`.
 //
-// The app is fully client-rendered (`defaultSsr: false`), but route code can
-// still run where `window` is missing and localStorage access can throw
-// (privacy modes, blocked storage) — every accessor guards and degrades to
+// Every accessor guards via `safeLocalStorage` and degrades to
 // "no persistence" instead of breaking navigation.
+
+import { safeLocalStorage } from "@/lib/local-storage"
 
 export interface LastVisited {
   workspaceSlug: string
@@ -15,17 +15,8 @@ export interface LastVisited {
 
 const STORAGE_KEY = `exp.lastVisited`
 
-function storage(): Storage | null {
-  if (typeof window === `undefined`) return null
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
-
 export function readLastVisited(): LastVisited | null {
-  const store = storage()
+  const store = safeLocalStorage()
   if (!store) return null
   try {
     const raw = store.getItem(STORAGE_KEY)
@@ -60,7 +51,7 @@ export function rememberLastVisited(
   workspaceSlug: string,
   projectSlug?: string
 ): void {
-  const store = storage()
+  const store = safeLocalStorage()
   if (!store) return
   const previous = readLastVisited()
   const next: LastVisited = {
@@ -81,7 +72,7 @@ export function rememberLastVisited(
 // Drop a stale entry (workspace deleted or membership lost) so the next app
 // entry falls straight through to the `/t/default` resolution.
 export function clearLastVisited(): void {
-  const store = storage()
+  const store = safeLocalStorage()
   if (!store) return
   try {
     store.removeItem(STORAGE_KEY)

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
+import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { codingSessions } from "@/db/schema"
 import {
@@ -40,6 +41,14 @@ async function loadCodingSession(id: string) {
   }
   return session
 }
+
+// The Start-coding dialog value sets (EXP-149). Blank effort is the explicit
+// "CLI default" (omit --effort) — a per-client extra row, not a contract value.
+const codingModelValues = contract.codingModel.values as [string, ...string[]]
+const codingEffortValues = [``, ...contract.codingEffort.values] as [
+  string,
+  ...string[],
+]
 
 const mintTicketInput = z.discriminatedUnion(`kind`, [
   // Desktop device-presence socket (no sessionId yet).
@@ -128,12 +137,19 @@ export const steerRouter = router({
   }),
 
   // Remote "Start on my desktop": route a start command to the chosen online
-  // device's control socket via the relay.
+  // device's control socket via the relay. The optional launch options are the
+  // client's Start-coding dialog choices (EXP-149) — validated against the
+  // domain-contract value sets here (the relay is a dumb pipe); absent fields
+  // mean desktop settings defaults with plan mode OFF.
   startSession: authedProcedure
     .input(
       z.object({
         issueId: z.string().uuid(),
         deviceId: z.string().min(1).max(128),
+        model: z.enum(codingModelValues).optional(),
+        effort: z.enum(codingEffortValues).optional(),
+        ultracode: z.boolean().optional(),
+        planMode: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -162,6 +178,10 @@ export const steerRouter = router({
         userId,
         deviceId: input.deviceId,
         issueId: input.issueId,
+        model: input.model,
+        effort: input.effort,
+        ultracode: input.ultracode,
+        planMode: input.planMode,
       })
       if (!result.ok) {
         if (result.status === 404) {

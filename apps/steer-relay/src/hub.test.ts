@@ -159,7 +159,11 @@ describe(`device presence + remote start`, () => {
 
     const routed = hub.startSession(`owner`, `dev-1`, `issue-9`)
     expect(routed).toEqual({ ok: true })
-    expect(desktop.lastFrame(`start_session`)).toMatchObject({ issueId: `issue-9` })
+    // Option-less start stays byte-identical to the pre-options frame.
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+    })
 
     expect(hub.startSession(`owner`, `dev-404`, `issue-9`)).toEqual({
       ok: false,
@@ -168,6 +172,37 @@ describe(`device presence + remote start`, () => {
 
     hub.onClose(desktop)
     expect(hub.devicesFor(`owner`)).toEqual([])
+  })
+
+  test(`startSession passes launch options through to the frame`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    const routed = hub.startSession(`owner`, `dev-1`, `issue-9`, {
+      model: `opus`,
+      effort: ``,
+      ultracode: true,
+      planMode: false,
+    })
+    expect(routed).toEqual({ ok: true })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+      model: `opus`,
+      effort: ``,
+      ultracode: true,
+      planMode: false,
+    })
+
+    // Partial options: undefined fields never reach the wire.
+    hub.startSession(`owner`, `dev-1`, `issue-10`, { model: `sonnet` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-10`,
+      model: `sonnet`,
+    })
   })
 
   test(`same-device reconnect replaces the old socket`, () => {

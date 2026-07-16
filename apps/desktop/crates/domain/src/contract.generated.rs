@@ -13,6 +13,8 @@ pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
 pub const CODING_SESSION_STATUS_VALUES: &[&str] = &["running", "ended"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"];
 pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved"];
+pub const CODING_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet"];
+pub const CODING_EFFORT_VALUES: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 pub const WORKSPACE_ROLE_OWNER: &str = "owner";
 pub const WORKSPACE_ROLE_MEMBER: &str = "member";

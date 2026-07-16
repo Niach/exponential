@@ -66,5 +66,11 @@
       "pr_merged",
       "project_moved"
     ]
+  },
+  "codingModel": {
+    "values": ["fable", "opus", "sonnet"]
+  },
+  "codingEffort": {
+    "values": ["low", "medium", "high", "xhigh", "max"]
   }
 }

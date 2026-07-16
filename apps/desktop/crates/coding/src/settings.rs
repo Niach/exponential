@@ -187,7 +187,7 @@ impl Settings {
 /// Lowercase-trim `raw`; anything outside `allowed` (except blank, which
 /// always maps to `fallback`) also maps to `fallback`. Keeps every persisted
 /// model/effort value inside the closed alias sets the CLI accepts.
-fn normalize_choice(raw: &str, allowed: &[&str], fallback: &str) -> String {
+pub(crate) fn normalize_choice(raw: &str, allowed: &[&str], fallback: &str) -> String {
     let cleaned = raw.trim().to_ascii_lowercase();
     if allowed.contains(&cleaned.as_str()) {
         cleaned

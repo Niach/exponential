@@ -55,7 +55,8 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig, SteerDevice};
 pub use control_channel::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, TrpcControlApi,
+    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, RemoteStart,
+    TrpcControlApi,
 };
 pub use activity::{spawn_emitter as spawn_activity_emitter, EmitterConfig, Redactor};
 pub use frames::{

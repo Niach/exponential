@@ -150,10 +150,19 @@ export interface PresenceViewer {
   perm: `view` | `steer`
 }
 
+/** Launch options a remote start may carry (EXP-149). All optional — an
+ * absent field means "desktop settings default" (and plan mode OFF). */
+export interface StartSessionOptions {
+  model?: string
+  effort?: string
+  ultracode?: boolean
+  planMode?: boolean
+}
+
 export type ServerFrame =
   | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
   | { t: `resize`; cols: number; rows: number }
-  | { t: `start_session`; issueId: string }
+  | ({ t: `start_session`; issueId: string } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher
   | { t: `resync` }
   | { t: `kill` }

@@ -302,7 +302,34 @@ describe(`steer relay end-to-end`, () => {
       body: JSON.stringify({ userId: `owner-1`, deviceId: `dev-9`, issueId: `issue-42` }),
     })
     expect(start.ok).toBe(true)
-    expect(await desktopIn.nextJson()).toMatchObject({ t: `start_session`, issueId: `issue-42` })
+    expect(await desktopIn.nextJson()).toEqual({ t: `start_session`, issueId: `issue-42` })
+
+    // Launch options (EXP-149) ride the same frame.
+    const startWithOptions = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-43`,
+        model: `opus`,
+        effort: `high`,
+        ultracode: false,
+        planMode: true,
+      }),
+    })
+    expect(startWithOptions.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-43`,
+      model: `opus`,
+      effort: `high`,
+      ultracode: false,
+      planMode: true,
+    })
 
     const offline = await fetch(`${base}/start`, {
       method: `POST`,

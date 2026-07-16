@@ -313,6 +313,38 @@ describe(`relay admin HTTP`, () => {
     })
   })
 
+  it(`passes launch options through to /start; undefineds never hit the wire`, async () => {
+    const fetchImpl = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { ok: true }))
+
+    await relayPostStart(
+      CONFIG,
+      {
+        userId: `user-1`,
+        deviceId: `dev-1`,
+        issueId: `issue-1`,
+        model: `opus`,
+        effort: ``,
+        ultracode: true,
+        planMode: undefined,
+      },
+      fetchImpl
+    )
+    const body = JSON.parse(
+      (fetchImpl.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>
+    expect(body).toEqual({
+      userId: `user-1`,
+      deviceId: `dev-1`,
+      issueId: `issue-1`,
+      model: `opus`,
+      effort: ``,
+      ultracode: true,
+    })
+    expect(`planMode` in body).toBe(false)
+  })
+
   it(`surfaces the relay reason on 404 (device offline)`, async () => {
     const fetchImpl = vi
       .fn<RelayFetch>()

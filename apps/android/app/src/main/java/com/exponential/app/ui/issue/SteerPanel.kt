@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.ui.components.userDisplayName
@@ -68,7 +68,7 @@ fun SteerPanel(
     isMember: Boolean,
     devices: List<SteerDevice>?,
     startState: SteerStartState,
-    onStart: (SteerDevice) -> Unit,
+    onStart: (SteerDevice, SteerStartOptions) -> Unit,
     onWatch: (String) -> Unit,
 ) {
     if (session != null) {
@@ -135,7 +135,7 @@ fun SteerPanel(
     // the caller is a member, and at least one of their desktops is online.
     if (steerEnabled != true || !isMember || devices.isNullOrEmpty()) return
 
-    var pickerOpen by remember { mutableStateOf(false) }
+    var sheetOpen by remember { mutableStateOf(false) }
     val busy = startState is SteerStartState.Sending || startState is SteerStartState.Sent
 
     Column(
@@ -147,9 +147,7 @@ fun SteerPanel(
         Row(
             modifier = Modifier
                 .glassButton()
-                .clickable(enabled = !busy) {
-                    if (devices.size == 1) onStart(devices[0]) else pickerOpen = true
-                }
+                .clickable(enabled = !busy) { sheetOpen = true }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -206,16 +204,13 @@ fun SteerPanel(
         }
     }
 
-    if (pickerOpen) {
-        IssuePickerSheet(
-            title = "Start on which desktop?",
-            items = devices,
-            selected = null,
-            keyOf = { it.deviceId },
-            labelOf = { it.deviceLabel.ifBlank { it.deviceId } },
-            iconOf = { Icons.Filled.Computer },
-            onSelect = { onStart(it) },
-            onDismiss = { pickerOpen = false },
+    // The Start-coding options sheet (EXP-149): model/effort/ultracode/
+    // plan-mode + the device choice when several desktops are online.
+    if (sheetOpen) {
+        StartCodingSheet(
+            devices = devices,
+            onStart = onStart,
+            onDismiss = { sheetOpen = false },
         )
     }
 }

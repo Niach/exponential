@@ -193,6 +193,16 @@ pub enum ServerFrame {
     #[serde(rename_all = "camelCase")]
     StartSession {
         issue_id: String,
+        /// Launch options (EXP-149) — absent on frames from clients that
+        /// don't send them yet; absent = desktop settings default.
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        effort: Option<String>,
+        #[serde(default)]
+        ultracode: Option<bool>,
+        #[serde(default)]
+        plan_mode: Option<bool>,
     },
     /// Steerer keystrokes, relay → publisher.
     Input {
@@ -512,11 +522,35 @@ mod tests {
 
     #[test]
     fn start_session_deserializes_camel_issue_id() {
-        // hub.ts startSession: frame({ t: `start_session`, issueId }).
+        // hub.ts startSession: frame({ t: `start_session`, issueId }) — the
+        // option-less frame older relays/clients send (EXP-149 fields absent).
         assert_eq!(
             ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap(),
             ServerFrame::StartSession {
-                issue_id: "issue-9".into()
+                issue_id: "issue-9".into(),
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+            }
+        );
+    }
+
+    #[test]
+    fn start_session_deserializes_launch_options() {
+        // hub.ts startSession with EXP-149 options spread into the frame.
+        // `effort: ""` is a real value (explicit "CLI default"), not absent.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","issueId":"issue-9","model":"opus","effort":"","ultracode":true,"planMode":false}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: "issue-9".into(),
+                model: Some("opus".into()),
+                effort: Some(String::new()),
+                ultracode: Some(true),
+                plan_mode: Some(false),
             }
         );
     }
