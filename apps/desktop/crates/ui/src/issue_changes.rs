@@ -781,7 +781,16 @@ fn update_from_main(
     coding::remove_stale_legacy_mcp_json(&repo.worktree);
     let task = coding::claude_task(settings, &repo.worktree, &prompt, &label);
     let _ = manager.update(cx, |manager, cx| {
-        manager.open_tab(TabKind::ClaudeTask, task.tab_title.clone(), &task.spawn, None, cx)
+        // EXP-145: keep the issue identity visible once claude's OSC titles
+        // take over the tab.
+        manager.open_tab(
+            TabKind::ClaudeTask,
+            task.tab_title.clone(),
+            Some(identifier.to_string().into()),
+            &task.spawn,
+            None,
+            cx,
+        )
     });
 }
 

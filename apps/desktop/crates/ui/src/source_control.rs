@@ -743,7 +743,7 @@ impl SourceControlView {
             return;
         };
         let result = manager.update(cx, |manager, cx| {
-            manager.open_tab(TabKind::ClaudeTask, task.tab_title.clone(), &task.spawn, None, cx)
+            manager.open_tab(TabKind::ClaudeTask, task.tab_title.clone(), None, &task.spawn, None, cx)
         });
         if let Err(err) = result {
             self.error = Some(format!("Could not start Claude: {err}").into());

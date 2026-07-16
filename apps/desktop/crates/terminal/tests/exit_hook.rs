@@ -66,6 +66,7 @@ fn main() {
                 .open_tab(
                     TabKind::Shell,
                     "exit-hook",
+                    None,
                     &SpawnSpec::new("sh").args(["-c", "exit 7"]),
                     Some(Box::new(move |_id, exit: &ChildExit, _cx: &mut gpui::App| {
                         *hook_fired.lock().unwrap() = Some(exit.code);
