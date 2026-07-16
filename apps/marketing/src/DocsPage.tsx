@@ -120,12 +120,6 @@ export function DocsPage() {
               they&apos;re notified and auto-subscribed to the issue.
             </p>
 
-            <h3>Recurring issues</h3>
-            <p>
-              Give an issue a recurrence interval and the next occurrence is
-              created the moment you complete the current one.
-            </p>
-
             <h3>One issue, one pull request</h3>
             <p>
               An issue that gets coded maps to exactly one branch —{` `}

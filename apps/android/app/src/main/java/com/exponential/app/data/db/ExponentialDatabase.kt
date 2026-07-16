@@ -65,9 +65,13 @@ import androidx.room.RoomDatabase
     // v17: project-type collapse (EXP-121) — projects gained is_public + icon on
     //      the existing shape (repository stays optional). `type` still syncs
     //      (dual-written server-side) but no longer gates behavior.
+    // v18: recurrence removed (EXP-107) — issues.recurrence_interval /
+    //      recurrence_unit dropped from the entity + shape; in_review status
+    //      (EXP-120) is a plain enum-value string, no schema change. Destructive
+    //      fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

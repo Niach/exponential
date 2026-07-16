@@ -22,8 +22,6 @@ data class CreateIssueInput(
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
     @SerialName("endTime") val endTime: String? = null,
-    @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
-    @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
     // Workspace label ids assigned at create (issues.create inserts the
     // issue_labels joins in the same transaction). Null = none.
     @SerialName("labelIds") val labelIds: List<String>? = null,
@@ -40,8 +38,6 @@ data class UpdateIssueInput(
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
     @SerialName("endTime") val endTime: String? = null,
-    @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
-    @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
     // Canonical issue this one duplicates (pairs with status='duplicate').
     // NOTE: the shared Json omits nulls (explicitNulls=false), so clearing the
     // FK goes through setDuplicateOf() which sends an explicit JSON null.
@@ -141,6 +137,21 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.mutationUnit(
             accountId,
             path = "issues.closePr",
+            input = ClosePrInput(issueId),
+            inputSerializer = ClosePrInput.serializer(),
+        )
+    }
+
+    /**
+     * Squash-merge the issue's open PR via the GitHub App (EXP-131 Reviews).
+     * For a batch PR (one prUrl linked to several issues) pass the
+     * representative issue's id — the server resolves the PR to ALL linked
+     * issues and completes them together; the `done` flip arrives via Electric.
+     */
+    suspend fun mergePr(accountId: String, issueId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "issues.mergePr",
             input = ClosePrInput(issueId),
             inputSerializer = ClosePrInput.serializer(),
         )

@@ -19,6 +19,7 @@ pub enum IssueStatus {
     Backlog,
     Todo,
     InProgress,
+    InReview,
     Done,
     Cancelled,
     Duplicate,
@@ -29,8 +30,9 @@ pub enum IssueStatus {
 impl IssueStatus {
     /// Board display order — mirrors the generated
     /// `ISSUE_STATUS_DISPLAY_ORDER` (locked by test).
-    pub const DISPLAY_ORDER: [IssueStatus; 6] = [
+    pub const DISPLAY_ORDER: [IssueStatus; 7] = [
         IssueStatus::InProgress,
+        IssueStatus::InReview,
         IssueStatus::Todo,
         IssueStatus::Backlog,
         IssueStatus::Done,
@@ -43,6 +45,7 @@ impl IssueStatus {
             "backlog" => IssueStatus::Backlog,
             "todo" => IssueStatus::Todo,
             "in_progress" => IssueStatus::InProgress,
+            "in_review" => IssueStatus::InReview,
             "done" => IssueStatus::Done,
             "cancelled" => IssueStatus::Cancelled,
             "duplicate" => IssueStatus::Duplicate,
@@ -56,6 +59,7 @@ impl IssueStatus {
             IssueStatus::Backlog => Some("backlog"),
             IssueStatus::Todo => Some("todo"),
             IssueStatus::InProgress => Some("in_progress"),
+            IssueStatus::InReview => Some("in_review"),
             IssueStatus::Done => Some("done"),
             IssueStatus::Cancelled => Some("cancelled"),
             IssueStatus::Duplicate => Some("duplicate"),
@@ -69,6 +73,7 @@ impl IssueStatus {
             IssueStatus::Backlog => "Backlog",
             IssueStatus::Todo => "Todo",
             IssueStatus::InProgress => "In Progress",
+            IssueStatus::InReview => "In Review",
             IssueStatus::Done => "Done",
             IssueStatus::Cancelled => "Cancelled",
             IssueStatus::Duplicate => "Duplicate",

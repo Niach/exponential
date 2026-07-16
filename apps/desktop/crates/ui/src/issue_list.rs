@@ -1818,7 +1818,8 @@ fn status_header_bg(status: IssueStatus) -> gpui::Hsla {
     let (r, g, b, a) = match status {
         IssueStatus::Todo => (212, 212, 216, 0.08),
         IssueStatus::InProgress => (234, 179, 8, 0.10),
-        IssueStatus::Done => (34, 197, 94, 0.10),
+        IssueStatus::InReview => (34, 197, 94, 0.10),
+        IssueStatus::Done => (59, 130, 246, 0.10),
         // backlog / cancelled / duplicate / unknown share the zinc tint.
         _ => (113, 113, 122, 0.08),
     };

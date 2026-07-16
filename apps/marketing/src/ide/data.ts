@@ -45,7 +45,7 @@ export const ISSUES: Issue[] = [
   },
   {
     id: `EXP-9`,
-    title: `Recurring issues UI polish`,
+    title: `Issue board keyboard polish`,
     status: `backlog`,
     priority: `none`,
   },

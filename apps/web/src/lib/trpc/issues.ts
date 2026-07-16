@@ -946,11 +946,12 @@ export const issuesRouter = router({
     }),
 
   // Squash-merge the issue's open PR via the GitHub App installation token
-  // (the symmetric counterpart of the MCP open_pr tool). Merging flips
-  // prState/prMergedAt only — issue status stays a human decision. State
-  // write + pr_merged event + notifications all go through the shared
-  // applyPrMergeState writer, whose idempotent open→merged guard also absorbs
-  // the later webhook delivery for the same merge.
+  // (the symmetric counterpart of the MCP open_pr tool). Merging completes
+  // EVERY issue linked to the PR (a batch PR links several to one prUrl):
+  // state write + status→done + pr_merged event + notifications all go
+  // through the shared applyPrMergeState writer, whose idempotent
+  // open→merged guard also absorbs the later webhook delivery for the same
+  // merge.
   mergePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
@@ -1052,12 +1053,24 @@ export const issuesRouter = router({
         throw err
       }
 
-      await applyPrMergeState({
-        issueId: input.issueId,
-        prUrl: row.prUrl,
-        mergedAt: new Date(),
-        actorUserId: ctx.session.user.id,
-      })
+      // Complete every issue the PR is linked to — not just the clicked one —
+      // so a batch PR's siblings don't wait on the webhook echo (self-hosted
+      // instances behind NAT may only have the slower polling cron).
+      const linked = await ctx.db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, row.prUrl))
+      const linkedIds = linked.some((issue) => issue.id === input.issueId)
+        ? linked.map((issue) => issue.id)
+        : [input.issueId, ...linked.map((issue) => issue.id)]
+      for (const issueId of linkedIds) {
+        await applyPrMergeState({
+          issueId,
+          prUrl: row.prUrl,
+          mergedAt: new Date(),
+          actorUserId: ctx.session.user.id,
+        })
+      }
 
       return { merged: true }
     }),
@@ -1147,10 +1160,22 @@ export const issuesRouter = router({
         throw err
       }
 
-      await applyPrClosedState({
-        issueId: input.issueId,
-        prUrl: row.prUrl,
-      })
+      // Flip every issue the PR is linked to (batch PRs share one prUrl) so
+      // the siblings drop out of the Reviews surfaces without waiting on the
+      // webhook echo.
+      const closedLinked = await ctx.db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, row.prUrl))
+      const closedIds = closedLinked.some((issue) => issue.id === input.issueId)
+        ? closedLinked.map((issue) => issue.id)
+        : [input.issueId, ...closedLinked.map((issue) => issue.id)]
+      for (const issueId of closedIds) {
+        await applyPrClosedState({
+          issueId,
+          prUrl: row.prUrl,
+        })
+      }
 
       return { closed: true }
     }),
