@@ -1,61 +1,83 @@
-import { describe, expect, it } from "vitest"
-import {
-  generateSupportToken,
-  isValidSupportTokenShape,
-  supportTokensMatch,
-} from "./token"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { randomUUID } from "crypto"
+import { mintSupportToken, verifySupportToken } from "./token"
 
 // The magic-link token is the reporter's only credential — these lock the
-// shape contract (validation gate for the anonymous endpoints) and the
-// constant-time comparison path.
+// deterministic HMAC contract (EXP-132): mint/verify round-trip, stability
+// (the same thread always yields the same link), and rejection of anything
+// forged, tampered, or minted under a different secret.
 
-describe(`generateSupportToken`, () => {
-  it(`emits 43-char base64url tokens that pass the shape gate`, () => {
-    for (let i = 0; i < 20; i++) {
-      const token = generateSupportToken()
-      expect(token).toHaveLength(43)
-      expect(isValidSupportTokenShape(token)).toBe(true)
-    }
+const SECRET = `test-secret-test-secret-test-secret!`
+
+beforeEach(() => {
+  process.env.BETTER_AUTH_SECRET = SECRET
+})
+
+afterEach(() => {
+  process.env.BETTER_AUTH_SECRET = SECRET
+})
+
+describe(`mintSupportToken`, () => {
+  it(`round-trips through verifySupportToken`, () => {
+    const threadId = randomUUID()
+    expect(verifySupportToken(mintSupportToken(threadId))).toBe(threadId)
   })
 
-  it(`emits unique tokens`, () => {
-    const seen = new Set(
-      Array.from({ length: 100 }, () => generateSupportToken())
+  it(`is deterministic — the same thread always gets the same link`, () => {
+    const threadId = randomUUID()
+    expect(mintSupportToken(threadId)).toBe(mintSupportToken(threadId))
+  })
+
+  it(`emits <uuid>.<43-char base64url mac>`, () => {
+    const threadId = randomUUID()
+    const token = mintSupportToken(threadId)
+    const [id, mac, rest] = token.split(`.`)
+    expect(id).toBe(threadId)
+    expect(mac).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(rest).toBeUndefined()
+  })
+
+  it(`mints distinct tokens for distinct threads`, () => {
+    expect(mintSupportToken(randomUUID())).not.toBe(
+      mintSupportToken(randomUUID())
     )
-    expect(seen.size).toBe(100)
+  })
+
+  it(`throws without a server secret`, () => {
+    delete process.env.BETTER_AUTH_SECRET
+    expect(() => mintSupportToken(randomUUID())).toThrow()
   })
 })
 
-describe(`isValidSupportTokenShape`, () => {
-  it(`rejects wrong lengths`, () => {
-    expect(isValidSupportTokenShape(``)).toBe(false)
-    expect(isValidSupportTokenShape(`abc`)).toBe(false)
-    expect(isValidSupportTokenShape(`${generateSupportToken()}x`)).toBe(false)
+describe(`verifySupportToken`, () => {
+  it(`rejects malformed tokens`, () => {
+    expect(verifySupportToken(``)).toBeNull()
+    expect(verifySupportToken(`abc`)).toBeNull()
+    expect(verifySupportToken(randomUUID())).toBeNull()
+    // Pre-EXP-132 tokens were 43 bare base64url chars — must no longer pass.
+    expect(verifySupportToken(`A`.repeat(43))).toBeNull()
   })
 
-  it(`rejects characters outside the base64url alphabet`, () => {
-    const almost = generateSupportToken().slice(0, 42)
-    expect(isValidSupportTokenShape(`${almost}=`)).toBe(false)
-    expect(isValidSupportTokenShape(`${almost}/`)).toBe(false)
-    expect(isValidSupportTokenShape(`${almost}+`)).toBe(false)
-  })
-})
-
-describe(`supportTokensMatch`, () => {
-  it(`matches an identical token`, () => {
-    const token = generateSupportToken()
-    expect(supportTokensMatch(token, token)).toBe(true)
+  it(`rejects a tampered mac`, () => {
+    const token = mintSupportToken(randomUUID())
+    const flipped = token.slice(0, -1) + (token.endsWith(`A`) ? `B` : `A`)
+    expect(verifySupportToken(flipped)).toBeNull()
   })
 
-  it(`rejects a different token`, () => {
-    expect(
-      supportTokensMatch(generateSupportToken(), generateSupportToken())
-    ).toBe(false)
+  it(`rejects a mac transplanted onto another thread id`, () => {
+    const mac = mintSupportToken(randomUUID()).split(`.`)[1]
+    expect(verifySupportToken(`${randomUUID()}.${mac}`)).toBeNull()
   })
 
-  it(`rejects length mismatches without throwing`, () => {
-    const token = generateSupportToken()
-    expect(supportTokensMatch(token, token.slice(0, 20))).toBe(false)
-    expect(supportTokensMatch(token, ``)).toBe(false)
+  it(`rejects tokens minted under a different secret`, () => {
+    const token = mintSupportToken(randomUUID())
+    process.env.BETTER_AUTH_SECRET = `another-secret-another-secret-another!`
+    expect(verifySupportToken(token)).toBeNull()
+  })
+
+  it(`rejects everything when the server secret is unset`, () => {
+    const token = mintSupportToken(randomUUID())
+    delete process.env.BETTER_AUTH_SECRET
+    expect(verifySupportToken(token)).toBeNull()
   })
 })

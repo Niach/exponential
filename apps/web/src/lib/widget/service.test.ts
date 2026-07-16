@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
   createSupportThreadInTx: vi.fn(
     async (_tx: unknown, _args: Record<string, unknown>) => ({
       threadId: `thread-1`,
-      rawToken: `tok-raw`,
+      token: `tok-minted`,
     })
   ),
   sendSupportConfirmationEmail: vi.fn(async () => ({
@@ -271,7 +271,8 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
 
 // EXP-130: the widget's support mode files a helpdesk ticket — issue +
 // support thread + widget_reporter subscriber in one transaction, then the
-// confirmation email carrying the magic link (the raw token's only carrier).
+// confirmation email carrying the magic link (emails are the token's only
+// carrier — it is never stored).
 describe(`createWidgetSupportSubmission`, () => {
   beforeEach(() => {
     h.inserts.length = 0
@@ -320,7 +321,7 @@ describe(`createWidgetSupportSubmission`, () => {
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: `reporter@example.com`,
-        threadUrl: `https://app.test/support/tok-raw`,
+        threadUrl: `https://app.test/support/tok-minted`,
       })
     )
     const delivery = h.dbInserts.find((i) => i.table === emailDeliveries)
