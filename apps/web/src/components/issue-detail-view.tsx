@@ -30,6 +30,7 @@ import { isAdminUser } from "@/lib/auth/app-user"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
+import { IconTooltip } from "@/components/icon-tooltip"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -526,8 +527,11 @@ export function IssueDetailView({
         // EXP-57: the server renumbers the issue in the target project, so
         // both the project slug AND the identifier change — await the issues
         // txId, then hop to the issue's new canonical URL.
-        const { txId, issue: moved, projectSlug } =
-          await trpc.issues.move.mutate({ id: issue.id, projectId })
+        const {
+          txId,
+          issue: moved,
+          projectSlug,
+        } = await trpc.issues.move.mutate({ id: issue.id, projectId })
         await issueCollection.utils.awaitTxId(txId)
         void navigate({
           to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
@@ -573,73 +577,81 @@ export function IssueDetailView({
             <span className="px-0.5 font-mono tabular-nums whitespace-nowrap">
               {position.index} / {position.total}
             </span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
-              aria-label="Previous issue (K)"
-              title="Previous issue (K)"
-              disabled={!position.prevIdentifier}
-              onClick={() => navigateToIssue(position.prevIdentifier)}
-            >
-              <ChevronUp className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
-              aria-label="Next issue (J)"
-              title="Next issue (J)"
-              disabled={!position.nextIdentifier}
-              onClick={() => navigateToIssue(position.nextIdentifier)}
-            >
-              <ChevronDown className="size-4" />
-            </Button>
+            <IconTooltip label="Previous issue" shortcut="K">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="text-muted-foreground"
+                aria-label="Previous issue (K)"
+                disabled={!position.prevIdentifier}
+                onClick={() => navigateToIssue(position.prevIdentifier)}
+              >
+                <ChevronUp className="size-4" />
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Next issue" shortcut="J">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="text-muted-foreground"
+                aria-label="Next issue (J)"
+                disabled={!position.nextIdentifier}
+                onClick={() => navigateToIssue(position.nextIdentifier)}
+              >
+                <ChevronDown className="size-4" />
+              </Button>
+            </IconTooltip>
             <Separator orientation="vertical" className="mx-1 !h-3.5" />
           </>
         )}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
-          aria-label="Copy link to issue"
-          onClick={() => {
-            if (typeof navigator === `undefined` || !navigator.clipboard) {
-              return
-            }
-            const url = `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
-            navigator.clipboard.writeText(url).then(
-              () => {
-                setLinkCopied(true)
-                setTimeout(() => setLinkCopied(false), 1500)
-              },
-              () => {
-                // Clipboard denied (permissions/insecure context) — no success state.
+        {/* The label follows the icon into its copied state, so the tooltip
+            confirms the copy rather than repeating the invitation to click. */}
+        <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+            aria-label="Copy link to issue"
+            onClick={() => {
+              if (typeof navigator === `undefined` || !navigator.clipboard) {
+                return
               }
-            )
-          }}
-        >
-          {linkCopied ? (
-            <Check className="size-4 text-primary" />
-          ) : (
-            <Link2 className="size-4" />
-          )}
-        </Button>
+              const url = `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
+              navigator.clipboard.writeText(url).then(
+                () => {
+                  setLinkCopied(true)
+                  setTimeout(() => setLinkCopied(false), 1500)
+                },
+                () => {
+                  // Clipboard denied (permissions/insecure context) — no success state.
+                }
+              )
+            }}
+          >
+            {linkCopied ? (
+              <Check className="size-4 text-primary" />
+            ) : (
+              <Link2 className="size-4" />
+            )}
+          </Button>
+        </IconTooltip>
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}
         {!readOnly && !restrictModeration && (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground"
-                aria-label="Issue actions"
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
+            <IconTooltip label="More actions">
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label="Issue actions"
+                >
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </IconTooltip>
             <DropdownMenuContent align="end" className="w-[13rem]">
               {issue.duplicateOfId && (
                 <>
