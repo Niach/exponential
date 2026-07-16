@@ -32,6 +32,7 @@ use sync::Store;
 use crate::github_connect::{fetch_github_status, GithubStatus};
 use crate::navigation::{active_workspace_id, Navigation};
 use crate::queries;
+use crate::repo_resolver::links_snapshot;
 
 use super::{card, card_header, error_notice, open_url};
 
@@ -44,9 +45,8 @@ use super::{card, card_header, error_notice, open_url};
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoRow {
-    /// Consumed by the §7.9 repo mutations (remove) when the IDE track lands
-    /// them; the read-only pane doesn't render it.
-    #[allow(dead_code)]
+    /// Consumed by the Projects pane's repository picker
+    /// (`projects.setRepository`); this read-only pane doesn't render it.
     pub id: String,
     pub full_name: String,
     #[serde(default)]
@@ -64,7 +64,8 @@ pub(super) struct RepoProjectRef {
     pub name: String,
 }
 
-fn fetch_repositories(
+/// Shared with the Projects pane's repository picker (same server read).
+pub(super) fn fetch_repositories(
     trpc: &api::TrpcClient,
     workspace_id: &str,
 ) -> Result<Vec<RepoRow>, api::ApiError> {
@@ -100,6 +101,10 @@ pub struct RepositoriesPane {
     /// The account it was fetched as — a re-login must re-fetch (the GitHub
     /// install state is per-user).
     account_id: Option<String>,
+    /// The synced (project → repository) links the current `load` was fetched
+    /// under (EXP-139) — a link change on any client re-fetches so the
+    /// "used by" chips stay live.
+    loaded_links: Option<Vec<(String, String)>>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
     _subscriptions: Vec<Subscription>,
@@ -108,16 +113,39 @@ pub struct RepositoriesPane {
 impl RepositoriesPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         // The GitHub-App install state + repo list (incl. project names) come
-        // straight from the server; only navigation (workspace switch) drives a
-        // re-render/re-fetch.
-        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        // straight from the server; navigation (workspace switch) and — since
+        // the per-repo project chips mirror `projects.repository_id` — a
+        // synced repo-link change drive the re-render/re-fetch (EXP-139).
+        let projects = Store::global(cx).collections().projects.clone();
+        let subscriptions = vec![
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            cx.observe(&projects, |this: &mut Self, _, cx| {
+                this.refresh_if_links_changed(cx);
+            }),
+        ];
         Self {
             nav,
             load: Load::Idle,
             loaded_workspace: None,
             account_id: None,
+            loaded_links: None,
             generation: 0,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// Drop the cached list when a project's repo link changed under it — the
+    /// next render re-fetches (a hidden pane stays idle until reopened).
+    fn refresh_if_links_changed(&mut self, cx: &mut gpui::Context<Self>) {
+        if !matches!(self.load, Load::Ready(_)) {
+            return;
+        }
+        let Some(workspace_id) = self.loaded_workspace.clone() else {
+            return;
+        };
+        if self.loaded_links.as_ref() != Some(&links_snapshot(&workspace_id, cx)) {
+            self.load = Load::Idle;
+            cx.notify();
         }
     }
 
@@ -142,6 +170,7 @@ impl RepositoriesPane {
 
         self.load = Load::Loading;
         self.loaded_workspace = Some(workspace_id.to_string());
+        self.loaded_links = Some(links_snapshot(workspace_id, cx));
         self.generation += 1;
         let generation = self.generation;
         let workspace_id = workspace_id.to_string();
@@ -165,6 +194,9 @@ impl RepositoriesPane {
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
+                // A repo link that changed while this fetch was in flight
+                // still lands: compare once more now that the load settled.
+                this.refresh_if_links_changed(cx);
             });
         })
         .detach();
