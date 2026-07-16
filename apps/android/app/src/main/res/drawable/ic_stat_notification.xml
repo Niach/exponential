@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar (notification small) icon. Android composites these ALPHA-ONLY
+  and tints them itself, so the launcher foreground's layering trick (white
+  disc with dark strokes painted on top) collapses into one solid blob there
+  (EXP-143). This is the alpha-safe rendition of the brand mark: the three
+  growth curves, clipped to the disc's circle, as plain white strokes on
+  transparent. Curves are the canonical logo geometry (logo-light.svg,
+  100x100 space), strokes widened for legibility at status-bar sizes.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <group>
+        <clip-path android:pathData="M 50,6 A 44,44 0 1,0 50,94 A 44,44 0 1,0 50,6 Z" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="10"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M -5.87,62.01 C 39.09,65.44 48.72,28.71 49.03,-6.21" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="10"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M -5.07,86.00 C 53.78,84.42 71.13,37.29 73.00,-5.09" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="10"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M -4.27,109.99 C 68.46,103.40 93.55,45.86 96.98,-3.98" />
+    </group>
+</vector>

@@ -1,9 +1,9 @@
-<!-- macOS app-icon variant (EXP-68): the WHITE disc (logo-white.svg) — the
-     plain logo.svg is a black disc that vanishes on the dark dock — with the
-     canvas padded so the glyph fills ~82% of the icon square, the margin
-     macOS icons keep around their content (a full-bleed circle reads
-     oversized next to the system squircles). -->
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="-11 -11 122 122">
+<!-- macOS app-icon variant (EXP-68, reworked in EXP-143): a bare white disc
+     on transparent got composited onto the system's default grey icon
+     backdrop and washed out, so the icon now draws its own plate — the dark
+     rounded square macOS icons are expected to fill (Apple icon grid: 824/1024
+     square, ~185 corner radius), with the white disc padded inside it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 1024 1024">
   <defs>
     <clipPath id="c"><circle cx="50" cy="50" r="50"></circle></clipPath>
     <mask id="m">
@@ -15,5 +15,8 @@
       </g>
     </mask>
   </defs>
-  <circle cx="50" cy="50" r="50" fill="#ffffff" mask="url(#m)"></circle>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#18181b"></rect>
+  <g transform="translate(192 192) scale(6.4)">
+    <circle cx="50" cy="50" r="50" fill="#ffffff" mask="url(#m)"></circle>
+  </g>
 </svg>

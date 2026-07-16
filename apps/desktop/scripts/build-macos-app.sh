@@ -68,10 +68,11 @@ sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${BUILD}/${BUILD}/g" "$PLIST_SRC" > "
 # --- Icon (optional) ------------------------------------------------------
 # Rasterize the vector logo → .icns when a rasterizer is on PATH; otherwise
 # ship without an icon (a generic one shows — irrelevant to exponential:// routing).
-# Uses the WHITE macOS variant (EXP-68): the plain logo.svg is a black disc
-# that rendered as a black blob on the dark dock; logo-macos.svg is the white
-# disc (same variant Linux ships) padded to macOS icon margins. Fall back to
-# logo-white.svg if the padded variant ever goes missing.
+# Uses the macOS variant (EXP-68/EXP-143): logo-macos.svg draws the dark
+# rounded-square plate macOS icons are expected to fill (a bare white disc on
+# transparent washed out on the system's default grey icon backdrop) with the
+# white disc padded inside it. Fall back to logo-white.svg if the macOS
+# variant ever goes missing.
 LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo-macos.svg"
 [ -f "$LOGO_SVG" ] || LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo-white.svg"
 RASTERIZE=""
