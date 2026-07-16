@@ -2,7 +2,7 @@ import { X } from "lucide-react"
 
 /* Static mock of the embeddable "Send feedback" dialog — pure site-styled
    markup, deliberately NOT the real widget script. */
-export function WidgetPreview() {
+export function WidgetPreview({ caption = true }: { caption?: boolean }) {
   return (
     <div className={`wmock`}>
       <div className={`wmock-card`} aria-hidden>
@@ -38,9 +38,11 @@ export function WidgetPreview() {
           </div>
         </div>
       </div>
-      <p className={`wmock-caption`}>
-        The drop-in feedback widget — screenshot included.
-      </p>
+      {caption && (
+        <p className={`wmock-caption`}>
+          The drop-in feedback widget — screenshot included.
+        </p>
+      )}
     </div>
   )
 }

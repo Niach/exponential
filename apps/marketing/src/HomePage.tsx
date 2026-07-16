@@ -1,14 +1,34 @@
-import { motion } from "motion/react"
+import { useRef } from "react"
+import { motion, useReducedMotion, useScroll, useTransform } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
+import { HelpdeskSection } from "./components/HelpdeskSection"
+import { TeamworkSection } from "./components/TeamworkSection"
 import { IcArrow, IcGithub } from "./components/icons"
-import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
+import {
+  EASE_EXPO,
+  eyebrowDraw,
+  heroChild,
+  heroStagger,
+  heroTitleStagger,
+  heroWord,
+  sectionReveal,
+} from "./lib/animations"
 import { LINKS } from "./lib/links"
 import { IdeDemo } from "./ide/Ide"
-import { LoopCircle } from "./loop/LoopCircle"
-import { WidgetPreview } from "./loop/WidgetPreview"
+import { LoopMovie } from "./movie/LoopMovie"
 import { MobileDemo } from "./mobile/MobileDemo"
 
+const HERO_TITLE_WORDS = `Issue tracking that ships code.`.split(` `)
+
 export function HomePage() {
+  const reduced = useReducedMotion()
+  const mobileRef = useRef<HTMLDivElement>(null)
+  const { scrollYProgress } = useScroll({
+    target: mobileRef,
+    offset: [`start end`, `end start`],
+  })
+  const phoneY = useTransform(scrollYProgress, [0, 1], [12, -12])
+
   return (
     <>
       <SiteHeader />
@@ -22,8 +42,16 @@ export function HomePage() {
             initial={`hidden`}
             animate={`visible`}
           >
-            <motion.h1 className={`hero-title`} variants={heroChild}>
-              Issue tracking that ships code.
+            <motion.h1 className={`hero-title`} variants={heroTitleStagger}>
+              {HERO_TITLE_WORDS.map((word, index) => (
+                <motion.span
+                  key={index}
+                  className={`hero-word`}
+                  variants={heroWord}
+                >
+                  {word}
+                </motion.span>
+              ))}
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>
               An issue tracker with a built-in coding IDE. Feedback in, pull
@@ -46,9 +74,10 @@ export function HomePage() {
 
           <motion.div
             className={`shell`}
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: `easeOut`, delay: 0.3 }}
+            style={{ transformPerspective: 1200 }}
+            initial={{ opacity: 0, y: 24, rotateX: reduced ? 0 : 4 }}
+            animate={{ opacity: 1, y: 0, rotateX: 0 }}
+            transition={{ duration: 0.8, ease: EASE_EXPO, delay: 0.3 }}
           >
             <div className={`home-ide-wrap`}>
               <IdeDemo />
@@ -62,21 +91,38 @@ export function HomePage() {
         {/* ── The loop ─────────────────────────── */}
         <section id={`loop`}>
           <motion.div className={`shell home-loop`} {...sectionReveal}>
-            <span className={`section-eyebrow`}>The loop</span>
-            <div className={`home-loop-grid`}>
-              <LoopCircle />
-              <WidgetPreview />
-            </div>
+            <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
+              The loop
+            </motion.span>
+            <h2 className={`section-title`}>
+              From complaint to shipped &mdash; without leaving the loop.
+            </h2>
+            <p className={`section-sub`}>
+              Watch a bug travel: reported from a customer&rsquo;s site, on
+              your board in seconds, fixed by Claude at your desk, merged and
+              answered.
+            </p>
+            <LoopMovie />
           </motion.div>
         </section>
+
+        {/* ── Helpdesk ─────────────────────────── */}
+        <HelpdeskSection />
+
+        {/* ── Teamwork ─────────────────────────── */}
+        <TeamworkSection />
 
         {/* ── Mobile ───────────────────────────── */}
         <section id={`mobile`} className={`home-mobile`}>
           <div className={`shell`}>
-            <div className={`home-mobile-grid`}>
-              <MobileDemo autoTour />
+            <div className={`home-mobile-grid`} ref={mobileRef}>
+              <motion.div style={reduced ? undefined : { y: phoneY }}>
+                <MobileDemo autoTour />
+              </motion.div>
               <motion.div className={`home-mobile-copy`} {...sectionReveal}>
-                <span className={`section-eyebrow`}>Mobile</span>
+                <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
+                  Mobile
+                </motion.span>
                 <h2 className={`section-title`}>
                   Steer Claude from your pocket.
                 </h2>
