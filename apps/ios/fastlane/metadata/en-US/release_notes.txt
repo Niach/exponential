@@ -1,4 +1,3 @@
-• Refreshed app icon
-• More reliable syncing of issues and comments
-• Code blocks in descriptions now round-trip cleanly
+• Reviews now has its own tab
+• Start coding sessions with your choice of model, effort, and plan mode
 • Reliability improvements

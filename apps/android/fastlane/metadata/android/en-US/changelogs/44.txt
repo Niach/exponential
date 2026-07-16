@@ -1,0 +1,1 @@
+New splash screen, Reviews gets its own tab, and you can now pick the model, effort, and plan mode when starting a coding session from your phone.
