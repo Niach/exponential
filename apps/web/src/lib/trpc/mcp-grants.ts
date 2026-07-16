@@ -66,7 +66,7 @@ export const mcpGrantsRouter = router({
         workspaceId: projects.workspaceId,
         name: projects.name,
         prefix: projects.prefix,
-        type: projects.type,
+        icon: projects.icon,
         color: projects.color,
       })
       .from(projects)

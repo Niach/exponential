@@ -399,7 +399,7 @@ export const adminRouter = router({
             id: projects.id,
             name: projects.name,
             slug: projects.slug,
-            type: projects.type,
+            isPublic: projects.isPublic,
             deletedAt: projects.deletedAt,
             createdAt: projects.createdAt,
             issueCount: sql<number>`count(${issues.id})::int`,
