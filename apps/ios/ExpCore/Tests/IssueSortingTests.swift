@@ -37,8 +37,6 @@ final class IssueSortingTests: XCTestCase {
             sortOrder: sortOrder,
             completedAt: completedAt,
             archivedAt: nil,
-            recurrenceInterval: nil,
-            recurrenceUnit: nil,
             duplicateOfId: nil,
             prUrl: nil,
             prNumber: nil,

@@ -56,7 +56,6 @@ import { IssueChangesTab } from "@/components/issue-changes-tab"
 import { IssueSteerPanel } from "@/components/agent-session"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
-import { type RecurrenceValue } from "@/components/recurrence-editor"
 
 // Where the current issue sits in the board's filtered+sorted sequence — feeds
 // the header's "N / total" prev/next switcher. Null (or omitted) hides the
@@ -469,24 +468,6 @@ export function IssueDetailView({
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
 
-  const handleRecurrenceChange = async (next: RecurrenceValue | null) => {
-    if (readOnly) return
-    if (!next) {
-      await trpc.issues.update.mutate({
-        id: issue.id,
-        recurrenceInterval: null,
-        recurrenceUnit: null,
-      })
-      return
-    }
-    await trpc.issues.update.mutate({
-      id: issue.id,
-      recurrenceInterval: next.interval,
-      recurrenceUnit: next.unit,
-      dueDate: formatDateForMutation(next.firstDue),
-    })
-  }
-
   const propsPanel = (
     <IssuePropertiesPanel
       layout={isMobile ? `chiprow` : `sidebar`}
@@ -536,9 +517,6 @@ export function IssueDetailView({
         if (readOnly) return
         await trpc.issues.update.mutate({ id: issue.id, endTime: time })
       }}
-      recurrenceInterval={issue.recurrenceInterval}
-      recurrenceUnit={issue.recurrenceUnit}
-      onRecurrenceChange={handleRecurrenceChange}
       projectName={project.name}
       projectColor={project.color}
       projectPrefix={project.prefix}

@@ -338,39 +338,91 @@ pub fn review_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
         .collect()
 }
 
-/// One Reviews tool-window section: a project and its open-PR issues (the
-/// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
-pub struct ReviewGroup {
-    pub project: domain::rows::Project,
+/// One Reviews entry: the issue(s) behind a single open PR. A plain
+/// single-issue PR has one issue; a batch run (EXP-131) lands N issues on ONE
+/// branch under ONE `pr_url`, so they collapse into a single entry. Issues are
+/// newest first; [`representative`](Self::representative) (the first) carries
+/// the shared `pr_number`/`branch` and is the merge/dismiss target.
+pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
 }
 
-/// The Reviews tool window read: [`review_issues`] grouped by project.
-/// Groups follow project `sort_order` (name tiebreak, like the sidebars);
-/// issues are newest first within a group — web parity.
+impl ReviewEntry {
+    /// The representative issue — the one whose id drives row-click, merge and
+    /// dismiss (the server acts on the ONE linked PR either way).
+    pub fn representative(&self) -> &domain::rows::Issue {
+        &self.issues[0]
+    }
+
+    /// A batch PR groups more than one issue.
+    pub fn is_batch(&self) -> bool {
+        self.issues.len() > 1
+    }
+}
+
+/// One Reviews tool-window section: a project and its open-PR entries (the
+/// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
+pub struct ReviewGroup {
+    pub project: domain::rows::Project,
+    pub entries: Vec<ReviewEntry>,
+}
+
+/// The Reviews tool window read: [`review_issues`] collapsed to ONE entry per
+/// PR (issues sharing a `pr_url` — a batch run — group together; issues with
+/// no `pr_url` key on their own id), then grouped by project. Groups follow
+/// project `sort_order` (name tiebreak, like the sidebars); entries are newest
+/// first within a group — web parity.
 pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
     let open = review_issues(cx, workspace_id);
     let collections = Store::global(cx).collections();
     let projects = collections.projects.read(cx);
 
-    let mut by_project: HashMap<String, Vec<domain::rows::Issue>> = HashMap::new();
+    // Collapse issues sharing a PR into one entry (fallback key = issue id when
+    // `pr_url` is absent — a lone issue). Preserve first-seen order so the
+    // in-entry newest-first sort below is deterministic.
+    let mut by_pr: HashMap<String, Vec<domain::rows::Issue>> = HashMap::new();
+    let mut pr_order: Vec<String> = Vec::new();
     for issue in open {
-        by_project
-            .entry(issue.project_id.clone())
-            .or_default()
-            .push(issue);
+        let key = issue
+            .pr_url
+            .clone()
+            .unwrap_or_else(|| issue.id.clone());
+        let bucket = by_pr.entry(key.clone()).or_default();
+        if bucket.is_empty() {
+            pr_order.push(key);
+        }
+        bucket.push(issue);
     }
 
-    let mut groups: Vec<ReviewGroup> = by_project
+    // One entry per PR; issues newest first (ISO strings from one source
+    // compare lexicographically, None last) so the representative is newest.
+    let mut by_project: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
+    let mut project_order: Vec<String> = Vec::new();
+    for key in pr_order {
+        let mut issues = by_pr.remove(&key).unwrap_or_default();
+        issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let project_id = issues[0].project_id.clone();
+        let entries = by_project.entry(project_id.clone()).or_default();
+        if entries.is_empty() {
+            project_order.push(project_id);
+        }
+        entries.push(ReviewEntry { issues });
+    }
+
+    let mut groups: Vec<ReviewGroup> = project_order
         .into_iter()
-        .filter_map(|(project_id, mut issues)| {
+        .filter_map(|project_id| {
             // The workspace filter in `review_issues` already proved the
             // project exists; the lookup only resolves the row.
             let project = projects.get(&project_id)?.clone();
-            // Newest first — ISO strings from one source compare
-            // lexicographically (None sorts last).
-            issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-            Some(ReviewGroup { project, issues })
+            let mut entries = by_project.remove(&project_id).unwrap_or_default();
+            // Newest entry first — by the representative's created_at.
+            entries.sort_by(|a, b| {
+                b.representative()
+                    .created_at
+                    .cmp(&a.representative().created_at)
+            });
+            Some(ReviewGroup { project, entries })
         })
         .collect();
     groups.sort_by(|a, b| {

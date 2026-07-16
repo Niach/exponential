@@ -8,7 +8,7 @@
 //! clients in lockstep (no shared package yet).
 //!
 //! Behavior is byte-identical to the TS: the `active` set is
-//! `{in_progress, todo}` — memorize it; do not "fix" it (§4.7).
+//! `{in_progress, in_review, todo}` — memorize it; do not "fix" it (§4.7).
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::rows::Issue;
@@ -45,7 +45,11 @@ pub enum TabPreset {
 pub fn tab_preset_statuses(preset: TabPreset) -> &'static [IssueStatus] {
     match preset {
         TabPreset::All => &[],
-        TabPreset::Active => &[IssueStatus::InProgress, IssueStatus::Todo],
+        TabPreset::Active => &[
+            IssueStatus::InProgress,
+            IssueStatus::InReview,
+            IssueStatus::Todo,
+        ],
         TabPreset::Backlog => &[IssueStatus::Backlog],
     }
 }
@@ -139,11 +143,15 @@ mod tests {
 
     #[test]
     fn tab_presets_mirror_web() {
-        // web: all: [], active: [in_progress, todo], backlog: [backlog]
+        // web: all: [], active: [in_progress, in_review, todo], backlog: [backlog]
         assert_eq!(tab_preset_statuses(TabPreset::All), &[] as &[IssueStatus]);
         assert_eq!(
             tab_preset_statuses(TabPreset::Active),
-            &[IssueStatus::InProgress, IssueStatus::Todo]
+            &[
+                IssueStatus::InProgress,
+                IssueStatus::InReview,
+                IssueStatus::Todo
+            ]
         );
         assert_eq!(
             tab_preset_statuses(TabPreset::Backlog),
@@ -157,11 +165,19 @@ mod tests {
         assert_eq!(derive_active_tab(&[]), TabPreset::All);
         // Exact active set, any order.
         assert_eq!(
-            derive_active_tab(&[IssueStatus::InProgress, IssueStatus::Todo]),
+            derive_active_tab(&[
+                IssueStatus::InProgress,
+                IssueStatus::InReview,
+                IssueStatus::Todo
+            ]),
             TabPreset::Active
         );
         assert_eq!(
-            derive_active_tab(&[IssueStatus::Todo, IssueStatus::InProgress]),
+            derive_active_tab(&[
+                IssueStatus::Todo,
+                IssueStatus::InProgress,
+                IssueStatus::InReview
+            ]),
             TabPreset::Active
         );
         // Exact backlog set.
@@ -173,6 +189,11 @@ mod tests {
                 IssueStatus::Todo,
                 IssueStatus::Done
             ]),
+            TabPreset::All
+        );
+        // A subset of the active set (missing in_review) is not "active".
+        assert_eq!(
+            derive_active_tab(&[IssueStatus::InProgress, IssueStatus::Todo]),
             TabPreset::All
         );
         assert_eq!(derive_active_tab(&[IssueStatus::Todo]), TabPreset::All);

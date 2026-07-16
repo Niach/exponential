@@ -149,8 +149,6 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "completed_at",
             "archived_at",
             "duplicate_of_id",
-            "recurrence_interval",
-            "recurrence_unit",
             "pr_url",
             "pr_number",
             "pr_state",
@@ -381,6 +379,10 @@ mod tests {
         let spec = shape_by_name("issues").unwrap();
         assert!(!spec.columns.contains(&"due_time"));
         assert!(!spec.columns.contains(&"end_time"));
+        // Recurrence was removed repo-wide (EXP-107); the columns no longer
+        // exist and must never be requested.
+        assert!(!spec.columns.contains(&"recurrence_interval"));
+        assert!(!spec.columns.contains(&"recurrence_unit"));
     }
 
     #[test]

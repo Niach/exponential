@@ -73,7 +73,7 @@ export const helpdeskRouter = router({
       const statusFilter =
         input.filter === `resolved`
           ? inArray(issues.status, [...RESOLVED_STATUSES])
-          : inArray(issues.status, [`backlog`, `todo`, `in_progress`])
+          : inArray(issues.status, [`backlog`, `todo`, `in_progress`, `in_review`])
 
       const rows = await ctx.db
         .select({

@@ -24,7 +24,6 @@ interface Section {
 interface Contract {
   issueStatus: Section
   issuePriority: Section
-  recurrenceUnit: Section
   workspaceRole: Section
   projectIcon: Section
   commentKind: Section
@@ -33,7 +32,6 @@ interface Contract {
   codingSessionStatus: Section
   subscriberSource: Section
   issueEventType: Section
-  recurrenceIntervals: number[]
 }
 
 const contract: Contract = JSON.parse(
@@ -122,7 +120,6 @@ ${swiftStringArray("issueStatusValues", contract.issueStatus.values)}
 ${swiftStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("projectIconValues", contract.projectIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
@@ -131,7 +128,6 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
-    public static let recurrenceIntervals: [Int] = [${contract.recurrenceIntervals.join(", ")}]
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
@@ -150,7 +146,6 @@ ${kotlinStringArray("issueStatusValues", contract.issueStatus.values)}
 ${kotlinStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("projectIconValues", contract.projectIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
@@ -159,7 +154,6 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
-${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
@@ -180,7 +174,6 @@ ${rustStrSlice("issueStatusValues", contract.issueStatus.values)}
 ${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
 ${rustStrSlice("projectIconValues", contract.projectIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
@@ -189,7 +182,6 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
-${rustIntSlice("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}

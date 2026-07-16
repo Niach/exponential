@@ -23,7 +23,9 @@ fun statusColor(status: IssueStatus): Color = when (status) {
     IssueStatus.Backlog -> Neutral
     IssueStatus.Todo -> Neutral
     IssueStatus.InProgress -> Yellow
-    IssueStatus.Done -> Green
+    // EXP-120: PR opened → in_review (green); merged → done (now blue).
+    IssueStatus.InReview -> Green
+    IssueStatus.Done -> Blue
     IssueStatus.Cancelled -> Red
     IssueStatus.Duplicate -> Neutral
 }

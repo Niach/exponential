@@ -25,6 +25,8 @@ pub enum IconGlyph {
     Circle,
     /// web `Timer` — status in_progress.
     Timer,
+    /// web `GitPullRequest` — status in_review.
+    GitPullRequest,
     /// web `CircleCheck` — status done.
     CircleCheck,
     /// web `CircleX` — status cancelled.
@@ -51,6 +53,7 @@ impl IconGlyph {
             IconGlyph::CircleDashed => "circle-dashed",
             IconGlyph::Circle => "circle",
             IconGlyph::Timer => "timer",
+            IconGlyph::GitPullRequest => "git-pull-request",
             IconGlyph::CircleCheck => "circle-check",
             IconGlyph::CircleX => "circle-x",
             IconGlyph::Copy => "copy",
@@ -103,7 +106,7 @@ const fn opt<V>(value: V, label: &'static str, icon: IconGlyph, color: ColorToke
 }
 
 /// Web `issueStatusOptions` — same order, labels, glyphs, colors.
-pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 6] = [
+pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
     opt(
         IssueStatus::Backlog,
         "Backlog",
@@ -123,10 +126,16 @@ pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 6] = [
         ColorToken::Yellow,
     ),
     opt(
+        IssueStatus::InReview,
+        "In Review",
+        IconGlyph::GitPullRequest,
+        ColorToken::Green,
+    ),
+    opt(
         IssueStatus::Done,
         "Done",
         IconGlyph::CircleCheck,
-        ColorToken::Green,
+        ColorToken::Blue,
     ),
     opt(
         IssueStatus::Cancelled,
@@ -207,6 +216,7 @@ mod tests {
                 IssueStatus::Backlog,
                 IssueStatus::Todo,
                 IssueStatus::InProgress,
+                IssueStatus::InReview,
                 IssueStatus::Done,
                 IssueStatus::Cancelled,
                 IssueStatus::Duplicate,
@@ -215,7 +225,7 @@ mod tests {
         let labels: Vec<_> = ISSUE_STATUS_OPTIONS.iter().map(|o| o.label).collect();
         assert_eq!(
             labels,
-            vec!["Backlog", "Todo", "In Progress", "Done", "Cancelled", "Duplicate"]
+            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
         );
         // Labels agree with the enum's own label() (single source of display
         // truth across the two P2/P3 surfaces).

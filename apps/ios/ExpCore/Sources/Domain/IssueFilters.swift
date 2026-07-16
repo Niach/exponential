@@ -36,7 +36,7 @@ public enum FilterTab: String, CaseIterable, Identifiable, Sendable {
     public var statuses: Set<IssueStatus> {
         switch self {
         case .all: []
-        case .active: [.inProgress, .todo]
+        case .active: [.inProgress, .inReview, .todo]
         case .backlog: [.backlog]
         }
     }
@@ -44,7 +44,7 @@ public enum FilterTab: String, CaseIterable, Identifiable, Sendable {
 
 public func deriveTab(from statuses: Set<IssueStatus>) -> FilterTab {
     if statuses.isEmpty { return .all }
-    if statuses == Set([IssueStatus.inProgress, .todo]) { return .active }
+    if statuses == Set([IssueStatus.inProgress, .inReview, .todo]) { return .active }
     if statuses == Set([IssueStatus.backlog]) { return .backlog }
     return .all
 }

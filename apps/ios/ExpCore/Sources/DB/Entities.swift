@@ -230,8 +230,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let sortOrder: Double?
     public let completedAt: String?
     public let archivedAt: String?
-    public let recurrenceInterval: Int?
-    public let recurrenceUnit: String?
     // Duplicate resolution: the canonical issue this one duplicates (pairs with
     // status='duplicate'). 1:1, no relation graph.
     public let duplicateOfId: String?
@@ -263,8 +261,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         sortOrder: Double?,
         completedAt: String?,
         archivedAt: String?,
-        recurrenceInterval: Int?,
-        recurrenceUnit: String?,
         duplicateOfId: String?,
         prUrl: String?,
         prNumber: Int?,
@@ -290,8 +286,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.sortOrder = sortOrder
         self.completedAt = completedAt
         self.archivedAt = archivedAt
-        self.recurrenceInterval = recurrenceInterval
-        self.recurrenceUnit = recurrenceUnit
         self.duplicateOfId = duplicateOfId
         self.prUrl = prUrl
         self.prNumber = prNumber
@@ -313,8 +307,6 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case sortOrder = "sort_order"
         case completedAt = "completed_at"
         case archivedAt = "archived_at"
-        case recurrenceInterval = "recurrence_interval"
-        case recurrenceUnit = "recurrence_unit"
         case duplicateOfId = "duplicate_of_id"
         case prUrl = "pr_url"
         case prNumber = "pr_number"
@@ -345,8 +337,6 @@ extension IssueEntity: Codable {
         sortOrder = try container.decodeIfPresent(Double.self, forKey: .sortOrder)
         completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
         archivedAt = try container.decodeIfPresent(String.self, forKey: .archivedAt)
-        recurrenceInterval = try container.decodeIfPresent(Int.self, forKey: .recurrenceInterval)
-        recurrenceUnit = try container.decodeIfPresent(String.self, forKey: .recurrenceUnit)
         duplicateOfId = try container.decodeIfPresent(String.self, forKey: .duplicateOfId)
         prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
         prNumber = try container.decodeIfPresent(Int.self, forKey: .prNumber)

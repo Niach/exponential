@@ -55,7 +55,7 @@ export const mobGroups: MobGroup[] = [
     issues: [
       {
         identifier: `EXP-9`,
-        title: `Recurring issues UI polish`,
+        title: `Issue board keyboard polish`,
         priority: `none`,
         status: `backlog`,
       },

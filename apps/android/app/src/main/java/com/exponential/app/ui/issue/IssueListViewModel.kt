@@ -384,8 +384,6 @@ class IssueListViewModel @Inject constructor(
         assigneeId: String? = null,
         dueTime: String? = null,
         endTime: String? = null,
-        recurrenceInterval: Int? = null,
-        recurrenceUnit: String? = null,
         labelIds: List<String> = emptyList(),
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
     ): Boolean {
@@ -411,8 +409,6 @@ class IssueListViewModel @Inject constructor(
                     dueDate = dueDate,
                     dueTime = dueTime,
                     endTime = endTime,
-                    recurrenceInterval = recurrenceInterval,
-                    recurrenceUnit = recurrenceUnit,
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                 )
             )

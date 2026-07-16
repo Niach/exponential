@@ -27,7 +27,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -143,8 +142,6 @@ fun CreateIssueScreen(
     var dueDate by remember { mutableStateOf<String?>(null) }
     var dueTime by remember { mutableStateOf<String?>(null) }
     var endTime by remember { mutableStateOf<String?>(null) }
-    var recurrenceInterval by remember { mutableStateOf<Int?>(null) }
-    var recurrenceUnit by remember { mutableStateOf<String?>(null) }
     var selectedLabelIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var createMore by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
@@ -153,7 +150,6 @@ fun CreateIssueScreen(
     var datePickerOpen by remember { mutableStateOf(false) }
     var dueTimePickerOpen by remember { mutableStateOf(false) }
     var endTimePickerOpen by remember { mutableStateOf(false) }
-    var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelSheetOpen by remember { mutableStateOf(false) }
     var projectSheetOpen by remember { mutableStateOf(false) }
 
@@ -213,8 +209,6 @@ fun CreateIssueScreen(
                 assigneeId = assigneeId,
                 dueTime = dueTime,
                 endTime = endTime,
-                recurrenceInterval = recurrenceInterval,
-                recurrenceUnit = recurrenceUnit,
                 // Drop selections for labels deleted while drafting — the
                 // server rejects the whole create on an unknown label id.
                 labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
@@ -318,7 +312,7 @@ fun CreateIssueScreen(
                     },
                 )
 
-                // Status / Priority / Assignee / Repeat — one grouped glass card.
+                // Status / Priority / Assignee — one grouped glass card.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -351,12 +345,6 @@ fun CreateIssueScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                    }
-                    MetaDivider()
-                    MetaRow(label = "Repeat", enabled = isModerator, onClick = { recurrenceSheetOpen = true }) {
-                        Icon(Icons.Filled.Repeat, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-                        Spacer(Modifier.width(6.dp))
-                        Text(formatRecurrence(recurrenceInterval, recurrenceUnit), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
@@ -552,19 +540,6 @@ fun CreateIssueScreen(
             onConfirm = { endTime = it; endTimePickerOpen = false },
             onClear = { endTime = null; endTimePickerOpen = false },
             onDismiss = { endTimePickerOpen = false },
-        )
-    }
-
-    if (recurrenceSheetOpen) {
-        RecurrenceSheet(
-            interval = recurrenceInterval,
-            unit = recurrenceUnit,
-            onApply = { i, u ->
-                recurrenceInterval = i
-                recurrenceUnit = u
-                recurrenceSheetOpen = false
-            },
-            onDismiss = { recurrenceSheetOpen = false },
         )
     }
 

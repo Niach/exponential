@@ -19,7 +19,6 @@ import {
   IcBellOff,
   IcBold,
   IcCalDays,
-  IcCalSync,
   IcCircleX,
   IcClearFmt,
   IcCode,
@@ -197,10 +196,6 @@ function PropsPanel({ issue }: { issue: Issue }) {
           <IcCalDays size={14} className={issue.due ? `ide-c-muted` : `ide-c-dim`} />
           {issue.due ?? <span className="ide-c-muted">Add due date</span>}
         </button>
-        <div className="ide-prop-sub">
-          <IcCalSync size={12} />
-          Add recurrence
-        </div>
       </PropGroup>
       <PropGroup label="Release">
         {release ? (

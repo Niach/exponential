@@ -81,7 +81,8 @@ function InboxUnreadBadge() {
 }
 
 // Open-PR count across the workspace's projects, matching the Reviews page's
-// synced-row count. Pure client-side counting over the already-synced issues
+// entry count: DISTINCT PRs, so a batch PR linked to several issues counts
+// once (EXP-131). Pure client-side counting over the already-synced issues
 // shape.
 function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
   const projectIds = useMemo(
@@ -102,7 +103,13 @@ function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
         : undefined,
     [projectIds.join(`,`)]
   )
-  const count = data?.length ?? 0
+  const count = useMemo(() => {
+    const keys = new Set<string>()
+    for (const issue of data ?? []) {
+      keys.add(issue.prUrl ?? issue.id)
+    }
+    return keys.size
+  }, [data])
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }

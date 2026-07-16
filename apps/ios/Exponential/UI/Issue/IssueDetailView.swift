@@ -14,7 +14,6 @@ struct IssueDetailView: View {
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
-    @State private var showRecurrencePicker = false
     @State private var showDuplicatePicker = false
     @State private var showCreateLabel = false
     @State private var showMoveProjectPicker = false
@@ -236,28 +235,6 @@ struct IssueDetailView: View {
                             .opacity(vm.permissions.isModerator ? 1 : 0.55)
                         }
 
-                        // Recurrence
-                        VStack(spacing: 0) {
-                            detailRow(label: "Repeat") {
-                                Button {
-                                    showRecurrencePicker = true
-                                } label: {
-                                    Text(formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit))
-                                        .font(.subheadline)
-                                        .foregroundStyle(
-                                            issue.recurrenceInterval == nil
-                                                ? .white.opacity(TextOpacity.tertiary)
-                                                : .white
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!vm.permissions.isModerator)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .glassSection()
-                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
-
                         // Labels
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Labels")
@@ -405,15 +382,6 @@ struct IssueDetailView: View {
                             }
                         }
                     }
-                }
-                .sheet(isPresented: $showRecurrencePicker) {
-                    RecurrencePickerSheet(
-                        currentInterval: issue.recurrenceInterval,
-                        currentUnit: issue.recurrenceUnit,
-                        onSelect: { interval, unit in
-                            Task { await vm.setRecurrence(interval: interval, unit: unit) }
-                        }
-                    )
                 }
                 .sheet(isPresented: $showCreateLabel) {
                     CreateLabelSheet { name, color in
@@ -719,20 +687,6 @@ struct TimeFieldButton: View {
         components.minute = 0
         return Calendar.current.date(from: components) ?? Date()
     }
-}
-
-private func formatRecurrence(_ interval: Int?, _ unit: String?) -> String {
-    guard let interval, let unitRaw = unit, let unit = RecurrenceUnit(rawValue: unitRaw) else {
-        return "Doesn't repeat"
-    }
-    if interval == 1 {
-        switch unit {
-        case .day: return "Daily"
-        case .week: return "Weekly"
-        case .month: return "Monthly"
-        }
-    }
-    return "Every \(interval) \(unit.label(for: interval))"
 }
 
 // MARK: - Flow Layout for labels

@@ -149,7 +149,10 @@ public enum StatusColor {
     /// Web's todo is `text-foreground` (near-white), not gray.
     public static let todo = Zinc._50
     public static let inProgress = DesignTokens.Semantic.yellow
-    public static let done = DesignTokens.Semantic.green
+    /// Up for review (EXP-120) — green, the color `done` used to carry.
+    public static let inReview = DesignTokens.Semantic.green
+    /// Completed (EXP-120): moved from green to blue when in_review took green.
+    public static let done = DesignTokens.Semantic.blue
     public static let cancelled = DesignTokens.Semantic.red
     /// Duplicate is a muted terminal resolution (like backlog's neutral gray).
     public static let duplicate = DesignTokens.Semantic.neutral

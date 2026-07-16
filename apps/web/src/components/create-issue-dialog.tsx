@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { Repeat } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -12,10 +10,6 @@ import {
   type IssuePriority,
   type IssueStatus,
 } from "@/lib/domain"
-import {
-  RecurrenceEditor,
-  type RecurrenceValue,
-} from "@/components/recurrence-editor"
 import {
   extractMarkdownImageOccurrences,
   collectMarkdownImageUrls,
@@ -74,7 +68,6 @@ export function CreateIssueDialog({
   const [dueDate, setDueDate] = useState<Date | undefined>()
   const [dueTime, setDueTime] = useState<string | null>(null)
   const [endTime, setEndTime] = useState<string | null>(null)
-  const [recurrence, setRecurrence] = useState<RecurrenceValue | null>(null)
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
@@ -164,9 +157,6 @@ export function CreateIssueDialog({
     setDueDate(undefined)
     setDueTime(null)
     setEndTime(null)
-    setRecurrence((previous) =>
-      previous ? { ...previous, firstDue: new Date() } : null
-    )
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -266,18 +256,14 @@ export function CreateIssueDialog({
       const { issue } = await trpc.issues.create.mutate({
         projectId,
         title: title.trim(),
-        status: recurrence ? `todo` : status,
+        status,
         priority,
         assigneeId: assigneeId ?? undefined,
         description: toIssueDescription(strippedDescription) ?? undefined,
-        dueDate: recurrence
-          ? (formatDateForMutation(recurrence.firstDue) ?? undefined)
-          : (formatDateForMutation(dueDate) ?? undefined),
+        dueDate: formatDateForMutation(dueDate) ?? undefined,
         dueTime: dueTime ?? undefined,
         endTime: endTime ?? undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
-        recurrenceInterval: recurrence?.interval,
-        recurrenceUnit: recurrence?.unit,
       })
 
       const uploadedImageUrls = new Map<string, string>()
@@ -354,62 +340,6 @@ export function CreateIssueDialog({
     submitPhase === `creating` || submitPhase === `uploading`
   const imageOccurrences = extractMarkdownImageOccurrences(description)
 
-  const enableRecurrence = () => {
-    setRecurrence({
-      firstDue: dueDate ?? new Date(),
-      interval: 1,
-      unit: `week`,
-    })
-  }
-
-  const overflowMenuItems = (
-    <DropdownMenuItem
-      disabled={recurrence !== null}
-      onSelect={() => {
-        enableRecurrence()
-      }}
-    >
-      <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
-      Make recurring…
-    </DropdownMenuItem>
-  )
-
-  const recurringFooter = recurrence ? (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
-      <RecurrenceEditor
-        value={recurrence}
-        disabled={closeDisabled}
-        onChange={setRecurrence}
-      />
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch
-            id="create-more"
-            size="sm"
-            checked={createMore}
-            disabled={closeDisabled}
-            onCheckedChange={(checked) => setCreateMore(checked === true)}
-          />
-          <Label
-            htmlFor="create-more"
-            className="text-xs text-muted-foreground cursor-pointer select-none"
-          >
-            Create more
-          </Label>
-        </div>
-        <Button
-          type="submit"
-          disabled={!title.trim() || !recurrence.firstDue || closeDisabled}
-          className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
-        >
-          {submitPhase === `creating`
-            ? `Creating...`
-            : `Create recurring issue`}
-        </Button>
-      </div>
-    </div>
-  ) : null
-
   const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
     const nextDescription = removeMarkdownImageByOccurrence(
       descriptionRef.current,
@@ -451,9 +381,8 @@ export function CreateIssueDialog({
         uploading: submitPhase === `uploading`,
         onFiles: handleImageFiles,
       }}
-      status={recurrence ? `todo` : status}
+      status={status}
       onStatusChange={setStatus}
-      disableStatus={recurrence !== null}
       priority={priority}
       onPriorityChange={setPriority}
       workspaceId={workspaceId}
@@ -469,12 +398,8 @@ export function CreateIssueDialog({
       endTime={endTime}
       onDueTimeChange={setDueTime}
       onEndTimeChange={setEndTime}
-      hideDueDateChip={recurrence !== null}
-      overflowMenuItems={overflowMenuItems}
       footer={
-        recurringFooter ? (
-          recurringFooter
-        ) : submitPhase === `created_with_image_errors` ? (
+        submitPhase === `created_with_image_errors` ? (
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
             <span className="text-xs text-destructive">{attachmentStatus}</span>
             <Button

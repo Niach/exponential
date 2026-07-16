@@ -19,8 +19,6 @@ struct CreateIssueSheet: View {
     @State private var dueTime: String?
     @State private var endTime: String?
     @State private var assigneeId: String?
-    @State private var recurrenceInterval: Int?
-    @State private var recurrenceUnit: RecurrenceUnit?
     @State private var selectedLabelIds: Set<String> = []
     @State private var labels: [LabelEntity] = []
     @State private var workspaceId: String?
@@ -36,7 +34,6 @@ struct CreateIssueSheet: View {
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
-    @State private var showRecurrencePicker = false
     @State private var showCreateLabel = false
     @FocusState private var titleFocused: Bool
 
@@ -115,19 +112,6 @@ struct CreateIssueSheet: View {
                                     .buttonStyle(.plain)
                                     .disabled(!permissions.isModerator)
                                 }
-                            }
-
-                            // Recurrence
-                            metadataRow(label: "Repeat", icon: "repeat", iconColor: .white.opacity(0.6)) {
-                                Button {
-                                    showRecurrencePicker = true
-                                } label: {
-                                    Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!permissions.isModerator)
                             }
 
                         }
@@ -360,16 +344,6 @@ struct CreateIssueSheet: View {
                     }
                 }
             }
-            .sheet(isPresented: $showRecurrencePicker) {
-                RecurrencePickerSheet(
-                    currentInterval: recurrenceInterval,
-                    currentUnit: recurrenceUnit?.rawValue,
-                    onSelect: { interval, unit in
-                        recurrenceInterval = interval
-                        recurrenceUnit = unit
-                    }
-                )
-            }
             .sheet(isPresented: $showCreateLabel) {
                 CreateLabelSheet { name, color in
                     Task { await createAndSelectLabel(name: name, color: color) }
@@ -456,9 +430,7 @@ struct CreateIssueSheet: View {
             dueDate: dateStr,
             dueTime: dateStr == nil ? nil : dueTime,
             endTime: dateStr == nil ? nil : endTime,
-            labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds),
-            recurrenceInterval: recurrenceInterval,
-            recurrenceUnit: recurrenceUnit?.rawValue
+            labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds)
         )
 
         do {
@@ -530,16 +502,4 @@ struct CreateIssueSheet: View {
     private func formatDate(_ date: Date) -> String {
         AppDateFormatters.yyyyMMdd.string(from: date)
     }
-}
-
-private func formatCreateRecurrence(_ interval: Int?, _ unit: RecurrenceUnit?) -> String {
-    guard let interval, let unit else { return "Doesn't repeat" }
-    if interval == 1 {
-        switch unit {
-        case .day: return "Daily"
-        case .week: return "Weekly"
-        case .month: return "Monthly"
-        }
-    }
-    return "Every \(interval) \(unit.label(for: interval))"
 }

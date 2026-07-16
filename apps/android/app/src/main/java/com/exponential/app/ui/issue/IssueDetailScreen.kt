@@ -118,7 +118,6 @@ fun IssueDetailScreen(
     var datePickerOpen by remember { mutableStateOf(false) }
     var dueTimePickerOpen by remember { mutableStateOf(false) }
     var endTimePickerOpen by remember { mutableStateOf(false) }
-    var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelsOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var duplicatePickerOpen by remember { mutableStateOf(false) }
@@ -432,7 +431,6 @@ fun IssueDetailScreen(
                 onClearDueDate = { viewModel.updateDueDate(null) },
                 onStartTimeClick = { dueTimePickerOpen = true },
                 onEndTimeClick = { endTimePickerOpen = true },
-                onRepeatClick = { recurrenceSheetOpen = true },
                 onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
                 onAddLabel = { labelsOpen = true },
             )
@@ -576,15 +574,6 @@ fun IssueDetailScreen(
             onConfirm = { viewModel.updateEndTime(it); endTimePickerOpen = false },
             onClear = { viewModel.updateEndTime(null); endTimePickerOpen = false },
             onDismiss = { endTimePickerOpen = false },
-        )
-    }
-
-    if (recurrenceSheetOpen && issue != null) {
-        RecurrenceSheet(
-            interval = issue.recurrenceInterval,
-            unit = issue.recurrenceUnit,
-            onApply = { i, u -> viewModel.updateRecurrence(i, u); recurrenceSheetOpen = false },
-            onDismiss = { recurrenceSheetOpen = false },
         )
     }
 

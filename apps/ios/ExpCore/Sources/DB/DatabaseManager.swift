@@ -143,7 +143,9 @@ public final class DatabaseManager: @unchecked Sendable {
         // `-v4` (greenfield reshape): dropped the agent_runs table + the stale
         // agent_plan_state / google_calendar_* columns from `issues`, added the
         // `coding_sessions` shape, `issues.duplicate_of_id`, and
-        // `issue_subscribers.email` (with a nullable user_id).
+        // `issue_subscribers.email` (with a nullable user_id). Column drops since
+        // then (v8 release_id, v10 recurrence_*) ride guarded DROP COLUMN
+        // migrations instead of a suffix bump.
         return dbDir.appendingPathComponent("exponential-\(accountId)-v4.sqlite")
     }
 
@@ -233,8 +235,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("completed_at", .text)
                 t.column("archived_at", .text)
-                t.column("recurrence_interval", .integer)
-                t.column("recurrence_unit", .text)
                 // Duplicate resolution (pairs with status='duplicate').
                 t.column("duplicate_of_id", .text)
                 // PR linkage (one issue = one PR); all nullable.
@@ -650,6 +650,29 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'projects'
                     """)
+            }
+        }
+
+        // v10 (EXP-107): the recurrence feature is deleted. Drop the
+        // `recurrence_interval` / `recurrence_unit` columns for any device that
+        // ran the original v1 create — the same guarded plain DROP COLUMN as
+        // v8_drop_releases (neither column is indexed or referenced, so every
+        // issue row survives with no resnapshot). Fresh installs never created
+        // them (the v1 create above dropped them), so the guard no-ops there and
+        // fresh + upgraded DBs converge on one schema. The issues shape no longer
+        // syncs these columns, so no offset reset is needed.
+        migrator.registerMigration("v10_drop_recurrence") { db in
+            guard try db.tableExists("issues") else { return }
+            let cols = Set(try db.columns(in: "issues").map(\.name))
+            if cols.contains("recurrence_interval") || cols.contains("recurrence_unit") {
+                try db.alter(table: "issues") { t in
+                    if cols.contains("recurrence_interval") {
+                        t.drop(column: "recurrence_interval")
+                    }
+                    if cols.contains("recurrence_unit") {
+                        t.drop(column: "recurrence_unit")
+                    }
+                }
             }
         }
 

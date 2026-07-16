@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -20,6 +21,7 @@ enum class IssueStatus(val wire: String, val label: String) {
     Backlog("backlog", "Backlog"),
     Todo("todo", "Todo"),
     InProgress("in_progress", "In progress"),
+    InReview("in_review", "In Review"),
     Done("done", "Done"),
     Cancelled("cancelled", "Cancelled"),
     Duplicate("duplicate", "Duplicate");
@@ -32,6 +34,7 @@ enum class IssueStatus(val wire: String, val label: String) {
 
 val issueStatusOrder: List<IssueStatus> = listOf(
     IssueStatus.InProgress,
+    IssueStatus.InReview,
     IssueStatus.Todo,
     IssueStatus.Backlog,
     IssueStatus.Done,
@@ -43,6 +46,7 @@ fun statusIcon(status: IssueStatus): ImageVector = when (status) {
     IssueStatus.Backlog -> Icons.Filled.RadioButtonUnchecked
     IssueStatus.Todo -> Icons.Filled.RadioButtonUnchecked
     IssueStatus.InProgress -> Icons.Filled.HourglassTop
+    IssueStatus.InReview -> Icons.AutoMirrored.Filled.CallMerge
     IssueStatus.Done -> Icons.Filled.CheckCircle
     IssueStatus.Cancelled -> Icons.Filled.Cancel
     IssueStatus.Duplicate -> Icons.Filled.ContentCopy
@@ -135,7 +139,7 @@ fun issueComparatorForGroup(
     status: IssueStatus,
     today: String = LocalDate.now().toString(),
 ): Comparator<IssueEntity> = when (status) {
-    IssueStatus.Backlog, IssueStatus.Todo, IssueStatus.InProgress ->
+    IssueStatus.Backlog, IssueStatus.Todo, IssueStatus.InProgress, IssueStatus.InReview ->
         // false < true, so overdue rows (dueDate < today) come first.
         compareBy<IssueEntity> { !(it.dueDate != null && it.dueDate < today) }
             .thenBy { issuePriorityRank(IssuePriority.fromWire(it.priority)) }

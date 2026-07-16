@@ -27,8 +27,6 @@ const ANONYMOUS_COLUMNS = [
   `sort_order`,
   `completed_at`,
   `archived_at`,
-  `recurrence_interval`,
-  `recurrence_unit`,
   `duplicate_of_id`,
   `pr_state`,
   `pr_merged_at`,

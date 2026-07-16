@@ -3,11 +3,10 @@
 package com.exponential.app.domain
 
 object DomainContract {
-    val issueStatusValues: List<String> = listOf("backlog", "todo", "in_progress", "done", "cancelled", "duplicate")
-    val issueStatusDisplayOrder: List<String> = listOf("in_progress", "todo", "backlog", "done", "cancelled", "duplicate")
+    val issueStatusValues: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
+    val issueStatusDisplayOrder: List<String> = listOf("in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate")
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
-    val recurrenceUnitValues: List<String> = listOf("day", "week", "month")
     val workspaceRoleValues: List<String> = listOf("owner", "member")
     val projectIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
     val commentKindValues: List<String> = listOf("regular")
@@ -16,7 +15,6 @@ object DomainContract {
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved")
-    val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 
     const val workspaceRoleOwner: String = "owner"
     const val workspaceRoleMember: String = "member"

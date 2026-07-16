@@ -1,16 +1,7 @@
-import { CalendarDays, Repeat } from "lucide-react"
+import { CalendarDays } from "lucide-react"
 import type { User } from "@/db/schema"
-import {
-  formatRecurrence,
-  type IssuePriority,
-  type IssueStatus,
-  type RecurrenceUnit,
-} from "@/lib/domain"
+import { type IssuePriority, type IssueStatus } from "@/lib/domain"
 import { formatDate } from "@/lib/utils"
-import {
-  RecurrenceEditor,
-  type RecurrenceValue,
-} from "@/components/recurrence-editor"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
 import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -44,9 +35,6 @@ export interface IssuePropertiesPanelProps {
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onDueTimeChange: (time: string | null) => void | Promise<void>
   onEndTimeChange: (time: string | null) => void | Promise<void>
-  recurrenceInterval: number | null
-  recurrenceUnit: RecurrenceUnit | null
-  onRecurrenceChange: (next: RecurrenceValue | null) => void | Promise<void>
   projectName: string
   projectColor: string
   projectPrefix: string
@@ -137,76 +125,6 @@ function DueDateControl({
               </Button>
             )}
           </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function RecurrenceControl({
-  layout,
-  disabled,
-  recurrenceInterval,
-  recurrenceUnit,
-  dueDate,
-  onRecurrenceChange,
-}: Pick<
-  IssuePropertiesPanelProps,
-  | `layout`
-  | `disabled`
-  | `recurrenceInterval`
-  | `recurrenceUnit`
-  | `dueDate`
-  | `onRecurrenceChange`
->) {
-  const isRecurring = recurrenceInterval !== null && recurrenceUnit !== null
-  const label = isRecurring
-    ? formatRecurrence(recurrenceInterval!, recurrenceUnit!)
-    : `Add recurrence`
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className={
-            layout === `sidebar`
-              ? `justify-start text-muted-foreground hover:text-foreground`
-              : `text-muted-foreground shrink-0`
-          }
-          disabled={disabled}
-        >
-          <Repeat className="size-3" />
-          {label}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-3 space-y-2">
-        <RecurrenceEditor
-          value={
-            isRecurring
-              ? {
-                  firstDue: dueDate,
-                  interval: recurrenceInterval!,
-                  unit: recurrenceUnit!,
-                }
-              : {
-                  firstDue: dueDate ?? new Date(),
-                  interval: 1,
-                  unit: `week`,
-                }
-          }
-          onChange={(next) => void onRecurrenceChange(next)}
-        />
-        {isRecurring && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
-            onClick={() => void onRecurrenceChange(null)}
-          >
-            Stop recurring
-          </Button>
         )}
       </PopoverContent>
     </Popover>
@@ -345,17 +263,6 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     />
   )
 
-  const recurrenceControl = (
-    <RecurrenceControl
-      layout={layout}
-      disabled={moderationDisabled}
-      recurrenceInterval={props.recurrenceInterval}
-      recurrenceUnit={props.recurrenceUnit}
-      dueDate={props.dueDate}
-      onRecurrenceChange={props.onRecurrenceChange}
-    />
-  )
-
   const projectChip =
     props.projectId && props.onProjectChange ? (
       <ProjectPicker
@@ -382,12 +289,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
           <PropertyGroup label="Assignee">{assigneeControl}</PropertyGroup>
         )}
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
-        <PropertyGroup label="Due date">
-          <div className="flex flex-col items-start gap-1">
-            {dueDateControl}
-            {recurrenceControl}
-          </div>
-        </PropertyGroup>
+        <PropertyGroup label="Due date">{dueDateControl}</PropertyGroup>
         <PropertyGroup label="Project">{projectChip}</PropertyGroup>
       </aside>
     )
@@ -401,7 +303,6 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {!isSolo && assigneeControl}
       {labelControl}
       {dueDateControl}
-      {recurrenceControl}
       {projectChip}
     </div>
   )

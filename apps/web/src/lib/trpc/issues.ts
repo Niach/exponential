@@ -11,7 +11,6 @@ import {
   issueSubscribers,
   labels,
   projects,
-  type Issue,
 } from "@/db/schema"
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import {
@@ -46,8 +45,6 @@ import {
   issueDescriptionSchema,
   issuePrioritySchema,
   issueStatusSchema,
-  recurrenceIntervalSchema,
-  recurrenceUnitSchema,
   timeOnlySchema,
 } from "@/lib/domain"
 import {
@@ -61,11 +58,6 @@ import {
   collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects,
 } from "@/lib/storage/issue-attachment-cleanup"
-import {
-  cloneIssueForRecurrence,
-  copyRecurrenceAttachments,
-  type AttachmentCopyOp,
-} from "@/lib/issue-recurrence"
 import {
   fireAndForgetAssignmentNotify,
   fireAndForgetIssueMentionNotify,
@@ -83,21 +75,6 @@ function repoFromPrUrl(prUrl: string): string | null {
     /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
   )
   return match ? match[1] : null
-}
-
-function assertRecurrencePair(
-  interval: number | null | undefined,
-  unit: string | null | undefined
-) {
-  const intervalSet = interval !== null && interval !== undefined
-  const unitSet = unit !== null && unit !== undefined
-
-  if (intervalSet !== unitSet) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `Recurrence interval and unit must be set together`,
-    })
-  }
 }
 
 type Tx = Parameters<
@@ -141,25 +118,21 @@ function applyStatusDerivations(
 
 // The per-issue write core shared by update and bulkUpdate: persists
 // setValues, records status/assignee activity events (comparing the FINAL
-// persisted values), auto-subscribes a new assignee, and clones the next
-// occurrence of a recurring issue completed here. Post-commit side effects
-// (attachment object copies, notification fan-out) are returned to the
-// caller — never executed inside the transaction.
+// persisted values), and auto-subscribes a new assignee. Post-commit side
+// effects (notification fan-out) are returned to the caller — never executed
+// inside the transaction.
 async function finalizeIssueUpdateInTx(
   tx: Tx,
   args: {
     issueId: string
     workspaceId: string
     actorUserId: string
-    requestUrl: string
     current: {
       status: string
       projectId: string
       title: string
       priority: string
       assigneeId: string | null
-      recurrenceInterval: number | null
-      recurrenceUnit: string | null
     }
     setValues: Record<string, unknown>
   }
@@ -167,10 +140,8 @@ async function finalizeIssueUpdateInTx(
   issue: typeof issues.$inferSelect
   statusChange: { from: string; to: string } | null
   previousAssigneeId: string | null
-  attachmentCopies: AttachmentCopyOp[]
 } | null> {
-  const { issueId, workspaceId, actorUserId, requestUrl, current, setValues } =
-    args
+  const { issueId, workspaceId, actorUserId, current, setValues } = args
 
   const [issue] = await tx
     .update(issues)
@@ -212,47 +183,10 @@ async function finalizeIssueUpdateInTx(
     }
   }
 
-  const attachmentCopies: AttachmentCopyOp[] = []
-  const transitionedToDone =
-    issue.status === `done` && current.status !== `done`
-  const nextRecurrenceInterval =
-    setValues.recurrenceInterval !== undefined
-      ? (setValues.recurrenceInterval as number | null)
-      : current.recurrenceInterval
-  const nextRecurrenceUnit =
-    setValues.recurrenceUnit !== undefined
-      ? (setValues.recurrenceUnit as string | null)
-      : current.recurrenceUnit
-
-  if (
-    transitionedToDone &&
-    nextRecurrenceInterval !== null &&
-    nextRecurrenceUnit !== null
-  ) {
-    const { attachmentCopies: copies } = await cloneIssueForRecurrence(tx, {
-      sourceIssueId: issueId,
-      sourceProjectId: current.projectId,
-      sourceWorkspaceId: workspaceId,
-      sourceTitle: current.title,
-      sourcePriority: current.priority as Issue[`priority`],
-      sourceAssigneeId: current.assigneeId,
-      // Clone from the issue's final persisted description so it stays
-      // consistent with any attachment cleanup that ran in this same
-      // mutation (e.g. an image removed alongside completion).
-      sourceDescription: issue.description,
-      recurrenceInterval: nextRecurrenceInterval,
-      recurrenceUnit: nextRecurrenceUnit as NonNullable<Issue[`recurrenceUnit`]>,
-      creatorId: actorUserId,
-      requestUrl,
-    })
-    attachmentCopies.push(...copies)
-  }
-
   return {
     issue,
     statusChange,
     previousAssigneeId: current.assigneeId,
-    attachmentCopies,
   }
 }
 
@@ -270,8 +204,6 @@ export const issuesRouter = router({
         dueTime: timeOnlySchema.nullable().optional(),
         endTime: timeOnlySchema.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
-        recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
-        recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -295,8 +227,6 @@ export const issuesRouter = router({
       const assigneeId =
         input.assigneeId ?? (await getSoleHumanMemberId(project.workspaceId))
 
-      assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
-
       if (input.description && hasMarkdownImages(input.description)) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
@@ -318,8 +248,6 @@ export const issuesRouter = router({
             dueDate: input.dueDate ?? null,
             dueTime: input.dueTime ?? null,
             endTime: input.endTime ?? null,
-            recurrenceInterval: input.recurrenceInterval ?? null,
-            recurrenceUnit: input.recurrenceUnit ?? null,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -422,8 +350,6 @@ export const issuesRouter = router({
         dueDate: dateOnlySchema.nullable().optional(),
         dueTime: timeOnlySchema.nullable().optional(),
         endTime: timeOnlySchema.nullable().optional(),
-        recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
-        recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
         // Canonical issue this one duplicates. Kept in lockstep with the
         // 'duplicate' status inside the transaction below: marking forces
         // status='duplicate'; unmarking (null) restores backlog; moving to any
@@ -455,15 +381,7 @@ export const issuesRouter = router({
         )
       }
 
-      if (
-        updates.recurrenceInterval !== undefined ||
-        updates.recurrenceUnit !== undefined
-      ) {
-        assertRecurrencePair(updates.recurrenceInterval, updates.recurrenceUnit)
-      }
-
       const deletedStorageKeys: string[] = []
-      const attachmentCopies: AttachmentCopyOp[] = []
 
       let previousAssigneeId: string | null = null
       let newlyMentionedUserIds: string[] = []
@@ -476,17 +394,14 @@ export const issuesRouter = router({
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
-            recurrenceInterval: issues.recurrenceInterval,
-            recurrenceUnit: issues.recurrenceUnit,
             duplicateOfId: issues.duplicateOfId,
           })
           .from(issues)
           .where(eq(issues.id, id))
           .limit(1)
           // FOR UPDATE serializes concurrent updates of the same issue so the
-          // transition checks below (recurrence spawn, status events) never
-          // run against a stale snapshot — without it two concurrent 'done'
-          // writes both see the old status and both spawn a recurrence clone.
+          // transition checks below (status events) never run against a stale
+          // snapshot.
           .for(`update`)
 
         if (!currentIssue) {
@@ -640,20 +555,17 @@ export const issuesRouter = router({
           issueId: id,
           workspaceId: issueContext.workspaceId,
           actorUserId: ctx.session.user.id,
-          requestUrl: ctx.request.url,
           current: currentIssue,
           setValues,
         })
         if (!result) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
         }
-        attachmentCopies.push(...result.attachmentCopies)
 
         return { issue: result.issue, statusChange: result.statusChange }
       })
 
       await deleteStorageObjects(deletedStorageKeys)
-      await copyRecurrenceAttachments(attachmentCopies)
 
       fireAndForgetAssignmentNotify({
         issueId: issue.id,
@@ -892,8 +804,6 @@ export const issuesRouter = router({
           title: issues.title,
           priority: issues.priority,
           assigneeId: issues.assigneeId,
-          recurrenceInterval: issues.recurrenceInterval,
-          recurrenceUnit: issues.recurrenceUnit,
           duplicateOfId: issues.duplicateOfId,
           workspaceId: projects.workspaceId,
         })
@@ -943,7 +853,6 @@ export const issuesRouter = router({
             issueId: row.id,
             workspaceId,
             actorUserId: ctx.session.user.id,
-            requestUrl: ctx.request.url,
             current: row,
             setValues,
           })
@@ -953,10 +862,6 @@ export const issuesRouter = router({
         }
         return { txId, results }
       })
-
-      await copyRecurrenceAttachments(
-        results.flatMap((result) => result.attachmentCopies)
-      )
 
       // Fan-out cap: a 200-issue sweep must not fire hundreds of pushes —
       // skip ALL per-issue notifications past 25 ids.
@@ -1041,11 +946,12 @@ export const issuesRouter = router({
     }),
 
   // Squash-merge the issue's open PR via the GitHub App installation token
-  // (the symmetric counterpart of the MCP open_pr tool). Merging flips
-  // prState/prMergedAt only — issue status stays a human decision. State
-  // write + pr_merged event + notifications all go through the shared
-  // applyPrMergeState writer, whose idempotent open→merged guard also absorbs
-  // the later webhook delivery for the same merge.
+  // (the symmetric counterpart of the MCP open_pr tool). Merging completes
+  // EVERY issue linked to the PR (a batch PR links several to one prUrl):
+  // state write + status→done + pr_merged event + notifications all go
+  // through the shared applyPrMergeState writer, whose idempotent
+  // open→merged guard also absorbs the later webhook delivery for the same
+  // merge.
   mergePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
@@ -1147,12 +1053,24 @@ export const issuesRouter = router({
         throw err
       }
 
-      await applyPrMergeState({
-        issueId: input.issueId,
-        prUrl: row.prUrl,
-        mergedAt: new Date(),
-        actorUserId: ctx.session.user.id,
-      })
+      // Complete every issue the PR is linked to — not just the clicked one —
+      // so a batch PR's siblings don't wait on the webhook echo (self-hosted
+      // instances behind NAT may only have the slower polling cron).
+      const linked = await ctx.db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, row.prUrl))
+      const linkedIds = linked.some((issue) => issue.id === input.issueId)
+        ? linked.map((issue) => issue.id)
+        : [input.issueId, ...linked.map((issue) => issue.id)]
+      for (const issueId of linkedIds) {
+        await applyPrMergeState({
+          issueId,
+          prUrl: row.prUrl,
+          mergedAt: new Date(),
+          actorUserId: ctx.session.user.id,
+        })
+      }
 
       return { merged: true }
     }),
@@ -1242,10 +1160,22 @@ export const issuesRouter = router({
         throw err
       }
 
-      await applyPrClosedState({
-        issueId: input.issueId,
-        prUrl: row.prUrl,
-      })
+      // Flip every issue the PR is linked to (batch PRs share one prUrl) so
+      // the siblings drop out of the Reviews surfaces without waiting on the
+      // webhook echo.
+      const closedLinked = await ctx.db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, row.prUrl))
+      const closedIds = closedLinked.some((issue) => issue.id === input.issueId)
+        ? closedLinked.map((issue) => issue.id)
+        : [input.issueId, ...closedLinked.map((issue) => issue.id)]
+      for (const issueId of closedIds) {
+        await applyPrClosedState({
+          issueId,
+          prUrl: row.prUrl,
+        })
+      }
 
       return { closed: true }
     }),

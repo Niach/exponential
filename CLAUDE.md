@@ -150,7 +150,7 @@ apps/web/src/
 │   ├── issue-filter-bar.tsx, issue-filter-popover.tsx, active-filter-pills.tsx
 │   ├── create-issue-dialog.tsx, create-project-dialog.tsx, create-workspace-dialog.tsx
 │   ├── diff-view.tsx, agent-session.tsx (EXP-63: custom-rendered steer/activity view over the steer relay — no xterm)
-│   └── github-repo-picker.tsx, recurrence-editor.tsx, subscribe-toggle.tsx, …
+│   └── github-repo-picker.tsx, subscribe-toggle.tsx, …
 ├── db/                           # schema.ts (re-exports @exp/db-schema + auth-schema), connection.ts, out/ (migrations + custom/0001_triggers.sql)
 ├── hooks/                        # use-session, use-workspace-data, use-my-issues-data, use-project-board-data, use-workspace-permissions, …
 ├── lib/
@@ -195,11 +195,11 @@ apps/web/src/
 
 ### Key Issue Fields
 
-`id`, `projectId`, `number`, `identifier`, `title`, `description` (text, GFM), `status`, `priority`, `assigneeId`, `creatorId`, `dueDate`, `sortOrder`, `completedAt`, `archivedAt`, `createdAt`, `updatedAt`, recurrence fields `recurrenceInterval` + `recurrenceUnit` (recurring issues: on completion the server spawns the next occurrence; intervals come from `domain-contract/contract.json`), `duplicateOfId` (self-FK, pairs with status `duplicate`), plus PR fields `prUrl`/`prNumber`/`prState`/`branch`/`prMergedAt` (one PR per issue — usually one `exp/<IDENTIFIER>` branch; the issues of a batch coding run share ONE combined PR on `exp/batch-<id8>`, so several issues may carry the same `prUrl`). Key project fields (v7): `type` (`dev`/`tasks`/`feedback`), `publicShowComments`, `publicShowActivity`, nullable `repositoryId`, plus trash fields `deletedAt` + `isProtected` (see Project trash below)
+`id`, `projectId`, `number`, `identifier`, `title`, `description` (text, GFM), `status`, `priority`, `assigneeId`, `creatorId`, `dueDate`, `sortOrder`, `completedAt`, `archivedAt`, `createdAt`, `updatedAt`, `duplicateOfId` (self-FK, pairs with status `duplicate`), plus PR fields `prUrl`/`prNumber`/`prState`/`branch`/`prMergedAt` (one PR per issue — usually one `exp/<IDENTIFIER>` branch; the issues of a batch coding run share ONE combined PR on `exp/batch-<id8>`, so several issues may carry the same `prUrl`). Key project fields (v7): `type` (`dev`/`tasks`/`feedback`), `publicShowComments`, `publicShowActivity`, nullable `repositoryId`, plus trash fields `deletedAt` + `isProtected` (see Project trash below)
 
 ### Enums
 
-`issue_status` (backlog/todo/in_progress/done/cancelled/duplicate), `issue_priority` (none/urgent/high/medium/low), `notification_type` (incl. pr_opened/pr_merged), `workspace_member_role` (owner/member), `project_type` (dev/tasks/feedback), `recurrence_unit`, `pr_state`, `coding_session_status` (running/ended), `issue_event_type`, `subscriber_source` (incl. widget_reporter) — canonical values live in `packages/domain-contract/contract.json`
+`issue_status` (backlog/todo/in_progress/in_review/done/cancelled/duplicate — `in_review` is the coding-flow parking spot: `pr_open` flips linked issues to it, the PR merge completes them to `done`), `issue_priority` (none/urgent/high/medium/low), `notification_type` (incl. pr_opened/pr_merged), `workspace_member_role` (owner/member), `project_type` (dev/tasks/feedback), `pr_state`, `coding_session_status` (running/ended), `issue_event_type`, `subscriber_source` (incl. widget_reporter) — canonical values live in `packages/domain-contract/contract.json`
 
 ### Custom Triggers (0001_triggers.sql)
 

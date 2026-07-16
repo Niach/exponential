@@ -8,8 +8,8 @@ import { is, Param, SQL } from "drizzle-orm"
 // hard BAD_REQUEST), membership + assignee validation run ONCE, and the whole
 // batch commits in ONE transaction under ONE txId. Per-issue side effects go
 // through the same applyStatusDerivations/finalizeIssueUpdateInTx core as the
-// single update (completedAt stamping, duplicate-link clearing, recurrence
-// clone), and the post-commit notification fan-out is skipped entirely past
+// single update (completedAt stamping, duplicate-link clearing), and the
+// post-commit notification fan-out is skipped entirely past
 // 25 ids. Fake-db harness: FIFO select queue,
 // recording update/delete chains, transaction() handing back the same fake.
 
@@ -20,11 +20,6 @@ const h = vi.hoisted(() => ({
   assertAssigneeInWorkspace: vi.fn(async (..._args: unknown[]) => undefined),
   ensureSubscribed: vi.fn(),
   recordIssueEvent: vi.fn(),
-  cloneIssueForRecurrence: vi.fn(async (..._args: unknown[]) => ({
-    issue: { id: `clone-1` },
-    attachmentCopies: [] as { sourceKey: string; destKey: string }[],
-  })),
-  copyRecurrenceAttachments: vi.fn(),
   collectIssueAttachmentStorageKeysInTx: vi.fn(
     async (..._args: unknown[]) => [] as string[]
   ),
@@ -73,10 +68,6 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   collectAndDeleteUnreferencedAttachmentsInTx: vi.fn(),
   collectIssueAttachmentStorageKeysInTx: h.collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects: h.deleteStorageObjects,
-}))
-vi.mock(`@/lib/issue-recurrence`, () => ({
-  cloneIssueForRecurrence: h.cloneIssueForRecurrence,
-  copyRecurrenceAttachments: h.copyRecurrenceAttachments,
 }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
@@ -189,8 +180,6 @@ function issueRow(
     title: `Issue`,
     priority: `none`,
     assigneeId: null,
-    recurrenceInterval: null,
-    recurrenceUnit: null,
     duplicateOfId: null,
     workspaceId: WS,
     ...overrides,
@@ -224,12 +213,6 @@ beforeEach(() => {
   h.assertAssigneeInWorkspace.mockResolvedValue(undefined)
   h.ensureSubscribed.mockClear()
   h.recordIssueEvent.mockClear()
-  h.cloneIssueForRecurrence.mockClear()
-  h.cloneIssueForRecurrence.mockResolvedValue({
-    issue: { id: `clone-1` },
-    attachmentCopies: [],
-  })
-  h.copyRecurrenceAttachments.mockClear()
   h.collectIssueAttachmentStorageKeysInTx.mockClear()
   h.collectIssueAttachmentStorageKeysInTx.mockResolvedValue([])
   h.deleteStorageObjects.mockClear()
@@ -320,35 +303,6 @@ describe(`issues.bulkUpdate`, () => {
     expect(updates).toHaveLength(1)
     expect(updates[0]!.set.duplicateOfId).toBeNull()
     expect(updates[0]!.set.completedAt).toBeNull()
-  })
-
-  it(`bulk done on a recurring issue clones the next occurrence and copies its attachments post-commit`, async () => {
-    seedEligible([
-      issueRow(ID_A, { recurrenceInterval: 1, recurrenceUnit: `weekly` }),
-      issueRow(ID_B),
-    ])
-    h.cloneIssueForRecurrence.mockResolvedValue({
-      issue: { id: `clone-1` },
-      attachmentCopies: [{ sourceKey: `src`, destKey: `dst` }],
-    })
-
-    await caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
-
-    // Only the recurring issue clones.
-    expect(h.cloneIssueForRecurrence).toHaveBeenCalledTimes(1)
-    expect(h.cloneIssueForRecurrence).toHaveBeenCalledWith(
-      fakeDb,
-      expect.objectContaining({
-        sourceIssueId: ID_A,
-        sourceWorkspaceId: WS,
-        recurrenceInterval: 1,
-        recurrenceUnit: `weekly`,
-        creatorId: `actor`,
-      })
-    )
-    expect(h.copyRecurrenceAttachments).toHaveBeenCalledWith([
-      { sourceKey: `src`, destKey: `dst` },
-    ])
   })
 
   it(`bulk assign validates the assignee once and only notifies actual changes`, async () => {

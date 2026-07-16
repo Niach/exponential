@@ -104,7 +104,8 @@ struct IssueListView: View {
                                                 } label: {
                                                     Label("Done", systemImage: "checkmark.circle.fill")
                                                 }
-                                                .tint(.green)
+                                                // Track done's status color (EXP-120: now blue).
+                                                .tint(IssueStatus.done.color)
 
                                                 Button {
                                                     Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }

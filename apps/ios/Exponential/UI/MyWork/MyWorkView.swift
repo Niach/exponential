@@ -17,11 +17,13 @@ struct MyWorkView: View {
     private enum Segment: String, CaseIterable {
         case inbox
         case myIssues
+        case reviews
 
         var label: String {
             switch self {
             case .inbox: return "Inbox"
             case .myIssues: return "My Issues"
+            case .reviews: return "Reviews"
             }
         }
     }
@@ -48,6 +50,8 @@ struct MyWorkView: View {
                     }
                 case .myIssues:
                     MyIssuesListContent()
+                case .reviews:
+                    ReviewsListContent()
                 }
             }
         }

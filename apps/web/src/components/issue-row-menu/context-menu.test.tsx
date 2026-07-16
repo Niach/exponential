@@ -128,8 +128,6 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     sortOrder: 0,
     completedAt: null,
     archivedAt: null,
-    recurrenceInterval: null,
-    recurrenceUnit: null,
     duplicateOfId: null,
     prUrl: null,
     prNumber: null,

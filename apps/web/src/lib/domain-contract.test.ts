@@ -3,7 +3,6 @@ import { contract } from "@exp/domain-contract"
 import {
   issueStatusValues,
   issuePriorityValues,
-  recurrenceUnitValues,
   workspaceRoleValues,
   projectIconValues,
   commentKindValues,
@@ -12,7 +11,6 @@ import {
   codingSessionStatusValues,
   subscriberSourceValues,
   issueEventTypeValues,
-  recurrenceIntervals,
   issueStatusOrder,
 } from "@exp/db-schema/domain"
 
@@ -28,12 +26,6 @@ describe(`domain-contract parity`, () => {
 
   it(`issue priority values match the contract`, () => {
     expect([...issuePriorityValues]).toEqual([...contract.issuePriority.values])
-  })
-
-  it(`recurrence unit values match the contract`, () => {
-    expect([...recurrenceUnitValues]).toEqual([
-      ...contract.recurrenceUnit.values,
-    ])
   })
 
   it(`workspace role values match the contract`, () => {
@@ -78,9 +70,5 @@ describe(`domain-contract parity`, () => {
     expect([...issueEventTypeValues]).toEqual([
       ...contract.issueEventType.values,
     ])
-  })
-
-  it(`recurrence intervals match the contract`, () => {
-    expect([...recurrenceIntervals]).toEqual([...contract.recurrenceIntervals])
   })
 })

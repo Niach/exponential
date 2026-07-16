@@ -31,7 +31,6 @@ import {
   issuePriorityValues,
   issueStatusValues,
   projectIconValues,
-  recurrenceUnitValues,
 } from "@/lib/domain"
 import {
   assertWorkspaceMember,
@@ -56,6 +55,7 @@ import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { err, ok } from "./helpers"
@@ -175,7 +175,6 @@ async function getRunConfigContext(id: string) {
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 const projectIconEnumSchema = z.enum(projectIconValues)
-const recurrenceUnitEnumSchema = z.enum(recurrenceUnitValues)
 const dateOnly = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
@@ -580,8 +579,6 @@ export function registerExponentialTools(
         descriptionText: z.string().optional(),
         dueDate: dateOnly.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
-        recurrenceInterval: z.number().int().min(1).nullable().optional(),
-        recurrenceUnit: recurrenceUnitEnumSchema.nullable().optional(),
       },
     },
     async ({ descriptionText, ...rest }) => {
@@ -614,8 +611,6 @@ export function registerExponentialTools(
         assigneeId: z.string().nullable().optional(),
         descriptionText: z.string().nullable().optional(),
         dueDate: dateOnly.nullable().optional(),
-        recurrenceInterval: z.number().int().min(1).nullable().optional(),
-        recurrenceUnit: recurrenceUnitEnumSchema.nullable().optional(),
       },
     },
     async ({ descriptionText, ...rest }) => {
@@ -954,7 +949,7 @@ export function registerExponentialTools(
     `exponential_issues_update_status`,
     {
       title: `Update issue status (coding flow)`,
-      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). There is NO "in review" status — a PR that's open and awaiting review is represented by the issue's prState becoming 'open' after you call exponential_pr_open, not by a status change. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). Do NOT set 'in_review' yourself — calling exponential_pr_open automatically moves the issue to 'in_review', and merging the PR moves it to 'done'. Accepts a UUID or human identifier (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
@@ -979,7 +974,7 @@ export function registerExponentialTools(
     `exponential_pr_open`,
     {
       title: `Open a pull request for one issue or a batch of issues`,
-      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event; merging the PR later completes them all. Fails with a clear message if a project has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
+      description: `Open a GitHub pull request via the linked repository and link it to the issue(s). The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. Pass EXACTLY ONE of 'issueId' (single issue) or 'issueIds' (a batch coding run's issues — ONE combined PR linked to every listed issue; all issues must resolve to the same repository, and 'head' is REQUIRED: the pushed batch branch, e.g. 'exp/batch-<id>'). For a single issue, 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'. 'base' defaults to the repo's default branch. On success each linked issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event, and moves to status 'in_review'; merging the PR later completes them all (status 'done'). Fails with a clear message if a project has no linked repository. Accepts UUIDs or human identifiers (e.g. "MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1067,6 +1062,11 @@ export function registerExponentialTools(
 
         await db.transaction(async (tx) => {
           for (const id of ids) {
+            const [current] = await tx
+              .select({ status: issues.status })
+              .from(issues)
+              .where(eq(issues.id, id))
+              .limit(1)
             await tx
               .update(issues)
               .set({
@@ -1087,6 +1087,16 @@ export function registerExponentialTools(
                 branch: headBranch,
               },
             })
+            // The open PR parks the issue in review (EXP-120).
+            if (current) {
+              await applyPrLifecycleStatusInTx(tx, {
+                issueId: id,
+                workspaceId: workspaceIdByIssue.get(id)!,
+                actorUserId: user.id,
+                currentStatus: current.status,
+                to: `in_review`,
+              })
+            }
           }
         })
 
