@@ -200,6 +200,15 @@ pub fn bracketed_paste_enabled(term: &TermHandle) -> bool {
     term.lock().mode().contains(TermMode::BRACKETED_PASTE)
 }
 
+/// Scrollback display offset from a shared [`TermHandle`] — `0` when the
+/// viewport sits at the live bottom of the grid, `> 0` while the user has
+/// scrolled up into history. The steer plan-picker watcher freezes on a
+/// scrolled viewport so history scrolling can't fake a picker appearing or
+/// resolving (EXP-150).
+pub fn display_offset(term: &TermHandle) -> usize {
+    term.lock().grid().display_offset()
+}
+
 /// Free-function variant of [`Emulator::screen_lines`] usable with just a
 /// [`TermHandle`].
 pub fn screen_lines(term: &TermHandle) -> Vec<String> {

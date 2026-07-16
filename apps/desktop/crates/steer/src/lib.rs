@@ -45,6 +45,7 @@
 pub mod activity;
 pub mod control_channel;
 pub mod frames;
+pub mod plan_picker;
 pub mod publisher;
 pub mod ring;
 

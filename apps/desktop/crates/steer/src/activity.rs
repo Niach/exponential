@@ -41,8 +41,10 @@ use std::time::{Duration, Instant, SystemTime};
 
 use regex::Regex;
 use serde_json::Value;
+use terminal::{display_offset, screen_lines, TermHandle};
 
 use crate::frames::{ActivityEvent, QuestionOption};
+use crate::plan_picker::{PlanPickerWatcher, Transition};
 use crate::publisher::ActivitySender;
 
 /// The mask token substituted for every redacted secret.
@@ -350,10 +352,13 @@ fn parse_ask_user_question(
 }
 
 /// `ExitPlanMode` → a plan-approval `question` (text = the plan markdown when
-/// present). The option keys mirror the `claude` TUI plan picker ("1. Yes,
-/// and auto-accept edits / 2. Yes, and manually approve edits / 3. No, keep
-/// planning") — the mapping lives HERE so a picker change in a future claude
-/// version is fixed centrally, not per client.
+/// present). This transcript path is the DEGRADED fallback (EXP-150): the
+/// pending-time question normally comes from the grid watcher with the REAL
+/// picker rows, and this twin is suppressed. When it does fire (grid
+/// detection missed a re-worded picker), only the two approve keys are
+/// offered — key "3" is no longer safe to send blind (on claude v2.1.211 it
+/// launches "refine with Ultraplan on Claude Code on the web", not "keep
+/// planning").
 fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityEvent {
     let plan = input
         .and_then(|i| i.get("plan"))
@@ -370,10 +375,6 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
             QuestionOption {
                 label: "Approve — manually approve edits".to_string(),
                 key: "2".to_string(),
-            },
-            QuestionOption {
-                label: "No, keep planning".to_string(),
-                key: "3".to_string(),
             },
         ],
         multi_select: None,
@@ -426,6 +427,44 @@ pub fn munge_project_dir(path: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+/// The pending plan's markdown body, read from `~/.claude/plans` (EXP-150).
+/// `claude` writes the plan file BEFORE showing the approval picker, so this
+/// is the only full-body source available at pending time (the transcript's
+/// `input.plan` twin lands only after approval). Candidates are `*.md` files
+/// modified at/after the session spawn; when the picker rendered the plan's
+/// first line on screen, a candidate containing it wins (disambiguates
+/// concurrent sessions — the dir is global, not per-project), else newest
+/// mtime. Best-effort: `None` falls back to a fixed headline.
+fn plan_body(after: SystemTime, must_contain: Option<&str>) -> Option<String> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let dir = PathBuf::from(home).join(".claude").join("plans");
+    let mut candidates: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            entry.path().extension().and_then(|e| e.to_str()) == Some("md")
+        })
+        .filter_map(|entry| {
+            let modified = entry.metadata().and_then(|m| m.modified()).ok()?;
+            (modified >= after).then_some((modified, entry.path()))
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    let needle = must_contain.map(str::trim).filter(|n| !n.is_empty());
+    if let Some(needle) = needle {
+        for (_, path) in &candidates {
+            if let Ok(body) = std::fs::read_to_string(path) {
+                if body.contains(needle) {
+                    return Some(body);
+                }
+            }
+        }
+    }
+    candidates
+        .first()
+        .and_then(|(_, path)| std::fs::read_to_string(path).ok())
 }
 
 /// The newest non-sidechain session transcript in `dir` modified at/after
@@ -493,9 +532,12 @@ fn git_diff(worktree: &Path, cached: bool) -> String {
 // The emitter thread
 // ---------------------------------------------------------------------------
 
-/// What the emitter needs to run: the worktree to tail/diff.
+/// What the emitter needs to run: the worktree to tail/diff, plus the live
+/// terminal grid for plan-picker detection (EXP-150). `term: None` runs
+/// transcript+diff only (tests / headless callers).
 pub struct EmitterConfig {
     pub worktree: PathBuf,
+    pub term: Option<TermHandle>,
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -527,8 +569,55 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut last_diff = String::new();
     let mut last_diff_at: Option<Instant> = None;
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
+    let mut picker_watcher = PlanPickerWatcher::new();
+    // Grid-emitted plan questions whose transcript twins are still owed —
+    // claude flushes the `ExitPlanMode` transcript entry only AFTER the
+    // picker is answered, so each grid emission pre-pays one transcript
+    // plan question that must then be swallowed instead of re-shown as
+    // freshly pending (EXP-150).
+    let mut suppress_plan_questions: usize = 0;
 
     while active.load(Ordering::SeqCst) {
+        // 0) Plan-picker watch on the live grid (EXP-150): the transcript
+        //    cannot show a PENDING plan approval (its entry lands only once
+        //    the picker is answered), but the picker is on screen exactly
+        //    while it is pending. Runs before the transcript tail so a
+        //    same-tick flush can never race the suppression counter.
+        if let Some(term) = &config.term {
+            match picker_watcher.tick(&screen_lines(term), display_offset(term)) {
+                Some(Transition::Show(snapshot)) => {
+                    let text = plan_body(spawn_time, snapshot.plan_box_first_line.as_deref())
+                        .map(|raw| truncate(&redactor.redact(&raw), QUESTION_TEXT_MAX))
+                        .filter(|t| !t.trim().is_empty())
+                        .unwrap_or_else(|| "Plan ready for approval.".to_string());
+                    let options = snapshot
+                        .options
+                        .into_iter()
+                        .take(QUESTION_OPTIONS_MAX)
+                        .map(|o| QuestionOption {
+                            label: truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
+                            key: o.key,
+                        })
+                        .collect();
+                    sender.send(ActivityEvent::Question {
+                        text,
+                        options,
+                        multi_select: None,
+                        plan_mode: Some(true),
+                    });
+                    suppress_plan_questions += 1;
+                }
+                Some(Transition::Resolved) => {
+                    // Retires the trailing plan card on every client the
+                    // moment the picker is answered — no protocol change.
+                    sender.send(ActivityEvent::Narration {
+                        text: "Plan approval answered.".to_string(),
+                    });
+                }
+                None => {}
+            }
+        }
+
         // 1) Resolve / re-resolve the transcript file (a newer session file in
         //    the same dir supersedes; reset the read offset when it changes).
         if let Some(dir) = &transcript_dir {
@@ -552,7 +641,13 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
         // 2) Tail any new complete lines from the current transcript.
         if let Some(path) = current.clone() {
-            offset = tail_transcript(&path, offset, &redactor, &sender);
+            offset = tail_transcript(
+                &path,
+                offset,
+                &redactor,
+                &sender,
+                &mut suppress_plan_questions,
+            );
         }
 
         // 3) Debounced worktree diff snapshot (only when changed).
@@ -576,12 +671,16 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
 /// Read complete newline-terminated lines from `path` starting at byte
 /// `offset`, publish their events, and return the new offset (a trailing
-/// partial line is left for the next poll).
+/// partial line is left for the next poll). Each pending debit in
+/// `suppress_plan_questions` swallows one transcript-derived plan question —
+/// the late twin of a plan the grid watcher already published at pending
+/// time (EXP-150).
 fn tail_transcript(
     path: &Path,
     offset: u64,
     redactor: &Redactor,
     sender: &ActivitySender,
+    suppress_plan_questions: &mut usize,
 ) -> u64 {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -605,6 +704,18 @@ fn tail_transcript(
         let end = line_start + pos;
         let line = String::from_utf8_lossy(&buf[line_start..end]);
         for event in parse_transcript_line(&line, redactor) {
+            if *suppress_plan_questions > 0
+                && matches!(
+                    &event,
+                    ActivityEvent::Question {
+                        plan_mode: Some(true),
+                        ..
+                    }
+                )
+            {
+                *suppress_plan_questions -= 1;
+                continue;
+            }
             sender.send(event);
         }
         line_start = end + 1;
@@ -901,9 +1012,11 @@ mod tests {
         match &parse_transcript_line(&line, &redactor)[..] {
             [ActivityEvent::Question { text, options, multi_select, plan_mode }] => {
                 assert_eq!(text, "## Plan\n1. Do the thing");
+                // Degraded-path fallback: approve keys only — "3" is no
+                // longer "keep planning" on current claude pickers.
                 assert_eq!(
                     options.iter().map(|o| o.key.as_str()).collect::<Vec<_>>(),
-                    vec!["1", "2", "3"]
+                    vec!["1", "2"]
                 );
                 assert_eq!(*multi_select, None);
                 assert_eq!(*plan_mode, Some(true));
@@ -922,7 +1035,7 @@ mod tests {
         match &parse_transcript_line(&bare, &redactor)[..] {
             [ActivityEvent::Question { text, options, plan_mode, .. }] => {
                 assert_eq!(text, "Plan ready for approval.");
-                assert_eq!(options.len(), 3);
+                assert_eq!(options.len(), 2);
                 assert_eq!(*plan_mode, Some(true));
             }
             other => panic!("expected one question, got {other:?}"),
@@ -1042,6 +1155,53 @@ mod tests {
             }
             other => panic!("expected narration, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn grid_emitted_plan_suppresses_the_transcript_twin_once() {
+        use crate::publisher::PublisherCmd;
+
+        let redactor = Redactor::new(vec![]);
+        let (sender, rx) = ActivitySender::test_pair();
+        let dir = std::env::temp_dir().join(format!("exp150-suppress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("transcript.jsonl");
+        let plan_line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        let narration_line = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [ { "type": "text", "text": "On it." } ] }
+        })
+        .to_string();
+        std::fs::write(&path, format!("{plan_line}\n{narration_line}\n{plan_line}\n")).unwrap();
+
+        // One grid-emitted plan question is owed a transcript twin: the FIRST
+        // transcript plan question is swallowed, later ones pass through
+        // (grid detection missed ⇒ degraded fallback still works).
+        let mut suppress = 1usize;
+        tail_transcript(&path, 0, &redactor, &sender, &mut suppress);
+        assert_eq!(suppress, 0);
+        let events: Vec<ActivityEvent> = rx
+            .drain()
+            .map(|cmd| match cmd {
+                PublisherCmd::Activity(event) => event,
+                _ => panic!("unexpected publisher command"),
+            })
+            .collect();
+        match &events[..] {
+            [ActivityEvent::Narration { text }, ActivityEvent::Question { plan_mode, .. }] => {
+                assert_eq!(text, "On it.");
+                assert_eq!(*plan_mode, Some(true));
+            }
+            other => panic!("expected narration + one plan question, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
