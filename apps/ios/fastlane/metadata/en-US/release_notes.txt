@@ -1,4 +1,4 @@
-• Custom project icons and public feedback boards
-• Team links open directly in the app
-• Update prompt when your build is out of date
+• New In review status — issues with an open pull request park there until merged
+• Reviews segment groups open pull requests, including batch PRs
+• Keyboard no longer covers the editor while writing
 • Reliability improvements

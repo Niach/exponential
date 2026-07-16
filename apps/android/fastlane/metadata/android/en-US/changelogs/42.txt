@@ -1,0 +1,1 @@
+Issues with an open pull request now sit in a new In review status with their own Reviews section, and the keyboard no longer covers the editor.
