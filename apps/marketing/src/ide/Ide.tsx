@@ -34,6 +34,7 @@ import { ScTab } from "./SourceControl"
 import { TerminalDock } from "./Terminal"
 import { StartCodingDialog } from "./StartCodingDialog"
 import { IcInbox, IcX } from "./icons"
+import { useDemoScale } from "../lib/use-demo-scale"
 
 const BASE_W = 960
 const IDE_H = 640
@@ -70,22 +71,6 @@ const initialState = (view: IdeView): InitState => {
     default:
       return { tool: `issues`, tabs: [], active: null, selectedFile: null }
   }
-}
-
-function useIdeScale() {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [scale, setScale] = useState(1)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof ResizeObserver === `undefined`) return undefined
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? BASE_W
-      setScale(w >= BASE_W ? 1 : Math.max(w / BASE_W, 0.3))
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  return { ref, scale }
 }
 
 function EmptyState() {
@@ -340,7 +325,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     setDockTab,
   }
 
-  const { ref, scale } = useIdeScale()
+  const { ref, scale } = useDemoScale(BASE_W)
 
   return (
     <div
