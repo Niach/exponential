@@ -944,9 +944,11 @@ export const widgetSubmissions = pgTable(
 // via the `helpdesk` tRPC router and the anonymous magic-link routes). A
 // ticket IS an ordinary issue; the thread rides on it because external
 // reporters can never author `comments` rows (comments.author_id → users is
-// NOT NULL). The reporter's only credential is the raw token embedded in
-// emailed magic links — the DB stores just its sha256, so a DB leak never
-// leaks live conversation URLs.
+// NOT NULL). The reporter's only credential is the token embedded in emailed
+// magic links — deterministic HMAC(server secret, thread id), recomputed per
+// email and verified by recompute (apps/web lib/helpdesk/token.ts), so
+// NOTHING secret is stored at rest and a DB leak never leaks live
+// conversation URLs (EXP-132).
 export const supportThreads = pgTable(
   `support_threads`,
   {
@@ -961,12 +963,9 @@ export const supportThreads = pgTable(
       .references(() => projects.id, { onDelete: `cascade` }),
     reporterEmail: varchar(`reporter_email`, { length: 320 }).notNull(),
     reporterName: varchar(`reporter_name`, { length: 255 }),
-    // The raw 32-byte base64url magic-link token — stored so every outbound
-    // email carries the SAME stable /support/<token> link. Never logged and
-    // never persisted anywhere else.
-    token: varchar(`token`, { length: 64 }).notNull().unique(),
     // Stamped on close: the transcript stays readable but replies are
-    // rejected. Reopen clears this — the link itself never changes.
+    // rejected. Reopen clears this — the magic link itself never changes
+    // (it is recomputed from the thread id, not stored).
     tokenRevokedAt: timestamp(`token_revoked_at`, { withTimezone: true }),
     // When the reporter last loaded the magic-link page — lets members see
     // whether their reply has been read.

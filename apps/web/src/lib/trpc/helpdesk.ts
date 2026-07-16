@@ -20,6 +20,7 @@ import {
   fireAndForgetStatusChangeNotify,
 } from "@/lib/integrations/notifications"
 import { sendSupportReplyEmail } from "@/lib/email"
+import { mintSupportToken } from "@/lib/helpdesk/token"
 import {
   MAX_SUPPORT_MESSAGE_CHARS,
   latestMessagesByThread,
@@ -140,16 +141,16 @@ export const helpdeskRouter = router({
         .from(issues)
         .where(eq(issues.id, thread.issueId))
         .limit(1)
-      // The magic-link token is the reporter's credential — it stays
-      // server-side (the reply email path reads it directly) and must never
-      // reach a member's browser.
-      const { token: _token, ...memberThread } = thread
-      return { thread: memberThread, messages, issue: issue ?? null }
+      // The magic-link token is the reporter's credential — it is never
+      // stored (recomputed per outbound email) and must never reach a
+      // member's browser.
+      return { thread, messages, issue: issue ?? null }
     }),
 
   // Public reply: insert the outbound message and email the reporter with the
-  // thread's one stable magic link (the raw token lives on the thread row;
-  // close revokes it, reopen reinstates it — the link itself never changes).
+  // thread's one stable magic link (the token is recomputed from the thread
+  // id — nothing stored; close revokes it via token_revoked_at, reopen
+  // reinstates it — the link itself never changes).
   reply: authedProcedure
     .input(
       z.object({ threadId: z.string().uuid(), body: messageBodySchema })
@@ -187,13 +188,13 @@ export const helpdeskRouter = router({
 
       // Email outside the transaction; a failed send never loses the message.
       // Every reply carries the thread's one stable link. The delivery ledger
-      // row stores no thread URL — the token lives only on the thread row.
+      // row stores no thread URL — the token exists only inside the email.
       try {
         const result = await sendSupportReplyEmail({
           to: thread.reporterEmail,
           projectName: projectRow?.name ?? `the team`,
           replyText: input.body,
-          threadUrl: supportThreadUrl(thread.token),
+          threadUrl: supportThreadUrl(mintSupportToken(thread.id)),
         })
         const [delivery] = await ctx.db
           .insert(emailDeliveries)

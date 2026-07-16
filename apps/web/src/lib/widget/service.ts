@@ -543,7 +543,7 @@ export async function createWidgetSupportSubmission(args: {
 
   const soleMemberId = await getSoleHumanMemberId(config.workspaceId)
 
-  const { result, rawToken } = await db.transaction(async (tx) => {
+  const { result, token } = await db.transaction(async (tx) => {
     await generateTxId(tx)
     // The opening message lives on the thread; the issue description carries
     // it too so the ticket reads normally on the board views.
@@ -581,7 +581,7 @@ export async function createWidgetSupportSubmission(args: {
       unsubscribed: false,
     })
 
-    const { rawToken } = await createSupportThreadInTx(tx, {
+    const { token } = await createSupportThreadInTx(tx, {
       issueId: issue.id,
       projectId: config.projectId,
       reporterEmail: fields.data.email,
@@ -609,7 +609,7 @@ export async function createWidgetSupportSubmission(args: {
     // the reporter's view of the conversation.
     return {
       result: { issueId: issue.id, identifier: issue.identifier, url: null },
-      rawToken,
+      token,
     }
   })
 
@@ -620,12 +620,12 @@ export async function createWidgetSupportSubmission(args: {
   // Confirmation email with the magic conversation link (the thread's one
   // stable URL). A failed send doesn't fail the (already committed) ticket:
   // every member reply email repeats the same link. The ledger row stores no
-  // thread URL — the token lives only on the thread row.
+  // thread URL — the token is never persisted, only recomputed per email.
   try {
     const sendResult = await sendSupportConfirmationEmail({
       to: fields.data.email,
       projectName: config.projectName ?? config.name,
-      threadUrl: supportThreadUrl(rawToken),
+      threadUrl: supportThreadUrl(token),
     })
     await db.insert(emailDeliveries).values({
       userId: null,

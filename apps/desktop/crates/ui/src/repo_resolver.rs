@@ -21,11 +21,20 @@
 //! [`RepoResolver::lookup_workspace_trunk`]. The fetch keys on the active
 //! workspace, so switching projects within a workspace reuses the cache; the
 //! surfaces `cx.observe(&resolver, …)` to re-render when the fetch lands.
+//!
+//! The cache is NOT restart-scoped (EXP-139): the resolver observes the synced
+//! projects collection and refetches when the workspace's
+//! (project → `repository_id`) mapping changes — linking/unlinking a repo on
+//! the web (or another client) reaches the trunk surfaces live. The refetch is
+//! stale-while-revalidate: the old rows keep serving until the fresh ones land.
 
 use std::collections::HashMap;
 
-use gpui::{App, AppContext as _, Context, Entity, Global, SharedString, Window, WindowId};
+use gpui::{
+    App, AppContext as _, Context, Entity, Global, SharedString, Subscription, Window, WindowId,
+};
 use serde::{Deserialize, Serialize};
+use sync::Store;
 
 use crate::navigation::{self, Navigation};
 use crate::queries;
@@ -77,15 +86,29 @@ pub struct RepoResolver {
     /// Stale-fetch guard — bumped per fetch so a superseded workspace's
     /// in-flight result is dropped.
     generation: u64,
+    /// The synced (project → repository) links the current fetch was started
+    /// under (EXP-139) — a mismatch means a repo was linked, unlinked, or
+    /// retargeted since, so the cached mapping is stale and must refetch.
+    fetched_links: Option<Vec<(String, String)>>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl RepoResolver {
-    fn new(nav: Entity<Navigation>) -> Self {
+    fn new(nav: Entity<Navigation>, cx: &mut Context<Self>) -> Self {
+        // EXP-139: `projects.repository_id` is Electric-synced and live, but
+        // this cache is built from the server-only `repositories.list` — watch
+        // the synced rows so a link change on any client invalidates it.
+        let projects = Store::global(cx).collections().projects.clone();
+        let subscriptions = vec![cx.observe(&projects, |this: &mut Self, _, cx| {
+            this.refresh_if_links_changed(cx);
+        })];
         Self {
             nav,
             workspace_id: None,
             state: State::Idle,
             generation: 0,
+            fetched_links: None,
+            _subscriptions: subscriptions,
         }
     }
 
@@ -95,20 +118,45 @@ impl RepoResolver {
     pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
         let workspace_id = navigation::active_workspace_id(&self.nav, cx);
         if workspace_id.as_deref() != self.workspace_id.as_deref() {
-            self.workspace_id = workspace_id.clone();
+            self.workspace_id = workspace_id;
             self.state = State::Idle;
         }
-        if !matches!(self.state, State::Idle) {
+        if matches!(self.state, State::Idle) {
+            self.start_fetch(cx);
+        }
+    }
+
+    /// Refetch when the synced (project → repository) links no longer match
+    /// what the cached rows were fetched under (EXP-139). An `Idle` cache
+    /// refetches on the next `ensure_loaded` anyway, and a `Loading` fetch
+    /// re-checks on completion, so only settled states act here.
+    fn refresh_if_links_changed(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.state, State::Ready(_) | State::Error(_)) {
             return;
         }
-        let Some(workspace_id) = workspace_id else {
+        let Some(workspace_id) = self.workspace_id.clone() else {
+            return;
+        };
+        if self.fetched_links.as_ref() != Some(&links_snapshot(&workspace_id, cx)) {
+            self.start_fetch(cx);
+        }
+    }
+
+    fn start_fetch(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace_id) = self.workspace_id.clone() else {
             return; // workspace not synced yet — a surface re-drives on notify
         };
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
 
-        self.state = State::Loading;
+        // Stale-while-revalidate: a link-change refetch keeps serving the old
+        // rows until the fresh ones land; only a cold or switched cache shows
+        // the Loading state.
+        if !matches!(self.state, State::Ready(_)) {
+            self.state = State::Loading;
+        }
+        self.fetched_links = Some(links_snapshot(&workspace_id, cx));
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
@@ -122,14 +170,23 @@ impl RepoResolver {
                 if this.generation != generation {
                     return; // superseded by a workspace switch
                 }
-                this.state = match result {
-                    Ok(repos) => State::Ready(repos),
+                match result {
+                    Ok(repos) => this.state = State::Ready(repos),
                     Err(err) => {
                         log::warn!("[ui] repo resolver: repositories.list failed: {err}");
-                        State::Error(err.into())
+                        // A failed REVALIDATION keeps the still-serviceable
+                        // rows (the stale-while-revalidate promise) — only a
+                        // cold load may surface the error state, else every
+                        // trunk surface would regress on a network blip.
+                        if !matches!(this.state, State::Ready(_)) {
+                            this.state = State::Error(err.into());
+                        }
                     }
-                };
+                }
                 cx.notify();
+                // A link that changed while this fetch was in flight still
+                // lands: compare once more now that the state settled.
+                this.refresh_if_links_changed(cx);
             });
         })
         .detach();
@@ -176,6 +233,33 @@ impl RepoResolver {
             }
         }
     }
+}
+
+/// A workspace's (project → repository) links from the SYNCED projects rows
+/// (EXP-139) — the live signal that a server-only `repositories.list` cache
+/// is stale. Shared with the settings Projects/Repositories panes, which
+/// cache the same server read. Sorted, so collection iteration order can
+/// never look like a link change. Repo-less projects are omitted (unrelated
+/// project churn must not force refetches); archived projects are omitted
+/// because the server's `projects[]` mapping hides them too, so archiving or
+/// unarchiving a LINKED project correctly counts as a mapping change.
+pub(crate) fn links_snapshot(workspace_id: &str, cx: &App) -> Vec<(String, String)> {
+    let store = Store::global(cx);
+    let projects = store.collections().projects.read(cx);
+    let mut links: Vec<(String, String)> = projects
+        .iter()
+        .filter(|project| {
+            project.workspace_id == workspace_id && project.archived_at.is_none()
+        })
+        .filter_map(|project| {
+            project
+                .repository_id
+                .clone()
+                .map(|repository_id| (project.id.clone(), repository_id))
+        })
+        .collect();
+    links.sort();
+    links
 }
 
 /// One `repositories.list` row (the new `projects[]` shape).
@@ -249,7 +333,7 @@ pub fn repo_resolver_for_window(window: &Window, cx: &mut App) -> Entity<RepoRes
         return existing;
     }
     let nav = navigation::nav_for_window(window, cx);
-    let resolver = cx.new(|_| RepoResolver::new(nav));
+    let resolver = cx.new(|cx| RepoResolver::new(nav, cx));
     cx.default_global::<ResolverRegistry>()
         .by_window
         .insert(window_id, resolver.clone());

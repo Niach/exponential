@@ -4,6 +4,7 @@ import { Bell, BellOff } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { issueSubscriberCollection } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
+import { IconTooltip } from "@/components/icon-tooltip"
 
 // Per-issue subscribe toggle with live state from the issue_subscribers shape.
 // Subscribed users get inbox activity + (plan-gated) push for the issue.
@@ -40,24 +41,33 @@ export function SubscribeToggle({
     }
   }
 
+  // The button already reads "Subscribe"/"Subscribed", so the tooltip spends its
+  // words on what subscribing actually gets you rather than restating the label.
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-6 gap-1.5 px-2 text-xs"
-      onClick={() => void toggle()}
-      disabled={busy}
-      title={subscribed ? `Unsubscribe from this issue` : `Subscribe to this issue`}
+    <IconTooltip
+      label={
+        subscribed
+          ? `Stop getting notified about this issue`
+          : `Get notified about comments and updates`
+      }
     >
-      {subscribed ? (
-        <>
-          <Bell className="size-3" /> Subscribed
-        </>
-      ) : (
-        <>
-          <BellOff className="size-3" /> Subscribe
-        </>
-      )}
-    </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1.5 px-2 text-xs"
+        onClick={() => void toggle()}
+        disabled={busy}
+      >
+        {subscribed ? (
+          <>
+            <Bell className="size-3" /> Subscribed
+          </>
+        ) : (
+          <>
+            <BellOff className="size-3" /> Subscribe
+          </>
+        )}
+      </Button>
+    </IconTooltip>
   )
 }

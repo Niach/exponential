@@ -2,11 +2,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { supportMessages, supportThreads } from "@/db/schema"
 import type { SupportThread } from "@/db/schema"
-import {
-  generateSupportToken,
-  isValidSupportTokenShape,
-  supportTokensMatch,
-} from "@/lib/helpdesk/token"
+import { mintSupportToken, verifySupportToken } from "@/lib/helpdesk/token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { TokenBucketLimiter, envInt } from "@/lib/widget/rate-limit"
 
@@ -16,16 +12,17 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // shuts the door on megabyte bodies.
 export const MAX_SUPPORT_MESSAGE_CHARS = 10_000
 
-export function supportThreadUrl(rawToken: string): string {
-  return `${appBaseUrl()}/support/${rawToken}`
+export function supportThreadUrl(token: string): string {
+  return `${appBaseUrl()}/support/${token}`
 }
 
 // Create the conversation for a (freshly created) ticket issue: the thread
-// row + the reporter's opening inbound message. Returns the raw token so the
-// caller can embed it in the confirmation email. The token is STABLE for the
-// thread's whole life — every email carries the same link. Callers are
-// responsible for the Pro gate (assertCanUseHelpdesk) and for checking
-// projects.helpdesk_enabled.
+// row + the reporter's opening inbound message. Returns the minted magic-link
+// token so the caller can embed it in the confirmation email. The token is
+// deterministic (HMAC over the thread id — see lib/helpdesk/token.ts), so it
+// is STABLE for the thread's whole life — every email carries the same link —
+// and nothing secret is stored on the row. Callers are responsible for the
+// Pro gate (assertCanUseHelpdesk) and for checking projects.helpdesk_enabled.
 export async function createSupportThreadInTx(
   tx: Tx,
   args: {
@@ -35,8 +32,7 @@ export async function createSupportThreadInTx(
     reporterName?: string | null
     body: string
   }
-): Promise<{ threadId: string; rawToken: string }> {
-  const rawToken = generateSupportToken()
+): Promise<{ threadId: string; token: string }> {
   const [thread] = await tx
     .insert(supportThreads)
     .values({
@@ -44,7 +40,6 @@ export async function createSupportThreadInTx(
       projectId: args.projectId,
       reporterEmail: args.reporterEmail,
       reporterName: args.reporterName ?? null,
-      token: rawToken,
     })
     .returning({ id: supportThreads.id })
 
@@ -57,24 +52,24 @@ export async function createSupportThreadInTx(
     body: args.body,
   })
 
-  return { threadId: thread.id, rawToken }
+  return { threadId: thread.id, token: mintSupportToken(thread.id) }
 }
 
-// Resolve a magic-link token to its thread. Lookup by equality; the
-// constant-time recheck is defense in depth. Returns null for anything that
-// doesn't resolve — callers answer 404 without distinguishing why.
+// Resolve a magic-link token to its thread: verify the HMAC by recompute
+// (rejecting garbage before any DB work), then load the thread it names.
+// Returns null for anything that doesn't resolve — callers answer 404 without
+// distinguishing why.
 export async function findThreadByToken(
-  rawToken: string
+  token: string
 ): Promise<SupportThread | null> {
-  if (!isValidSupportTokenShape(rawToken)) return null
+  const threadId = verifySupportToken(token)
+  if (!threadId) return null
   const [thread] = await db
     .select()
     .from(supportThreads)
-    .where(eq(supportThreads.token, rawToken))
+    .where(eq(supportThreads.id, threadId))
     .limit(1)
-  if (!thread) return null
-  if (!supportTokensMatch(rawToken, thread.token)) return null
-  return thread
+  return thread ?? null
 }
 
 // Close-time revocation: the transcript stays readable through the link
