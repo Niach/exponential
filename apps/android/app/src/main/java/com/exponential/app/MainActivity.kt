@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
@@ -33,6 +34,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignored */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Must run before super.onCreate(): applies postSplashScreenTheme so the
+        // activity leaves Theme.Exponential.Splash once the content view is set.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),

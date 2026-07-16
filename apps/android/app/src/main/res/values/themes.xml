@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Exponential" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.Exponential" parent="android:Theme.Material.NoActionBar">
+        <!-- App background behind Compose content — avoids the Material
+             default-gray flash between splash dismissal and first frame. -->
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+
+    <!-- Cold-start splash (EXP-148). Without this the Android 12+ default
+         splash pulls the adaptive launcher icon, whose foreground layer leaks
+         its overpainted stroke tails outside the logo circle (they are only
+         hidden by the adaptive background layer under the launcher mask) —
+         the icon looked broken. installSplashScreen() in MainActivity swaps
+         to postSplashScreenTheme. Pre-API-31 devices get the plain
+         background-color splash from the compat library. -->
+    <style name="Theme.Exponential.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.Exponential</item>
+    </style>
 </resources>

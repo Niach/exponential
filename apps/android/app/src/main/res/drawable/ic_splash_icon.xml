@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Splash-screen icon (EXP-148). The launcher foreground CANNOT be reused here:
+  its stroke tails overflow the logo circle and rely on the adaptive-icon
+  background layer (same #09090B) to hide them — the Android 12+ system splash
+  composes the icon with different geometry, exposing the tails as broken dark
+  lines. This drawable is self-contained instead: a <clip-path> of the logo
+  circle cuts the tails inside the drawable, so it renders correctly on any
+  background.
+
+  Geometry matches ic_launcher_foreground.xml (EXP-143): circle r=29 centered
+  at (54,54) in a 108dp viewport, so the splash icon reads as the same mark
+  the launch animation morphs from. It also satisfies the splash contract
+  (fit within the inner 2/3 circle = 72dp of the 108dp viewport).
+  Keep the circle + stroke paths in sync with ic_launcher_foreground.xml.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group>
+        <clip-path android:pathData="M 54,25 A 29,29 0 1,0 54,83 A 29,29 0 1,0 54,25 Z" />
+
+        <path
+            android:fillColor="#FAFAFA"
+            android:pathData="M 54,25 A 29,29 0 1,0 54,83 A 29,29 0 1,0 54,25 Z" />
+
+        <path
+            android:strokeColor="#09090B"
+            android:strokeWidth="3.5"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M 21.60,60.97 C 47.67,62.96 53.26,41.65 53.44,21.40" />
+        <path
+            android:strokeColor="#09090B"
+            android:strokeWidth="3.5"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M 22.06,74.88 C 56.19,73.96 66.26,46.63 67.34,22.05" />
+        <path
+            android:strokeColor="#09090B"
+            android:strokeWidth="3.5"
+            android:strokeLineCap="butt"
+            android:fillColor="#00000000"
+            android:pathData="M 22.52,88.79 C 64.71,84.97 79.26,51.60 81.25,22.69" />
+    </group>
+</vector>

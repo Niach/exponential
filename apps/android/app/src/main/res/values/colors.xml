@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DesignTokens.Palette.Background — keep in sync with
+         ui/theme/DesignTokens.generated.kt. Used for the splash screen and
+         the window background so cold start never flashes a foreign color. -->
+    <color name="background">#FF0A0A0A</color>
+</resources>
