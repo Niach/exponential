@@ -106,7 +106,10 @@ fun CreateProjectForm(
     var showRepo by remember { mutableStateOf(template.suggestsRepo) }
     var repository by remember { mutableStateOf<ProjectRepositoryChoice?>(null) }
 
-    LaunchedEffect(workspaceId) { viewModel.loadRepos(workspaceId) }
+    LaunchedEffect(workspaceId) {
+        viewModel.loadRepos(workspaceId)
+        viewModel.observeIsOwner(workspaceId)
+    }
 
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     // Repo is always optional now, so creation only needs a name + prefix.
@@ -119,6 +122,9 @@ fun CreateProjectForm(
                 ProjectTemplateCard(
                     info = info,
                     selected = info === template,
+                    // Public-board templates are owner-only on the server —
+                    // disabled with a hint for non-owners (EXP-133).
+                    enabled = !info.isPublic || state.isOwner,
                     onClick = {
                         template = info
                         isPublic = info.isPublic
@@ -258,13 +264,14 @@ fun CreateProjectForm(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Public board", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        "Anyone with the link can read issues and comments.",
+                        if (state.isOwner) "Anyone with the link can read issues and comments."
+                        else "Only team owners can create public boards.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                Switch(checked = isPublic, onCheckedChange = { isPublic = it })
+                Switch(checked = isPublic, onCheckedChange = { isPublic = it }, enabled = state.isOwner)
             }
         }
 
@@ -304,10 +311,13 @@ fun CreateProjectForm(
 
 // One selectable template card: icon + label + one-line description, with a
 // primary-colored border + check when selected (mirrors the color swatches).
+// A disabled card (owner-only public template shown to a non-owner) renders
+// dimmed, non-clickable, with the owner hint as its description.
 @Composable
 private fun ProjectTemplateCard(
     info: ProjectTemplate,
     selected: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     val borderColor =
@@ -321,7 +331,7 @@ private fun ProjectTemplateCard(
                 borderColor,
                 RoundedCornerShape(12.dp),
             )
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -329,7 +339,9 @@ private fun ProjectTemplateCard(
             info.icon,
             contentDescription = null,
             tint = if (selected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            else MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+            ),
             modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(12.dp))
@@ -337,10 +349,12 @@ private fun ProjectTemplateCard(
             Text(
                 info.label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) 1f else TextEmphasis.Tertiary,
+                ),
             )
             Text(
-                info.description,
+                if (enabled) info.description else "Only team owners can create public boards.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )

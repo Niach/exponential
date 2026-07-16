@@ -37,6 +37,10 @@ struct CreateProjectForm: View {
     // this only decides the initial reveal, seeded from the template).
     @State private var showRepository = true
     @State private var repository: ProjectRepositoryChoice?
+    // Public boards are owner-only on the server (projects.create) — the
+    // template card + toggle render disabled with a hint for non-owners.
+    // Biased false until membership resolves (disabled-while-loading).
+    @State private var isOwner = false
     @State private var saving = false
     @State private var errorText: String?
     // Plan-cap failures render as a softer nudge than hard errors.
@@ -111,19 +115,23 @@ struct CreateProjectForm: View {
             }
 
             // Public toggle — the board's read-only-visitor switch. Seeded by
-            // the template; freely overridable.
+            // the template; freely overridable. Owner-only: disabled with a
+            // hint for non-owners (EXP-133).
             Toggle(isOn: $isPublic) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Public board")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white)
-                    Text("A read-only roadmap anyone can view. Visitors can't sign in to write.")
+                    Text(isOwner
+                        ? "A read-only roadmap anyone can view. Visitors can't sign in to write."
+                        : "Only team owners can create public boards.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .multilineTextAlignment(.leading)
                 }
             }
             .tint(Accent.indigo)
+            .disabled(!isOwner)
 
             // Repository (always optional) — the selector renders its own label.
             // Disclosed by default for the Dev template; a button reveals it for
@@ -191,6 +199,26 @@ struct CreateProjectForm: View {
                     .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
             )
         }
+        .task(id: workspaceId) { await resolveIsOwner() }
+    }
+
+    /// Owner check for the public-board option (mirrors CreateIssueSheet's
+    /// permissions resolve): read the viewer's member role from the local DB.
+    /// Non-owners get the option disabled, and any template-seeded `isPublic`
+    /// is clamped back off.
+    private func resolveIsOwner() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let workspace: WorkspaceEntity? = (try? await pool.read { db in
+            try WorkspaceEntity.fetchOne(db, key: workspaceId)
+        }) ?? nil
+        let permissions = WorkspacePermissions.resolve(
+            workspace: workspace,
+            currentUserId: deps.auth.userId,
+            isAdmin: deps.auth.isAdmin,
+            dbPool: pool
+        )
+        isOwner = permissions.isOwner
+        if !isOwner { isPublic = false }
     }
 
     private func fieldLabel(_ text: String) -> some View {
@@ -202,6 +230,9 @@ struct CreateProjectForm: View {
     @ViewBuilder
     private func templateCard(_ template: ProjectTemplate) -> some View {
         let selected = templateId == template.id
+        // Public-board templates are owner-only (server-enforced) — render
+        // disabled with the hint for non-owners.
+        let ownerLocked = template.isPublic && !isOwner
         Button {
             applyTemplate(template)
         } label: {
@@ -214,7 +245,7 @@ struct CreateProjectForm: View {
                     Text(template.label)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white)
-                    Text(template.summary)
+                    Text(ownerLocked ? "Only team owners can create public boards." : template.summary)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .multilineTextAlignment(.leading)
@@ -237,6 +268,8 @@ struct CreateProjectForm: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(ownerLocked)
+        .opacity(ownerLocked ? 0.5 : 1)
     }
 
     // Grid of the 16 curated glyphs (DomainContract.projectIconValues). Tapping
@@ -315,7 +348,8 @@ struct CreateProjectForm: View {
                     name: name.trimmingCharacters(in: .whitespaces),
                     prefix: prefix.trimmingCharacters(in: .whitespaces),
                     color: color,
-                    isPublic: isPublic,
+                    // Clamped — the server rejects a non-owner's isPublic.
+                    isPublic: isOwner && isPublic,
                     icon: icon,
                     repository: showRepository ? repository : nil
                 )
