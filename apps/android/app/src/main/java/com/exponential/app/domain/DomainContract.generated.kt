@@ -15,6 +15,8 @@ object DomainContract {
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved")
+    val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
+    val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
 
     const val workspaceRoleOwner: String = "owner"
     const val workspaceRoleMember: String = "member"

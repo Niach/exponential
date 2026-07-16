@@ -81,3 +81,27 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
         .map(|value| value.to_string())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The `coding` crate deliberately does not depend on `domain` — this
+    // crate depends on both, so the contract parity check lives here
+    // (EXP-149: web/iOS/Android build their Start-coding dialogs from the
+    // same contract lists, and the remote-start options they send must be
+    // values these desktop sets accept).
+    #[test]
+    fn choice_sets_match_the_domain_contract_and_the_settings_alias_sets() {
+        let models: Vec<&str> = MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
+        assert_eq!(models, domain::contract::CODING_MODEL_VALUES);
+        assert_eq!(models, coding::settings::MODEL_ALIASES);
+
+        // EFFORT_CHOICES[0] is the local-only "CLI default" blank row; the
+        // contract carries only the real levels.
+        assert_eq!(EFFORT_CHOICES[0].1, "");
+        let efforts: Vec<&str> = EFFORT_CHOICES[1..].iter().map(|(_, value)| *value).collect();
+        assert_eq!(efforts, domain::contract::CODING_EFFORT_VALUES);
+        assert_eq!(efforts, coding::settings::EFFORT_LEVELS);
+    }
+}

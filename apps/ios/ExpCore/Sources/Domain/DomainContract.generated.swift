@@ -16,6 +16,8 @@ public enum DomainContract {
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved"]
+    public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
+    public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
 
     public static let workspaceRoleOwner: String = "owner"
     public static let workspaceRoleMember: String = "member"

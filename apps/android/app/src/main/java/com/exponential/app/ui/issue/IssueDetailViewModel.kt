@@ -13,6 +13,7 @@ import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.NotificationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
@@ -223,12 +224,12 @@ class IssueDetailViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
-    fun startOnDesktop(device: SteerDevice) {
+    fun startOnDesktop(device: SteerDevice, options: SteerStartOptions) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _startState.value = SteerStartState.Sending
             try {
-                steerApi.startSession(accountId, issueId, device.deviceId)
+                steerApi.startSession(accountId, issueId, device.deviceId, options)
                 _startState.value = SteerStartState.Sent(device.deviceLabel)
                 // The desktop inserts the coding_sessions row when the launcher
                 // spins up, which swaps the panel via Electric. Re-enable after

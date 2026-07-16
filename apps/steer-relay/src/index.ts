@@ -16,7 +16,7 @@ import { Hono } from "hono"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket } from "./hub"
-import { CLOSE_UNAUTHORIZED } from "./protocol"
+import { CLOSE_UNAUTHORIZED, type StartSessionOptions } from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
 if (!RELAY_SECRET) {
@@ -113,19 +113,39 @@ app.get(`/devices/:userId`, (c) =>
 app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 
 // Remote "Start on my desktop": route to the device's control socket.
+// Launch-option VALUES (EXP-149) pass through untouched — the web server
+// already validated them, the relay stays a dumb pipe — but their TYPES are
+// pinned here: a mistyped field would fail the desktop's serde parse and
+// silently drop the whole frame after /start already answered ok.
 app.post(`/start`, async (c) => {
-  const body = (await c.req.json().catch(() => null)) as {
-    userId?: string
-    deviceId?: string
-    issueId?: string
-  } | null
-  if (!body?.userId || !body.deviceId || !body.issueId) {
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
+  const userId = asString(body?.userId)
+  const deviceId = asString(body?.deviceId)
+  const issueId = asString(body?.issueId)
+  if (!userId || !deviceId || !issueId) {
     return c.json({ error: `Bad request` }, 400)
   }
-  const result = hub.startSession(body.userId, body.deviceId, body.issueId)
+  const options: StartSessionOptions = {
+    model: asString(body?.model),
+    effort: asString(body?.effort),
+    ultracode: asBoolean(body?.ultracode),
+    planMode: asBoolean(body?.planMode),
+  }
+  const result = hub.startSession(userId, deviceId, issueId, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)
   return c.json({ ok: true })
 })
+
+function asString(value: unknown): string | undefined {
+  return typeof value === `string` ? value : undefined
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === `boolean` ? value : undefined
+}
 
 // Server-side kill-switch fallback (steer.killSession also flips the DB row).
 app.post(`/sessions/:id/kill`, (c) => {

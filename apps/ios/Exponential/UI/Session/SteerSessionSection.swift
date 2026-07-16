@@ -40,7 +40,7 @@ struct SteerSessionSection: View {
     @State private var sentToLabel: String?
     @State private var startError: String?
     @State private var watchingSession: CodingSessionEntity?
-    @State private var showDevicePicker = false
+    @State private var showStartSheet = false
 
     /// Multi-window desktops can run several sessions on one issue — surface
     /// the most recent (the badge counts them all).
@@ -145,11 +145,7 @@ struct SteerSessionSection: View {
                 } else {
                     HStack(spacing: 8) {
                         Button {
-                            if devices.count == 1 {
-                                start(on: devices[0])
-                            } else {
-                                showDevicePicker = true
-                            }
+                            showStartSheet = true
                         } label: {
                             HStack(spacing: 6) {
                                 if starting {
@@ -164,10 +160,6 @@ struct SteerSessionSection: View {
                                     ? "Start coding on \(devices[0].deviceLabel)"
                                     : "Start on my desktop")
                                     .font(.caption.weight(.medium))
-                                if devices.count > 1 {
-                                    Image(systemName: "chevron.down")
-                                        .font(.caption2)
-                                }
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -202,11 +194,12 @@ struct SteerSessionSection: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
-        .confirmationDialog("Start on my desktop", isPresented: $showDevicePicker, titleVisibility: .visible) {
-            ForEach(devices ?? []) { device in
-                Button(device.deviceLabel) { start(on: device) }
+        // The Start-coding options sheet (EXP-149): model/effort/ultracode/
+        // plan-mode + the device choice when several desktops are online.
+        .sheet(isPresented: $showStartSheet) {
+            StartCodingSheet(devices: devices ?? []) { device, options in
+                start(on: device, options: options)
             }
-            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -215,14 +208,17 @@ struct SteerSessionSection: View {
         devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
     }
 
-    private func start(on device: SteerDevice) {
+    private func start(on device: SteerDevice, options: SteerStartOptions) {
         starting = true
         startError = nil
         Task {
             defer { starting = false }
             do {
                 try await deps.steerApi.startSession(
-                    accountId: accountId, issueId: issue.id, deviceId: device.deviceId
+                    accountId: accountId,
+                    issueId: issue.id,
+                    deviceId: device.deviceId,
+                    options: options
                 )
                 sentToLabel = device.deviceLabel
                 // The desktop inserts the coding_sessions row when the launcher

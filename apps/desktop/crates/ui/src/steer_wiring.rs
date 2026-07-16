@@ -77,8 +77,8 @@ struct KillWatchGlobal(Entity<KillWatch>);
 impl Global for KillWatchGlobal {}
 
 /// Foreground inbox for relay `start_session` frames (the socket callback runs
-/// on the steer runtime; this hands the issue id to the gpui foreground).
-struct RemoteStartGlobal(flume::Sender<String>);
+/// on the steer runtime; this hands the start request to the gpui foreground).
+struct RemoteStartGlobal(flume::Sender<steer::RemoteStart>);
 impl Global for RemoteStartGlobal {}
 
 fn runtime(cx: &App) -> Option<Arc<SteerRuntime>> {
@@ -112,11 +112,11 @@ pub fn install(cx: &mut App) {
     let _ = ControlChannels::global(cx);
 
     // §8.3 #4: relay `start_session` → foreground launcher.
-    let (tx, rx) = flume::unbounded::<String>();
+    let (tx, rx) = flume::unbounded::<steer::RemoteStart>();
     cx.set_global(RemoteStartGlobal(tx));
     cx.spawn(async move |cx| {
-        while let Ok(issue_id) = rx.recv_async().await {
-            cx.update(|cx| handle_remote_start(issue_id, cx));
+        while let Ok(start) = rx.recv_async().await {
+            cx.update(|cx| handle_remote_start(start, cx));
         }
     })
     .detach();
@@ -167,8 +167,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         device_label: api::users::hostname(),
     };
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
-    let on_start: steer::control_channel::StartSessionFn = Arc::new(move |issue_id| {
-        let _ = inbox.send(issue_id);
+    let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
+        let _ = inbox.send(start);
     });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
     let handle = spawn_control_channel(&runtime, device, control_api, on_start);
@@ -200,7 +200,8 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 /// differs (§7.1: there is no second, divergent remote-start implementation).
 /// ISSUE-only by design: remote BATCH start is deferred (needs a batch-
 /// aware `steer.startSession` + per-repo-group resolution — EXP-56 v2).
-fn handle_remote_start(issue_id: String, cx: &mut App) {
+fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
+    let issue_id = start.issue_id;
     // Dedup: never launch a second session for an issue this process is
     // already coding. Without this, a relay `start_session` arriving while a
     // session is live (a phone tapping "Start on my desktop" for an issue
@@ -227,14 +228,19 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
         device_id,
         claimant,
     };
-    // Settings-default model/effort, but plan mode FORCED OFF (fix F7): a
-    // remote start must never park at a native plan-approval TUI menu on an
-    // unattended desktop — nobody is at the keyboard to approve it.
+    // The remote client's Start-coding dialog choices (EXP-149), settings
+    // defaults for anything it didn't send. Plan mode stays OFF unless the
+    // client explicitly opted in (F7: an option-less start must never park
+    // at a native plan-approval TUI menu on an unattended desktop — nobody
+    // is at the keyboard to approve it).
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions {
-        plan_mode: false,
-        ..LaunchOptions::issue_defaults(&settings)
-    };
+    let options = LaunchOptions::remote_issue(
+        &settings,
+        start.model.as_deref(),
+        start.effort.as_deref(),
+        start.ultracode,
+        start.plan_mode,
+    );
     let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, cx) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;

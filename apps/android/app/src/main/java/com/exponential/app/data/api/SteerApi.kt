@@ -57,10 +57,27 @@ private data class ViewerTicketInput(
     @SerialName("codingSessionId") val codingSessionId: String,
 )
 
+/**
+ * Launch options a remote start may carry (EXP-149) — the Start-coding
+ * sheet's choices. Null fields are omitted from the wire (the shared Json has
+ * explicitNulls=false) and mean "desktop settings default" (plan mode OFF).
+ * An empty [effort] is an explicit "CLI default" (omit --effort).
+ */
+data class SteerStartOptions(
+    val model: String? = null,
+    val effort: String? = null,
+    val ultracode: Boolean? = null,
+    val planMode: Boolean? = null,
+)
+
 @Serializable
 private data class StartSessionInput(
     @SerialName("issueId") val issueId: String,
     @SerialName("deviceId") val deviceId: String,
+    @SerialName("model") val model: String? = null,
+    @SerialName("effort") val effort: String? = null,
+    @SerialName("ultracode") val ultracode: Boolean? = null,
+    @SerialName("planMode") val planMode: Boolean? = null,
 )
 
 @Singleton
@@ -97,11 +114,23 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** `steer.startSession` — remote-start on the user's own online desktop. */
-    suspend fun startSession(accountId: String, issueId: String, deviceId: String) {
+    suspend fun startSession(
+        accountId: String,
+        issueId: String,
+        deviceId: String,
+        options: SteerStartOptions = SteerStartOptions(),
+    ) {
         trpc.mutationUnit(
             accountId,
             path = "steer.startSession",
-            input = StartSessionInput(issueId = issueId, deviceId = deviceId),
+            input = StartSessionInput(
+                issueId = issueId,
+                deviceId = deviceId,
+                model = options.model,
+                effort = options.effort,
+                ultracode = options.ultracode,
+                planMode = options.planMode,
+            ),
             inputSerializer = StartSessionInput.serializer(),
         )
     }

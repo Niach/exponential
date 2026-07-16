@@ -53,13 +53,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
+import {
+  StartCodingDialog,
+  type StartCodingOptions,
+  type SteerDevice,
+} from "@/components/start-coding-dialog"
 
 // Live "coding now" badge + custom-rendered agent-session view for the issue
 // detail screen and the workspace Agents page (EXP-63 — the web port of the
@@ -288,12 +287,6 @@ export function IssueSteerPanel({
 
 // ── "Start on my desktop" (remote start via the relay control socket) ────────
 
-interface SteerDevice {
-  deviceId: string
-  deviceLabel: string
-  connectedAt: number
-}
-
 function StartOnDesktop({
   issueId,
   offlineHint = false,
@@ -302,6 +295,7 @@ function StartOnDesktop({
   offlineHint?: boolean
 }) {
   const [devices, setDevices] = useState<SteerDevice[] | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [starting, setStarting] = useState(false)
   const [sentTo, setSentTo] = useState<string | null>(null)
 
@@ -333,13 +327,16 @@ function StartOnDesktop({
     )
   }
 
-  const start = async (device: SteerDevice) => {
+  // The Start-coding dialog (EXP-149) collects the launch options (model /
+  // effort / ultracode / plan mode) and the target device before sending.
+  const start = async (device: SteerDevice, options: StartCodingOptions) => {
     setStarting(true)
     try {
       await trpc.steer.startSession.mutate(
-        { issueId, deviceId: device.deviceId },
+        { issueId, deviceId: device.deviceId, ...options },
         { context: { skipErrorToast: true } }
       )
+      setDialogOpen(false)
       setSentTo(device.deviceLabel)
       // The desktop inserts the coding_sessions row when the launcher spins
       // up, which swaps this whole section for the live panel via Electric.
@@ -361,46 +358,24 @@ function StartOnDesktop({
 
   return (
     <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-      {devices.length === 1 ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void start(devices[0])}
-          disabled={busy}
-        >
-          {starting ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <MonitorUp />
-          )}
-          Start coding on {devices[0].deviceLabel}
-        </Button>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={busy}>
-              {starting ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <MonitorUp />
-              )}
-              Start on my desktop
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {devices.map((device) => (
-              <DropdownMenuItem
-                key={device.deviceId}
-                onClick={() => void start(device)}
-              >
-                <MonitorPlay />
-                {device.deviceLabel}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setDialogOpen(true)}
+        disabled={busy}
+      >
+        {starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
+        {devices.length === 1
+          ? `Start coding on ${devices[0].deviceLabel}`
+          : `Start on my desktop`}
+      </Button>
+      <StartCodingDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        devices={devices}
+        starting={starting}
+        onStart={(device, options) => void start(device, options)}
+      />
       {sentTo && (
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin" />

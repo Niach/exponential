@@ -13,6 +13,7 @@ import {
   type ClientFrame,
   type PresenceViewer,
   type ServerFrame,
+  type StartSessionOptions,
 } from "./protocol"
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
@@ -456,15 +457,19 @@ export class Hub {
     }
   }
 
-  /** Route a remote "Start on my desktop" to the device's control socket. */
+  /** Route a remote "Start on my desktop" to the device's control socket.
+   * `options` fields are optional launch options (EXP-149); undefineds are
+   * dropped by JSON.stringify, so an option-less start stays byte-identical
+   * to the pre-options frame. */
   startSession(
     userId: string,
     deviceId: string,
-    issueId: string
+    issueId: string,
+    options: StartSessionOptions = {}
   ): { ok: true } | { ok: false; reason: `device_offline` } {
     const entry = this.devices.get(userId)?.get(deviceId)
     if (!entry) return { ok: false, reason: `device_offline` }
-    entry.conn.sock.send(frame({ t: `start_session`, issueId }))
+    entry.conn.sock.send(frame({ t: `start_session`, issueId, ...options }))
     return { ok: true }
   }
 

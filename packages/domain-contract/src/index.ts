@@ -17,6 +17,10 @@ export interface DomainContract {
   codingSessionStatus: { values: readonly string[] }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
+  /** Claude model aliases for coding-session launches (first = default). */
+  codingModel: { values: readonly string[] }
+  /** Claude effort levels; blank ("CLI default") is a per-client extra row, not a contract value. */
+  codingEffort: { values: readonly string[] }
 }
 
 export const contract = contractJson as unknown as DomainContract

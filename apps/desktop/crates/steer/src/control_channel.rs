@@ -74,10 +74,22 @@ impl ControlApi for TrpcControlApi {
     }
 }
 
-/// The launcher trigger (§8.3 #4): receives the `issueId` of an inbound
-/// `start_session`. Runs on the steer runtime — implementations marshal to
-/// the gpui foreground themselves (e.g. via a flume channel the app drains).
-pub type StartSessionFn = Arc<dyn Fn(String) + Send + Sync>;
+/// An inbound `start_session` (§8.3 #4): the issue plus the launch options
+/// the remote client chose in its Start-coding dialog (EXP-149). `None`
+/// fields = the sender offered no choice → desktop settings defaults.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteStart {
+    pub issue_id: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub ultracode: Option<bool>,
+    pub plan_mode: Option<bool>,
+}
+
+/// The launcher trigger (§8.3 #4): receives an inbound `start_session`.
+/// Runs on the steer runtime — implementations marshal to the gpui
+/// foreground themselves (e.g. via a flume channel the app drains).
+pub type StartSessionFn = Arc<dyn Fn(RemoteStart) + Send + Sync>;
 
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
@@ -322,9 +334,21 @@ async fn connect_and_listen(
             msg = ws.next() => match msg {
                 Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
                     // §8.3 #4 — the one frame we act on.
-                    Some(ServerFrame::StartSession { issue_id }) => {
+                    Some(ServerFrame::StartSession {
+                        issue_id,
+                        model,
+                        effort,
+                        ultracode,
+                        plan_mode,
+                    }) => {
                         log::info!("steer control: remote start_session for issue {issue_id}");
-                        on_start_session(issue_id);
+                        on_start_session(RemoteStart {
+                            issue_id,
+                            model,
+                            effort,
+                            ultracode,
+                            plan_mode,
+                        });
                     }
                     Some(other) => {
                         // bye/error/kill here: logged; kill is not

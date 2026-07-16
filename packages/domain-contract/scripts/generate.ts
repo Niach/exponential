@@ -32,6 +32,8 @@ interface Contract {
   codingSessionStatus: Section
   subscriberSource: Section
   issueEventType: Section
+  codingModel: Section
+  codingEffort: Section
 }
 
 const contract: Contract = JSON.parse(
@@ -128,6 +130,8 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${swiftStringArray("codingModelValues", contract.codingModel.values)}
+${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
@@ -154,6 +158,8 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${kotlinStringArray("codingModelValues", contract.codingModel.values)}
+${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
@@ -182,6 +188,8 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
+${rustStrSlice("codingModelValues", contract.codingModel.values)}
+${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}

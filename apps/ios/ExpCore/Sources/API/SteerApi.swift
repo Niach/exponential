@@ -81,9 +81,36 @@ private struct ViewerTicketInput: Encodable {
     let codingSessionId: String
 }
 
+/// Launch options a remote start may carry (EXP-149) — the Start-coding
+/// sheet's choices. Nil fields are omitted from the wire (synthesized
+/// Encodable uses encodeIfPresent) and mean "desktop settings default"
+/// (plan mode OFF). `effort: ""` is an explicit "CLI default".
+public struct SteerStartOptions: Sendable {
+    public let model: String?
+    public let effort: String?
+    public let ultracode: Bool?
+    public let planMode: Bool?
+
+    public init(
+        model: String? = nil,
+        effort: String? = nil,
+        ultracode: Bool? = nil,
+        planMode: Bool? = nil
+    ) {
+        self.model = model
+        self.effort = effort
+        self.ultracode = ultracode
+        self.planMode = planMode
+    }
+}
+
 private struct StartSessionInput: Encodable {
     let issueId: String
     let deviceId: String
+    let model: String?
+    let effort: String?
+    let ultracode: Bool?
+    let planMode: Bool?
 }
 
 private struct StartSessionResult: Decodable {
@@ -133,12 +160,24 @@ public final class SteerApi: Sendable {
     /// online device. Throws `SteerStartError.rejected` with the server's
     /// human-readable reason on PRECONDITION_FAILED (device offline, no repo
     /// linked, relay off) so the UI can surface it verbatim.
-    public func startSession(accountId: String, issueId: String, deviceId: String) async throws {
+    public func startSession(
+        accountId: String,
+        issueId: String,
+        deviceId: String,
+        options: SteerStartOptions = SteerStartOptions()
+    ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
                 accountId: accountId,
                 path: "steer.startSession",
-                input: StartSessionInput(issueId: issueId, deviceId: deviceId)
+                input: StartSessionInput(
+                    issueId: issueId,
+                    deviceId: deviceId,
+                    model: options.model,
+                    effort: options.effort,
+                    ultracode: options.ultracode,
+                    planMode: options.planMode
+                )
             )
         } catch let TrpcError.httpError(status, body) {
             if let message = Self.trpcErrorMessage(fromBody: body) {
