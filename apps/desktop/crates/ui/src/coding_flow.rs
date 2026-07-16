@@ -184,6 +184,9 @@ pub struct LocalCodingSession {
     /// The shared clone the session's worktree hangs off — releases its P9
     /// token-refresher hold when the session ends.
     pub clone: PathBuf,
+    /// The branch the session's worktree is on (`exp/<IDENTIFIER>` /
+    /// `exp/batch-<id8>`) — the EXP-102 sweep/delete guard key.
+    pub branch: String,
     pub tab: TabId,
     pub manager: WeakEntity<TerminalManager>,
 }
@@ -222,6 +225,16 @@ impl LocalSessions {
 
     pub fn get(&self, issue_id: &str) -> Option<&LocalCodingSession> {
         self.by_issue.get(issue_id)
+    }
+
+    /// Whether a LIVE local session (issue or batch) is working on `branch`
+    /// — the EXP-102 guard: sweeping/deleting that lane's worktree would
+    /// pull the running claude PTY's cwd out from under it.
+    pub fn is_branch_live(&self, branch: &str) -> bool {
+        self.by_issue
+            .values()
+            .chain(self.by_batch.values())
+            .any(|session| session.branch == branch)
     }
 
     /// The coding session id whose terminal tab is `tab`, if this process is
@@ -711,7 +724,7 @@ pub fn spawn_into_window(
 
     match coding::spawn_prepared_with(prepared, &manager, cx, Arc::clone(&trpc), Some(exit_notify))
     {
-        Ok(LaunchOutcome::Spawned { session_id, terminal_tab, worktree, .. }) => {
+        Ok(LaunchOutcome::Spawned { session_id, terminal_tab, worktree, branch }) => {
             // §08 steer publisher attach — tee this session's PTY out to the
             // relay for phone steering. Best-effort: a no-op when steer is
             // disabled/unreachable or the account is signed out. This is the
@@ -735,6 +748,7 @@ pub fn spawn_into_window(
                     session_id,
                     subject,
                     clone,
+                    branch,
                     tab: terminal_tab,
                     manager: manager.downgrade(),
                 },
