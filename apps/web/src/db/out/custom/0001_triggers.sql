@@ -174,7 +174,10 @@ CREATE OR REPLACE TRIGGER populate_coding_session_workspace_id
 --    label, project_id from the issue). Guarded on issue_id like the
 --    workspace_id populate: batch-scoped coding_sessions rows (issue_id
 --    NULL) keep project_id NULL — they span projects and are never
---    anonymous-visible.
+--    anonymous-visible. notifications also carries this trigger (REV-109):
+--    its project_id is never anonymous-facing (the shape is requireAuth) but
+--    lets the member shape hide notifications of trashed projects for the
+--    48h trash window.
 CREATE OR REPLACE FUNCTION populate_issue_child_project_id()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -208,4 +211,8 @@ CREATE OR REPLACE TRIGGER populate_coding_session_project_id
 
 CREATE OR REPLACE TRIGGER populate_issue_label_project_id
   BEFORE INSERT ON issue_labels
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_notification_project_id
+  BEFORE INSERT ON notifications
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();

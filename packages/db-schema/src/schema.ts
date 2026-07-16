@@ -629,6 +629,14 @@ export const notifications = pgTable(
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `cascade`,
     }),
+    // Trigger-denormalized from the issue (0001_triggers.sql §7) so the
+    // notifications shape can hide rows of trashed projects for the 48h
+    // trash window. Server-only scoping — excluded from the shape via its
+    // columns allowlist, like emailed_at. Nullable like issue_id: an
+    // issue-less notification carries no project identity.
+    projectId: uuid(`project_id`).references(() => projects.id, {
+      onDelete: `cascade`,
+    }),
     type: notificationTypeEnum().notNull(),
     title: varchar({ length: 500 }).notNull(),
     body: text(),
@@ -643,6 +651,7 @@ export const notifications = pgTable(
   },
   (table) => [
     index(`idx_notifications_user_unread`).on(table.userId, table.readAt),
+    index(`idx_notifications_project`).on(table.projectId),
     // The hourly digest sweep's scan: unread, never-emailed rows by age.
     index(`idx_notifications_digest_pending`)
       .on(table.createdAt)

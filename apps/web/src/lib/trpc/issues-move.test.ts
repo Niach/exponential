@@ -79,6 +79,7 @@ import {
   issues,
   issueLabels,
   issueSubscribers,
+  notifications,
 } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -293,13 +294,14 @@ describe(`issues.move`, () => {
       issueSubscribers,
       issueLabels,
       codingSessions,
+      notifications,
     ]) {
       const childUpdate = updates.find((u) => u.table === table)
       expect(childUpdate).toBeDefined()
       expect(childUpdate!.set).toEqual({ projectId: PROJ_TO })
       expect(collectParams(childUpdate!.where)).toEqual([ISSUE_ID])
     }
-    expect(updates).toHaveLength(7)
+    expect(updates).toHaveLength(8)
 
     // Timeline event with the full hop payload.
     expect(h.recordIssueEvent).toHaveBeenCalledTimes(1)

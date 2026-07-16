@@ -10,6 +10,7 @@ import {
   issueLabels,
   issueSubscribers,
   labels,
+  notifications,
   projects,
 } from "@/db/schema"
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
@@ -748,6 +749,10 @@ export const issuesRouter = router({
           .update(codingSessions)
           .set({ projectId: input.projectId })
           .where(eq(codingSessions.issueId, input.id))
+        await tx
+          .update(notifications)
+          .set({ projectId: input.projectId })
+          .where(eq(notifications.issueId, input.id))
 
         await recordIssueEvent(tx, {
           issueId: input.id,
