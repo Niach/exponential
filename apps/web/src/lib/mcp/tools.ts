@@ -53,7 +53,8 @@ import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
-import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
+import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
+import { isInstallationLinkedToWorkspace } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -1044,12 +1045,29 @@ export function registerExponentialTools(
         }
         const baseBranch = base ?? repo.defaultBranch
 
-        const token = await resolveRepoInstallationToken(repo.fullName)
-        if (!token) {
+        const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
+        if (!resolved) {
           throw new Error(
             `The Exponential GitHub App is not installed on ${repo.fullName}.`
           )
         }
+        // Link-gate (mirrors issues.mergePr/closePr): the installation serving
+        // this repo must still be claimed by the issue's workspace — a
+        // deliberately severed GitHub connection must not keep authorizing PR
+        // writes through the App.
+        for (const wsId of new Set(workspaceIdByIssue.values())) {
+          if (
+            !(await isInstallationLinkedToWorkspace(
+              wsId,
+              resolved.installationId
+            ))
+          ) {
+            throw new Error(
+              `${repo.fullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`
+            )
+          }
+        }
+        const token = resolved.token
 
         const created = await createPullRequest({
           repo: repo.fullName,

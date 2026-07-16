@@ -14,7 +14,6 @@ import {
   peekBranchDiff,
   resolveRepoDefaultBranch,
   resolveRepoDefaultBranchCached,
-  resolveRepoInstallationToken,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import {
@@ -588,19 +587,35 @@ export const repositoriesRouter = router({
       const branch = issueBranchName(issue.identifier)
       // Warm-cache hit short-circuits BEFORE the token/installation lookups
       // (both uncached GitHub round-trips) — fetchBranchDiff would peek the same
-      // cache, but only after resolveRepoInstallationToken already paid for a
+      // cache, but only after resolveRepoInstallationTokenInfo already paid for a
       // /repos/{repo}/installation call.
       const cached = peekBranchDiff(repo.fullName, repo.defaultBranch, branch)
       if (cached) return cached
 
-      const token = await resolveRepoInstallationToken(repo.fullName, {
+      const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
         fallbackInstallationId: repo.installationId,
       })
+      // Link-gate (mirrors issues.prFiles): the installation serving this repo
+      // must still be claimed by the issue's workspace — a deliberately severed
+      // GitHub connection must not keep exposing private-repo branch diffs. An
+      // unresolved installation degrades to an unauthenticated public-repo read.
+      if (
+        resolved &&
+        !(await isInstallationLinkedToWorkspace(
+          issueCtx.workspaceId,
+          resolved.installationId
+        ))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+        })
+      }
       return fetchBranchDiff({
         repo: repo.fullName,
         base: repo.defaultBranch,
         branch,
-        token,
+        token: resolved?.token ?? null,
       })
     }),
 
