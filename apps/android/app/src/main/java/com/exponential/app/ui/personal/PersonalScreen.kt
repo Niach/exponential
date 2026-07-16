@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.inbox.InboxListContent
 import com.exponential.app.ui.inbox.InboxViewModel
 import com.exponential.app.ui.myissues.MyIssuesListContent
+import com.exponential.app.ui.reviews.ReviewsListContent
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 
@@ -43,6 +44,7 @@ import com.exponential.app.ui.theme.glassButton
 // rememberSaveable-friendly segment keys (plain strings, no custom Saver).
 private const val SECTION_INBOX = "inbox"
 private const val SECTION_MY_ISSUES = "my_issues"
+private const val SECTION_REVIEWS = "reviews"
 
 @Composable
 fun PersonalScreen(
@@ -82,6 +84,12 @@ fun PersonalScreen(
                     active = section == SECTION_MY_ISSUES,
                     onClick = { section = SECTION_MY_ISSUES },
                 )
+                Spacer(Modifier.width(8.dp))
+                SegmentPill(
+                    label = "Reviews",
+                    active = section == SECTION_REVIEWS,
+                    onClick = { section = SECTION_REVIEWS },
+                )
                 Spacer(Modifier.weight(1f))
                 if (section == SECTION_INBOX && inboxState.totalUnread > 0) {
                     TextButton(onClick = { inboxViewModel.markAllRead() }) {
@@ -92,6 +100,7 @@ fun PersonalScreen(
             Spacer(Modifier.height(8.dp))
             when (section) {
                 SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
+                SECTION_REVIEWS -> ReviewsListContent(onOpenIssue = onOpenIssue)
                 else -> InboxListContent(
                     onOpenIssue = onOpenIssue,
                     viewModel = inboxViewModel,

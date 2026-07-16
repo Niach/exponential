@@ -49,7 +49,7 @@ import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
 
 // The stacked metadata/property cards of the issue detail screen: grouped
-// Status/Priority/Assignee, Due date, Start/End times, Repeat, and the Labels
+// Status/Priority/Assignee, Due date, Start/End times, and the Labels
 // chip section. Extracted from IssueDetailScreen.kt (pure move — no behavior
 // change); the pickers/dialogs stay in the screen, driven via the callbacks.
 @OptIn(ExperimentalLayoutApi::class)
@@ -71,7 +71,6 @@ fun IssueMetadataEditor(
     onClearDueDate: () -> Unit,
     onStartTimeClick: () -> Unit,
     onEndTimeClick: () -> Unit,
-    onRepeatClick: () -> Unit,
     onToggleLabel: (labelId: String, assigned: Boolean) -> Unit,
     onAddLabel: () -> Unit,
 ) {
@@ -179,26 +178,6 @@ fun IssueMetadataEditor(
             DetailRow(label = "End time", enabled = isModerator, onClick = onEndTimeClick) {
                 TimeValue(issue.endTime)
             }
-        }
-    }
-
-    Spacer(Modifier.height(20.dp))
-    // Repeat card
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassSection()
-            .padding(vertical = 4.dp)
-            .alpha(if (isModerator) 1f else 0.55f),
-    ) {
-        DetailRow(label = "Repeat", enabled = isModerator, onClick = onRepeatClick) {
-            Text(
-                formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (issue.recurrenceInterval == null) TextEmphasis.Tertiary else TextEmphasis.Primary,
-                ),
-            )
         }
     }
 

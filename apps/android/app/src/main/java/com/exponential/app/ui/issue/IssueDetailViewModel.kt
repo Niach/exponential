@@ -601,22 +601,6 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
-    fun updateRecurrence(interval: Int?, unit: String?) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(
-                    accountId,
-                    UpdateIssueInput(
-                        id = issueId,
-                        recurrenceInterval = interval,
-                        recurrenceUnit = unit,
-                    )
-                )
-            }
-        }
-    }
-
     fun toggleLabel(labelId: String, isCurrentlyAssigned: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

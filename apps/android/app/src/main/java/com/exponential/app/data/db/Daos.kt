@@ -69,6 +69,17 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
+    // Reviews (EXP-131): every issue in one workspace with an OPEN pull request.
+    // Joins projects to scope by workspace and drop trashed/archived projects;
+    // a batch PR links several issues to the SAME pr_url, so the client groups
+    // these rows by pr_url into one review entry.
+    @Query(
+        "SELECT i.* FROM issues i JOIN projects p ON p.id = i.project_id " +
+            "WHERE p.workspace_id = :workspaceId AND i.pr_state = 'open' " +
+            "AND i.archived_at IS NULL AND p.deleted_at IS NULL AND p.archived_at IS NULL"
+    )
+    fun observeOpenPrsByWorkspace(workspaceId: String): Flow<List<IssueEntity>>
+
     // App-link resolution (EXP-92): workspace SLUG + identifier → issue id.
     // Deliberately no archived filter (an emailed link to an archived issue
     // should still open) and no project-slug predicate (identifiers are

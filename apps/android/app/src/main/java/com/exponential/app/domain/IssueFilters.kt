@@ -20,7 +20,7 @@ enum class FilterTab(val label: String) {
     Backlog("Backlog");
 }
 
-private val activeStatuses = setOf(IssueStatus.InProgress, IssueStatus.Todo)
+private val activeStatuses = setOf(IssueStatus.InProgress, IssueStatus.InReview, IssueStatus.Todo)
 private val backlogStatuses = setOf(IssueStatus.Backlog)
 
 fun FilterTab.statuses(): Set<IssueStatus> = when (this) {
