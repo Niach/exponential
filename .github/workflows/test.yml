@@ -1,9 +1,10 @@
 name: test
 
 # CI test gate: typecheck + unit tests for the bun workspaces, the desktop
-# Rust workspace, and the Android app. Runs on every push/PR to master so
-# red tests are visible before anything ships (build-issues-web.yml runs the
-# web portion again as a hard gate before pushing the production image).
+# Rust workspace, and the Android app, plus a from-scratch migration run
+# against a real Postgres. Runs on every push/PR to master so red tests are
+# visible before anything ships (build-issues-web.yml runs the web portion
+# again as a hard gate before pushing the production image).
 
 on:
   push:
@@ -35,6 +36,40 @@ jobs:
         run: bun run test:widget
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
+
+  migrations:
+    # EXP-112: drizzle-kit can generate SQL that fails on every real DB
+    # (e.g. DROP TABLE CASCADE before its referencing DROP CONSTRAINTs —
+    # EXP-111's migration 0023), and nothing else in CI ever executes the
+    # migrations. Run the full chain from scratch against a real Postgres,
+    # then the custom triggers that deploys apply on top.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: exponential
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Apply migrations from scratch
+        run: bun run migrate
+      - name: Apply custom triggers
+        # Use the service container's own psql (mirrors the documented
+        # deploy command) — ON_ERROR_STOP so SQL errors fail the job.
+        run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
 
   desktop:
     runs-on: ubuntu-latest
