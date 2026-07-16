@@ -6,7 +6,20 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      // The site self-hosts Inter/JetBrains Mono (fonts.css) — the video
+      // surfaces must never fetch from Google. Keep these two exact shims in
+      // lockstep with tsconfig "paths" (and extend both if apps/video ever
+      // imports another @remotion/google-fonts family).
+      "@remotion/google-fonts/Inter": resolve(
+        __dirname,
+        `src/movie/fonts/inter-shim.ts`,
+      ),
+      "@remotion/google-fonts/JetBrainsMono": resolve(
+        __dirname,
+        `src/movie/fonts/jetbrains-shim.ts`,
+      ),
       "@app": resolve(__dirname, `../web/src`),
+      "@video": resolve(__dirname, `../video/src`),
     },
   },
   build: {

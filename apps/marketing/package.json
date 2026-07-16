@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@remotion/player": "4.0.484",
     "lucide-react": "^0.544.0",
     "motion": "^12.39.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "remotion": "4.0.484"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
