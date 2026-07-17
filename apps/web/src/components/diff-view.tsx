@@ -450,8 +450,9 @@ function FileNav({
 }
 
 // Shared file-patch list — reused by the PR-diff tier (this file's DiffView)
-// and the pushed-branch-no-PR tier (issue-changes-tab.tsx), both of which get
-// their files in the same `PullFile[]` shape (github-pr.ts / github-app.ts).
+// and the pushed-branch-no-PR tier (the review-detail route's BranchDiffSection),
+// both of which get their files in the same `PullFile[]` shape (github-pr.ts /
+// github-app.ts).
 export function FileDiffList({ files }: { files: PullFile[] }) {
   // Sparse user overrides on top of size-based defaults, keyed by filename —
   // a tier-3 refresh replaces `files` without discarding the user's toggles.

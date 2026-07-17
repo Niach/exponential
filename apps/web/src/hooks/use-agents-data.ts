@@ -7,10 +7,6 @@ import {
 } from "@/hooks/use-workspace-data"
 import type { CodingSession, Issue, Project, User } from "@/db/schema"
 
-// The ended list is a recap, not an archive — cap it so a busy workspace's
-// history doesn't grow the page unboundedly (the full trail lives on issues).
-const MAX_ENDED_SESSIONS = 25
-
 export interface AgentSessionRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing. */
@@ -20,10 +16,11 @@ export interface AgentSessionRow {
   user: User | undefined
 }
 
-// Workspace Agents page data: every coding session in the workspace (synced
-// coding_sessions shape, workspace-scoped by the denormalized workspace_id),
-// joined client-side to its issue / project / driving user. Running sessions
-// newest-first, then the most recently ended ones.
+// Workspace Agents page + dock data: the RUNNING coding sessions in the
+// workspace (synced coding_sessions shape, workspace-scoped by the denormalized
+// workspace_id), joined client-side to their issue / project / driving user,
+// newest-first. Ended sessions dropped out with the redesign — the live trail
+// lives on each issue, and the dock/Agents page only surface running work.
 export function useAgentsData(workspaceId?: string) {
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
@@ -85,19 +82,8 @@ export function useAgentsData(workspaceId?: string) {
       )
       .map(toRow)
 
-    const ended = sessions
-      .filter((session) => session.status === `ended`)
-      .sort(
-        (a, b) =>
-          new Date(b.endedAt ?? b.startedAt).getTime() -
-          new Date(a.endedAt ?? a.startedAt).getTime()
-      )
-      .slice(0, MAX_ENDED_SESSIONS)
-      .map(toRow)
-
     return {
       running,
-      ended,
       // Without a workspace id the query is skipped and can never deliver a
       // snapshot — treat that as ready-empty instead of loading forever.
       isLoading: !isReady && Boolean(workspaceId),

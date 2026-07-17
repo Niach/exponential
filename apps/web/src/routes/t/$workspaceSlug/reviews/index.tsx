@@ -76,10 +76,12 @@ function ReviewsPage() {
   const [closeTarget, setCloseTarget] = useState<ReviewEntry | null>(null)
   const [closingIds, setClosingIds] = useState<Set<string>>(new Set())
 
-  const openIssue = (projectSlug: string, issueIdentifier: string) => {
+  // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
+  // issue itself — a batch entry's representative identifier stands for the PR.
+  const openReview = (issueIdentifier: string) => {
     void navigate({
-      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
-      params: { workspaceSlug, projectSlug, issueIdentifier },
+      to: `/t/$workspaceSlug/reviews/$issueIdentifier`,
+      params: { workspaceSlug, issueIdentifier },
     })
   }
 
@@ -209,9 +211,7 @@ function ReviewsPage() {
                   <div
                     key={entry.key}
                     className="group/row grid h-11 cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 hover:bg-muted/50"
-                    onClick={() =>
-                      openIssue(group.project.slug, issue.identifier)
-                    }
+                    onClick={() => openReview(issue.identifier)}
                     data-testid={`review-row-${issue.identifier}`}
                   >
                     <GitPullRequest className="h-4 w-4 text-emerald-500" />

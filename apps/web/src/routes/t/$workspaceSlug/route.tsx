@@ -18,6 +18,8 @@ import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import { MentionProvider } from "@/components/mention-provider"
 import { PublicWorkspaceView } from "@/components/public-board/public-board-view"
+import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
+import { AgentDock } from "@/components/agent-dock/agent-dock"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -77,7 +79,7 @@ export const Route = createFileRoute(`/t/$workspaceSlug`)({
 
 function WorkspaceLayout() {
   const { workspaceSlug } = Route.useParams()
-  const { session, publicView } = Route.useRouteContext()
+  const { session, user, publicView } = Route.useRouteContext()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -130,33 +132,44 @@ function WorkspaceLayout() {
         workspaceSlug={workspaceSlug}
       >
         <MentionProvider workspaceId={workspace?.id}>
-          <FeedbackWidgetProvider />
-          <WorkspaceSidebar
-            workspaceSlug={workspaceSlug}
-            workspace={workspace}
-            projects={projects}
-            onOpenSearch={() => setSearchOpen(true)}
-          />
-
-          <main className="flex-1 flex flex-col min-h-screen">
-            <WorkspaceMobileTopbar
+          {/* The agent-coding dock (EXP-106) lives at layout level so it
+              survives $workspaceSlug param changes and pins to the viewport. */}
+          <AgentDockProvider workspaceId={workspace?.id ?? ``}>
+            <FeedbackWidgetProvider />
+            <WorkspaceSidebar
               workspaceSlug={workspaceSlug}
-              projects={projects ?? []}
-              workspaceId={workspace?.id}
+              workspace={workspace}
+              projects={projects}
+              onOpenSearch={() => setSearchOpen(true)}
             />
-            <div className="flex-1">
-              <Outlet />
-            </div>
-          </main>
 
-          {workspace && (
-            <IssueSearchSheet
-              open={searchOpen}
-              onOpenChange={setSearchOpen}
-              workspaceId={workspace.id}
-              workspaceSlug={workspaceSlug}
-            />
-          )}
+            <main className="flex-1 flex flex-col min-h-screen">
+              <WorkspaceMobileTopbar
+                workspaceSlug={workspaceSlug}
+                projects={projects ?? []}
+                workspaceId={workspace?.id}
+              />
+              <div className="flex-1 min-h-0">
+                <Outlet />
+              </div>
+              {workspace && user && (
+                <AgentDock
+                  workspaceId={workspace.id}
+                  workspaceSlug={workspaceSlug}
+                  currentUserId={user.id}
+                />
+              )}
+            </main>
+
+            {workspace && (
+              <IssueSearchSheet
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                workspaceId={workspace.id}
+                workspaceSlug={workspaceSlug}
+              />
+            )}
+          </AgentDockProvider>
         </MentionProvider>
       </IssueRefProvider>
     </SidebarProvider>

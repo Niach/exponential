@@ -78,6 +78,7 @@ import { Route as TWorkspaceSlugSettingsMembersRouteImport } from './routes/t/$w
 import { Route as TWorkspaceSlugSettingsLabelsRouteImport } from './routes/t/$workspaceSlug/settings/labels'
 import { Route as TWorkspaceSlugSettingsGeneralRouteImport } from './routes/t/$workspaceSlug/settings/general'
 import { Route as TWorkspaceSlugSettingsBillingRouteImport } from './routes/t/$workspaceSlug/settings/billing'
+import { Route as TWorkspaceSlugReviewsIssueIdentifierRouteImport } from './routes/t/$workspaceSlug/reviews/$issueIdentifier'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
@@ -456,6 +457,12 @@ const TWorkspaceSlugSettingsBillingRoute =
     path: '/billing',
     getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
   } as any)
+const TWorkspaceSlugReviewsIssueIdentifierRoute =
+  TWorkspaceSlugReviewsIssueIdentifierRouteImport.update({
+    id: '/reviews/$issueIdentifier',
+    path: '/reviews/$issueIdentifier',
+    getParentRoute: () => TWorkspaceSlugRouteRoute,
+  } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
   path: '/api/issues/$issueId/images',
@@ -573,6 +580,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
   '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
   '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
   '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
@@ -649,6 +657,7 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
   '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
   '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
   '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
@@ -730,6 +739,7 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
   '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
   '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
   '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
@@ -811,6 +821,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/t/$workspaceSlug/reviews/$issueIdentifier'
     | '/t/$workspaceSlug/settings/billing'
     | '/t/$workspaceSlug/settings/general'
     | '/t/$workspaceSlug/settings/labels'
@@ -887,6 +898,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/t/$workspaceSlug/reviews/$issueIdentifier'
     | '/t/$workspaceSlug/settings/billing'
     | '/t/$workspaceSlug/settings/general'
     | '/t/$workspaceSlug/settings/labels'
@@ -967,6 +979,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/t/$workspaceSlug/reviews/$issueIdentifier'
     | '/t/$workspaceSlug/settings/billing'
     | '/t/$workspaceSlug/settings/general'
     | '/t/$workspaceSlug/settings/labels'
@@ -1522,6 +1535,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TWorkspaceSlugSettingsBillingRouteImport
       parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
     }
+    '/t/$workspaceSlug/reviews/$issueIdentifier': {
+      id: '/t/$workspaceSlug/reviews/$issueIdentifier'
+      path: '/reviews/$issueIdentifier'
+      fullPath: '/t/$workspaceSlug/reviews/$issueIdentifier'
+      preLoaderRoute: typeof TWorkspaceSlugReviewsIssueIdentifierRouteImport
+      parentRoute: typeof TWorkspaceSlugRouteRoute
+    }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
       path: '/api/issues/$issueId/images'
@@ -1668,6 +1688,7 @@ const TWorkspaceSlugSettingsRouteRouteWithChildren =
 interface TWorkspaceSlugRouteRouteChildren {
   TWorkspaceSlugSettingsRouteRoute: typeof TWorkspaceSlugSettingsRouteRouteWithChildren
   TWorkspaceSlugIndexRoute: typeof TWorkspaceSlugIndexRoute
+  TWorkspaceSlugReviewsIssueIdentifierRoute: typeof TWorkspaceSlugReviewsIssueIdentifierRoute
   TWorkspaceSlugAgentsIndexRoute: typeof TWorkspaceSlugAgentsIndexRoute
   TWorkspaceSlugInboxIndexRoute: typeof TWorkspaceSlugInboxIndexRoute
   TWorkspaceSlugMyIssuesIndexRoute: typeof TWorkspaceSlugMyIssuesIndexRoute
@@ -1681,6 +1702,8 @@ const TWorkspaceSlugRouteRouteChildren: TWorkspaceSlugRouteRouteChildren = {
   TWorkspaceSlugSettingsRouteRoute:
     TWorkspaceSlugSettingsRouteRouteWithChildren,
   TWorkspaceSlugIndexRoute: TWorkspaceSlugIndexRoute,
+  TWorkspaceSlugReviewsIssueIdentifierRoute:
+    TWorkspaceSlugReviewsIssueIdentifierRoute,
   TWorkspaceSlugAgentsIndexRoute: TWorkspaceSlugAgentsIndexRoute,
   TWorkspaceSlugInboxIndexRoute: TWorkspaceSlugInboxIndexRoute,
   TWorkspaceSlugMyIssuesIndexRoute: TWorkspaceSlugMyIssuesIndexRoute,

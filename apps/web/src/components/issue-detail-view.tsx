@@ -11,9 +11,9 @@ import {
   Undo2,
 } from "lucide-react"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import type { CodingSession, Issue, User, Project } from "@/db/schema"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import type { Issue, User, Project } from "@/db/schema"
+import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -53,8 +53,7 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
-import { IssueChangesTab } from "@/components/issue-changes-tab"
-import { IssueSteerPanel } from "@/components/agent-session"
+import { IssueCodingRows } from "@/components/issue-coding-rows"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
@@ -248,7 +247,6 @@ export function IssueDetailView({
   )
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
-  const [activeTab, setActiveTab] = useState<`details` | `changes`>(`details`)
   const [linkCopied, setLinkCopied] = useState(false)
 
   const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
@@ -258,20 +256,6 @@ export function IssueDetailView({
       await trpc.issues.update.mutate({ id: issue.id, status })
     },
   })
-
-  // Live "coding now" dot on the Changes tab: a running session (or an open PR /
-  // pushed branch) means there is something to see in Changes.
-  const { data: runningSessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) =>
-          and(eq(s.issueId, issue.id), eq(s.status, `running`))
-        ),
-    [issue.id]
-  )
-  const isCodingNow = ((runningSessionRows ?? []) as CodingSession[]).length > 0
-  const hasChanges = isCodingNow || issue.prNumber != null
 
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
@@ -306,7 +290,6 @@ export function IssueDetailView({
     setTitle(issue.title)
     applyIncomingDescription(incomingDescription)
     setAttachmentStatus(null)
-    setActiveTab(`details`)
   }, [issue.id])
 
   // Opening an issue clears its inbox notifications (EXP-92) — the safety net
@@ -747,23 +730,20 @@ export function IssueDetailView({
     </div>
   )
 
-  // Coding section on the Details tab (EXP-87, mobile parity): "Coding now"
-  // badge + live viewer while a session runs, "Start on my desktop" (or the
-  // no-desktop-online hint) otherwise. Repo presence gates it — coding
-  // features gate on repo presence, so task boards stay quiet; the panel
-  // itself hides for non-members and when the relay is off. The Changes tab
-  // mounts its own copy, but only one tab renders at a time, so the live
-  // viewer never double-connects.
-  const steerPanel =
-    currentUserId && project.repositoryId ? (
-      <IssueSteerPanel
-        issueId={issue.id}
-        workspaceId={workspaceId}
-        currentUserId={currentUserId}
-        users={users}
-        offlineHint
-      />
-    ) : null
+  // Coding section (EXP-106): the compact "coding now" / remote-start row plus
+  // the PR / pushed-branch link to the review-detail route. The component owns
+  // the repo/membership/relay gating and focuses the global dock rather than
+  // mounting the live viewer inline.
+  const codingRows = currentUserId ? (
+    <IssueCodingRows
+      issue={issue}
+      project={project}
+      workspaceId={workspaceId}
+      workspaceSlug={workspaceSlug}
+      currentUserId={currentUserId}
+      users={users}
+    />
+  ) : null
 
   const timeline = currentUserId ? (
     <IssueTimeline
@@ -780,79 +760,19 @@ export function IssueDetailView({
     <WidgetSubmissionCard issueId={issue.id} />
   ) : null
 
-  // Details · Changes segmented control (masterplan §4.8 / §5.4). Changes is
-  // the single home of PR/branch diffs + the live steer viewer.
-  const tabsBar = (
-    <div className="flex items-center gap-1 px-4 py-2 border-b border-border">
-      <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
-        {(
-          [
-            { id: `details`, label: `Details` },
-            { id: `changes`, label: `Changes` },
-          ] as const
-        ).map((tab) => (
-          <Button
-            key={tab.id}
-            variant="ghost"
-            size="sm"
-            onClick={() => setActiveTab(tab.id)}
-            className={`h-6 rounded-md px-3 text-xs ${
-              activeTab === tab.id
-                ? `bg-background text-foreground shadow-sm`
-                : `text-muted-foreground hover:text-foreground`
-            }`}
-          >
-            {tab.label}
-            {tab.id === `changes` && hasChanges && (
-              <span className="relative ml-1.5 flex size-1.5">
-                {isCodingNow && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                )}
-                <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-              </span>
-            )}
-          </Button>
-        ))}
-      </div>
-    </div>
-  )
-
-  // Changes tab body: PR diff → branchDiff → "Being coded on <device>" steer
-  // viewer (masterplan §5.4). Mounted only while active so opening the tab
-  // triggers a fresh branch-diff fetch (§4.8 freshness).
-  const changesContent = currentUserId ? (
-    <IssueChangesTab
-      issue={issue}
-      workspaceId={workspaceId}
-      currentUserId={currentUserId}
-      users={users}
-    />
-  ) : (
-    <div className="px-4 py-6 text-xs text-muted-foreground">
-      Sign in to view changes.
-    </div>
-  )
-
   if (isMobile) {
     return (
       <div className="flex flex-col h-full min-h-0">
         {breadcrumb}
         {duplicateBanner}
         {propsPanel}
-        {tabsBar}
         <div className="flex-1 overflow-y-auto">
-          {activeTab === `details` ? (
-            <>
-              {titleField}
-              {editor}
-              {attachmentRail}
-              {steerPanel}
-              {widgetCard}
-              {timeline}
-            </>
-          ) : (
-            changesContent
-          )}
+          {titleField}
+          {editor}
+          {attachmentRail}
+          {codingRows}
+          {widgetCard}
+          {timeline}
         </div>
         {duplicatePicker}
       </div>
@@ -865,21 +785,15 @@ export function IssueDetailView({
       {duplicateBanner}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-          {tabsBar}
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {activeTab === `details` ? (
-              <div className="mx-auto max-w-3xl">
-                {titleField}
-                {editor}
-                {attachmentRail}
-                {steerPanel}
-                {widgetCard}
-                {timeline}
-              </div>
-            ) : (
-              // Wider than Details: diff lines need the room (desktop-IDE parity).
-              <div className="mx-auto max-w-5xl">{changesContent}</div>
-            )}
+            <div className="mx-auto max-w-3xl">
+              {titleField}
+              {editor}
+              {attachmentRail}
+              {codingRows}
+              {widgetCard}
+              {timeline}
+            </div>
           </div>
         </div>
         {propsPanel}

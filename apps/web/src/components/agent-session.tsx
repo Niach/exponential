@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "sonner"
 import { TRPCClientError } from "@trpc/client"
 import {
@@ -10,23 +9,14 @@ import {
   CircleHelp,
   ClipboardList,
   Eye,
-  Keyboard,
   Loader2,
-  MonitorOff,
-  MonitorPlay,
-  MonitorUp,
   OctagonX,
   RotateCw,
   Sparkles,
   Wrench,
-  X,
 } from "lucide-react"
-import type { CodingSession, User } from "@/db/schema"
+import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import {
-  codingSessionCollection,
-  workspaceMemberCollection,
-} from "@/lib/collections"
 import {
   consumeEcho,
   groupToolRuns,
@@ -37,7 +27,6 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -54,25 +43,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileDiffList } from "@/components/diff-view"
-import {
-  StartCodingDialog,
-  type StartCodingOptions,
-  type SteerDevice,
-} from "@/components/start-coding-dialog"
 
-// Live "coding now" badge + custom-rendered agent-session view for the issue
-// detail screen and the workspace Agents page (EXP-63 — the web port of the
+// The custom-rendered agent-session viewer (EXP-63 — the web port of the
 // mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
 // viewer joins the steer relay's scrubbed ACTIVITY channel
 // ({"t":"join","channel":"activity"}, apps/steer-relay/src/protocol.ts) and
 // renders structured events — narration bubbles + compact tool rows, a
 // pinned "Latest changes" diff above the composer — never raw PTY bytes.
 // Steering is message-shaped like mobile: a steal-claim + chunked input + a
-// SEPARATE `\r` frame. With no running session, members with an online
-// desktop get a "Start on my desktop" button (relay-routed remote start);
-// `offlineHint` callers (the issue Details tab, EXP-87) additionally show the
-// mobile-parity "No desktop online" hint instead of hiding.
-// Everything degrades to just the badge (or nothing) when the relay is off.
+// SEPARATE `\r` frame. Since EXP-106 this view is mounted ONLY by the global
+// agent dock (components/agent-dock) — one at a time — so it always
+// auto-connects and delegates its chrome (title, collapse) to the dock; the
+// "coding now" rows + remote-start affordances moved to issue-coding-rows.tsx.
 
 // ── Wire protocol (activity-viewer side of apps/steer-relay/src/protocol.ts) ─
 
@@ -191,201 +173,6 @@ export function useSteerConfig(): SteerConfig | null {
   return config
 }
 
-// ── Root: badge + agent view + remote start, driven by the synced session row ─
-
-interface IssueSteerPanelProps {
-  issueId: string
-  workspaceId: string
-  currentUserId: string
-  users: User[]
-  /** Show a "No desktop online" hint instead of hiding when no desktop is
-   *  reachable (iOS-parity discoverability on the issue Details tab). */
-  offlineHint?: boolean
-}
-
-export function IssueSteerPanel({
-  issueId,
-  workspaceId,
-  currentUserId,
-  users,
-  offlineHint = false,
-}: IssueSteerPanelProps) {
-  const config = useSteerConfig()
-
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) =>
-          and(eq(s.issueId, issueId), eq(s.status, `running`))
-        ),
-    [issueId]
-  )
-  // Multi-window desktops can run several sessions on one issue; surface the
-  // most recent (the badge counts them all).
-  const sessions = (sessionRows ?? []) as CodingSession[]
-  const session = useMemo(() => {
-    if (sessions.length === 0) return null
-    return sessions.reduce((latest, row) =>
-      new Date(row.startedAt) > new Date(latest.startedAt) ? row : latest
-    )
-  }, [sessions])
-
-  // Steer tickets require workspace membership — hide the interactive parts
-  // from public-workspace visitors (the server enforces this regardless).
-  const { data: memberRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ m: workspaceMemberCollection })
-        .where(({ m }) =>
-          and(eq(m.workspaceId, workspaceId), eq(m.userId, currentUserId))
-        ),
-    [workspaceId, currentUserId]
-  )
-  const isMember = (memberRows?.length ?? 0) > 0
-
-  if (!session) {
-    if (!isMember || !config?.enabled) return null
-    return <StartOnDesktop issueId={issueId} offlineHint={offlineHint} />
-  }
-
-  const owner = users.find((u) => u.id === session.userId)
-
-  return (
-    <div className="border-t border-border px-4 py-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <Badge
-          variant="outline"
-          className="gap-1.5 border-emerald-500/40 text-emerald-400"
-        >
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-          </span>
-          Coding now
-          {sessions.length > 1 ? ` (${sessions.length})` : ``}
-        </Badge>
-        <span className="truncate text-xs text-muted-foreground">
-          {owner?.name ?? owner?.email ?? `Someone`}
-          {session.deviceLabel ? ` · ${session.deviceLabel}` : ``}
-        </span>
-      </div>
-      {isMember && config?.enabled ? (
-        <AgentSessionView
-          key={session.id}
-          session={session}
-          currentUserId={currentUserId}
-        />
-      ) : isMember && config && !config.enabled ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          Live steering is unavailable on this instance.
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// ── "Start on my desktop" (remote start via the relay control socket) ────────
-
-function StartOnDesktop({
-  issueId,
-  offlineHint = false,
-}: {
-  issueId: string
-  offlineHint?: boolean
-}) {
-  const [devices, setDevices] = useState<SteerDevice[] | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [starting, setStarting] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    trpc.steer.myDevices
-      .query()
-      .then((res) => active && setDevices(res.devices))
-      .catch(() => active && setDevices([]))
-    return () => {
-      active = false
-    }
-  }, [])
-
-  // Presence lookup still in flight — keep the section quiet.
-  if (!devices) return null
-
-  // No online desktop (or the lookup failed): hide cleanly, unless the caller
-  // wants the mobile-parity hint (the Details tab, where discoverability of
-  // the whole remote-start feature depends on it).
-  if (devices.length === 0) {
-    if (!offlineHint) return null
-    return (
-      <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-        <MonitorOff className="size-3.5 shrink-0" />
-        No desktop online — open the Exponential desktop app to run this issue
-        there.
-      </div>
-    )
-  }
-
-  // The Start-coding dialog (EXP-149) collects the launch options (model /
-  // effort / ultracode / plan mode) and the target device before sending.
-  const start = async (device: SteerDevice, options: StartCodingOptions) => {
-    setStarting(true)
-    try {
-      await trpc.steer.startSession.mutate(
-        { issueId, deviceId: device.deviceId, ...options },
-        { context: { skipErrorToast: true } }
-      )
-      setDialogOpen(false)
-      setSentTo(device.deviceLabel)
-      // The desktop inserts the coding_sessions row when the launcher spins
-      // up, which swaps this whole section for the live panel via Electric.
-      // Re-enable after a grace window in case it never picks up.
-      setTimeout(() => setSentTo(null), 30_000)
-    } catch (error) {
-      toast.error(`Couldn't start on your desktop`, {
-        description: trpcErrorMessage(
-          error,
-          `The start command could not be delivered`
-        ),
-      })
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const busy = starting || sentTo !== null
-
-  return (
-    <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setDialogOpen(true)}
-        disabled={busy}
-      >
-        {starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
-        {devices.length === 1
-          ? `Start coding on ${devices[0].deviceLabel}`
-          : `Start on my desktop`}
-      </Button>
-      <StartCodingDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        devices={devices}
-        starting={starting}
-        onStart={(device, options) => void start(device, options)}
-      />
-      {sentTo && (
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
-          Start sent to {sentTo} — waiting for the desktop…
-        </span>
-      )}
-    </div>
-  )
-}
-
 // ── The agent-session view: structured activity feed over the relay ─────────
 
 type ViewerPhase =
@@ -421,23 +208,26 @@ type NewFeedItem = FeedItem extends infer T
     : never
   : never
 
-// Exported for the workspace Agents page, which renders the view per SESSION
-// row (this component is session-scoped; the IssueSteerPanel wrapper above is
-// issue-scoped). Callers are responsible for the membership + config.enabled
-// gating the wrapper does — the relay enforces both regardless.
+// Mounted ONLY by the global agent dock (one at a time), keyed by session id.
+// Always auto-connects; the caller owns the membership + config.enabled gating
+// (the relay enforces both regardless) and supplies the `title` + `onCollapse`
+// chrome. Session-scoped — the "coding now" rows live in issue-coding-rows.tsx.
 export function AgentSessionView({
   session,
   currentUserId,
-  autoConnect = false,
+  title,
+  onCollapse,
 }: {
   session: CodingSession
   currentUserId: string
-  /** Dial immediately on mount instead of waiting for a "Watch live" click. */
-  autoConnect?: boolean
+  /** Header identity — an issue-identifier Link, or plain text (batch/syncing). */
+  title: React.ReactNode
+  /** Collapse the dock panel (the socket tears down on unmount). */
+  onCollapse: () => void
 }) {
-  // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh
-  // ticket; 0 = panel closed.
-  const [attempt, setAttempt] = useState(autoConnect ? 1 : 0)
+  // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh ticket.
+  // Always starts at 1 — the dock only mounts this while it should be live.
+  const [attempt, setAttempt] = useState(1)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
   const [perm, setPerm] = useState<`view` | `steer`>(`view`)
   const [viewers, setViewers] = useState<PresenceViewer[]>([])
@@ -809,7 +599,6 @@ export function AgentSessionView({
     steererId && steererId !== currentUserId
       ? (viewers.find((v) => v.userId === steererId)?.name ?? `Someone`)
       : null
-  const open = attempt > 0
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
   const composerVisible = live && perm === `steer` && !sessionEnded
@@ -825,39 +614,36 @@ export function AgentSessionView({
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && activeQuestionIds.size > 0
 
-  const closePanel = () => {
-    setAttempt(0)
-    setPhase({ kind: `idle` })
-    setFeed([])
-    setLatestDiff(null)
-    setDiffOpen(false)
-  }
+  /** Presence tooltip — every current viewer, the steerer marked. */
+  const presenceTitle = viewers
+    .map((v) => (v.userId === steererId ? `${v.name} (steering)` : v.name))
+    .join(`, `)
 
   return (
-    <div className="mt-2">
-      <div className="flex flex-wrap items-center gap-2">
-        {!open && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAttempt((n) => n + 1)}
-            disabled={phase.kind === `ended`}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Compact header line — the dock owns the panel frame, so this is just
+          identity + presence + controls. */}
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+        <PhaseIndicator
+          phase={phase}
+          deviceLabel={session.deviceLabel}
+          awaitingInput={awaitingInput}
+        />
+        <div className="min-w-0 flex-1 truncate text-sm">{title}</div>
+        {live && viewers.length > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+            title={presenceTitle}
           >
-            {phase.kind === `closed` ? <RotateCw /> : <MonitorPlay />}
-            {phase.kind === `closed` ? `Reconnect` : `Watch live`}
-          </Button>
+            <Eye className="size-3.5" />
+            {viewers.length}
+          </span>
         )}
-        {open && (
-          <PhaseIndicator
-            phase={phase}
-            deviceLabel={session.deviceLabel}
-            awaitingInput={awaitingInput}
-          />
-        )}
-        {open && phase.kind === `closed` && (
+        {phase.kind === `closed` && (
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={() => setAttempt((n) => n + 1)}
           >
             <RotateCw />
@@ -870,30 +656,25 @@ export function AgentSessionView({
           <Button
             variant="ghost"
             size="sm"
-            className="text-destructive hover:text-destructive"
+            className="shrink-0 text-destructive hover:text-destructive"
             onClick={() => setConfirmKill(true)}
           >
             <OctagonX />
-            Kill session
+            <span className="hidden md:inline">Kill session</span>
           </Button>
         )}
-        {open && (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={closePanel}>
-            <X />
-            Close
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          aria-label="Collapse session"
+          onClick={onCollapse}
+        >
+          <ChevronDown />
+        </Button>
       </div>
 
-      {!open && (phase.kind === `ended` || phase.kind === `closed`) && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          {phase.detail ??
-            (phase.kind === `ended` ? `The session has ended.` : `Connection lost.`)}
-        </div>
-      )}
-
-      {open && (
-        <div className="mt-2 flex h-96 flex-col overflow-hidden rounded-md border border-border bg-card/40">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* The activity feed (bottom-anchored, follow-scroll) */}
           <div className="relative min-h-0 flex-1">
             <div
@@ -983,27 +764,6 @@ export function AgentSessionView({
             )}
           </div>
 
-          {/* Presence (who's watching, who's steering) */}
-          {live && viewers.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
-              <Eye className="size-3" />
-              {viewers.map((viewer) => (
-                <span
-                  key={viewer.userId}
-                  className={
-                    viewer.userId === steererId
-                      ? `inline-flex items-center gap-1 text-foreground`
-                      : `inline-flex items-center gap-1`
-                  }
-                >
-                  {viewer.userId === steererId && <Keyboard className="size-3" />}
-                  {viewer.name}
-                  {viewer.userId === steererId ? ` (steering)` : ``}
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* Status banners (feed retained above) */}
           {phase.kind === `ended` && (
             <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
@@ -1075,8 +835,7 @@ export function AgentSessionView({
               Watching — only workspace owners or the session owner can steer.
             </div>
           ) : null}
-        </div>
-      )}
+      </div>
 
       <Dialog open={confirmKill} onOpenChange={setConfirmKill}>
         <DialogContent className="sm:max-w-sm">
