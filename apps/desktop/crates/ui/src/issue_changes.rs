@@ -855,8 +855,10 @@ fn stats_from_pr(files: &[PullFile]) -> Stats {
 }
 
 /// A running `coding_sessions` row for the issue (any client — the synced
-/// shape, matching the issue-detail "coding now" pill).
+/// shape, matching the issue-detail "coding now" pill). Heartbeat-stale rows
+/// count as absent (EXP-153 — see `queries::coding_session_is_live`).
 fn session_running(issue_id: &str, cx: &App) -> bool {
+    let now = chrono::Utc::now().timestamp();
     Store::global(cx)
         .collections()
         .coding_sessions
@@ -864,7 +866,7 @@ fn session_running(issue_id: &str, cx: &App) -> bool {
         .iter()
         .any(|session| {
             session.issue_id.as_deref() == Some(issue_id)
-                && session.status.as_deref() == Some("running")
+                && crate::queries::coding_session_is_live(session, now)
         })
 }
 

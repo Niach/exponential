@@ -27,6 +27,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
@@ -204,12 +205,15 @@ class IssueDetailViewModel @Inject constructor(
 
     // The running coding session for this issue (synced coding_sessions shape);
     // multi-window desktops can run several — surface the most recent.
-    val runningSession: StateFlow<CodingSessionEntity?> = dbFlow
-        .scopedQuery(emptyList()) { it.codingSessionDao().observeByIssue(issueId) }
-        .map { rows ->
-            rows.filter { it.status == DomainContract.codingSessionStatusRunning }
-                .maxByOrNull { it.startedAt }
-        }
+    // Heartbeat-stale rows render as absent (EXP-153); the ticker clears the
+    // panel once the liveness window elapses without a sync delta.
+    val runningSession: StateFlow<CodingSessionEntity?> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.codingSessionDao().observeByIssue(issueId) },
+        CodingSessionLiveness.minuteTicker(),
+    ) { rows, now ->
+        rows.filter { CodingSessionLiveness.isLive(it, now) }
+            .maxByOrNull { it.startedAt }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // steer.config is env-derived and static per instance: null = still loading.

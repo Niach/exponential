@@ -11,6 +11,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
@@ -344,7 +345,9 @@ class AgentSessionViewModel @Inject constructor(
         _steererId.value = null
         return when {
             sawEnd -> DialOutcome.Ended(detail)
-            retryStarting && session.value?.status == DomainContract.codingSessionStatusRunning ->
+            // Heartbeat-stale rows don't warrant a redial (EXP-153) — the row
+            // is a phantom, not a session that's still starting.
+            retryStarting && session.value?.let { CodingSessionLiveness.isLive(it) } == true ->
                 DialOutcome.RetryStarting
             else -> DialOutcome.Closed(detail)
         }

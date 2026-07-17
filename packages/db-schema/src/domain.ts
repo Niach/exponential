@@ -73,6 +73,22 @@ export const CODING_SESSION_STALE_HOURS = 2
 export const CODING_SESSION_STALE_MS =
   CODING_SESSION_STALE_HOURS * 60 * 60 * 1000
 
+// Pure staleness predicate shared by the server sweep AND the client render
+// guard (EXP-153): a running session is stale once its last liveness signal
+// (updated_at — advanced by every desktop heartbeat, equal to the insert time
+// when no heartbeat ever landed) plus the staleness window has passed. Clients
+// render a stale `running` row as ABSENT — mirroring the sweep's DELETE, never
+// as `ended` (that flip is the desktop kill-switch signal) — so a phantom
+// badge clears even when the sweep isn't running. Same threshold everywhere,
+// no client-side slack: updated_at is server-clock and a live session's is
+// ≤30min old, so only >90min of client clock skew could falsely hide one.
+export function isCodingSessionStale(
+  lastSeenAt: Date,
+  now: Date = new Date()
+): boolean {
+  return lastSeenAt.getTime() + CODING_SESSION_STALE_MS <= now.getTime()
+}
+
 // Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
 

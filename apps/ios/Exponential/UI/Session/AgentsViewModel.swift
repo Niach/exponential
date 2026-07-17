@@ -24,6 +24,7 @@ final class AgentsViewModel {
     private var sessionTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var projectTask: Task<Void, Never>?
+    private var livenessTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
@@ -78,6 +79,17 @@ final class AgentsViewModel {
                 }
             } catch {}
         }
+
+        // GRDB only re-fires on writes — this minute clock re-applies the
+        // staleness filter so a phantom row's entry clears once its liveness
+        // window elapses without any sync delta (EXP-153).
+        livenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self, !Task.isCancelled else { return }
+                self.rebuild()
+            }
+        }
     }
 
     func stopObserving() {
@@ -87,6 +99,8 @@ final class AgentsViewModel {
         issueTask = nil
         projectTask?.cancel()
         projectTask = nil
+        livenessTask?.cancel()
+        livenessTask = nil
     }
 
     /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every
@@ -130,6 +144,8 @@ final class AgentsViewModel {
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         rows = sessions
+            // Heartbeat-stale rows render as absent (EXP-153).
+            .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }
             // issueId is nil for a desktop batch (multi-issue) run's session
             // — those rows render without an issue link.

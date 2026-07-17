@@ -31,7 +31,9 @@ import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
-import type { Project, Workspace } from "@/db/schema"
+import type { CodingSession, Project, Workspace } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import {
   useShowWorkspaceChrome,
   useWorkspaceMemberships,
@@ -132,7 +134,11 @@ function AgentsRunningBadge({ workspaceId }: { workspaceId?: string }) {
         : undefined,
     [workspaceId]
   )
-  const count = data?.length ?? 0
+  // Staleness guard (EXP-153): heartbeat-dead rows don't count.
+  const now = useNow()
+  const count = ((data ?? []) as CodingSession[]).filter(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  ).length
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }

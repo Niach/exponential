@@ -59,6 +59,10 @@ final class IssueDetailViewModel {
     private let instanceUrl: String?
     private var observationTask: Task<Void, Never>?
     private var autosaveTask: Task<Void, Never>?
+    private var livenessTask: Task<Void, Never>?
+    // Raw observed running-session rows — cached so the liveness ticker can
+    // re-apply the staleness filter between sync deltas (EXP-153).
+    private var observedSessions: [CodingSessionEntity] = []
 
     init(
         accountId: String,
@@ -108,6 +112,16 @@ final class IssueDetailViewModel {
     }
 
     func startObserving() {
+        // GRDB only re-fires on writes — a minute clock re-applies the
+        // staleness filter so a phantom session's steer panel clears once its
+        // liveness window elapses without any sync delta (EXP-153).
+        livenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self, !Task.isCancelled else { return }
+                self.applySessionLiveness()
+            }
+        }
         observationTask = Task { [weak self] in
             guard let self else { return }
             guard let pool = try? self.db.pool(forAccountId: self.accountId) else {
@@ -142,12 +156,13 @@ final class IssueDetailViewModel {
             let sessionObs = ValueObservation.tracking { db in
                 try CodingSessionEntity
                     .filter(Column("issue_id") == self.issueId)
-                    .filter(Column("status") == "running")
+                    .filter(Column("status") == DomainContract.codingSessionStatusRunning)
                     .fetchAll(db)
             }
             Task {
                 for try await sessions in sessionObs.values(in: pool) {
-                    self.runningSessions = sessions
+                    self.observedSessions = sessions
+                    self.applySessionLiveness()
                 }
             }
 
@@ -238,6 +253,14 @@ final class IssueDetailViewModel {
         observationTask = nil
         autosaveTask?.cancel()
         autosaveTask = nil
+        livenessTask?.cancel()
+        livenessTask = nil
+    }
+
+    // Heartbeat-stale rows render as absent — mirroring the server sweep's
+    // DELETE (EXP-153).
+    private func applySessionLiveness() {
+        runningSessions = observedSessions.filter { CodingSessionLiveness.isLive($0) }
     }
 
     var assignedLabelIds: Set<String> {

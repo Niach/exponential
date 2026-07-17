@@ -90,17 +90,27 @@ export const PROJECT_ICON_OPTIONS = projectIconValues.map((name) => ({
   icon: PROJECT_ICON_COMPONENTS[name],
 }))
 
-// Resolve a project's display icon: the stored `icon` when set (the drop-type
-// migration backfilled every row, so the fallback is a cosmetic safety net
-// derived from publicness/repo presence).
+// Resolve a project's canonical icon NAME: the stored `icon` when set (the
+// drop-type migration backfilled every row, so the fallback is a cosmetic
+// safety net derived from publicness/repo presence). Feeds both the display
+// component below and the icon picker's selected value.
+export function getProjectIconName(project: {
+  icon?: string | null
+  isPublic?: boolean
+  repositoryId?: string | null
+}): ProjectIcon {
+  if (project.icon && project.icon in PROJECT_ICON_COMPONENTS) {
+    return project.icon as ProjectIcon
+  }
+  if (project.isPublic) return `megaphone`
+  return project.repositoryId ? `code` : `square-kanban`
+}
+
+// Resolve a project's display icon component.
 export function getProjectIcon(project: {
   icon?: string | null
   isPublic?: boolean
   repositoryId?: string | null
 }): LucideIcon {
-  if (project.icon && project.icon in PROJECT_ICON_COMPONENTS) {
-    return PROJECT_ICON_COMPONENTS[project.icon as ProjectIcon]
-  }
-  if (project.isPublic) return Megaphone
-  return project.repositoryId ? Code2 : SquareKanban
+  return PROJECT_ICON_COMPONENTS[getProjectIconName(project)]
 }

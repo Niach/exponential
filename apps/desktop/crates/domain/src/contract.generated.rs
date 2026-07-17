@@ -16,6 +16,8 @@ pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_chang
 pub const CODING_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet"];
 pub const CODING_EFFORT_VALUES: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
+pub const CODING_SESSION_STALE_MS: i64 = 7200000;
+
 pub const WORKSPACE_ROLE_OWNER: &str = "owner";
 pub const WORKSPACE_ROLE_MEMBER: &str = "member";
 pub const COMMENT_KIND_REGULAR: &str = "regular";

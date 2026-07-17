@@ -11,6 +11,7 @@ import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -116,14 +117,18 @@ class AppViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // True while at least one coding session is running on the active account —
-    // drives the bottom bar's green Agents dot.
+    // drives the bottom bar's green Agents dot. Heartbeat-stale rows count as
+    // absent (EXP-153); the minute ticker clears the dot once the liveness
+    // window elapses without any sync delta.
     @OptIn(ExperimentalCoroutinesApi::class)
     val agentsRunning: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
             if (db == null) flowOf(false)
-            else db.codingSessionDao()
-                .observeByStatus(DomainContract.codingSessionStatusRunning)
-                .map { it.isNotEmpty() }
+            else combine(
+                db.codingSessionDao()
+                    .observeByStatus(DomainContract.codingSessionStatusRunning),
+                CodingSessionLiveness.minuteTicker(),
+            ) { sessions, now -> sessions.any { CodingSessionLiveness.isLive(it, now) } }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

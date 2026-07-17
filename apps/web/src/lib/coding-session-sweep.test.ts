@@ -1,10 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
-import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
-
-// Isolate the pure logic — never touch a real DB.
-vi.mock(`@/db/connection`, () => ({ db: {} }))
-
-import { isCodingSessionStale } from "@/lib/coding-session-sweep"
+import { describe, expect, it } from "vitest"
+import {
+  CODING_SESSION_STALE_MS,
+  isCodingSessionStale,
+} from "@exp/db-schema/domain"
 
 describe(`isCodingSessionStale`, () => {
   const now = new Date(`2026-07-12T12:00:00Z`)

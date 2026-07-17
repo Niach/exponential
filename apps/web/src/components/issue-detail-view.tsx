@@ -11,9 +11,11 @@ import {
   Undo2,
 } from "lucide-react"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, User, Project } from "@/db/schema"
-import { issueCollection } from "@/lib/collections"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import type { CodingSession, Issue, User, Project } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -256,6 +258,24 @@ export function IssueDetailView({
       await trpc.issues.update.mutate({ id: issue.id, status })
     },
   })
+
+  // Live "coding now" dot on the Changes tab: a running session (or an open PR /
+  // pushed branch) means there is something to see in Changes.
+  const { data: runningSessionRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ s: codingSessionCollection })
+        .where(({ s }) =>
+          and(eq(s.issueId, issue.id), eq(s.status, `running`))
+        ),
+    [issue.id]
+  )
+  // Staleness guard (EXP-153): heartbeat-dead rows don't count as coding.
+  const now = useNow()
+  const isCodingNow = ((runningSessionRows ?? []) as CodingSession[]).some(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  )
+  const hasChanges = isCodingNow || issue.prNumber != null
 
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
