@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Megaphone } from "lucide-react"
+import { LifeBuoy } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   SidebarMenuButton,
@@ -58,11 +58,11 @@ export function FeedbackButton() {
     <SidebarMenuItem>
       <SidebarMenuButton
         onClick={handleClick}
-        aria-label="Send feedback"
+        aria-label="Feedback & support"
         className="text-muted-foreground"
       >
-        <Megaphone className="size-4" />
-        <span>Send feedback</span>
+        <LifeBuoy className="size-4" />
+        <span>Feedback &amp; support</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
   )

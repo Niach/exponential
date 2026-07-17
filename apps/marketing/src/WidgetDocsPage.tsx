@@ -169,9 +169,11 @@ ExponentialWidget.close();
             <p>
               The reporter is <strong>auto-subscribed</strong> to the issue —
               resolve it and they&apos;re notified. With the{` `}
-              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled on the
-              project, the report also opens an email conversation you answer
-              from the Support inbox.
+              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled, support
+              requests open an email conversation you answer from the Support
+              inbox — and they can land in a <strong>different project</strong>
+              {` `}than feedback (e.g. a private Support board) via the
+              widget&apos;s support-project setting.
             </p>
           </DocsSection>
 

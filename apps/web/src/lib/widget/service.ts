@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import { db } from "@/db/connection"
 import {
@@ -67,6 +68,10 @@ export class WidgetRequestError extends Error {
 // The widget config row plus the trash/archive/publicness state of its target
 // project (and both slugs), so the submit + config paths can treat a trashed
 // board as unavailable and submit can mint the public issue URL (EXP-42a).
+// EXP-162: when `supportProjectId` is set, support tickets file into THAT
+// project — its helpdesk/trash state rides along so the support path can gate
+// on its real target (no name/slug: the confirmation email keeps the primary
+// project's name and support never mints public issue URLs).
 export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
   projectSlug: string | null
   projectName: string | null
@@ -74,6 +79,8 @@ export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
   projectHelpdeskEnabled: boolean | null
   projectDeletedAt: Date | null
   projectArchivedAt: Date | null
+  supportProjectHelpdeskEnabled: boolean | null
+  supportProjectDeletedAt: Date | null
   workspaceSlug: string | null
 }
 
@@ -83,6 +90,7 @@ export async function loadWidgetConfigByKey(
   if (!isWidgetKeyFormat(key)) {
     throw new WidgetRequestError(404, `Unknown widget key`)
   }
+  const supportProjects = alias(projects, `support_projects`)
   const [row] = await db
     .select({
       config: widgetConfigs,
@@ -92,10 +100,16 @@ export async function loadWidgetConfigByKey(
       projectHelpdeskEnabled: projects.helpdeskEnabled,
       projectDeletedAt: projects.deletedAt,
       projectArchivedAt: projects.archivedAt,
+      supportProjectHelpdeskEnabled: supportProjects.helpdeskEnabled,
+      supportProjectDeletedAt: supportProjects.deletedAt,
       workspaceSlug: workspaces.slug,
     })
     .from(widgetConfigs)
     .leftJoin(projects, eq(projects.id, widgetConfigs.projectId))
+    .leftJoin(
+      supportProjects,
+      eq(supportProjects.id, widgetConfigs.supportProjectId)
+    )
     .leftJoin(workspaces, eq(workspaces.id, widgetConfigs.workspaceId))
     .where(eq(widgetConfigs.publicKey, key))
     .limit(1)
@@ -110,6 +124,8 @@ export async function loadWidgetConfigByKey(
     projectHelpdeskEnabled: row.projectHelpdeskEnabled,
     projectDeletedAt: row.projectDeletedAt,
     projectArchivedAt: row.projectArchivedAt,
+    supportProjectHelpdeskEnabled: row.supportProjectHelpdeskEnabled,
+    supportProjectDeletedAt: row.supportProjectDeletedAt,
     workspaceSlug: row.workspaceSlug,
   }
 }
@@ -138,14 +154,40 @@ export function requestedWidgetModes(
   return modes.length > 0 ? modes : [`feedback`]
 }
 
-// Support mode is served (and accepted) only while the target project's
-// helpdesk is on AND the workspace plan still covers it — the owner-side
-// write gate can go stale (helpdesk toggled off, plan lapsed), so both the
-// config response and raw submits re-check dynamically.
+// Where support tickets actually land (EXP-162): the dedicated support
+// project when the config splits its targets, else the primary project.
+// The `!= null` guard also covers legacy fixtures where the column is
+// undefined rather than null.
+export function supportTargetState(config: WidgetConfigWithProject): {
+  projectId: string
+  helpdeskEnabled: boolean | null
+  deletedAt: Date | null
+} {
+  if (config.supportProjectId != null) {
+    return {
+      projectId: config.supportProjectId,
+      helpdeskEnabled: config.supportProjectHelpdeskEnabled,
+      deletedAt: config.supportProjectDeletedAt,
+    }
+  }
+  return {
+    projectId: config.projectId,
+    helpdeskEnabled: config.projectHelpdeskEnabled,
+    deletedAt: config.projectDeletedAt,
+  }
+}
+
+// Support mode is served (and accepted) only while the TARGET project's
+// helpdesk is on, the target isn't trashed, AND the workspace plan still
+// covers it — the owner-side write gate can go stale (helpdesk toggled off,
+// plan lapsed, target trashed), so both the config response and raw submits
+// re-check dynamically.
 async function widgetSupportAvailable(
   config: WidgetConfigWithProject
 ): Promise<boolean> {
-  if (config.projectHelpdeskEnabled !== true) return false
+  const target = supportTargetState(config)
+  if (target.helpdeskEnabled !== true) return false
+  if (target.deletedAt != null) return false
   try {
     await assertCanUseHelpdesk(config.workspaceId)
     return true
@@ -154,16 +196,25 @@ async function widgetSupportAvailable(
   }
 }
 
-// Never returns an empty list: a support-only widget whose support became
-// unavailable degrades to the feedback form instead of a dead launcher.
+// Per-mode availability (EXP-162: the two modes gate on their own target's
+// state): feedback needs a live primary board, support a live helpdesk
+// target. A support-only widget whose support became unavailable degrades to
+// the feedback form instead of a dead launcher (primary board permitting).
+// An EMPTY result means nothing is servable — the config route reports the
+// widget disabled and both submit paths 403.
 export async function effectiveWidgetModes(
   config: WidgetConfigWithProject
 ): Promise<WidgetMode[]> {
   const modes = requestedWidgetModes(config)
-  if (!modes.includes(`support`)) return modes
-  if (await widgetSupportAvailable(config)) return modes
-  const withoutSupport = modes.filter((mode) => mode !== `support`)
-  return withoutSupport.length > 0 ? withoutSupport : [`feedback`]
+  const feedbackAvailable = config.projectDeletedAt == null
+  const supportAvailable =
+    modes.includes(`support`) && (await widgetSupportAvailable(config))
+
+  const out: WidgetMode[] = []
+  if (modes.includes(`feedback`) && feedbackAvailable) out.push(`feedback`)
+  if (supportAvailable) out.push(`support`)
+  if (out.length === 0 && feedbackAvailable) out.push(`feedback`)
+  return out
 }
 
 const submitFieldsSchema = z.object({
@@ -502,11 +553,15 @@ export async function createWidgetSupportSubmission(args: {
 }): Promise<WidgetSubmitResult> {
   const { config, formData } = args
 
-  if (config.projectDeletedAt != null) {
+  // Gate on the SUPPORT target's trash state — a trashed feedback board must
+  // not block support tickets aimed at a live split target (and vice versa).
+  const target = supportTargetState(config)
+  if (target.deletedAt != null) {
     throw new WidgetRequestError(403, `This board is unavailable`)
   }
-  // Re-checked per submit (not just at config time): the helpdesk toggle or
-  // the plan may have changed since the widget cached its config.
+  // Re-checked per submit (not just at config time): the helpdesk toggle,
+  // the target, or the plan may have changed since the widget cached its
+  // config.
   if (!(await effectiveWidgetModes(config)).includes(`support`)) {
     throw new WidgetRequestError(403, `Support is not enabled for this widget`)
   }
@@ -550,7 +605,7 @@ export async function createWidgetSupportSubmission(args: {
     const [issue] = await tx
       .insert(issues)
       .values({
-        projectId: config.projectId,
+        projectId: target.projectId,
         title: supportTicketTitle(fields.data.message),
         status: `backlog`,
         priority: `none`,
@@ -576,14 +631,14 @@ export async function createWidgetSupportSubmission(args: {
       userId: null,
       email: fields.data.email,
       workspaceId: config.workspaceId,
-      projectId: config.projectId,
+      projectId: target.projectId,
       source: `widget_reporter`,
       unsubscribed: false,
     })
 
     const { token } = await createSupportThreadInTx(tx, {
       issueId: issue.id,
-      projectId: config.projectId,
+      projectId: target.projectId,
       reporterEmail: fields.data.email,
       reporterName: fields.data.name ?? null,
       body: fields.data.message,
@@ -622,6 +677,9 @@ export async function createWidgetSupportSubmission(args: {
   // every member reply email repeats the same link. The ledger row stores no
   // thread URL — the token is never persisted, only recomputed per email.
   try {
+    // Deliberately the PRIMARY project's name even on a split-target config —
+    // it's the product-facing identity ("… — Exponential support"); a support
+    // project literally named "Support" would render "Support support".
     const sendResult = await sendSupportConfirmationEmail({
       to: fields.data.email,
       projectName: config.projectName ?? config.name,
@@ -673,9 +731,11 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   }
 
   const cors = corsHeaders(origin.echoOrigin)
-  // A trashed target board reports disabled so embedded widgets hide instead
-  // of erroring.
-  if (!config.enabled || config.projectDeletedAt != null) {
+  // Per-mode gating (EXP-162): a trashed feedback board no longer hides the
+  // whole widget when a live split support target remains — the widget only
+  // reports disabled when NOTHING is servable (or it's switched off).
+  const modes = config.enabled ? await effectiveWidgetModes(config) : []
+  if (modes.length === 0) {
     return jsonResponse(200, { enabled: false }, cors)
   }
 
@@ -686,7 +746,7 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
       enabled: true,
       // Which entry points the panel offers (EXP-130). ADDITIVE — cached
       // pre-modes widget bundles ignore it and render feedback-only.
-      modes: await effectiveWidgetModes(config),
+      modes,
       form: {
         buttonLabel:
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,

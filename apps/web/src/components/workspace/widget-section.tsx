@@ -58,6 +58,8 @@ function parseDomains(value: string): string[] {
 }
 
 type WidgetPosition = `bottom-left` | `bottom-right`
+// Sentinel for the support-project Select's "Same as project" option.
+const SAME_PROJECT = `__same__`
 // The settings-facing shape of formConfig.modes: a single pick instead of a
 // multi-select (there are only three valid combinations).
 type WidgetModeChoice = `feedback` | `support` | `both`
@@ -116,6 +118,10 @@ export function WorkspaceWidgetSection({
   const [editTarget, setEditTarget] = useState<WidgetList[number] | null>(null)
   const [formName, setFormName] = useState(``)
   const [formProjectId, setFormProjectId] = useState<string>(``)
+  // Radix Select forbids value="" — SAME_PROJECT stands in for "support
+  // tickets land in the feedback project" (persisted as null).
+  const [formSupportProjectId, setFormSupportProjectId] =
+    useState<string>(SAME_PROJECT)
   const [formDomains, setFormDomains] = useState(``)
   const [formButtonLabel, setFormButtonLabel] = useState(``)
   // Empty string = "use the widget default" (the accentColor key is omitted).
@@ -147,6 +153,7 @@ export function WorkspaceWidgetSection({
     setEditTarget(null)
     setFormName(``)
     setFormProjectId(projects[0]?.id ?? ``)
+    setFormSupportProjectId(SAME_PROJECT)
     setFormDomains(``)
     setFormButtonLabel(``)
     setFormAccent(``)
@@ -162,6 +169,7 @@ export function WorkspaceWidgetSection({
     setEditTarget(widget)
     setFormName(widget.name)
     setFormProjectId(widget.projectId)
+    setFormSupportProjectId(widget.supportProjectId ?? SAME_PROJECT)
     setFormDomains(widget.allowedDomains.join(`\n`))
     setFormButtonLabel(config.buttonLabel)
     setFormAccent(config.accentColor)
@@ -180,6 +188,16 @@ export function WorkspaceWidgetSection({
     modes: modesForChoice(formMode),
   })
 
+  // Normalize the picker sentinel to the stored shape: null = same as the
+  // feedback project (also when the two selects point at the same project or
+  // support mode is off).
+  const resolveSupportProjectId = (): string | null =>
+    formMode === `feedback` ||
+    formSupportProjectId === SAME_PROJECT ||
+    formSupportProjectId === formProjectId
+      ? null
+      : formSupportProjectId
+
   const save = async () => {
     if (!formName.trim() || !formProjectId) {
       setFormError(`Name and project are required.`)
@@ -187,12 +205,14 @@ export function WorkspaceWidgetSection({
     }
     setSaving(true)
     setFormError(null)
+    const supportProjectId = resolveSupportProjectId()
     try {
       if (editTarget) {
         await trpc.widgets.update.mutate({
           widgetConfigId: editTarget.id,
           name: formName.trim(),
           projectId: formProjectId,
+          supportProjectId,
           allowedDomains: parseDomains(formDomains),
           formConfig: buildFormConfig(),
         })
@@ -200,6 +220,7 @@ export function WorkspaceWidgetSection({
         const created = await trpc.widgets.create.mutate({
           workspaceId,
           projectId: formProjectId,
+          supportProjectId,
           name: formName.trim(),
           allowedDomains: parseDomains(formDomains),
           formConfig: buildFormConfig(),
@@ -209,6 +230,10 @@ export function WorkspaceWidgetSection({
           projectName:
             projects.find((project) => project.id === created.projectId)
               ?.name ?? ``,
+          supportProjectName:
+            projects.find(
+              (project) => project.id === created.supportProjectId
+            )?.name ?? null,
           submissionCount: 0,
         })
       }
@@ -310,6 +335,11 @@ export function WorkspaceWidgetSection({
                       {widget.name}
                     </span>
                     <Badge variant="secondary">{widget.projectName}</Badge>
+                    {widget.supportProjectName && (
+                      <Badge variant="secondary" className="gap-1">
+                        support → {widget.supportProjectName}
+                      </Badge>
+                    )}
                     {!widget.enabled && (
                       <Badge variant="outline">disabled</Badge>
                     )}
@@ -433,11 +463,38 @@ export function WorkspaceWidgetSection({
                 </SelectContent>
               </Select>
               {formMode !== `feedback` && (
-                <p className="text-xs text-muted-foreground">
-                  Support files helpdesk tickets — visitors get a reply-by-email
-                  conversation. Requires the helpdesk to be enabled on the
-                  selected project.
-                </p>
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Support files helpdesk tickets — visitors get a
+                    reply-by-email conversation. Requires the helpdesk to be
+                    enabled on the support target project.
+                  </p>
+                  <div className="space-y-2 pt-1">
+                    <Label>Support project</Label>
+                    <Select
+                      value={formSupportProjectId}
+                      onValueChange={setFormSupportProjectId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SAME_PROJECT}>
+                          Same as project
+                        </SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Support tickets can land in a different project than
+                      feedback — e.g. a private &ldquo;Support&rdquo; board.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
             <div className="space-y-2">
