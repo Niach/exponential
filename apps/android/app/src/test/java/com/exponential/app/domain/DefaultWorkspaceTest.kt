@@ -39,14 +39,18 @@ class DefaultWorkspaceTest {
     }
 
     @Test
-    fun danglingLastProjectFallsToFirstWorkspace() {
-        val workspaces = listOf(workspace("ws-a"), workspace("ws-b"))
+    fun danglingLastProjectFallsToFirstWorkspaceWithAProject() {
+        // Mirrors AppViewModel.currentProject: with no usable last-project the
+        // Issues root shows the first workspace's first project — ws-b here, so
+        // the selection must scope there too (a projectless personal workspace
+        // must not win just by sorting first).
+        val workspaces = listOf(workspace("ws-personal"), workspace("ws-b"))
         val projects = listOf(project("p1", "ws-b"))
-        assertEquals("ws-a", defaultWorkspaceId(workspaces, projects, "p-deleted"))
+        assertEquals("ws-b", defaultWorkspaceId(workspaces, projects, "p-deleted"))
     }
 
     @Test
-    fun noLastProjectFallsToFirstWorkspace() {
+    fun noProjectsAnywhereFallsToFirstWorkspace() {
         val workspaces = listOf(workspace("ws-a"), workspace("ws-b"))
         assertEquals("ws-a", defaultWorkspaceId(workspaces, emptyList(), null))
     }

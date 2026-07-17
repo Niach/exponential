@@ -577,13 +577,15 @@ struct MainNavigator: View {
         currentProject = CurrentProjectRef(accountId: accountId, projectId: projectId)
     }
 
-    /// Push the issue detail from a deep-link/push tap, then kick a non-blocking
-    /// sync (EXP-172): a just-created issue (e.g. a fresh support ticket) may not
-    /// be in local GRDB yet, which would strand IssueDetailView on a spinner.
-    /// Mirrors resolveWebIssueLink's sync pass; navigation never waits on it.
+    /// Push the issue detail from a deep-link/push tap. Shared by both drain
+    /// paths (EXP-172). No explicit sync kick: IssueDetailView observes GRDB
+    /// live, and a just-created issue (e.g. a fresh support ticket) arrives over
+    /// the running Electric long-poll — on a cold start the initial sync is
+    /// already in flight by the time this route lands, so there is nothing
+    /// useful to await here (initialSync only passively polls the active
+    /// account's workspaces table; it starts no shape fetch).
     private func appendIssueRoute(accountId: String, issueId: String) {
         path.append(AppRoute.issue(accountId: accountId, id: issueId))
-        Task { await deps.syncManager.initialSync() }
     }
 
     private func stopObserving() {

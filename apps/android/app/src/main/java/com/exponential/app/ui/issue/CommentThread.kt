@@ -112,7 +112,6 @@ fun CommentThread(
                 is TimelineItem.Event -> key(item.event.id) {
                     EventRow(
                         event = item.event,
-                        actor = state.usersById[item.event.actorUserId],
                         usersById = state.usersById,
                         labelsById = state.labelsById,
                     )

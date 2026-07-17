@@ -25,9 +25,11 @@ struct StartCodingSheet: View {
         let title: String
         let repositoryId: String?
         // Wire status/priority strings, so the picker rows can render the same
-        // status/priority glyphs as the issue list (EXP-173).
-        var status: String? = nil
-        var priority: String? = nil
+        // status/priority glyphs as the issue list (EXP-173). No defaults: a
+        // producer that forgets them must fail to compile, not silently render
+        // every row as Backlog/no-priority via IssueStatus/IssuePriority.from.
+        let status: String?
+        let priority: String?
     }
 
     let devices: [SteerDevice]

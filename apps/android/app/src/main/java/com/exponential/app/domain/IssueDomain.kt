@@ -29,6 +29,14 @@ enum class IssueStatus(val wire: String, val label: String) {
     companion object {
         fun fromWire(value: String?): IssueStatus =
             entries.firstOrNull { it.wire == value } ?: Backlog
+
+        /**
+         * Human label for a wire status. Unlike [fromWire] (which falls back
+         * to Backlog for UI that needs SOME status), an unknown wire value —
+         * e.g. from a newer server — renders verbatim instead of mislabeling.
+         */
+        fun labelFor(wire: String): String =
+            entries.firstOrNull { it.wire == wire }?.label ?: wire.replace('_', ' ')
     }
 }
 

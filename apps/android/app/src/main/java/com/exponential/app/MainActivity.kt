@@ -120,10 +120,7 @@ class MainActivity : ComponentActivity() {
     private fun handlePushExtras(intent: Intent) {
         val issueId = intent.getStringExtra("issueId") ?: return
         val targetUserId = intent.getStringExtra("userId")
-        val activeUserId = authRepository.accounts.value
-            .firstOrNull { it.id == authRepository.activeAccountId.value }
-            ?.userId
-        if (targetUserId != null && targetUserId != activeUserId) return
+        if (targetUserId != null && targetUserId != authRepository.userId.value) return
         // Belt-and-braces beside the savedInstanceState gate: an in-process
         // recreation reuses this same Intent instance via getIntent().
         intent.removeExtra("issueId")

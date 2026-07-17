@@ -462,10 +462,10 @@ private func initials(for author: UserEntity?, id: String?) -> String {
 }
 
 private func relativeDate(_ s: String) -> String {
-    let isoFormatter = ISO8601DateFormatter()
-    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let date = isoFormatter.date(from: s) ?? ISO8601DateFormatter().date(from: s)
-    guard let date else { return "" }
+    // Electric syncs created_at as Postgres text (space separator, hour-only
+    // offset), which ISO8601DateFormatter alone rejects — WireTimestamps
+    // handles both wire forms (EXP-169).
+    guard let date = WireTimestamps.parse(s) else { return "" }
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .short
     return formatter.localizedString(for: date, relativeTo: Date())

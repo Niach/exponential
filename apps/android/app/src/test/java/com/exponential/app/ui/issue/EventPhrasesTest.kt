@@ -23,6 +23,14 @@ class EventPhrasesTest {
         updatedAt = "2026-07-01 10:00:00+00",
     )
 
+    // eventPhrase's maps are deliberately non-defaulted in production; the
+    // empty-map default lives HERE, test-only.
+    private fun phrase(
+        event: IssueEventEntity,
+        users: Map<String, UserEntity> = emptyMap(),
+        labels: Map<String, LabelEntity> = emptyMap(),
+    ) = eventPhrase(event, users, labels)
+
     private val dana = UserEntity(
         id = "user-dana",
         name = "Dana",
@@ -43,98 +51,99 @@ class EventPhrasesTest {
 
     @Test
     fun statusChangedWithFromAndTo() {
-        val phrase = eventPhrase(
-            event("status_changed", """{"from":"backlog","to":"in_review"}"""),
+        assertEquals(
+            "changed the status from Backlog to In review",
+            phrase(event("status_changed", """{"from":"backlog","to":"in_review"}""")),
         )
-        assertEquals("changed the status from Backlog to In review", phrase)
     }
 
     @Test
     fun statusChangedWithOnlyTo() {
-        val phrase = eventPhrase(event("status_changed", """{"to":"done"}"""))
-        assertEquals("changed the status to Done", phrase)
+        assertEquals("changed the status to Done", phrase(event("status_changed", """{"to":"done"}""")))
     }
 
     @Test
     fun statusChangedUnknownWireValueStaysVerbatim() {
         // An unknown status from a newer server must NOT mislabel as Backlog.
-        val phrase = eventPhrase(
-            event("status_changed", """{"from":"backlog","to":"triaged_new"}"""),
+        assertEquals(
+            "changed the status from Backlog to triaged new",
+            phrase(event("status_changed", """{"from":"backlog","to":"triaged_new"}""")),
         )
-        assertEquals("changed the status from Backlog to triaged new", phrase)
     }
 
     @Test
     fun statusChangedWithoutPayloadFallsBack() {
-        assertEquals("changed the status", eventPhrase(event("status_changed", null)))
+        assertEquals("changed the status", phrase(event("status_changed", null)))
     }
 
     @Test
     fun assigneeAssignedResolvesName() {
-        val phrase = eventPhrase(
-            event("assignee_changed", """{"from":null,"to":"user-dana"}"""),
-            usersById = mapOf(dana.id to dana),
+        assertEquals(
+            "assigned Dana",
+            phrase(
+                event("assignee_changed", """{"from":null,"to":"user-dana"}"""),
+                users = mapOf(dana.id to dana),
+            ),
         )
-        assertEquals("assigned Dana", phrase)
     }
 
     @Test
     fun assigneeAssignedUnknownUserStillReads() {
-        val phrase = eventPhrase(event("assignee_changed", """{"to":"user-gone"}"""))
-        assertTrue(phrase.startsWith("assigned "))
+        assertTrue(phrase(event("assignee_changed", """{"to":"user-gone"}""")).startsWith("assigned "))
     }
 
     @Test
     fun assigneeClearedReadsUnassigned() {
-        val phrase = eventPhrase(
-            event("assignee_changed", """{"from":"user-dana","to":null}"""),
+        assertEquals(
+            "unassigned this issue",
+            phrase(event("assignee_changed", """{"from":"user-dana","to":null}""")),
         )
-        assertEquals("unassigned this issue", phrase)
     }
 
     @Test
     fun labelAddedResolvesName() {
-        val phrase = eventPhrase(
-            event("label_added", """{"labelId":"label-bug"}"""),
-            labelsById = mapOf(bugLabel.id to bugLabel),
+        assertEquals(
+            "added label bug",
+            phrase(
+                event("label_added", """{"labelId":"label-bug"}"""),
+                labels = mapOf(bugLabel.id to bugLabel),
+            ),
         )
-        assertEquals("added label bug", phrase)
     }
 
     @Test
     fun labelRemovedWithoutRowFallsBack() {
-        val phrase = eventPhrase(event("label_removed", """{"labelId":"label-gone"}"""))
-        assertEquals("removed a label", phrase)
+        assertEquals("removed a label", phrase(event("label_removed", """{"labelId":"label-gone"}""")))
     }
 
     @Test
     fun prEventsUsePayloadNumber() {
         assertEquals(
             "opened PR #91",
-            eventPhrase(event("pr_opened", """{"prUrl":"https://x","prNumber":91,"branch":"exp/EXP-1"}""")),
+            phrase(event("pr_opened", """{"prUrl":"https://x","prNumber":91,"branch":"exp/EXP-1"}""")),
         )
         assertEquals(
             "merged PR #91",
-            eventPhrase(event("pr_merged", """{"prUrl":"https://x","prNumber":91}""")),
+            phrase(event("pr_merged", """{"prUrl":"https://x","prNumber":91}""")),
         )
     }
 
     @Test
     fun prEventsWithoutNumberFallBack() {
-        assertEquals("opened a pull request", eventPhrase(event("pr_opened", """{"prUrl":null}""")))
-        assertEquals("merged the pull request", eventPhrase(event("pr_merged", null)))
+        assertEquals("opened a pull request", phrase(event("pr_opened", """{"prUrl":null}""")))
+        assertEquals("merged the pull request", phrase(event("pr_merged", null)))
     }
 
     @Test
     fun projectMovedKeepsIdentifierDetail() {
-        val phrase = eventPhrase(
-            event("project_moved", """{"fromIdentifier":"EXP-4","toIdentifier":"SUP-9"}"""),
+        assertEquals(
+            "moved this to another project (EXP-4 → SUP-9)",
+            phrase(event("project_moved", """{"fromIdentifier":"EXP-4","toIdentifier":"SUP-9"}""")),
         )
-        assertEquals("moved this to another project (EXP-4 → SUP-9)", phrase)
     }
 
     @Test
     fun unknownTypeSpacesUnderscores() {
-        assertEquals("something new", eventPhrase(event("something_new", null)))
+        assertEquals("something new", phrase(event("something_new", null)))
     }
 }

@@ -73,20 +73,24 @@ class AppViewModel @Inject constructor(
         @OptIn(ExperimentalCoroutinesApi::class)
         viewModelScope.launch {
             combine(
-                accountDatabaseFlow(auth, databaseHolder),
                 auth.activeAccountId,
                 workspaceSelection.selectedId,
                 workspaceSelection.lastProjectVersion, // re-resolve after switcher picks
-            ) { db, accountId, selected, _ -> Triple(db, accountId, selected) }
-                .flatMapLatest { (db, accountId, selected) ->
-                    if (db == null || accountId == null || selected != null) {
-                        flowOf(null)
+            ) { accountId, selected, _ -> accountId to selected }
+                .flatMapLatest { (accountId, selected) ->
+                    if (accountId == null || selected != null) {
+                        flowOf<Pair<String, String?>?>(null)
                     } else {
+                        // The db derives from the SAME accountId emission —
+                        // combining accountDatabaseFlow separately could pair a
+                        // stale db with a newer account mid-switch and select a
+                        // workspace from the previous account's database.
+                        val db = databaseHolder.database(forAccountId = accountId)
                         combine(
                             db.workspaceDao().observeAll(),
                             db.projectDao().observeAll(),
                         ) { workspaces, projects ->
-                            defaultWorkspaceId(
+                            accountId to defaultWorkspaceId(
                                 workspaces,
                                 projects,
                                 workspaceSelection.lastProject(accountId),
@@ -94,9 +98,13 @@ class AppViewModel @Inject constructor(
                         }
                     }
                 }
-                .collect { defaultId ->
-                    if (defaultId != null && workspaceSelection.selectedId.value == null) {
-                        workspaceSelection.select(defaultId)
+                .collect { resolved ->
+                    val (accountId, defaultId) = resolved ?: return@collect
+                    // The account guard closes the tail of the switch race: a
+                    // resolve computed for an account that is no longer active
+                    // must never write.
+                    if (defaultId != null && auth.activeAccountId.value == accountId) {
+                        workspaceSelection.selectIfNull(defaultId)
                     }
                 }
         }

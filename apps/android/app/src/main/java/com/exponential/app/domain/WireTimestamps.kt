@@ -31,16 +31,28 @@ object WireTimestamps {
     fun parseEpochMs(value: String): Long? {
         val v = value.trim()
         if (v.isEmpty()) return null
-        runCatching { return Instant.parse(v).toEpochMilli() }
-        runCatching { return OffsetDateTime.parse(v).toInstant().toEpochMilli() }
-        return runCatching {
-            val parsed = PG_TEXT.parse(v)
-            if (parsed.isSupported(ChronoField.OFFSET_SECONDS)) {
-                OffsetDateTime.from(parsed).toInstant().toEpochMilli()
-            } else {
-                // Offset-less Postgres text (plain `timestamp` columns) is UTC.
-                LocalDateTime.from(parsed).toInstant(ZoneOffset.UTC).toEpochMilli()
-            }
-        }.getOrNull()
+        // Sniff the separator (index 10 of both forms) instead of letting the
+        // dominant Postgres form throw through two exception-driven ISO
+        // attempts — this runs per visible row per state emission.
+        return if (v.length > 10 && v[10] == ' ') {
+            parsePgText(v) ?: parseIso(v)
+        } else {
+            parseIso(v) ?: parsePgText(v)
+        }
     }
+
+    private fun parseIso(v: String): Long? =
+        runCatching { Instant.parse(v).toEpochMilli() }
+            .recoverCatching { OffsetDateTime.parse(v).toInstant().toEpochMilli() }
+            .getOrNull()
+
+    private fun parsePgText(v: String): Long? = runCatching {
+        val parsed = PG_TEXT.parse(v)
+        if (parsed.isSupported(ChronoField.OFFSET_SECONDS)) {
+            OffsetDateTime.from(parsed).toInstant().toEpochMilli()
+        } else {
+            // Offset-less Postgres text (plain `timestamp` columns) is UTC.
+            LocalDateTime.from(parsed).toInstant(ZoneOffset.UTC).toEpochMilli()
+        }
+    }.getOrNull()
 }

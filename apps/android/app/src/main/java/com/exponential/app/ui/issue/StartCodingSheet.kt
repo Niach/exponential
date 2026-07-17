@@ -82,14 +82,17 @@ private const val LARGE_BATCH_HINT_THRESHOLD = 6
 /**
  * One issue the sheet can queue for a run — repositoryId gates same-repo
  * batches; status/priority feed the list-style row visuals (EXP-173).
+ * Deliberately no defaults: a producer that forgets them would compile fine
+ * and silently render every row as Backlog/no-priority via fromWire's
+ * fallback.
  */
 data class StartIssueOption(
     val id: String,
     val identifier: String,
     val title: String,
     val repositoryId: String?,
-    val status: String? = null,
-    val priority: String? = null,
+    val status: String?,
+    val priority: String?,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

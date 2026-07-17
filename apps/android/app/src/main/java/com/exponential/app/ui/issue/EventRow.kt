@@ -20,6 +20,8 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.userDisplayName
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 // Compact Linear-style activity line for non-agent events (status/assignee/label).
@@ -27,11 +29,10 @@ import kotlinx.serialization.json.contentOrNull
 @Composable
 internal fun EventRow(
     event: IssueEventEntity,
-    actor: UserEntity?,
-    usersById: Map<String, UserEntity> = emptyMap(),
-    labelsById: Map<String, LabelEntity> = emptyMap(),
+    usersById: Map<String, UserEntity>,
+    labelsById: Map<String, LabelEntity>,
 ) {
-    val who = userDisplayName(actor, event.actorUserId)
+    val who = userDisplayName(event.actorUserId?.let { usersById[it] }, event.actorUserId)
     val time = relativeTime(event.createdAt)
     val text = buildString {
         append(who).append(' ').append(eventPhrase(event, usersById, labelsById))
@@ -67,67 +68,63 @@ internal fun eventVerb(type: String): String = when (type) {
     else -> type.replace('_', ' ')
 }
 
-// Human status label for a wire enum value. NOT IssueStatus.fromWire — that
-// falls back to Backlog and would mislabel unknown statuses from newer servers.
-internal fun statusLabel(wire: String): String =
-    IssueStatus.entries.firstOrNull { it.wire == wire }?.label ?: wire.replace('_', ' ')
-
 // A richer phrase for the events whose payload carries detail (EXP-169 —
 // mirrors iOS EventPhrases.swift). Missing payloads or unsynced lookup rows
-// degrade to the bare verb; project_moved (EXP-57) is self-contained.
+// degrade to the bare verb; project_moved (EXP-57) is self-contained. The
+// user/label maps are deliberately non-defaulted: a call site that forgets
+// them must fail to compile, not silently render pseudonyms and bare verbs.
 internal fun eventPhrase(
     event: IssueEventEntity,
-    usersById: Map<String, UserEntity> = emptyMap(),
-    labelsById: Map<String, LabelEntity> = emptyMap(),
-): String = when (event.type) {
-    "status_changed" -> {
-        val to = eventPayloadField(event.payload, "to")
-        val from = eventPayloadField(event.payload, "from")
-        when {
-            to == null -> eventVerb(event.type)
-            from != null -> "changed the status from ${statusLabel(from)} to ${statusLabel(to)}"
-            else -> "changed the status to ${statusLabel(to)}"
+    usersById: Map<String, UserEntity>,
+    labelsById: Map<String, LabelEntity>,
+): String {
+    // One parse per phrase — status_changed/project_moved read two keys.
+    val payload = parsedPayload(event.payload)
+    fun field(key: String): String? =
+        (payload?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+    return when (event.type) {
+        "status_changed" -> {
+            val to = field("to")
+            val from = field("from")
+            when {
+                to == null -> eventVerb(event.type)
+                from != null ->
+                    "changed the status from ${IssueStatus.labelFor(from)} to ${IssueStatus.labelFor(to)}"
+                else -> "changed the status to ${IssueStatus.labelFor(to)}"
+            }
         }
-    }
-    "assignee_changed" -> {
-        val to = eventPayloadField(event.payload, "to")
-        if (to == null) "unassigned this issue"
-        else "assigned ${userDisplayName(usersById[to], to)}"
-    }
-    "label_added" -> eventPayloadField(event.payload, "labelId")
-        ?.let { labelsById[it]?.name }
-        ?.let { "added label $it" }
-        ?: eventVerb(event.type)
-    "label_removed" -> eventPayloadField(event.payload, "labelId")
-        ?.let { labelsById[it]?.name }
-        ?.let { "removed label $it" }
-        ?: eventVerb(event.type)
-    "pr_opened" -> eventPayloadField(event.payload, "prNumber")
-        ?.let { "opened PR #$it" }
-        ?: eventVerb(event.type)
-    "pr_merged" -> eventPayloadField(event.payload, "prNumber")
-        ?.let { "merged PR #$it" }
-        ?: eventVerb(event.type)
-    "project_moved" -> {
-        val from = eventPayloadField(event.payload, "fromIdentifier")
-        val to = eventPayloadField(event.payload, "toIdentifier")
-        if (from != null && to != null) {
-            "moved this to another project ($from → $to)"
-        } else {
-            eventVerb(event.type)
+        "assignee_changed" -> {
+            val to = field("to")
+            if (to == null) "unassigned this issue"
+            else "assigned ${userDisplayName(usersById[to], to)}"
         }
+        "label_added", "label_removed" -> {
+            val verb = if (event.type == "label_added") "added" else "removed"
+            field("labelId")?.let { labelsById[it]?.name }?.let { "$verb label $it" }
+                ?: eventVerb(event.type)
+        }
+        "pr_opened", "pr_merged" -> {
+            val verb = if (event.type == "pr_opened") "opened" else "merged"
+            field("prNumber")?.let { "$verb PR #$it" } ?: eventVerb(event.type)
+        }
+        "project_moved" -> {
+            val from = field("fromIdentifier")
+            val to = field("toIdentifier")
+            if (from != null && to != null) {
+                "moved this to another project ($from → $to)"
+            } else {
+                eventVerb(event.type)
+            }
+        }
+        else -> eventVerb(event.type)
     }
-    else -> eventVerb(event.type)
 }
 
-// Pull a string scalar out of an issue_event's JSON payload (stored as
-// stringified JSON). Null for missing/blank values or unparseable payloads;
-// JSON numbers (e.g. prNumber) come back as their string content.
-internal fun eventPayloadField(payload: String?, key: String): String? {
+// The event's JSON payload (stored as stringified JSON) as an object, or null
+// for missing/unparseable payloads.
+private fun parsedPayload(payload: String?): JsonObject? {
     if (payload.isNullOrBlank()) return null
     return runCatching {
-        val obj = kotlinx.serialization.json.Json
-            .parseToJsonElement(payload) as? kotlinx.serialization.json.JsonObject
-        (obj?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
-    }.getOrNull()?.takeIf { it.isNotBlank() }
+        kotlinx.serialization.json.Json.parseToJsonElement(payload) as? JsonObject
+    }.getOrNull()
 }

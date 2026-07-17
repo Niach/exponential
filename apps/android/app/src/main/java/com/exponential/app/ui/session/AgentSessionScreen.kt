@@ -455,10 +455,8 @@ private fun ActivityFeed(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 8.dp)
-                    // Solid capsule beneath the glass tint (EXP-165): the 15%
-                    // white glass fill alone let the feed bleed through.
-                    .background(DesignTokens.Palette.Card, RoundedCornerShape(percent = 50))
-                    .glassButton(active = true)
+                    // opaque: the feed scrolls beneath this pill (EXP-165).
+                    .glassButton(active = true, opaque = true)
                     .clickable { follow = true }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
