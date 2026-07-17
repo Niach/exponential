@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
+  activeQuestionIds,
   consumeEcho,
   ECHO_CAP,
   ECHO_TTL_MS,
   groupToolRuns,
+  PLAN_RESOLVED_NARRATION,
   pushEcho,
-  trailingQuestionIds,
   type EchoEntry,
 } from "./agent-feed"
 
@@ -40,7 +41,7 @@ describe(`local-echo dedupe`, () => {
   })
 })
 
-describe(`trailingQuestionIds`, () => {
+describe(`activeQuestionIds`, () => {
   it(`returns the trailing consecutive question run`, () => {
     const feed = [
       { id: 1, kind: `narration` },
@@ -49,7 +50,7 @@ describe(`trailingQuestionIds`, () => {
       { id: 4, kind: `question` },
       { id: 5, kind: `question` },
     ]
-    expect(trailingQuestionIds(feed)).toEqual(new Set([4, 5]))
+    expect(activeQuestionIds(feed)).toEqual(new Set([4, 5]))
   })
 
   it(`is empty when the feed ends with a non-question`, () => {
@@ -57,17 +58,17 @@ describe(`trailingQuestionIds`, () => {
       { id: 1, kind: `question` },
       { id: 2, kind: `narration` },
     ]
-    expect(trailingQuestionIds(feed)).toEqual(new Set())
+    expect(activeQuestionIds(feed)).toEqual(new Set())
   })
 
   it(`handles an all-question feed and an empty feed`, () => {
     expect(
-      trailingQuestionIds([
+      activeQuestionIds([
         { id: 1, kind: `question` },
         { id: 2, kind: `question` },
       ])
     ).toEqual(new Set([1, 2]))
-    expect(trailingQuestionIds([])).toEqual(new Set())
+    expect(activeQuestionIds([])).toEqual(new Set())
   })
 
   it(`is unaffected by tool runs preceding the trailing questions`, () => {
@@ -76,7 +77,53 @@ describe(`trailingQuestionIds`, () => {
       { id: 2, kind: `tool` },
       { id: 3, kind: `question` },
     ]
-    expect(trailingQuestionIds(feed)).toEqual(new Set([3]))
+    expect(activeQuestionIds(feed)).toEqual(new Set([3]))
+  })
+
+  // EXP-174: plan questions publish from the live terminal grid at pending
+  // time while the transcript tail lags — lagged flushes must not retire them.
+  it(`keeps a plan question active behind lagged tool and narration flushes`, () => {
+    const feed = [
+      { id: 1, kind: `question`, planMode: true },
+      { id: 2, kind: `tool` },
+      { id: 3, kind: `narration`, text: `Let me finalize the plan file:` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set([1]))
+  })
+
+  it(`retires a plan question on the resolution narration`, () => {
+    const feed = [
+      { id: 1, kind: `question`, planMode: true },
+      { id: 2, kind: `tool` },
+      { id: 3, kind: `narration`, text: PLAN_RESOLVED_NARRATION },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set())
+  })
+
+  it(`retires a plan question on a human message`, () => {
+    const feed = [
+      { id: 1, kind: `question`, planMode: true },
+      { id: 2, kind: `tool` },
+      { id: 3, kind: `user_message`, text: `1` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set())
+  })
+
+  it(`retires a plan question when a newer question follows`, () => {
+    const feed = [
+      { id: 1, kind: `question`, planMode: true },
+      { id: 2, kind: `tool` },
+      { id: 3, kind: `question` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set([3]))
+  })
+
+  it(`still retires a non-plan question on any later event`, () => {
+    const feed = [
+      { id: 1, kind: `question` },
+      { id: 2, kind: `tool` },
+    ]
+    expect(activeQuestionIds(feed)).toEqual(new Set())
   })
 })
 

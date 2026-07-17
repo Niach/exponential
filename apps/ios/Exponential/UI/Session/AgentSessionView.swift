@@ -263,7 +263,7 @@ struct AgentSessionView: View {
                     options: options,
                     multiSelect: multiSelect,
                     planMode: planMode,
-                    trailing: model?.activeQuestionIds.contains(id) ?? false,
+                    active: model?.activeQuestionIds.contains(id) ?? false,
                     canAnswer: canAnswer,
                     onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
                     onSubmit: { model?.sendSubmit() }
@@ -273,8 +273,8 @@ struct AgentSessionView: View {
     }
 
     /// Whether this client may answer questions at all — a question card is
-    /// answerable when this holds AND it sits in the trailing question run
-    /// (EXP-78).
+    /// answerable when this holds AND it is still active per
+    /// `activeQuestionIds` (EXP-78/EXP-174).
     private var canAnswer: Bool {
         guard let model else { return false }
         return model.canSteer && model.phase == .live && !model.sessionEnded
@@ -505,8 +505,9 @@ private struct UserMessageBubble: View {
 }
 
 /// An interactive question (EXP-78): AskUserQuestion / plan approval. Option
-/// buttons send the option's raw TUI keystroke while the question is still in
-/// the trailing feed run; stale/view-only cards render options as plain rows.
+/// buttons send the option's raw TUI keystroke while the question is still
+/// active (per `activeQuestionIds` — trailing run, or an unresolved plan card,
+/// EXP-174); stale/view-only cards render options as plain rows.
 /// `planMode` cards (EXP-97) get a dedicated "Plan ready" presentation with
 /// the first option as the primary approve action — labels/keys always come
 /// from the wire options, the desktop owns the TUI key mapping. Best-effort
@@ -516,8 +517,8 @@ private struct QuestionCard: View {
     let options: [AgentSessionModel.QuestionOption]
     let multiSelect: Bool
     let planMode: Bool
-    /// Still the trailing feed run — the session is blocked on this card.
-    let trailing: Bool
+    /// Still answerable per the feed — the session is blocked on this card.
+    let active: Bool
     /// Live + steer perm — whether this client may answer at all.
     let canAnswer: Bool
     /// (key, submit) — single-select taps submit (digit + Enter); multi-select
@@ -536,7 +537,7 @@ private struct QuestionCard: View {
             || text.filter { $0 == "\n" }.count >= Self.clampLines
     }
 
-    private var answerable: Bool { trailing && canAnswer }
+    private var answerable: Bool { active && canAnswer }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -594,7 +595,7 @@ private struct QuestionCard: View {
                     .glassButton(isActive: true)
                     .buttonStyle(.plain)
                 }
-                if trailing, !canAnswer {
+                if active, !canAnswer {
                     Text(planMode
                         ? "Waiting for approval — you're viewing read-only."
                         : "Waiting for an answer — you're viewing read-only.")

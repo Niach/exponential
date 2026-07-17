@@ -113,13 +113,43 @@ final class AgentSessionModel {
     }
     var sessionEnded: Bool { session?.status == DomainContract.codingSessionStatusEnded }
 
-    /// Ids of the TRAILING consecutive run of question items — the only ones
-    /// still answerable (any later event means the desktop TUI moved on).
+    /// The desktop's plan-picker resolution narration (steer/src/activity.rs)
+    /// — the no-protocol-change signal that a pending plan approval was
+    /// answered.
+    static let planResolvedNarration = "Plan approval answered."
+
+    /// Ids of the question items still answerable (EXP-174): the TRAILING
+    /// consecutive question run (any later event means the desktop TUI moved
+    /// on), PLUS any plan-approval question with no resolution signal after
+    /// it. Plan questions are published from the live terminal grid the
+    /// moment the picker appears, while the transcript tail lags — so tool
+    /// rows and narration can flush in BEHIND a plan card whose picker is
+    /// still on screen. Only a newer question, a human message, or the
+    /// desktop's explicit `planResolvedNarration` proves a plan picker
+    /// actually resolved. Mirrors the Android `activeQuestionIds`.
     var activeQuestionIds: Set<Int> {
         var ids = Set<Int>()
+        // Still inside the trailing consecutive question run.
+        var trailing = true
+        // A resolution signal lies after the current position.
+        var retired = false
         for item in feed.reversed() {
-            guard item.isQuestion else { break }
-            ids.insert(item.id)
+            switch item {
+            case let .question(id, _, _, _, planMode):
+                if trailing || (planMode && !retired) { ids.insert(id) }
+                retired = true
+            case .userMessage:
+                trailing = false
+                retired = true
+            case let .narration(_, text):
+                trailing = false
+                if text.trimmingCharacters(in: .whitespacesAndNewlines) == Self.planResolvedNarration {
+                    retired = true
+                }
+            case .tool:
+                trailing = false
+            }
+            if retired, !trailing { break }
         }
         return ids
     }
