@@ -609,8 +609,16 @@ fn event_row(
         None => "Someone".to_string(),
     };
 
+    // The truncating phrase needs a DEFINITE width all the way down the
+    // chain: gpui's ellipsis measures against available space, and any
+    // auto-width link collapses it, truncating the text long before the row
+    // edge. EXP-144's flex_1 wrapper wasn't enough — the phrase div inside
+    // it was still auto-width and the row itself relied on implicit stretch
+    // (EXP-175). So: w_full row → flex_1 wrapper → flex_1 phrase, every
+    // level resolvable without measuring the text.
     let mut row = h_flex()
         .id(SharedString::from(format!("issue-event-{}", event.id)))
+        .w_full()
         .py_1()
         .pl_1()
         .gap_2()
@@ -624,10 +632,6 @@ fn event_row(
                 .flex_shrink_0(),
         )
         .child(
-            // flex_1 gives the truncating phrase a DEFINITE width — gpui's
-            // ellipsis measures against available space, and inside an
-            // auto-width flex item that space collapses, truncating the text
-            // long before the row edge (EXP-144).
             h_flex()
                 .gap_1()
                 .flex_1()
@@ -643,6 +647,7 @@ fn event_row(
                 )
                 .child(
                     div()
+                        .flex_1()
                         .min_w_0()
                         .whitespace_nowrap()
                         .overflow_hidden()
