@@ -62,8 +62,11 @@ export function FeedbackWidgetProvider() {
     installSnippetStub()
     window.ExponentialWidget!.init({
       key: widget.widgetKey,
-      // The sidebar's FeedbackButton is the entry point; no floating button.
-      showButton: false,
+      // Dogfood the floating launcher like any customer site (EXP-163). The
+      // sidebar's FeedbackButton stays as a second entry point. Pinned
+      // bottom-right: the remote config's default is bottom-left, which the
+      // app sidebar occupies.
+      position: `bottom-right`,
     })
     window.ExponentialWidget!.setCustomData({
       app: `exponential-web`,
