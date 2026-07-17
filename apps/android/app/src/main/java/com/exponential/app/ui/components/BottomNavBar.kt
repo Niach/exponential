@@ -36,9 +36,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the five top-level
 // destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
-// with an unread dot — Reviews — its own entry beside My Work per EXP-147 —
-// Agents — with a green live dot — and Search; order per EXP-81) plus a
-// detached circular compose button on the right.
+// with an unread dot — Agents — with a green live dot — Reviews — its own
+// entry per EXP-147, ordered after Agents per EXP-152 — and Search; base
+// order per EXP-81) plus a detached circular compose button on the right.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
@@ -100,14 +100,6 @@ fun BottomNavBar(
                 showDot = unreadCount > 0,
                 onClick = onPersonal,
             )
-            // Reviews sits beside My Work (EXP-147) — the same open-PR glyph
-            // the Reviews rows use.
-            TabItem(
-                icon = Icons.AutoMirrored.Filled.CallMerge,
-                contentDescription = "Reviews",
-                active = reviewsActive,
-                onClick = onReviews,
-            )
             TabItem(
                 icon = Icons.Filled.SmartToy,
                 contentDescription = "Agents",
@@ -115,6 +107,14 @@ fun BottomNavBar(
                 showDot = agentsRunning,
                 dotColor = AgentsLiveGreen,
                 onClick = onAgents,
+            )
+            // Reviews sits beside Agents (EXP-147/EXP-152) — the same open-PR
+            // glyph the Reviews rows use.
+            TabItem(
+                icon = Icons.AutoMirrored.Filled.CallMerge,
+                contentDescription = "Reviews",
+                active = reviewsActive,
+                onClick = onReviews,
             )
             TabItem(
                 icon = Icons.Filled.Search,
