@@ -40,16 +40,42 @@ export function consumeEcho(
   return true
 }
 
-/** Ids of the TRAILING consecutive run of `question` items — the only ones
- *  still answerable. A multi-question batch lands back-to-back and the TUI
- *  auto-advances in order, so the whole trailing run stays active; any later
- *  event means the session moved on and every earlier question is stale. */
-export function trailingQuestionIds(
-  feed: readonly { id: number; kind: string }[]
+/** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
+ *  the no-protocol-change signal that a pending plan approval was answered. */
+export const PLAN_RESOLVED_NARRATION = `Plan approval answered.`
+
+/** Ids of the `question` items still answerable (EXP-174): the TRAILING
+ *  consecutive question run (a multi-question batch lands back-to-back and
+ *  the TUI auto-advances in order; any later event means the session moved
+ *  on), PLUS any plan-approval question with no resolution signal after it.
+ *  Plan questions are published from the live terminal grid the moment the
+ *  picker appears, while the transcript tail lags — so tool rows and
+ *  narration can flush in BEHIND a plan card whose picker is still on
+ *  screen. Only a newer question, a human message, or the desktop's explicit
+ *  `PLAN_RESOLVED_NARRATION` proves a plan picker actually resolved. */
+export function activeQuestionIds(
+  feed: readonly { id: number; kind: string; planMode?: boolean; text?: string }[]
 ): Set<number> {
   const ids = new Set<number>()
-  for (let i = feed.length - 1; i >= 0 && feed[i].kind === `question`; i--) {
-    ids.add(feed[i].id)
+  // Still inside the trailing consecutive question run.
+  let trailing = true
+  // A resolution signal lies after the current position.
+  let retired = false
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const item = feed[i]
+    if (item.kind === `question`) {
+      if (trailing || (item.planMode === true && !retired)) ids.add(item.id)
+      retired = true
+    } else {
+      trailing = false
+      if (item.kind === `user_message`) retired = true
+      else if (
+        item.kind === `narration` &&
+        item.text?.trim() === PLAN_RESOLVED_NARRATION
+      )
+        retired = true
+    }
+    if (retired && !trailing) break
   }
   return ids
 }
@@ -63,7 +89,7 @@ export type FeedRow<T extends { id: number; kind: string }> =
   | { kind: `toolRun`; id: number; items: T[] }
 
 /** Group consecutive runs of ≥2 `tool` items into `toolRun` rows — a pure
- *  render-time projection: the flat feed (and `trailingQuestionIds` over it)
+ *  render-time projection: the flat feed (and `activeQuestionIds` over it)
  *  is never restructured, so answerability logic is unaffected. */
 export function groupToolRuns<T extends { id: number; kind: string }>(
   feed: readonly T[]

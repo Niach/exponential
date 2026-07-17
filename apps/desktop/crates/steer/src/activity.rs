@@ -81,6 +81,13 @@ const MIN_SECRET_LEN: usize = 8;
 /// not depend on `coding`, so the name is duplicated here).
 const MCP_JSON_FILE: &str = ".exp-mcp.json";
 
+/// The plan-picker resolution narration (EXP-150/EXP-174). Viewer clients
+/// match this EXACT text to retire a pending plan-approval card — the
+/// transcript tail lags the grid-emitted plan question, so "any later event"
+/// is not a resolution signal for plan cards. Never reword without updating
+/// the web / iOS / Android agent-session views.
+pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
+
 // ---------------------------------------------------------------------------
 // Redaction
 // ---------------------------------------------------------------------------
@@ -619,10 +626,11 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     suppress_plan_questions += 1;
                 }
                 Some(Transition::Resolved) => {
-                    // Retires the trailing plan card on every client the
-                    // moment the picker is answered — no protocol change.
+                    // Retires the pending plan card on every client the
+                    // moment the picker is answered — no protocol change,
+                    // clients match the exact text (EXP-174).
                     sender.send(ActivityEvent::Narration {
-                        text: "Plan approval answered.".to_string(),
+                        text: PLAN_RESOLVED_NARRATION.to_string(),
                     });
                 }
                 None => {}

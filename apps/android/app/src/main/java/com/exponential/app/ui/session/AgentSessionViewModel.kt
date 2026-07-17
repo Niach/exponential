@@ -101,15 +101,43 @@ sealed interface AgentFeedItem {
     ) : AgentFeedItem
 }
 
+/** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
+ *  the no-protocol-change signal that a pending plan approval was answered. */
+const val PLAN_RESOLVED_NARRATION = "Plan approval answered."
+
 /**
- * Ids of the TRAILING consecutive run of [AgentFeedItem.Question] items — the
- * only ones still answerable (any later event means the desktop TUI moved on).
+ * Ids of the [AgentFeedItem.Question] items still answerable (EXP-174):
+ * the TRAILING consecutive question run (any later event means the desktop
+ * TUI moved on), PLUS any plan-approval question with no resolution signal
+ * after it. Plan questions are published from the live terminal grid the
+ * moment the picker appears, while the transcript tail lags — so tool rows
+ * and narration can flush in BEHIND a plan card whose picker is still on
+ * screen. Only a newer question, a human message, or the desktop's explicit
+ * [PLAN_RESOLVED_NARRATION] proves a plan picker actually resolved.
  */
-fun trailingQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
+fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
     val ids = mutableSetOf<Long>()
+    // Still inside the trailing consecutive question run.
+    var trailing = true
+    // A resolution signal lies after the current position.
+    var retired = false
     for (item in feed.asReversed()) {
-        if (item !is AgentFeedItem.Question) break
-        ids.add(item.id)
+        when (item) {
+            is AgentFeedItem.Question -> {
+                if (trailing || (item.planMode && !retired)) ids.add(item.id)
+                retired = true
+            }
+            is AgentFeedItem.UserMessage -> {
+                trailing = false
+                retired = true
+            }
+            is AgentFeedItem.Narration -> {
+                trailing = false
+                if (item.text.trim() == PLAN_RESOLVED_NARRATION) retired = true
+            }
+            is AgentFeedItem.Tool -> trailing = false
+        }
+        if (retired && !trailing) break
     }
     return ids
 }
@@ -132,7 +160,7 @@ sealed interface AgentFeedRow {
 
 /** Group consecutive runs of ≥2 [AgentFeedItem.Tool] items into
  *  [AgentFeedRow.ToolRun] rows — a pure render-time projection: the flat feed
- *  (and [trailingQuestionIds] over it) is never restructured. */
+ *  (and [activeQuestionIds] over it) is never restructured. */
 fun groupToolRuns(feed: List<AgentFeedItem>): List<AgentFeedRow> {
     val rows = mutableListOf<AgentFeedRow>()
     var i = 0

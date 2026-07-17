@@ -3,8 +3,11 @@ package com.exponential.app.ui.session
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// EXP-78: only the TRAILING consecutive run of question items is answerable —
-// any later event means the desktop TUI moved on.
+// EXP-78: the TRAILING consecutive run of question items is answerable — any
+// later event means the desktop TUI moved on. EXP-174: a plan-approval card
+// additionally stays answerable until a real resolution signal (a newer
+// question, a human message, or the desktop's resolution narration), because
+// lagged transcript flushes can land behind a picker that's still on screen.
 class AgentFeedTest {
 
     @Test
@@ -16,7 +19,7 @@ class AgentFeedTest {
             question(4),
             question(5),
         )
-        assertEquals(setOf(4L, 5L), trailingQuestionIds(feed))
+        assertEquals(setOf(4L, 5L), activeQuestionIds(feed))
     }
 
     @Test
@@ -25,19 +28,57 @@ class AgentFeedTest {
             question(1),
             AgentFeedItem.Narration(2, "moved on"),
         )
-        assertEquals(emptySet<Long>(), trailingQuestionIds(feed))
+        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
     }
 
     @Test
     fun `handles an all-question feed and an empty feed`() {
-        assertEquals(setOf(1L, 2L), trailingQuestionIds(listOf(question(1), question(2))))
-        assertEquals(emptySet<Long>(), trailingQuestionIds(emptyList()))
+        assertEquals(setOf(1L, 2L), activeQuestionIds(listOf(question(1), question(2))))
+        assertEquals(emptySet<Long>(), activeQuestionIds(emptyList()))
     }
 
     @Test
     fun `trailing questions are unaffected by tool runs before them`() {
         val feed = listOf(tool(1), tool(2), question(3))
-        assertEquals(setOf(3L), trailingQuestionIds(feed))
+        assertEquals(setOf(3L), activeQuestionIds(feed))
+    }
+
+    @Test
+    fun `plan question stays active behind lagged tool and narration flushes`() {
+        val feed = listOf(
+            plan(1),
+            tool(2),
+            AgentFeedItem.Narration(3, "Let me finalize the plan file:"),
+        )
+        assertEquals(setOf(1L), activeQuestionIds(feed))
+    }
+
+    @Test
+    fun `plan question retires on the resolution narration`() {
+        val feed = listOf(
+            plan(1),
+            tool(2),
+            AgentFeedItem.Narration(3, PLAN_RESOLVED_NARRATION),
+        )
+        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
+    }
+
+    @Test
+    fun `plan question retires on a human message`() {
+        val feed = listOf(plan(1), tool(2), AgentFeedItem.UserMessage(3, "1"))
+        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
+    }
+
+    @Test
+    fun `plan question retires when a newer question follows`() {
+        val feed = listOf(plan(1), tool(2), question(3))
+        assertEquals(setOf(3L), activeQuestionIds(feed))
+    }
+
+    @Test
+    fun `non-plan question is still retired by any later event`() {
+        val feed = listOf(question(1), tool(2))
+        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
     }
 
     // EXP-97: consecutive runs of >=2 tool calls collapse into one render row.
@@ -117,4 +158,6 @@ class AgentFeedTest {
         options = listOf(QuestionOption("Red", "1"), QuestionOption("Blue", "2")),
         multiSelect = false,
     )
+
+    private fun plan(id: Long) = question(id).copy(planMode = true)
 }

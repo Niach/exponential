@@ -125,7 +125,7 @@ fun AgentSessionScreen(
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
-        remember(feed) { trailingQuestionIds(feed) }.isNotEmpty()
+        remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
 
     var diffSheetOpen by remember { mutableStateOf(false) }
 
@@ -398,9 +398,10 @@ private fun ActivityFeed(
 ) {
     val listState = rememberLazyListState()
     var follow by remember { mutableStateOf(true) }
-    // Only the trailing consecutive run of questions is still answerable —
-    // any later event means the desktop TUI moved on (EXP-78).
-    val activeQuestionIds = remember(feed) { trailingQuestionIds(feed) }
+    // The trailing consecutive run of questions is answerable (EXP-78), and a
+    // plan-approval card stays answerable until a real resolution signal —
+    // lagged transcript flushes don't retire a pending picker (EXP-174).
+    val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
     // Consecutive tool calls collapse into "N tool calls" rows (EXP-97) — a
     // render-time projection only, the flat feed stays the state.
     val rows = remember(feed) { groupToolRuns(feed) }
@@ -438,7 +439,7 @@ private fun ActivityFeed(
                         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
                         is AgentFeedItem.Question -> QuestionCard(
                             item = item,
-                            trailing = item.id in activeQuestionIds,
+                            active = item.id in activeQuestionIds,
                             answerEnabled = answerEnabled,
                             onAnswer = onAnswer,
                             onSubmit = onSubmit,
@@ -550,8 +551,9 @@ private fun UserMessageBubble(text: String) {
 }
 
 // An interactive question (EXP-78): AskUserQuestion / plan approval. Option
-// buttons send the option's raw TUI keystroke while the question is still in
-// the trailing feed run; stale/view-only cards render options as plain rows.
+// buttons send the option's raw TUI keystroke while the question is still
+// active (per activeQuestionIds — trailing run, or an unresolved plan card,
+// EXP-174); stale/view-only cards render options as plain rows.
 // planMode cards (EXP-97) get a dedicated "Plan ready" presentation with the
 // first option as the primary approve action and the plan rendered as
 // markdown on expand — labels/keys always come from the wire options, the
@@ -560,8 +562,8 @@ private fun UserMessageBubble(text: String) {
 @Composable
 private fun QuestionCard(
     item: AgentFeedItem.Question,
-    /** Still the trailing feed run — the session is blocked on this card. */
-    trailing: Boolean,
+    /** Still answerable per the feed — the session is blocked on this card. */
+    active: Boolean,
     /** Live + steer perm — whether this client may answer at all. */
     answerEnabled: Boolean,
     onAnswer: (String, Boolean) -> Unit,
@@ -570,7 +572,7 @@ private fun QuestionCard(
     var expanded by remember { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
     val folds = remember(item.text) { clampable(item.text) }
-    val answerable = trailing && answerEnabled
+    val answerable = active && answerEnabled
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -658,7 +660,7 @@ private fun QuestionCard(
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
-            if (trailing && !answerable) {
+            if (active && !answerable) {
                 Text(
                     if (item.planMode) {
                         "Waiting for approval — you're viewing read-only."

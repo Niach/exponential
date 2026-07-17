@@ -21,7 +21,7 @@ import {
   consumeEcho,
   groupToolRuns,
   pushEcho,
-  trailingQuestionIds,
+  activeQuestionIds,
   type EchoEntry,
 } from "@/lib/agent-feed"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -603,16 +603,17 @@ export function AgentSessionView({
   const sessionEnded = session.status === `ended`
   const composerVisible = live && perm === `steer` && !sessionEnded
 
-  /** Only the trailing consecutive run of questions is still answerable —
-   *  any later event means the TUI moved on. */
-  const activeQuestionIds = useMemo(() => trailingQuestionIds(feed), [feed])
+  /** The trailing consecutive run of questions is answerable (EXP-78), and a
+   *  plan-approval card stays answerable until a real resolution signal —
+   *  lagged transcript flushes don't retire a pending picker (EXP-174). */
+  const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const canAnswer = live && perm === `steer` && !sessionEnded
   /** Render rows: consecutive tool calls collapse into "N tool calls" runs
    *  (EXP-97) — a projection only, the flat feed stays the state. */
   const rows = useMemo(() => groupToolRuns(feed), [feed])
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
-  const awaitingInput = live && activeQuestionIds.size > 0
+  const awaitingInput = live && questionIds.size > 0
 
   /** Presence tooltip — every current viewer, the steerer marked. */
   const presenceTitle = viewers
@@ -741,7 +742,7 @@ export function AgentSessionView({
                             options={item.options}
                             multiSelect={item.multiSelect}
                             planMode={item.planMode}
-                            trailing={activeQuestionIds.has(item.id)}
+                            active={questionIds.has(item.id)}
                             canAnswer={canAnswer}
                             onAnswer={sendAnswer}
                           />
@@ -997,8 +998,9 @@ function UserMessageBubble({ text }: { text: string }) {
 }
 
 /** An interactive question (EXP-78): AskUserQuestion / plan approval. Option
- *  buttons send the option's raw TUI keystroke while the question is still the
- *  trailing feed item; stale/view-only cards render the options as plain rows.
+ *  buttons send the option's raw TUI keystroke while the question is still
+ *  active (per `activeQuestionIds` — trailing run, or an unresolved plan card,
+ *  EXP-174); stale/view-only cards render the options as plain rows.
  *  `planMode` cards (EXP-97) get a dedicated "Plan ready" presentation with
  *  the first option as the primary approve action and the plan rendered as
  *  markdown on expand — labels/keys always come from the wire `options`, the
@@ -1009,7 +1011,7 @@ function QuestionCard({
   options,
   multiSelect,
   planMode,
-  trailing,
+  active,
   canAnswer,
   onAnswer,
 }: {
@@ -1017,15 +1019,15 @@ function QuestionCard({
   options: QuestionOption[]
   multiSelect: boolean
   planMode: boolean
-  /** Still the trailing feed run — the session is blocked on this card. */
-  trailing: boolean
+  /** Still answerable per the feed — the session is blocked on this card. */
+  active: boolean
   /** Live + steer perm — whether this client may answer at all. */
   canAnswer: boolean
   onAnswer: (key: string, submit?: boolean) => void
 }) {
   const { expanded, setExpanded, clampable } = useClampToggle(text)
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const answerable = trailing && canAnswer
+  const answerable = active && canAnswer
 
   const pick = (option: QuestionOption) => {
     // Single-select: digit + Enter submits. Multi-select: digit toggles; the
@@ -1146,7 +1148,7 @@ function QuestionCard({
               Submit selection
             </Button>
           )}
-          {trailing && !canAnswer && (
+          {active && !canAnswer && (
             <div className="mt-2 text-xs text-muted-foreground">
               {planMode
                 ? `Waiting for approval — you're viewing read-only.`
