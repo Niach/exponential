@@ -404,8 +404,48 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // title/description survive the round-trip into the editor.
   const panelMounted = panelVisible || phase.kind === `annotating`
 
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Mobile on-screen keyboards shrink only the VISUAL viewport — the layout
+  // viewport that `position: fixed` anchors to keeps its height, so the
+  // panel's lower half (email field, submit button) ended up hidden behind
+  // the Android keyboard. While the panel is mounted, mirror the visual
+  // viewport into CSS vars the panel geometry in widget.css reads.
+  useEffect(() => {
+    const root = rootRef.current
+    const viewport = window.visualViewport
+    if (!panelMounted || !root || !viewport) return
+    const clear = () => {
+      root.style.removeProperty(`--exp-vv-height`)
+      root.style.removeProperty(`--exp-vv-inset`)
+    }
+    const apply = () => {
+      // Pinch-zoom shrinks the visual viewport too; only compensate for
+      // unzoomed insets (the keyboard) so zoomed pages keep native behavior.
+      if (Math.abs(viewport.scale - 1) > 0.01) {
+        clear()
+        return
+      }
+      const inset = Math.max(
+        0,
+        window.innerHeight - viewport.height - viewport.offsetTop
+      )
+      root.style.setProperty(`--exp-vv-height`, `${viewport.height}px`)
+      root.style.setProperty(`--exp-vv-inset`, `${inset}px`)
+    }
+    apply()
+    viewport.addEventListener(`resize`, apply)
+    viewport.addEventListener(`scroll`, apply)
+    return () => {
+      viewport.removeEventListener(`resize`, apply)
+      viewport.removeEventListener(`scroll`, apply)
+      clear()
+    }
+  }, [panelMounted])
+
   return (
     <div
+      ref={rootRef}
       className="exp-root"
       style={{
         "--exp-font": theme.font,
