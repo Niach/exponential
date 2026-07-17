@@ -50,7 +50,10 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
 use terminal::{RawSink, TabId, TerminalManager};
 
-use coding::{prepare, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest};
+use coding::{
+    prepare, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
+    PrepareRequest, RepoGroup,
+};
 use steer::publisher::{pty_writer_input_hook, term_geometry_hook};
 use steer::{
     spawn_activity_emitter, spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity,
@@ -195,13 +198,52 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 }
 
 /// Relay `start_session` → the §7 launcher on a workspace window. The SAME
-/// sequence the Start-coding dialog runs (`coding_flow::build_launch` →
-/// `coding::prepare` → `spawn_into_window`), only the [`LaunchOrigin`]
-/// differs (§7.1: there is no second, divergent remote-start implementation).
-/// ISSUE-only by design: remote BATCH start is deferred (needs a batch-
-/// aware `steer.startSession` + per-repo-group resolution — EXP-56 v2).
+/// sequence the Start-coding dialog runs (`coding::prepare` →
+/// `spawn_into_window`), only the [`LaunchOrigin`] differs (§7.1: there is no
+/// second, divergent remote-start implementation). Dispatches on the frame's
+/// subject: a single issue (`build_launch` → `PrepareRequest::Issue`) or a
+/// multi-issue batch (`PrepareRequest::Batch`, EXP-106).
 fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
-    let issue_id = start.issue_id;
+    match start.subject.clone() {
+        steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(issue_id, &start, cx),
+        steer::RemoteStartSubject::Batch {
+            issue_ids,
+            workspace_id,
+            repo,
+        } => remote_batch_start(issue_ids, workspace_id, repo, &start, cx),
+    }
+}
+
+/// The §08 relay [`LaunchOrigin`] for the signed-in account: the persistent
+/// device id + the active account id (the session's audit surface, §7.1 — not
+/// a branch key).
+fn relay_origin(cx: &App) -> LaunchOrigin {
+    let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
+    let claimant = queries::active_account(cx)
+        .map(|account| account.id)
+        .unwrap_or_default();
+    LaunchOrigin::Relay {
+        device_id,
+        claimant,
+    }
+}
+
+/// The first workspace window (one with a terminal dock). A relay start can't
+/// host a coding tab on a non-workspace window (login), so `None` means no
+/// window is open to run in — the caller logs and drops the start.
+fn find_workspace_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
+    cx.windows().into_iter().find(|handle| {
+        handle
+            .update(cx, |_, window, cx| {
+                coding_flow::window_terminal_manager(window, cx).is_some()
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Relay single-issue start (§08) — the button's `build_launch` sequence with
+/// `LaunchOrigin::Relay`.
+fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App) {
     // Dedup: never launch a second session for an issue this process is
     // already coding. Without this, a relay `start_session` arriving while a
     // session is live (a phone tapping "Start on my desktop" for an issue
@@ -220,14 +262,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
         return;
     }
 
-    let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
-    let claimant = queries::active_account(cx)
-        .map(|account| account.id)
-        .unwrap_or_default();
-    let origin = LaunchOrigin::Relay {
-        device_id,
-        claimant,
-    };
+    let origin = relay_origin(cx);
     // The remote client's Start-coding dialog choices (EXP-149), settings
     // defaults for anything it didn't send. Plan mode stays OFF unless the
     // client explicitly opted in (F7: an option-less start must never park
@@ -246,16 +281,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
         return;
     };
 
-    // Pick the first workspace window (one that has a terminal dock). Non-
-    // workspace windows (login) can't host a coding tab.
-    let target = cx.windows().into_iter().find(|handle| {
-        handle
-            .update(cx, |_, window, cx| {
-                coding_flow::window_terminal_manager(window, cx).is_some()
-            })
-            .unwrap_or(false)
-    });
-    let Some(target) = target else {
+    let Some(target) = find_workspace_window(cx) else {
         log::warn!("steer: remote start for {issue_id} — no workspace window open");
         return;
     };
@@ -280,6 +306,123 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
                 log::warn!("steer: remote start disabled — {}", reason.message());
             }
             Err(err) => log::warn!("steer: remote start prepare failed: {err}"),
+        });
+    })
+    .detach();
+}
+
+/// Relay BATCH start (§08 / EXP-106) — ONE session over `issue_ids` on a
+/// fresh `exp/batch-<id8>` branch. The batch equivalent of the dialog's
+/// `batch_request` + `run_prepare` tail: resolve every issue from the local
+/// sync store (the desktop syncs no repositories collection, so the repo rides
+/// the frame), then `PrepareRequest::Batch` → `spawn_into_window`.
+fn remote_batch_start(
+    issue_ids: Vec<String>,
+    workspace_id: String,
+    repo: steer::StartRepoGroup,
+    start: &steer::RemoteStart,
+    cx: &mut App,
+) {
+    // No dedup (unlike the issue branch): each batch run mints a fresh
+    // `exp/batch-<id8>` branch, so there is never a worktree collision to
+    // guard against.
+
+    // Resolve the checked issues from sync. Unknown ids are skipped; a
+    // resolved issue whose project is outside the claimed workspace aborts the
+    // WHOLE batch — a remote client must never steer this desktop into coding
+    // issues from another workspace than the one it claimed.
+    let issues: Vec<BatchIssueSpec> = {
+        let store = Store::global(cx);
+        let issues_coll = store.collections().issues.read(cx);
+        let projects_coll = store.collections().projects.read(cx);
+        let mut specs = Vec::new();
+        for issue_id in &issue_ids {
+            let Some(issue) = issues_coll.get(issue_id) else {
+                log::warn!("steer: remote batch start — unknown issue {issue_id}, skipped");
+                continue;
+            };
+            let issue_ws = projects_coll
+                .get(&issue.project_id)
+                .map(|project| project.workspace_id.as_str());
+            if issue_ws != Some(workspace_id.as_str()) {
+                log::warn!(
+                    "steer: remote batch start aborted — issue {} is not in workspace {workspace_id}",
+                    issue.identifier
+                );
+                return;
+            }
+            specs.push(BatchIssueSpec {
+                issue_id: issue.id.clone(),
+                issue_identifier: issue.identifier.clone(),
+                title: issue.title.clone(),
+                description: issue.description.clone(),
+            });
+        }
+        specs
+    };
+    if issues.is_empty() {
+        log::warn!("steer: remote batch start aborted — no issues resolved from sync");
+        return;
+    }
+
+    // Absent options fall to the BATCH settings defaults; plan mode stays OFF
+    // unless the remote client opted in (F7 — same unattended-desktop rule as
+    // the issue branch).
+    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+    let options = LaunchOptions::remote_batch(
+        &settings,
+        start.model.as_deref(),
+        start.effort.as_deref(),
+        start.ultracode,
+        start.plan_mode,
+    );
+
+    // Same field construction the dialog's `batch_request` uses (device_label
+    // from `coding::default_device_label()`, a fresh `coding::new_batch_id()`).
+    let batch_id = coding::new_batch_id();
+    let request = BatchLaunchRequest {
+        batch_id: batch_id.clone(),
+        workspace_id,
+        repo: RepoGroup {
+            repository_id: repo.repository_id,
+            full_name: repo.full_name,
+            default_branch: repo.default_branch,
+        },
+        issues,
+        device_label: coding::default_device_label(),
+        origin: relay_origin(cx),
+        options,
+    };
+
+    let Some(deps) = coding_flow::build_batch_deps(cx) else {
+        log::warn!("steer: remote batch start ignored — not signed in / not synced");
+        return;
+    };
+    let Some(target) = find_workspace_window(cx) else {
+        log::warn!("steer: remote batch start — no workspace window open");
+        return;
+    };
+
+    cx.spawn(async move |cx| {
+        let prepared = cx
+            .background_executor()
+            .spawn(async move { prepare(&PrepareRequest::Batch(request), &deps) })
+            .await;
+        let _ = target.update(cx, |_, window, cx| match prepared {
+            Ok(Prepared::Ready(prepared)) => {
+                if let Err(message) = coding_flow::spawn_into_window(
+                    prepared,
+                    coding_flow::SessionSubject::Batch(batch_id),
+                    window,
+                    cx,
+                ) {
+                    log::warn!("steer: remote batch start spawn failed: {message}");
+                }
+            }
+            Ok(Prepared::Disabled(reason)) => {
+                log::warn!("steer: remote batch start disabled — {}", reason.message());
+            }
+            Err(err) => log::warn!("steer: remote batch start prepare failed: {err}"),
         });
     })
     .detach();

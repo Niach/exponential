@@ -34,7 +34,7 @@ use api::trpc::TrpcClient;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::frames::{ClientFrame, ServerFrame};
+use crate::frames::{ClientFrame, ServerFrame, StartRepoGroup};
 use crate::{dial, Backoff, SteerRuntime, BACKOFF_RESET_AFTER};
 
 /// §8.3 #6: the slow recheck cadence while the instance reports steer off.
@@ -74,16 +74,66 @@ impl ControlApi for TrpcControlApi {
     }
 }
 
-/// An inbound `start_session` (§8.3 #4): the issue plus the launch options
+/// What an inbound `start_session` (§8.3 #4) works on: a single issue, or a
+/// multi-issue batch (EXP-106). Exactly one variant per conforming frame —
+/// [`remote_start_from_frame`] enforces the invariant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteStartSubject {
+    /// A single-issue start — the `issueId` frame the phone always sent.
+    Issue(String),
+    /// A batch start — `issueIds` + the server-resolved workspace and repo
+    /// (the desktop syncs no repositories collection, so both ride the frame).
+    Batch {
+        issue_ids: Vec<String>,
+        workspace_id: String,
+        repo: StartRepoGroup,
+    },
+}
+
+/// An inbound `start_session` (§8.3 #4): the subject plus the launch options
 /// the remote client chose in its Start-coding dialog (EXP-149). `None`
 /// fields = the sender offered no choice → desktop settings defaults.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteStart {
-    pub issue_id: String,
+    pub subject: RemoteStartSubject,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub ultracode: Option<bool>,
     pub plan_mode: Option<bool>,
+}
+
+/// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
+/// the exactly-one-subject invariant. `None` — a malformed frame the caller
+/// logs and drops — when: both or neither of `issue_id`/`issue_ids` are set;
+/// `issue_ids` is empty; or a batch frame lacks `workspace_id` or `repo`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn remote_start_from_frame(
+    issue_id: Option<String>,
+    issue_ids: Option<Vec<String>>,
+    workspace_id: Option<String>,
+    repo: Option<StartRepoGroup>,
+    model: Option<String>,
+    effort: Option<String>,
+    ultracode: Option<bool>,
+    plan_mode: Option<bool>,
+) -> Option<RemoteStart> {
+    let subject = match (issue_id, issue_ids) {
+        (Some(issue_id), None) => RemoteStartSubject::Issue(issue_id),
+        (None, Some(issue_ids)) if !issue_ids.is_empty() => RemoteStartSubject::Batch {
+            issue_ids,
+            workspace_id: workspace_id?,
+            repo: repo?,
+        },
+        // Both set, neither set, or an empty batch list → malformed.
+        _ => return None,
+    };
+    Some(RemoteStart {
+        subject,
+        model,
+        effort,
+        ultracode,
+        plan_mode,
+    })
 }
 
 /// The launcher trigger (§8.3 #4): receives an inbound `start_session`.
@@ -336,20 +386,26 @@ async fn connect_and_listen(
                     // §8.3 #4 — the one frame we act on.
                     Some(ServerFrame::StartSession {
                         issue_id,
+                        issue_ids,
+                        workspace_id,
+                        repo,
                         model,
                         effort,
                         ultracode,
                         plan_mode,
-                    }) => {
-                        log::info!("steer control: remote start_session for issue {issue_id}");
-                        on_start_session(RemoteStart {
-                            issue_id,
-                            model,
-                            effort,
-                            ultracode,
-                            plan_mode,
-                        });
-                    }
+                    }) => match remote_start_from_frame(
+                        issue_id, issue_ids, workspace_id, repo, model, effort, ultracode,
+                        plan_mode,
+                    ) {
+                        Some(start) => {
+                            log::info!("steer control: remote start_session ({:?})", start.subject);
+                            on_start_session(start);
+                        }
+                        None => log::warn!(
+                            "steer control: malformed start_session — need exactly one of \
+                             issueId/issueIds; batch needs workspaceId+repo — ignored"
+                        ),
+                    },
                     Some(other) => {
                         // bye/error/kill here: logged; kill is not
                         // session-scoped on the control socket → no-op.
@@ -392,6 +448,128 @@ async fn sleep_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn repo() -> StartRepoGroup {
+        StartRepoGroup {
+            repository_id: "repo-1".into(),
+            full_name: "acme/api".into(),
+            default_branch: "main".into(),
+        }
+    }
+
+    #[test]
+    fn remote_start_from_frame_maps_the_subject_shapes() {
+        // Issue-only → Issue, options carried through.
+        assert_eq!(
+            remote_start_from_frame(
+                Some("issue-9".into()),
+                None,
+                None,
+                None,
+                Some("opus".into()),
+                None,
+                Some(true),
+                None,
+            ),
+            Some(RemoteStart {
+                subject: RemoteStartSubject::Issue("issue-9".into()),
+                model: Some("opus".into()),
+                effort: None,
+                ultracode: Some(true),
+                plan_mode: None,
+            })
+        );
+
+        // Full batch → Batch.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                Some(vec!["a".into(), "b".into()]),
+                Some("ws-7".into()),
+                Some(repo()),
+                None,
+                None,
+                None,
+                Some(false),
+            ),
+            Some(RemoteStart {
+                subject: RemoteStartSubject::Batch {
+                    issue_ids: vec!["a".into(), "b".into()],
+                    workspace_id: "ws-7".into(),
+                    repo: repo(),
+                },
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: Some(false),
+            })
+        );
+    }
+
+    #[test]
+    fn remote_start_from_frame_rejects_malformed_frames() {
+        // Both subjects set → ambiguous.
+        assert_eq!(
+            remote_start_from_frame(
+                Some("issue-9".into()),
+                Some(vec!["a".into()]),
+                Some("ws-7".into()),
+                Some(repo()),
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+        // Neither subject set.
+        assert_eq!(
+            remote_start_from_frame(None, None, None, None, None, None, None, None),
+            None
+        );
+        // Empty batch id list.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                Some(vec![]),
+                Some("ws-7".into()),
+                Some(repo()),
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+        // Batch missing the repo.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                Some(vec!["a".into()]),
+                Some("ws-7".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+        // Batch missing the workspace.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                Some(vec!["a".into()]),
+                None,
+                Some(repo()),
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+    }
 
     #[test]
     fn disabled_routes_to_the_15_minute_slow_poll_and_resets_backoff() {

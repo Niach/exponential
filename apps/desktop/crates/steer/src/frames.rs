@@ -176,6 +176,17 @@ pub struct PresenceViewer {
     pub perm: SteerPerm,
 }
 
+/// protocol.ts `StartRepoGroup` — a batch start's server-resolved repo (the
+/// desktop syncs no repositories collection, so fullName/defaultBranch ride
+/// the frame).
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRepoGroup {
+    pub repository_id: String,
+    pub full_name: String,
+    pub default_branch: String,
+}
+
 /// Every frame the relay may send. Deserialize-only.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -192,7 +203,18 @@ pub enum ServerFrame {
     },
     #[serde(rename_all = "camelCase")]
     StartSession {
-        issue_id: String,
+        /// Exactly one of `issue_id` / `issue_ids` is set on a conforming
+        /// frame (guarded in `control_channel::remote_start_from_frame`): a
+        /// single-issue start carries `issue_id`; a batch start (EXP-106)
+        /// carries `issue_ids` + `workspace_id` + `repo`.
+        #[serde(default)]
+        issue_id: Option<String>,
+        #[serde(default)]
+        issue_ids: Option<Vec<String>>,
+        #[serde(default)]
+        workspace_id: Option<String>,
+        #[serde(default)]
+        repo: Option<StartRepoGroup>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
         #[serde(default)]
@@ -524,10 +546,15 @@ mod tests {
     fn start_session_deserializes_camel_issue_id() {
         // hub.ts startSession: frame({ t: `start_session`, issueId }) — the
         // option-less frame older relays/clients send (EXP-149 fields absent).
+        // The compat lock: a legacy option-less frame keeps `issue_id: Some`
+        // with `issue_ids: None`.
         assert_eq!(
             ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap(),
             ServerFrame::StartSession {
-                issue_id: "issue-9".into(),
+                issue_id: Some("issue-9".into()),
+                issue_ids: None,
+                workspace_id: None,
+                repo: None,
                 model: None,
                 effort: None,
                 ultracode: None,
@@ -546,11 +573,65 @@ mod tests {
             )
             .unwrap(),
             ServerFrame::StartSession {
-                issue_id: "issue-9".into(),
+                issue_id: Some("issue-9".into()),
+                issue_ids: None,
+                workspace_id: None,
+                repo: None,
                 model: Some("opus".into()),
                 effort: Some(String::new()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
+            }
+        );
+    }
+
+    #[test]
+    fn start_session_deserializes_batch_frame_with_options() {
+        // EXP-106 batch start: issueIds + workspaceId + repo, options spread.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"workspaceId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"},"model":"opus","effort":"high","ultracode":true,"planMode":false}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: None,
+                issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
+                workspace_id: Some("ws-7".into()),
+                repo: Some(StartRepoGroup {
+                    repository_id: "repo-1".into(),
+                    full_name: "acme/api".into(),
+                    default_branch: "main".into(),
+                }),
+                model: Some("opus".into()),
+                effort: Some("high".into()),
+                ultracode: Some(true),
+                plan_mode: Some(false),
+            }
+        );
+    }
+
+    #[test]
+    fn start_session_deserializes_batch_frame_without_options() {
+        // A batch start from a client that sends no EXP-149 options — every
+        // option arrives None, the subject fields stay populated.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"workspaceId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"}}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: None,
+                issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
+                workspace_id: Some("ws-7".into()),
+                repo: Some(StartRepoGroup {
+                    repository_id: "repo-1".into(),
+                    full_name: "acme/api".into(),
+                    default_branch: "main".into(),
+                }),
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
             }
         );
     }

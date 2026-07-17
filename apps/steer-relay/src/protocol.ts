@@ -159,10 +159,26 @@ export interface StartSessionOptions {
   planMode?: boolean
 }
 
+/** Server-resolved repo group for a BATCH remote start — the desktop syncs no
+ * repositories, so the frame carries everything the launcher needs to clone.
+ * Never includes installationId (a server-only secret, stripped before it
+ * reaches the relay). */
+export interface StartRepoGroup {
+  repositoryId: string
+  fullName: string
+  defaultBranch: string
+}
+
 export type ServerFrame =
   | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
   | { t: `resize`; cols: number; rows: number }
   | ({ t: `start_session`; issueId: string } & StartSessionOptions)
+  | ({
+      t: `start_session`
+      issueIds: string[]
+      workspaceId: string
+      repo: StartRepoGroup
+    } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher
   | { t: `resync` }
   | { t: `kill` }

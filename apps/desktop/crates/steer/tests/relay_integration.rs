@@ -254,6 +254,14 @@ fn wait_for(what: &str, predicate: impl Fn() -> bool) {
     }
 }
 
+/// The issue id of a single-issue [`steer::RemoteStart`], `None` for a batch.
+fn issue_of(start: &steer::RemoteStart) -> Option<&str> {
+    match &start.subject {
+        steer::RemoteStartSubject::Issue(id) => Some(id.as_str()),
+        steer::RemoteStartSubject::Batch { .. } => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // A severable TCP proxy (to force a publisher socket drop, §8.6)
 // ---------------------------------------------------------------------------
@@ -438,11 +446,11 @@ fn full_protocol_flow_against_the_real_relay() {
     .expect("POST /start");
     assert!(response.contains("\"ok\":true"), "start routed: {response}");
     wait_for("start_session delivery", || {
-        started.lock().unwrap().iter().any(|s| s.issue_id == "issue-remote-1")
+        started.lock().unwrap().iter().any(|s| issue_of(s) == Some("issue-remote-1"))
     });
     {
         let starts = started.lock().unwrap();
-        let start = starts.iter().find(|s| s.issue_id == "issue-remote-1").unwrap();
+        let start = starts.iter().find(|s| issue_of(s) == Some("issue-remote-1")).unwrap();
         assert_eq!(start.model, None);
         assert_eq!(start.effort, None);
         assert_eq!(start.ultracode, None);
@@ -461,15 +469,71 @@ fn full_protocol_flow_against_the_real_relay() {
     .expect("POST /start with options");
     assert!(response.contains("\"ok\":true"), "options start routed: {response}");
     wait_for("start_session options delivery", || {
-        started.lock().unwrap().iter().any(|s| s.issue_id == "issue-remote-2")
+        started.lock().unwrap().iter().any(|s| issue_of(s) == Some("issue-remote-2"))
     });
     {
         let starts = started.lock().unwrap();
-        let start = starts.iter().find(|s| s.issue_id == "issue-remote-2").unwrap();
+        let start = starts.iter().find(|s| issue_of(s) == Some("issue-remote-2")).unwrap();
         assert_eq!(start.model.as_deref(), Some("opus"));
         assert_eq!(start.effort.as_deref(), Some(""));
         assert_eq!(start.ultracode, Some(true));
         assert_eq!(start.plan_mode, Some(true));
+    }
+
+    // Batch start (EXP-106): issueIds + workspaceId + repo ride the same
+    // /start route → the frame's `RemoteStartSubject::Batch` lands on our
+    // socket. (The relay's batch /start support lands concurrently — this
+    // case exercises the frozen wire contract end-to-end.)
+    let batch_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueIds":["issue-b1","issue-b2"],"workspaceId":"ws-b","repo":{"repositoryId":"repo-b","fullName":"acme/api","defaultBranch":"main"},"model":"sonnet","effort":"high","ultracode":true,"planMode":false}"#;
+    let response = http_request(
+        relay.port,
+        "POST",
+        "/start",
+        &[("x-relay-secret", SECRET), ("content-type", "application/json")],
+        Some(batch_body),
+    )
+    .expect("POST /start batch");
+    assert!(response.contains("\"ok\":true"), "batch start routed: {response}");
+    wait_for("batch start_session delivery", || {
+        started.lock().unwrap().iter().any(|s| {
+            matches!(
+                &s.subject,
+                steer::RemoteStartSubject::Batch { issue_ids, .. }
+                    if issue_ids.as_slice() == ["issue-b1".to_string(), "issue-b2".to_string()]
+            )
+        })
+    });
+    {
+        let starts = started.lock().unwrap();
+        let start = starts
+            .iter()
+            .find(|s| matches!(s.subject, steer::RemoteStartSubject::Batch { .. }))
+            .unwrap();
+        let steer::RemoteStartSubject::Batch {
+            issue_ids,
+            workspace_id,
+            repo,
+        } = &start.subject
+        else {
+            unreachable!("filtered to a batch above");
+        };
+        assert_eq!(
+            issue_ids.as_slice(),
+            ["issue-b1".to_string(), "issue-b2".to_string()]
+        );
+        assert_eq!(workspace_id, "ws-b");
+        assert_eq!(
+            repo,
+            &steer::StartRepoGroup {
+                repository_id: "repo-b".to_string(),
+                full_name: "acme/api".to_string(),
+                default_branch: "main".to_string(),
+            }
+        );
+        assert_eq!(start.model.as_deref(), Some("sonnet"));
+        assert_eq!(start.effort.as_deref(), Some("high"));
+        assert_eq!(start.ultracode, Some(true));
+        assert_eq!(start.plan_mode, Some(false));
     }
 
     // ── Publisher: hello with true geometry, room goes live (§8.4) ────────

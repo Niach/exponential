@@ -15,8 +15,12 @@ import { timingSafeEqual } from "node:crypto"
 import { Hono } from "hono"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
-import { Hub, type RelaySocket } from "./hub"
-import { CLOSE_UNAUTHORIZED, type StartSessionOptions } from "./protocol"
+import { Hub, type RelaySocket, type StartSubject } from "./hub"
+import {
+  CLOSE_UNAUTHORIZED,
+  type StartRepoGroup,
+  type StartSessionOptions,
+} from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
 if (!RELAY_SECRET) {
@@ -112,11 +116,14 @@ app.get(`/devices/:userId`, (c) =>
 // Liveness for a session room (the "is the desktop still publishing?" check).
 app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 
-// Remote "Start on my desktop": route to the device's control socket.
-// Launch-option VALUES (EXP-149) pass through untouched — the web server
-// already validated them, the relay stays a dumb pipe — but their TYPES are
-// pinned here: a mistyped field would fail the desktop's serde parse and
-// silently drop the whole frame after /start already answered ok.
+// Remote "Start on my desktop": route to the device's control socket. The
+// subject is EITHER a single issueId (wire-unchanged) or a batch group
+// (issueIds + workspaceId + repo, all resolved server-side — the desktop syncs
+// no repositories). Launch-option VALUES (EXP-149) and the batch fields pass
+// through untouched — the web server already validated them, the relay stays a
+// dumb pipe — but their TYPES/SHAPES are pinned here: a mistyped field would
+// fail the desktop's serde parse and silently drop the whole frame after
+// /start already answered ok.
 app.post(`/start`, async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<
     string,
@@ -124,17 +131,38 @@ app.post(`/start`, async (c) => {
   > | null
   const userId = asString(body?.userId)
   const deviceId = asString(body?.deviceId)
-  const issueId = asString(body?.issueId)
-  if (!userId || !deviceId || !issueId) {
+  if (!userId || !deviceId) {
     return c.json({ error: `Bad request` }, 400)
   }
+
+  // Explicit XOR on key presence: single issueId, or the batch trio — never
+  // both, never neither.
+  const hasIssueId = body ? `issueId` in body : false
+  const hasIssueIds = body ? `issueIds` in body : false
+  let subject: StartSubject
+  if (hasIssueId && !hasIssueIds) {
+    const issueId = asString(body?.issueId)
+    if (!issueId) return c.json({ error: `Bad request` }, 400)
+    subject = { issueId }
+  } else if (hasIssueIds && !hasIssueId) {
+    const issueIds = asStringArray(body?.issueIds)
+    const workspaceId = asString(body?.workspaceId)
+    const repo = asStartRepo(body?.repo)
+    if (!issueIds || !workspaceId || !repo) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+    subject = { issueIds, workspaceId, repo }
+  } else {
+    return c.json({ error: `Bad request` }, 400)
+  }
+
   const options: StartSessionOptions = {
     model: asString(body?.model),
     effort: asString(body?.effort),
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
   }
-  const result = hub.startSession(userId, deviceId, issueId, options)
+  const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)
   return c.json({ ok: true })
 })
@@ -145,6 +173,43 @@ function asString(value: unknown): string | undefined {
 
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === `boolean` ? value : undefined
+}
+
+// A batch issue-id array: 1..30 members, each a non-empty string ≤128 chars.
+// Any deviation ⇒ undefined (⇒ 400 upstream).
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 30) {
+    return undefined
+  }
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== `string` || entry.length < 1 || entry.length > 128) {
+      return undefined
+    }
+    out.push(entry)
+  }
+  return out
+}
+
+// The server-resolved batch repo group. REBUILDS the object so unknown keys
+// (an installationId must never ride the frame) can't leak through.
+function asStartRepo(value: unknown): StartRepoGroup | undefined {
+  if (typeof value !== `object` || value === null) return undefined
+  const obj = value as Record<string, unknown>
+  const repositoryId = asString(obj.repositoryId)
+  const fullName = asString(obj.fullName)
+  const defaultBranch = asString(obj.defaultBranch)
+  if (
+    !repositoryId ||
+    repositoryId.length > 128 ||
+    !fullName ||
+    fullName.length > 255 ||
+    !defaultBranch ||
+    defaultBranch.length > 255
+  ) {
+    return undefined
+  }
+  return { repositoryId, fullName, defaultBranch }
 }
 
 // Server-side kill-switch fallback (steer.killSession also flips the DB row).

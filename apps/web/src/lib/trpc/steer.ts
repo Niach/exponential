@@ -16,6 +16,7 @@ import {
   relayPostKill,
   relayPostStart,
   type SteerDevice,
+  type SteerStartRepo,
 } from "@/lib/steer"
 
 // Remote start + live terminal steer (masterplan §3.5). The web app is the
@@ -137,20 +138,30 @@ export const steerRouter = router({
   }),
 
   // Remote "Start on my desktop": route a start command to the chosen online
-  // device's control socket via the relay. The optional launch options are the
-  // client's Start-coding dialog choices (EXP-149) — validated against the
-  // domain-contract value sets here (the relay is a dumb pipe); absent fields
-  // mean desktop settings defaults with plan mode OFF.
+  // device's control socket via the relay. Accepts EITHER a single issueId
+  // (wire-unchanged) or issueIds (2..30 → a batch run on one shared branch);
+  // exactly one form. Everything is validated + resolved here — the batch form
+  // carries a server-resolved repo group because the desktop syncs no
+  // repositories, and the relay stays a dumb pipe. The optional launch options
+  // are the client's Start-coding dialog choices (EXP-149) — validated against
+  // the domain-contract value sets here; absent fields mean desktop settings
+  // defaults with plan mode OFF.
   startSession: authedProcedure
     .input(
-      z.object({
-        issueId: z.string().uuid(),
-        deviceId: z.string().min(1).max(128),
-        model: z.enum(codingModelValues).optional(),
-        effort: z.enum(codingEffortValues).optional(),
-        ultracode: z.boolean().optional(),
-        planMode: z.boolean().optional(),
-      })
+      z
+        .object({
+          issueId: z.string().uuid().optional(),
+          issueIds: z.array(z.string().uuid()).min(1).max(30).optional(),
+          deviceId: z.string().min(1).max(128),
+          model: z.enum(codingModelValues).optional(),
+          effort: z.enum(codingEffortValues).optional(),
+          ultracode: z.boolean().optional(),
+          planMode: z.boolean().optional(),
+        })
+        .refine(
+          (value) => Boolean(value.issueId) !== Boolean(value.issueIds?.length),
+          { message: `Exactly one of issueId/issueIds is required` }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const config = getSteerRelayConfig()
@@ -161,28 +172,76 @@ export const steerRouter = router({
         })
       }
       const userId = ctx.session.user.id
-      const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertWorkspaceMember(userId, issueCtx.workspaceId)
 
-      // The launcher can't do anything without a linked repo — fail before
-      // waking the desktop (same resolution as repositories.forIssue).
-      const repo = await resolveProjectRepository(issueCtx.projectId)
-      if (!repo) {
+      // One issue (wire-unchanged) or a batch (2..30). Collapse duplicates so a
+      // caller can't inflate the batch or repeat past the length cap; a batch
+      // that collapses to a single id falls back to the legacy single wire.
+      const ids = [...new Set(input.issueIds ?? [input.issueId!])]
+
+      // Every issue must live in ONE workspace — the membership check is
+      // workspace-scoped and a batch pushes a single shared branch.
+      const contexts = await Promise.all(
+        ids.map((id) => getIssueWorkspaceContext(id))
+      )
+      const workspaceIds = new Set(contexts.map((c) => c.workspaceId))
+      if (workspaceIds.size > 1) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `No repository linked to this project — link one in workspace settings`,
+          message: `All issues in a batch must be in one workspace`,
         })
       }
+      const workspaceId = contexts[0]!.workspaceId
+      await assertWorkspaceMember(userId, workspaceId)
 
-      const result = await relayPostStart(config, {
-        userId,
-        deviceId: input.deviceId,
-        issueId: input.issueId,
+      // The launcher can't do anything without a linked repo, and a batch must
+      // land in ONE repo (mirrors the MCP pr_open loop) — resolve per distinct
+      // project and fail before waking the desktop.
+      const projectIds = [...new Set(contexts.map((c) => c.projectId))]
+      let repo: SteerStartRepo | null = null
+      for (const projectId of projectIds) {
+        const resolved = await resolveProjectRepository(projectId)
+        if (!resolved) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `No repository linked to this project — link one in workspace settings`,
+          })
+        }
+        if (repo && repo.repositoryId !== resolved.repositoryId) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `All issues in a batch must share one repository (${repo.fullName} vs ${resolved.fullName})`,
+          })
+        }
+        // Strip installationId — the repo group never rides the relay.
+        repo = {
+          repositoryId: resolved.repositoryId,
+          fullName: resolved.fullName,
+          defaultBranch: resolved.defaultBranch,
+        }
+      }
+
+      const options = {
         model: input.model,
         effort: input.effort,
         ultracode: input.ultracode,
         planMode: input.planMode,
-      })
+      }
+      const result =
+        ids.length === 1
+          ? await relayPostStart(config, {
+              userId,
+              deviceId: input.deviceId,
+              issueId: ids[0]!,
+              ...options,
+            })
+          : await relayPostStart(config, {
+              userId,
+              deviceId: input.deviceId,
+              issueIds: ids,
+              workspaceId,
+              repo: repo!,
+              ...options,
+            })
       if (!result.ok) {
         if (result.status === 404) {
           // Device offline (or otherwise unroutable) — surface the relay reason.
