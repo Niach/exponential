@@ -80,6 +80,20 @@ private data class StartSessionInput(
     @SerialName("planMode") val planMode: Boolean? = null,
 )
 
+// The batch form of steer.startSession (EXP-156): exactly one of
+// issueId/issueIds — the [issueIds] variant launches ONE Claude session on ONE
+// pushed `exp/batch-<id8>` branch that spans every listed issue (all in the
+// same repository). Same endpoint + error mapping as the single-issue input.
+@Serializable
+private data class StartBatchSessionInput(
+    @SerialName("issueIds") val issueIds: List<String>,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("model") val model: String? = null,
+    @SerialName("effort") val effort: String? = null,
+    @SerialName("ultracode") val ultracode: Boolean? = null,
+    @SerialName("planMode") val planMode: Boolean? = null,
+)
+
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -132,6 +146,32 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 planMode = options.planMode,
             ),
             inputSerializer = StartSessionInput.serializer(),
+        )
+    }
+
+    /**
+     * `steer.startSession` batch form — remote-start ONE session spanning
+     * [issueIds] (2+; all in the same repository) on the user's own desktop.
+     * Same endpoint + error mapping as the single-issue [startSession].
+     */
+    suspend fun startSession(
+        accountId: String,
+        issueIds: List<String>,
+        deviceId: String,
+        options: SteerStartOptions = SteerStartOptions(),
+    ) {
+        trpc.mutationUnit(
+            accountId,
+            path = "steer.startSession",
+            input = StartBatchSessionInput(
+                issueIds = issueIds,
+                deviceId = deviceId,
+                model = options.model,
+                effort = options.effort,
+                ultracode = options.ultracode,
+                planMode = options.planMode,
+            ),
+            inputSerializer = StartBatchSessionInput.serializer(),
         )
     }
 }

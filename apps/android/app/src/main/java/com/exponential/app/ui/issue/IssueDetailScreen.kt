@@ -104,6 +104,7 @@ fun IssueDetailScreen(
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
+    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
@@ -159,8 +160,6 @@ fun IssueDetailScreen(
 
     // Surface a failed move (EXP-57) — otherwise the issue silently stays put.
     val moveError by viewModel.moveError.collectAsStateWithLifecycle()
-    val prClosing by viewModel.prClosing.collectAsStateWithLifecycle()
-    val prCloseError by viewModel.prCloseError.collectAsStateWithLifecycle()
     LaunchedEffect(moveError) {
         moveError?.let {
             snackbarHostState.showSnackbar(it)
@@ -473,44 +472,34 @@ fun IssueDetailScreen(
                 onAddLabel = { labelsOpen = true },
             )
 
-            // Steer panel (masterplan §5b/§5c): live "Coding now" badge + Watch
-            // live when a session is running; "Start on my desktop" otherwise.
-            if (runningSession != null || (steerEnabled == true && permissions.isMember && !steerDevices.isNullOrEmpty())) {
+            // The single agent/PR card (EXP-156): live "Coding now" session,
+            // the Start-coding launcher (or a "no desktop online" hint), and the
+            // PR/branch summary linking to the dedicated Changes page. Rendered
+            // when there's a session, a PR/branch, or the caller could start one.
+            // The start branch requires devices to have RESOLVED (non-null) so
+            // the gate matches AgentPrCard's own content check — otherwise a
+            // still-loading myDevices leaves an orphaned RepoChip + spacer.
+            val cardVisible = runningSession != null ||
+                !issue.prUrl.isNullOrBlank() ||
+                !issue.branch.isNullOrBlank() ||
+                (steerEnabled == true && permissions.isMember && steerDevices != null)
+            if (cardVisible) {
                 Spacer(Modifier.height(20.dp))
                 repoName?.let { name ->
                     Row(modifier = Modifier.padding(bottom = 8.dp)) { RepoChip(name) }
                 }
-                SteerPanel(
+                AgentPrCard(
+                    issue = issue,
                     session = runningSession,
                     sessionOwner = runningSession?.let { s -> state.users.firstOrNull { it.id == s.userId } },
                     steerEnabled = steerEnabled,
                     isMember = permissions.isMember,
                     devices = steerDevices,
                     startState = startState,
+                    startCandidates = startCandidates,
                     onStart = viewModel::startOnDesktop,
                     onWatch = onOpenSteer,
-                )
-            }
-
-            // Changes before attachments (iOS order — masterplan §4.8, mobile
-            // tiers 2–4): PR/branch summary linking to the dedicated diff page
-            // → "being coded on <device>" opening the native agent viewer.
-            if (!issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank() || runningSession != null) {
-                Spacer(Modifier.height(20.dp))
-                ChangesSection(
-                    prUrl = issue.prUrl,
-                    branch = issue.branch,
-                    prState = issue.prState,
-                    runningSessionId = runningSession?.id,
-                    runningSessionDeviceLabel = runningSession?.deviceLabel,
-                    steerEnabled = steerEnabled == true,
-                    isMember = permissions.isMember,
-                    prClosing = prClosing,
-                    prCloseError = prCloseError,
-                    loadBranchDiff = { viewModel.loadBranchDiff() },
                     onOpenChanges = onOpenChanges,
-                    onWatch = onOpenSteer,
-                    onClosePr = viewModel::closePr,
                 )
             }
 

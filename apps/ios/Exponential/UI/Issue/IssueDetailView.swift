@@ -123,13 +123,16 @@ struct IssueDetailView: View {
                             }
                         )
 
-                        // Coding session: "Coding now" badge + live steer
-                        // viewer / remote "Start on my desktop" (§5b/§5c).
-                        SteerSessionSection(
+                        // Coding + PR card (EXP-156): "Coding now" / remote
+                        // start (single or batch) / PR state + branch diff entry
+                        // — one card replacing the old SteerSession + Changes
+                        // sections. Renders nothing when there's nothing to show.
+                        AgentPrCard(
                             issue: issue,
                             runningSessions: vm.runningSessions,
                             permissions: vm.permissions,
-                            users: vm.users
+                            users: vm.users,
+                            loadStartCandidates: { await vm.startCodingCandidates() }
                         )
 
                         // Metadata
@@ -288,19 +291,6 @@ struct IssueDetailView: View {
                             Text(error)
                                 .font(.callout)
                                 .foregroundStyle(.red)
-                        }
-
-                        // Changes (§4.8, mobile tiers 2–4): PR diff → pushed
-                        // branch diff → "Being coded on <device>" steer state.
-                        // Only shown when there's something to observe (parity
-                        // with Android) — no empty "No changes yet." card.
-                        if issue.prUrl?.isEmpty == false
-                            || issue.branch?.isEmpty == false
-                            || !vm.runningSessions.isEmpty {
-                            ChangesSection(
-                                issue: issue,
-                                runningSessions: vm.runningSessions
-                            )
                         }
 
                         // Attachments (read-only list synced from Electric).

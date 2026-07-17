@@ -2,24 +2,36 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Agents tab: currently running coding sessions for the active account.
-/// Rows open the live agent session view directly when the relay is configured
-/// (the same viewer `SteerSessionSection` presents from an issue), else fall
-/// back to the issue detail; the trailing info affordance always goes to the
-/// issue detail.
+/// The Agents tab: the caller's online desktops (with a per-device "Start
+/// coding" launcher) above the currently running coding sessions for the active
+/// account. Session rows open the live agent session view directly when the
+/// relay is configured (the same viewer AgentPrCard presents from an issue),
+/// else fall back to the issue detail; the trailing info affordance always goes
+/// to the issue detail. When the relay is off the desktops section is absent and
+/// the tab shows the full-screen empty state until a session appears.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(WorkspaceState.self) private var workspaceState
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
+    @State private var devices: [SteerDevice]?
     @State private var watchingSession: CodingSessionEntity?
+    @State private var startSheetDevice: SteerDevice?
+    // Success feedback (informational, tertiary) vs. failure (red) are kept
+    // separate: a start error must read as an error and not persist forever.
+    @State private var sentCaption: String?
+    @State private var startError: String?
 
     var body: some View {
         ZStack {
             AppBackground()
 
             if let vm = viewModel {
-                if vm.rows.isEmpty {
+                if steerEnabled {
+                    // Desktops section present — no full-screen empty state.
+                    agentsContent(vm)
+                } else if vm.rows.isEmpty {
                     emptyState
                 } else {
                     sessionList(vm)
@@ -31,6 +43,7 @@ struct AgentsView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
+            await refreshDevices()
         }
         .onAppear {
             if viewModel == nil {
@@ -39,6 +52,9 @@ struct AgentsView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
+            // Refresh presence on every appear (the .task doesn't re-run on
+            // pop-back). A no-op until steering resolves enabled.
+            Task { await refreshDevices() }
         }
         .onDisappear {
             viewModel?.stopObserving()
@@ -46,6 +62,24 @@ struct AgentsView: View {
         .fullScreenCover(item: $watchingSession) { session in
             AgentSessionView(accountId: accountId, session: session)
         }
+        .sheet(item: $startSheetDevice) { device in
+            StartCodingSheet(
+                devices: devices ?? [],
+                issues: viewModel?.startCandidates(workspaceId: workspaceState.activeWorkspace?.id) ?? [],
+                preselectedIds: [],
+                preferredDeviceId: device.deviceId
+            ) { chosenDevice, issueIds, options in
+                start(on: chosenDevice, issueIds: issueIds, options: options)
+            }
+        }
+    }
+
+    private func refreshDevices() async {
+        guard steerEnabled else {
+            devices = nil
+            return
+        }
+        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
     }
 
     private var emptyState: some View {
@@ -66,6 +100,128 @@ struct AgentsView: View {
         }
         .padding(.horizontal, 40)
     }
+
+    // MARK: - Combined content (relay on)
+
+    @ViewBuilder
+    private func agentsContent(_ vm: AgentsViewModel) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                sectionHeader("My desktops")
+                if let devices {
+                    if devices.isEmpty {
+                        deviceHintRow
+                    } else {
+                        ForEach(devices) { deviceRow($0) }
+                    }
+                } else {
+                    deviceLoadingRow
+                }
+                if let sentCaption {
+                    Text(sentCaption)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let startError {
+                    Text(startError)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                sectionHeader("Running")
+                if vm.rows.isEmpty {
+                    noAgentsRow
+                } else {
+                    ForEach(vm.rows) { sessionRow($0) }
+                }
+            }
+            .padding()
+        }
+        // Clearance for the floating tab bar (EXP-36).
+        .tabBarBottomInset()
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer()
+        }
+        .padding(.top, 4)
+    }
+
+    private func deviceRow(_ device: SteerDevice) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "display")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                startSheetDevice = device
+            } label: {
+                Text("Start coding")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .glassButton()
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassRow()
+    }
+
+    private var deviceHintRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "display.trianglebadge.exclamationmark")
+                .font(.caption)
+            Text("No desktop online — open the Exponential desktop app to run here.")
+                .font(.caption)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassRow()
+    }
+
+    private var deviceLoadingRow: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small).tint(.white)
+            Text("Checking for desktops…")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassRow()
+    }
+
+    private var noAgentsRow: some View {
+        HStack(spacing: 8) {
+            Text("No agents running right now.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassRow()
+    }
+
+    // MARK: - Session list (relay off, sessions present)
 
     @ViewBuilder
     private func sessionList(_ vm: AgentsViewModel) -> some View {
@@ -88,7 +244,7 @@ struct AgentsView: View {
         HStack(spacing: 12) {
             // With the relay configured, the row jumps straight into the live
             // agent session; otherwise it opens the issue detail, where the
-            // session section shows whatever is available.
+            // card shows whatever is available.
             Group {
                 if steerEnabled {
                     Button {
@@ -137,7 +293,7 @@ struct AgentsView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
-                    Text(row.issue?.title ?? "Untitled issue")
+                    Text(title(row))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -151,6 +307,16 @@ struct AgentsView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
+    }
+
+    /// A batch (multi-issue) run has no linked issue and a nil session issueId —
+    /// label it "Batch run" rather than "Untitled issue". A single-issue session
+    /// whose issue row simply hasn't synced yet still reads "Untitled issue".
+    private func title(_ row: AgentsViewModel.Row) -> String {
+        if row.issue == nil, row.session.issueId == nil {
+            return "Batch run"
+        }
+        return row.issue?.title ?? "Untitled issue"
     }
 
     private func byline(_ session: CodingSessionEntity) -> String {
@@ -173,29 +339,47 @@ struct AgentsView: View {
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
     }
-}
 
-/// The live-session pulse: a solid green core with an expanding, fading ring —
-/// the "Coding now" green, animated. Static under Reduce Motion.
-private struct PulsingLiveDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
+    // MARK: - Remote start
 
-    var body: some View {
-        Circle()
-            .fill(DesignTokens.Semantic.green)
-            .frame(width: 9, height: 9)
-            .overlay(
-                Circle()
-                    .stroke(DesignTokens.Semantic.green.opacity(0.6), lineWidth: 2)
-                    .scaleEffect(pulsing ? 2.2 : 1.0)
-                    .opacity(pulsing ? 0 : 0.8)
-            )
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
-                    pulsing = true
+    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        // A fresh attempt supersedes the previous outcome (success or error).
+        sentCaption = nil
+        startError = nil
+        let isBatch = issueIds.count > 1
+        let label = device.deviceLabel
+        Task {
+            do {
+                if isBatch {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
                 }
+                sentCaption = isBatch
+                    ? "Batch start sent to \(label) — it'll appear here when it spins up."
+                    : "Start sent to \(label) — it'll appear here when it spins up."
+                // The desktop inserts the coding_sessions row when the launcher
+                // spins up, which surfaces in the Running list via sync. Clear
+                // the informational caption after a grace window (errors persist
+                // until the next attempt so they can't be missed).
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    sentCaption = nil
+                }
+            } catch {
+                startError = error.localizedDescription
             }
+        }
     }
 }
