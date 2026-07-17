@@ -1,9 +1,11 @@
-<!-- macOS app-icon variant (EXP-68, reworked in EXP-143): a bare white disc
-     on transparent got composited onto the system's default grey icon
-     backdrop and washed out, so the icon now draws its own plate — the dark
-     rounded square macOS icons are expected to fill (Apple icon grid: 824/1024
-     square, ~185 corner radius), with the white disc padded inside it. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 1024 1024">
+  <!-- macOS app-icon variant (EXP-68, reworked in EXP-143): a bare white disc
+       on transparent got composited onto the system's default grey icon
+       backdrop and washed out, so the icon now draws its own plate — the dark
+       rounded square macOS icons are expected to fill (Apple icon grid: 824/1024
+       square, ~185 corner radius), with the white disc padded inside it.
+       Comment kept inside the <svg> element (EXP-151): gdk-pixbuf sniffs SVG by
+       magic prefix, and a comment-first file fails to load in any GTK consumer. -->
   <defs>
     <clipPath id="c"><circle cx="50" cy="50" r="50"></circle></clipPath>
     <mask id="m">
