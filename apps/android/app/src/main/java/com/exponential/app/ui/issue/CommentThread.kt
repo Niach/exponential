@@ -110,7 +110,12 @@ fun CommentThread(
         timeline.forEach { item ->
             when (item) {
                 is TimelineItem.Event -> key(item.event.id) {
-                    EventRow(item.event, state.usersById[item.event.actorUserId])
+                    EventRow(
+                        event = item.event,
+                        actor = state.usersById[item.event.actorUserId],
+                        usersById = state.usersById,
+                        labelsById = state.labelsById,
+                    )
                 }
                 is TimelineItem.Comment -> {
                     val comment = item.comment
@@ -211,20 +216,17 @@ fun CommentThread(
 }
 
 // Relative timestamp ("3h ago"). Internal so the extracted EventRow /
-// RegularCommentRow can reuse it.
-internal fun relativeTime(iso: String): String {
-    return try {
-        val instant = java.time.Instant.parse(iso)
-        val now = java.time.Instant.now()
-        val seconds = java.time.Duration.between(instant, now).seconds
-        when {
-            seconds < 60 -> "just now"
-            seconds < 3600 -> "${seconds / 60}m ago"
-            seconds < 86400 -> "${seconds / 3600}h ago"
-            else -> "${seconds / 86400}d ago"
-        }
-    } catch (_: Throwable) {
-        ""
+// RegularCommentRow can reuse it. Parses via WireTimestamps — Instant.parse
+// alone rejected Electric's Postgres text encoding, blanking every synced
+// row's time (EXP-169).
+internal fun relativeTime(wire: String): String {
+    val thenMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(wire) ?: return ""
+    val seconds = ((System.currentTimeMillis() - thenMs) / 1000).coerceAtLeast(0)
+    return when {
+        seconds < 60 -> "just now"
+        seconds < 3600 -> "${seconds / 60}m ago"
+        seconds < 86400 -> "${seconds / 3600}h ago"
+        else -> "${seconds / 86400}d ago"
     }
 }
 

@@ -289,11 +289,15 @@ struct CommentThreadView: View {
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity) -> some View {
         let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
+        let phrase = eventPhrase(event, users: users, labels: labels, projects: projects)
+        // Append a relative timestamp (EXP-169) — only when it parses, so an
+        // unparseable created_at never leaves a dangling " · ".
+        let time = relativeDate(event.createdAt)
         HStack(spacing: 8) {
             Circle()
                 .fill(.white.opacity(TextOpacity.tertiary))
                 .frame(width: 6, height: 6)
-            Text("\(who) \(eventPhrase(event, users: users, labels: labels, projects: projects))")
+            Text(time.isEmpty ? "\(who) \(phrase)" : "\(who) \(phrase) · \(time)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()

@@ -1,8 +1,6 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
-import java.time.Instant
-import java.time.OffsetDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -15,13 +13,12 @@ import kotlinx.coroutines.flow.flow
 // the sweep lags or isn't running.
 object CodingSessionLiveness {
 
-    // Tolerant ISO-8601 → epoch ms. `Instant.parse` needs the `Z`/offset RFC
-    // 3339 form; `OffsetDateTime` additionally accepts `+00:00`-style offsets
-    // some serializers emit.
-    fun parseEpochMs(iso: String): Long? =
-        runCatching { Instant.parse(iso).toEpochMilli() }
-            .recoverCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }
-            .getOrNull()
+    // Tolerant wire-timestamp → epoch ms. Delegates to WireTimestamps so the
+    // Electric-synced Postgres text form (`yyyy-MM-dd HH:mm:ss.ffffff+00`)
+    // parses too — with Instant/OffsetDateTime alone every synced updated_at
+    // failed to parse, which kept isStale fail-open and made this guard dead
+    // code (stale "running" badges never hid).
+    fun parseEpochMs(iso: String): Long? = WireTimestamps.parseEpochMs(iso)
 
     // Unparseable liveness signal ⇒ live (fail-open: never hide a session the
     // server still considers alive; the sweep is the backstop).

@@ -16,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEventEntity
+import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.userDisplayName
 import kotlinx.serialization.json.contentOrNull
 
@@ -26,8 +28,17 @@ import kotlinx.serialization.json.contentOrNull
 internal fun EventRow(
     event: IssueEventEntity,
     actor: UserEntity?,
+    usersById: Map<String, UserEntity> = emptyMap(),
+    labelsById: Map<String, LabelEntity> = emptyMap(),
 ) {
     val who = userDisplayName(actor, event.actorUserId)
+    val time = relativeTime(event.createdAt)
+    val text = buildString {
+        append(who).append(' ').append(eventPhrase(event, usersById, labelsById))
+        // Only append the separator when there is a time to follow it — an
+        // unparseable createdAt must not leave a dangling "·" (EXP-169).
+        if (time.isNotEmpty()) append(" · ").append(time)
+    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -35,7 +46,7 @@ internal fun EventRow(
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(CommentMeta))
         Text(
-            "$who ${eventPhrase(event)} · ${relativeTime(event.createdAt)}",
+            text,
             style = MaterialTheme.typography.labelSmall,
             color = CommentMeta,
         )
@@ -56,25 +67,63 @@ internal fun eventVerb(type: String): String = when (type) {
     else -> type.replace('_', ' ')
 }
 
-// A richer phrase for the events whose payload carries detail. project_moved
-// (EXP-57) is self-contained: the payload carries the retired and new
-// identifiers, so no lookup is needed.
-internal fun eventPhrase(event: IssueEventEntity): String {
-    if (event.type == "project_moved") {
+// Human status label for a wire enum value. NOT IssueStatus.fromWire — that
+// falls back to Backlog and would mislabel unknown statuses from newer servers.
+internal fun statusLabel(wire: String): String =
+    IssueStatus.entries.firstOrNull { it.wire == wire }?.label ?: wire.replace('_', ' ')
+
+// A richer phrase for the events whose payload carries detail (EXP-169 —
+// mirrors iOS EventPhrases.swift). Missing payloads or unsynced lookup rows
+// degrade to the bare verb; project_moved (EXP-57) is self-contained.
+internal fun eventPhrase(
+    event: IssueEventEntity,
+    usersById: Map<String, UserEntity> = emptyMap(),
+    labelsById: Map<String, LabelEntity> = emptyMap(),
+): String = when (event.type) {
+    "status_changed" -> {
+        val to = eventPayloadField(event.payload, "to")
+        val from = eventPayloadField(event.payload, "from")
+        when {
+            to == null -> eventVerb(event.type)
+            from != null -> "changed the status from ${statusLabel(from)} to ${statusLabel(to)}"
+            else -> "changed the status to ${statusLabel(to)}"
+        }
+    }
+    "assignee_changed" -> {
+        val to = eventPayloadField(event.payload, "to")
+        if (to == null) "unassigned this issue"
+        else "assigned ${userDisplayName(usersById[to], to)}"
+    }
+    "label_added" -> eventPayloadField(event.payload, "labelId")
+        ?.let { labelsById[it]?.name }
+        ?.let { "added label $it" }
+        ?: eventVerb(event.type)
+    "label_removed" -> eventPayloadField(event.payload, "labelId")
+        ?.let { labelsById[it]?.name }
+        ?.let { "removed label $it" }
+        ?: eventVerb(event.type)
+    "pr_opened" -> eventPayloadField(event.payload, "prNumber")
+        ?.let { "opened PR #$it" }
+        ?: eventVerb(event.type)
+    "pr_merged" -> eventPayloadField(event.payload, "prNumber")
+        ?.let { "merged PR #$it" }
+        ?: eventVerb(event.type)
+    "project_moved" -> {
         val from = eventPayloadField(event.payload, "fromIdentifier")
         val to = eventPayloadField(event.payload, "toIdentifier")
-        return if (from != null && to != null) {
+        if (from != null && to != null) {
             "moved this to another project ($from → $to)"
         } else {
             eventVerb(event.type)
         }
     }
-    return eventVerb(event.type)
+    else -> eventVerb(event.type)
 }
 
 // Pull a string scalar out of an issue_event's JSON payload (stored as
-// stringified JSON). Null for missing/blank values or unparseable payloads.
-private fun eventPayloadField(payload: String?, key: String): String? {
+// stringified JSON). Null for missing/blank values or unparseable payloads;
+// JSON numbers (e.g. prNumber) come back as their string content.
+internal fun eventPayloadField(payload: String?, key: String): String? {
     if (payload.isNullOrBlank()) return null
     return runCatching {
         val obj = kotlinx.serialization.json.Json
