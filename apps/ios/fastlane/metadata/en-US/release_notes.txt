@@ -1,3 +1,4 @@
-• Reviews now has its own tab
-• Start coding sessions with your choice of model, effort, and plan mode
-• Reliability improvements
+• New agent card on issues with a restored start button
+• Start batch coding runs across several issues from your phone
+• Stale "coding now" badges from crashed sessions clear themselves
+• Menu order now matches across platforms

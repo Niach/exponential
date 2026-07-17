@@ -1,0 +1,1 @@
+A new agent card on issues with a restored start button, batch coding runs started from your phone, and phantom "coding now" badges from crashed sessions now clear themselves.
