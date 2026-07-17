@@ -377,12 +377,12 @@ impl GitBar {
             .map(|project| project.id.as_str())
             .collect();
         let sessions = collections.coding_sessions.read(cx);
+        // Heartbeat-stale rows count as absent (EXP-153) — a phantom row must
+        // not block cleaning up a merged branch forever.
+        let now = chrono::Utc::now().timestamp();
         let running_issues: Vec<&str> = sessions
             .iter()
-            .filter(|session| {
-                session.status.as_deref()
-                    == Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-            })
+            .filter(|session| crate::queries::coding_session_is_live(session, now))
             .filter_map(|session| session.issue_id.as_deref())
             .collect();
         let issues = collections.issues.read(cx);

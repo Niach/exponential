@@ -485,6 +485,32 @@ pub fn workspace_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue
         .issues_in_workspace(workspace_id, cx)
 }
 
+/// EXP-153: a `running` coding_sessions row renders as live only while its
+/// `updated_at` (heartbeat-advanced) is inside the contract stale window —
+/// stale rows are treated as ABSENT, mirroring the server sweep's DELETE
+/// (never as `ended`, which is the kill-switch signal). Missing/unparseable
+/// `updated_at` → live (fail-open: never hide a session the server still
+/// considers alive; the sweep is the backstop). No re-render timer: gpui
+/// re-evaluates on every notify, and this process is the heartbeat writer
+/// for its own sessions — a phantom row from a crashed prior instance
+/// re-evaluates on the next render regardless.
+pub(crate) fn coding_session_is_live(
+    session: &domain::rows::CodingSession,
+    now_epoch: i64,
+) -> bool {
+    if session.status.as_deref() != Some(domain::contract::CODING_SESSION_STATUS_RUNNING) {
+        return false;
+    }
+    match session
+        .updated_at
+        .as_deref()
+        .and_then(crate::comments::parse_epoch)
+    {
+        Some(seen) => now_epoch - seen < domain::contract::CODING_SESSION_STALE_MS / 1000,
+        None => true,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Create-flow sync gate (§4.1 "awaitTxId" analog)
 // ---------------------------------------------------------------------------
@@ -547,6 +573,55 @@ mod tests {
             repo
         })
         .unwrap()
+    }
+
+    fn session(status: Option<&str>, updated_at: Option<&str>) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": "sess-1",
+            "issue_id": "issue-1",
+            "status": status,
+            "updated_at": updated_at,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn coding_session_live_within_stale_window() {
+        // 2026-07-17T12:00:00Z; heartbeat 30 minutes ago.
+        let now = 1784289600_i64;
+        let s = session(Some("running"), Some("2026-07-17T11:30:00Z"));
+        assert!(coding_session_is_live(&s, now));
+    }
+
+    #[test]
+    fn coding_session_stale_past_window() {
+        let now = 1784289600_i64;
+        // Last heartbeat 3h ago — past the 2h contract window.
+        let s = session(Some("running"), Some("2026-07-17T09:00:00Z"));
+        assert!(!coding_session_is_live(&s, now));
+        // Sanity: the generated contract constant stays the 2h the server sweeps by.
+        assert_eq!(domain::contract::CODING_SESSION_STALE_MS, 7_200_000);
+    }
+
+    #[test]
+    fn coding_session_non_running_is_never_live() {
+        let now = 1784289600_i64;
+        let s = session(Some("ended"), Some("2026-07-17T11:59:00Z"));
+        assert!(!coding_session_is_live(&s, now));
+        let s = session(None, Some("2026-07-17T11:59:00Z"));
+        assert!(!coding_session_is_live(&s, now));
+    }
+
+    #[test]
+    fn coding_session_unparseable_updated_at_fails_open() {
+        // Missing/garbled liveness signal ⇒ live — never hide a session the
+        // server still considers alive; the sweep is the backstop.
+        let now = 1784289600_i64;
+        assert!(coding_session_is_live(&session(Some("running"), None), now));
+        assert!(coding_session_is_live(
+            &session(Some("running"), Some("not-a-timestamp")),
+            now
+        ));
     }
 
     #[test]

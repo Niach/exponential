@@ -516,7 +516,9 @@ final class AgentSessionModel {
         steererId = nil
         if sawEnd {
             phase = .ended(detail: endDetail)
-        } else if retryStarting, session?.status == DomainContract.codingSessionStatusRunning {
+        } else if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {
+            // Liveness (not just status) gates the redial — a heartbeat-stale
+            // row is a phantom, not a session that's still starting (EXP-153).
             phase = .starting
             scheduleStartingRetry()
         } else {

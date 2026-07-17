@@ -6,6 +6,8 @@ import {
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
 import type { CodingSession, Issue, Project, User } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 
 // The ended list is a recap, not an archive — cap it so a busy workspace's
 // history doesn't grow the page unboundedly (the full trail lives on issues).
@@ -59,6 +61,7 @@ export function useAgentsData(workspaceId?: string) {
 
   const projects = useWorkspaceProjects(workspaceId)
   const { userMap } = useWorkspaceUsers(workspaceId)
+  const now = useNow()
 
   return useMemo(() => {
     const issueMap = new Map(
@@ -77,8 +80,14 @@ export function useAgentsData(workspaceId?: string) {
       }
     }
 
+    // Staleness guard (EXP-153): heartbeat-dead `running` rows render as
+    // absent (not "ended" — swept rows leave no recap entry either).
     const running = sessions
-      .filter((session) => session.status === `running`)
+      .filter(
+        (session) =>
+          session.status === `running` &&
+          !isCodingSessionStale(session.updatedAt, now)
+      )
       .sort(
         (a, b) =>
           new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -102,5 +111,5 @@ export function useAgentsData(workspaceId?: string) {
       // snapshot — treat that as ready-empty instead of loading forever.
       isLoading: !isReady && Boolean(workspaceId),
     }
-  }, [sessions, issueRows, projects, userMap, isReady, workspaceId])
+  }, [sessions, issueRows, projects, userMap, isReady, workspaceId, now])
 }

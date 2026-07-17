@@ -19,6 +19,8 @@ public enum DomainContract {
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
 
+    public static let codingSessionStaleMs: Int = 7200000
+
     public static let workspaceRoleOwner: String = "owner"
     public static let workspaceRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"

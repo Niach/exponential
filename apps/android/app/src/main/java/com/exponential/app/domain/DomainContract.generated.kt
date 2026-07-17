@@ -18,6 +18,8 @@ object DomainContract {
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
 
+    const val codingSessionStaleMs: Long = 7200000L
+
     const val workspaceRoleOwner: String = "owner"
     const val workspaceRoleMember: String = "member"
     const val commentKindRegular: String = "regular"

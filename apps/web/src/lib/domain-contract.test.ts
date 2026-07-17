@@ -12,6 +12,7 @@ import {
   subscriberSourceValues,
   issueEventTypeValues,
   issueStatusOrder,
+  CODING_SESSION_STALE_HOURS,
 } from "@exp/db-schema/domain"
 
 // Guards that the hand-maintained TS enums in @exp/db-schema/domain stay in
@@ -58,6 +59,10 @@ describe(`domain-contract parity`, () => {
     expect([...codingSessionStatusValues]).toEqual([
       ...contract.codingSessionStatus.values,
     ])
+  })
+
+  it(`coding session stale window matches the contract`, () => {
+    expect(CODING_SESSION_STALE_HOURS).toBe(contract.codingSession.staleHours)
   })
 
   it(`subscriber source values match the contract`, () => {

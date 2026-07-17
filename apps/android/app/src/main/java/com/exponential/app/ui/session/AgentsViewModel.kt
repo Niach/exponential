@@ -9,6 +9,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -56,12 +57,17 @@ class AgentsViewModel @Inject constructor(
         },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         _steerEnabled,
-    ) { sessions, issues, steerEnabled ->
+        // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
+        // them once the liveness window elapses without a sync delta.
+        CodingSessionLiveness.minuteTicker(),
+    ) { sessions, issues, steerEnabled, now ->
         val issuesById = issues.associateBy { it.id }
         AgentsState(
             // issueId is null for batch multi-issue sessions — those rows
             // render without an issue link.
-            rows = sessions.map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) },
+            rows = sessions
+                .filter { CodingSessionLiveness.isLive(it, now) }
+                .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) },
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())

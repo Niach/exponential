@@ -1318,13 +1318,14 @@ fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
 /// §08 — another track wires it onto this pill).
 fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let collections = Store::global(cx).collections();
+    let now = chrono::Utc::now().timestamp();
     let session = collections
         .coding_sessions
         .read(cx)
         .iter()
         .find(|session| {
             session.issue_id.as_deref() == Some(issue_id)
-                && session.status.as_deref() == Some("running")
+                && crate::queries::coding_session_is_live(session, now)
         })
         .cloned()?;
 
