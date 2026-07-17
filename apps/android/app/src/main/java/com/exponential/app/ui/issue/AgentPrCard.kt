@@ -315,7 +315,7 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
         )
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "View changes",
+            contentDescription = "Open review",
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
@@ -348,7 +348,7 @@ private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
         )
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "View changes",
+            contentDescription = "Open review",
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )

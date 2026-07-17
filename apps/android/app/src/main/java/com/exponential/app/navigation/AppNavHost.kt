@@ -317,9 +317,11 @@ private fun AuthenticatedNav(
         }
         composable("reviews") {
             // Reviews — its own bottom-bar destination beside My Work
-            // (EXP-147; it used to be a PersonalScreen segment).
+            // (EXP-147; it used to be a PersonalScreen segment). Rows open the
+            // Review detail (EXP-168); the long-press sheet keeps issue access.
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
             )
         }
         composable("settings") {
