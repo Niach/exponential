@@ -2,10 +2,10 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the five
-/// top-level destinations (Issues, My Work — with an unread dot — Reviews —
-/// its own entry beside My Work per EXP-147 — Agents — with a running-session
-/// dot — and Search; order per EXP-81) plus a detached circular compose button
-/// on the right. Attached via `.overlay(alignment: .bottom)` so content
+/// top-level destinations (Issues, My Work — with an unread dot — Agents —
+/// with a running-session dot — Reviews — its own entry per EXP-147, ordered
+/// after Agents per EXP-152 — and Search; base order per EXP-81) plus a
+/// detached circular compose button on the right. Attached via `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
@@ -47,15 +47,6 @@ struct MobileTabBar: View {
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
-                // Reviews sits beside My Work (EXP-147) — the same open-PR
-                // glyph the in_review status uses.
-                tab(
-                    glyph: .system("arrow.triangle.pull"),
-                    label: "Reviews",
-                    active: reviewsActive,
-                    action: onReviews
-                )
-                .accessibilityIdentifier("tab-reviews")
                 tab(
                     glyph: .asset("tab-robot"),
                     label: "Agents",
@@ -65,6 +56,15 @@ struct MobileTabBar: View {
                     action: onAgents
                 )
                 .accessibilityIdentifier("tab-agents")
+                // Reviews sits beside Agents (EXP-147/EXP-152) — the same
+                // open-PR glyph the in_review status uses.
+                tab(
+                    glyph: .system("arrow.triangle.pull"),
+                    label: "Reviews",
+                    active: reviewsActive,
+                    action: onReviews
+                )
+                .accessibilityIdentifier("tab-reviews")
                 tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
                     .accessibilityIdentifier("tab-search")
             }
