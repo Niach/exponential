@@ -252,7 +252,26 @@ fn remove_default_application(contents: &str, key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_default_application, upsert_default_application};
+    use super::{remove_default_application, upsert_default_application, ICON_SVG};
+
+    /// EXP-151: `ICON_SVG` is installed VERBATIM as the hicolor theme icon, and
+    /// GtkIconTheme loads it through gdk-pixbuf — which recognizes SVG only by
+    /// its magic prefixes (`<svg`, `<?xml`, `<!DOCTYPE svg`). EXP-143 put an
+    /// XML comment before the root element and every GTK taskbar/launcher
+    /// silently dropped the icon ("couldn't recognize the image file format").
+    #[test]
+    fn icon_svg_is_sniffable_by_gdk_pixbuf() {
+        let head = std::str::from_utf8(&ICON_SVG[..ICON_SVG.len().min(64)])
+            .expect("icon svg starts with valid utf-8");
+        let trimmed = head.trim_start();
+        assert!(
+            trimmed.starts_with("<svg")
+                || trimmed.starts_with("<?xml")
+                || trimmed.starts_with("<!DOCTYPE svg"),
+            "logo-white.svg must start with an SVG magic prefix, not `{}`",
+            &trimmed[..trimmed.len().min(16)],
+        );
+    }
 
     const KEY: &str = "x-scheme-handler/exponential";
     const LINE: &str = "x-scheme-handler/exponential=at.exponential.desktop";

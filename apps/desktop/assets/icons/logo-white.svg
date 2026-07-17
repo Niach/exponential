@@ -1,9 +1,14 @@
-<!-- App-icon variant (EXP-16): white disc on transparent — the plain logo.svg
-     is a black disc that vanishes on the dark taskbars/launchers desktop Linux
-     defaults to. The viewBox is padded so the glyph fills ~82% of the icon
-     square (EXP-143) — a full-bleed circle reads oversized next to other
-     launcher/taskbar icons. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="-11 -11 122 122">
+  <!-- App-icon variant (EXP-16): white disc on transparent — the plain logo.svg
+       is a black disc that vanishes on the dark taskbars/launchers desktop Linux
+       defaults to. The viewBox is padded so the glyph fills ~82% of the icon
+       square (EXP-143) — a full-bleed circle reads oversized next to other
+       launcher/taskbar icons.
+       This comment MUST stay inside the <svg> element (EXP-151): the file is
+       installed verbatim as the hicolor theme icon, and gdk-pixbuf recognizes
+       SVG only by its magic prefixes (`<svg`, `<?xml`, `<!DOCTYPE svg`) — a
+       leading comment makes GtkIconTheme fail to load it and the Linux taskbar
+       icon disappears entirely. -->
   <defs>
     <clipPath id="c"><circle cx="50" cy="50" r="50"></circle></clipPath>
     <mask id="m">
