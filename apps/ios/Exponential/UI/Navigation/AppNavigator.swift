@@ -278,7 +278,7 @@ struct MainNavigator: View {
                 // host match); push taps only know the recipient's userId.
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
-                path.append(AppRoute.issue(accountId: accountId, id: issueId))
+                appendIssueRoute(accountId: accountId, issueId: issueId)
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -301,7 +301,7 @@ struct MainNavigator: View {
             let userId = deps.deepLinkBus.pendingIssueUserId
             if let issueId = deps.deepLinkBus.consume() {
                 let accountId = pendingAccountId ?? issueAccountId(forUserId: userId)
-                path.append(AppRoute.issue(accountId: accountId, id: issueId))
+                appendIssueRoute(accountId: accountId, issueId: issueId)
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
@@ -575,6 +575,15 @@ struct MainNavigator: View {
         // and the next launch lands back in it.
         SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
         currentProject = CurrentProjectRef(accountId: accountId, projectId: projectId)
+    }
+
+    /// Push the issue detail from a deep-link/push tap, then kick a non-blocking
+    /// sync (EXP-172): a just-created issue (e.g. a fresh support ticket) may not
+    /// be in local GRDB yet, which would strand IssueDetailView on a spinner.
+    /// Mirrors resolveWebIssueLink's sync pass; navigation never waits on it.
+    private func appendIssueRoute(accountId: String, issueId: String) {
+        path.append(AppRoute.issue(accountId: accountId, id: issueId))
+        Task { await deps.syncManager.initialSync() }
     }
 
     private func stopObserving() {
