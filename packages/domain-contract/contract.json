@@ -53,6 +53,9 @@
   "codingSessionStatus": {
     "values": ["running", "ended"]
   },
+  "codingSession": {
+    "staleHours": 2
+  },
   "subscriberSource": {
     "values": ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
   },

@@ -202,6 +202,9 @@ struct MainNavigator: View {
     @State private var syncing = false
     @State private var unreadCount = 0
     @State private var agentsRunning = false
+    // Raw observed running-session rows — cached so the liveness ticker can
+    // recompute `agentsRunning` between sync deltas (EXP-153).
+    @State private var observedSessions: [CodingSessionEntity] = []
     @State private var currentProject: CurrentProjectRef?
     @State private var composeTarget: ComposeTarget?
 
@@ -513,11 +516,22 @@ struct MainNavigator: View {
         let sessionTask = Task { @MainActor in
             do {
                 for try await sessions in sessionObs.values(in: pool) {
-                    agentsRunning = !sessions.isEmpty
+                    observedSessions = sessions
+                    // Heartbeat-stale rows don't light the dot (EXP-153).
+                    agentsRunning = sessions.contains { CodingSessionLiveness.isLive($0) }
                 }
             } catch {}
         }
-        observationTasks = [wsTask, projTask, notifTask, sessionTask]
+        // GRDB only re-fires on writes — a minute clock clears the dot once a
+        // phantom row's liveness window elapses without any sync delta.
+        let livenessTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                agentsRunning = observedSessions.contains { CodingSessionLiveness.isLive($0) }
+            }
+        }
+        observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask]
     }
 
     // MARK: - Current project (Issues tab)

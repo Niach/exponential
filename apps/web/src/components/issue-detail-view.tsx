@@ -13,6 +13,8 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Issue, User, Project } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -270,7 +272,11 @@ export function IssueDetailView({
         ),
     [issue.id]
   )
-  const isCodingNow = ((runningSessionRows ?? []) as CodingSession[]).length > 0
+  // Staleness guard (EXP-153): heartbeat-dead rows don't count as coding.
+  const now = useNow()
+  const isCodingNow = ((runningSessionRows ?? []) as CodingSession[]).some(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  )
   const hasChanges = isCodingNow || issue.prNumber != null
 
   const incomingDescription = getIssueDescriptionText(issue.description)

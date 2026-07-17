@@ -15,6 +15,13 @@ export interface DomainContract {
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
   codingSessionStatus: { values: readonly string[] }
+  /**
+   * Client-side liveness window for `running` coding_sessions rows: a row
+   * whose synced updated_at is older than this renders as absent (EXP-153).
+   * Mirrors CODING_SESSION_STALE_HOURS in @exp/db-schema/domain (the server
+   * sweep's threshold) — parity locked by apps/web's domain-contract test.
+   */
+  codingSession: { staleHours: number }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */

@@ -22,6 +22,8 @@ import {
   X,
 } from "lucide-react"
 import type { CodingSession, User } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import { trpc } from "@/lib/trpc-client"
 import {
   codingSessionCollection,
@@ -221,9 +223,16 @@ export function IssueSteerPanel({
         ),
     [issueId]
   )
+  // Staleness guard (EXP-153): a `running` row whose heartbeat (updated_at)
+  // stopped advancing renders as absent — mirroring the server sweep's
+  // DELETE — so a crashed desktop can't pin a phantom panel if the sweep
+  // lags or isn't running.
+  const now = useNow()
   // Multi-window desktops can run several sessions on one issue; surface the
   // most recent (the badge counts them all).
-  const sessions = (sessionRows ?? []) as CodingSession[]
+  const sessions = ((sessionRows ?? []) as CodingSession[]).filter(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  )
   const session = useMemo(() => {
     if (sessions.length === 0) return null
     return sessions.reduce((latest, row) =>

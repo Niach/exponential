@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { GitBranch, GitPullRequest, Loader2, RotateCw } from "lucide-react"
 import type { CodingSession, Issue, User } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import { codingSessionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
@@ -54,7 +56,11 @@ export function IssueChangesTab({
         ),
     [issue.id]
   )
-  const sessions = (sessionRows ?? []) as CodingSession[]
+  // Staleness guard (EXP-153): heartbeat-dead `running` rows render as absent.
+  const now = useNow()
+  const sessions = ((sessionRows ?? []) as CodingSession[]).filter(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  )
   const runningSession = useMemo(() => {
     if (sessions.length === 0) return null
     return sessions.reduce((latest, row) =>

@@ -31,17 +31,10 @@ import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
 const INITIAL_DELAY_MS = 2 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
 
-// Pure staleness predicate: a running session is stale once its last liveness
-// signal (updated_at — advanced by every desktop heartbeat, equal to the
-// insert time when no heartbeat ever landed) plus the staleness window has
-// passed. The sweep query applies the equivalent cutoff server-side; this
-// documents (and tests) the rule.
-export function isCodingSessionStale(
-  lastSeenAt: Date,
-  now: Date = new Date()
-): boolean {
-  return lastSeenAt.getTime() + CODING_SESSION_STALE_MS <= now.getTime()
-}
+// The pure staleness predicate lives in @exp/db-schema/domain
+// (isCodingSessionStale) — it doubles as the client-side render guard on all
+// four clients (EXP-153). The sweep query below applies the equivalent cutoff
+// server-side.
 
 // One sweep pass, injectable clock for tests/manual runs. Returns the count
 // for the caller's logging.
