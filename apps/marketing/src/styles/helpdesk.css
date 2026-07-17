@@ -11,33 +11,6 @@
   align-items: center;
 }
 
-.hd-points {
-  margin: 0 0 28px;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.hd-points li {
-  position: relative;
-  padding-left: 22px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--fg-muted);
-}
-
-.hd-points li::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 8px;
-  width: 10px;
-  height: 1px;
-  background: var(--fg-dim);
-}
-
 .hd-pro {
   display: inline-flex;
   align-items: center;

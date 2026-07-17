@@ -106,9 +106,9 @@ export const PAGES: PageSeo[] = [
   {
     path: `/`,
     htmlFile: `index.html`,
-    sources: [`src/HomePage.tsx`],
-    title: `Exponential — Issue tracking that ships code`,
-    description: `An issue tracker with a built-in coding IDE. Assign issues to Claude or Codex — agents run locally in your terminal and open GitHub PRs. Native on web, iOS, Android, macOS and Linux. Free cloud or self-host.`,
+    sources: [`src/HomePage.tsx`, `src/components/HomePricing.tsx`],
+    title: `Exponential — The development platform for teams and agents`,
+    description: `Issue tracking with coding agents built in. Feedback in, pull requests out. Native on web, iOS, Android, macOS and Linux. Free for individuals, free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },
