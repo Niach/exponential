@@ -93,8 +93,13 @@ class HomeViewModel @Inject constructor(
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 val workspace = workspacesApi.ensureDefault(accountId)
+                // First-run heal only: the upsert gives AppViewModel's
+                // default-workspace bootstrap a row to observe before Electric's
+                // first snapshot. Deliberately NO selection.select here —
+                // ensureDefault returns the PERSONAL workspace by server
+                // contract, and selecting it scoped Agents/Reviews to a
+                // workspace without repo projects or PRs (EXP-166/EXP-168).
                 holder.database(forAccountId = accountId).workspaceDao().upsert(workspace)
-                if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null
             } catch (error: Throwable) {
                 // A rejected session (expired/revoked token) can't be recovered by

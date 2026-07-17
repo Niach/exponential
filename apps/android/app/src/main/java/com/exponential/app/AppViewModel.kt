@@ -13,6 +13,7 @@ import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.defaultWorkspaceId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +60,45 @@ class AppViewModel @Inject constructor(
             auth.activeAccountId
                 .drop(1)
                 .collect { workspaceSelection.clearSelection() }
+        }
+        // EXP-166/EXP-168: default-workspace bootstrap. selectedId starts null
+        // (and re-nulls on account switch / workspace deletion) while Agents +
+        // Reviews gate on it — so resolve a default HERE (the app shell always
+        // runs) instead of relying on the Issues tab having mounted. Priority:
+        // the workspace of the last-opened project (what the Issues root
+        // shows), else the first synced workspace (iOS AppNavigator parity).
+        // Writes only while the selection is null, so explicit switches
+        // (Settings → Workspaces) and the onboarding/create-project selects are
+        // never overridden.
+        @OptIn(ExperimentalCoroutinesApi::class)
+        viewModelScope.launch {
+            combine(
+                accountDatabaseFlow(auth, databaseHolder),
+                auth.activeAccountId,
+                workspaceSelection.selectedId,
+                workspaceSelection.lastProjectVersion, // re-resolve after switcher picks
+            ) { db, accountId, selected, _ -> Triple(db, accountId, selected) }
+                .flatMapLatest { (db, accountId, selected) ->
+                    if (db == null || accountId == null || selected != null) {
+                        flowOf(null)
+                    } else {
+                        combine(
+                            db.workspaceDao().observeAll(),
+                            db.projectDao().observeAll(),
+                        ) { workspaces, projects ->
+                            defaultWorkspaceId(
+                                workspaces,
+                                projects,
+                                workspaceSelection.lastProject(accountId),
+                            )
+                        }
+                    }
+                }
+                .collect { defaultId ->
+                    if (defaultId != null && workspaceSelection.selectedId.value == null) {
+                        workspaceSelection.select(defaultId)
+                    }
+                }
         }
         // Stale-selection guard (EXP-43 hardening): a deleted workspace leaves
         // the global selection pointing at a row that no longer exists in Room
