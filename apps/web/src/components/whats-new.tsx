@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { format } from "date-fns"
+import { format, parseISO } from "date-fns"
 import { Megaphone, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,7 +98,7 @@ export function ChangelogSheet({
             <div key={entry.id}>
               {index > 0 && <Separator className="mb-6" />}
               <div className="mb-1 text-xs text-muted-foreground">
-                {format(new Date(entry.date), `MMMM d, yyyy`)}
+                {format(parseISO(entry.date), `MMMM d, yyyy`)}
               </div>
               <h3 className="mb-2 text-base font-semibold">{entry.title}</h3>
               <MarkdownEditor
