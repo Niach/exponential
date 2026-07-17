@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { ArrowLeft, Check, Github, Globe } from "lucide-react"
+import { Check, Github, Globe } from "lucide-react"
 import type { ProjectIcon } from "@exp/db-schema/domain"
 import type { Workspace } from "@/db/schema"
 import { PROJECT_TEMPLATES, type ProjectTemplate } from "@/lib/project-types"
@@ -11,11 +11,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import {
+  OWNER_ONLY_PUBLIC_HINT,
+  ProjectIconColorFields,
+  ProjectNameField,
+  ProjectPrefixField,
+  ProjectPublicSection,
+} from "@/components/project-form-fields"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -23,11 +26,6 @@ import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/project"
 import { useCreateProject } from "@/hooks/use-create-project"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
-
-// The disable-with-explanation hint for the owner-only public option
-// (projects.create rejects isPublic from non-owners — EXP-133). Exported for
-// the getting-started feedback-board entry, which gates the same action.
-export const OWNER_ONLY_PUBLIC_HINT = `Only team owners can create public boards.`
 
 // The chosen backing repo: either an existing registry repo (by id) or a
 // brand-new one picked through the GithubRepoPicker (connected inline by
@@ -45,8 +43,8 @@ export function CreateProjectDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   workspace: Workspace
-  // Skip the template chooser and open directly on this template's form
-  // (EXP-141 — the getting-started CTAs preset e.g. `feedback`).
+  // Preselect this quickstart on open (EXP-141 — the getting-started CTAs
+  // preset e.g. `feedback`).
   initialTemplate?: ProjectTemplate[`key`]
 }) {
   const workspaceId = workspace.id
@@ -54,9 +52,12 @@ export function CreateProjectDialog({
   // Public boards are owner-only on the server (assertWorkspaceOwner in
   // projects.create) — non-owners get the option disabled with a hint.
   const { isOwner } = useWorkspacePermissions(workspace)
-  // Templates only pre-set the toggles below — every project has the same
-  // shape (repo optional, publicness a switch).
-  const [template, setTemplate] = useState<ProjectTemplate | null>(null)
+  // Quickstart selection (EXP-160: no more two-step wizard — the templates
+  // are a preset row above the always-visible form). Purely a visual marker
+  // + preset applicator: picking one sets icon/isPublic/showRepo and never
+  // touches name/prefix/color or the repo selection.
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<ProjectTemplate | null>(null)
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
@@ -85,7 +86,7 @@ export function CreateProjectDialog({
   }, [])
 
   const resetAll = () => {
-    setTemplate(null)
+    setSelectedTemplate(null)
     setName(``)
     setPrefix(``)
     setColor(`#6366f1`)
@@ -97,14 +98,14 @@ export function CreateProjectDialog({
   }
 
   const applyTemplate = (next: ProjectTemplate) => {
-    setTemplate(next)
+    setSelectedTemplate(next)
     setIcon(next.defaults.icon)
     setIsPublic(next.defaults.isPublic)
     setShowRepo(next.defaults.suggestsRepo)
   }
 
-  // Preset template: applied on open (the close path resets to the chooser via
-  // resetAll, so re-opening with the prop lands on the form again).
+  // Preset template: applied on open (the close path resets via resetAll, so
+  // re-opening with the prop preselects the quickstart again).
   useEffect(() => {
     if (!open || !initialTemplate) return
     const preset = PROJECT_TEMPLATES.find(
@@ -128,7 +129,7 @@ export function CreateProjectDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!template || !name.trim() || !prefix.trim()) return
+    if (!name.trim() || !prefix.trim()) return
 
     setSubmitting(true)
     setError(null)
@@ -178,88 +179,61 @@ export function CreateProjectDialog({
           onOpenChange(next)
         }}
       >
-        <DialogContent className="sm:max-w-[26rem]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[26rem]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {template !== null && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-6 w-6 p-0"
-                  onClick={() => setTemplate(null)}
-                  aria-label="Back to templates"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              )}
-              Create project
-            </DialogTitle>
+            <DialogTitle>Create project</DialogTitle>
           </DialogHeader>
 
-          {template === null ? (
-            <div className="space-y-2">
-              {PROJECT_TEMPLATES.map((option) => {
-                const ownerLocked = option.defaults.isPublic && !isOwner
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    disabled={ownerLocked}
-                    onClick={() => applyTemplate(option)}
-                    className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
-                  >
-                    <option.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5 text-sm font-medium">
-                        {option.label}
-                        {option.defaults.isPublic && (
-                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                        )}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {ownerLocked ? OWNER_ONLY_PUBLIC_HINT : option.description}
-                      </span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="project-name">Name</Label>
-              <Input
-                id="project-name"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="e.g. Backend API"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="project-prefix">Prefix</Label>
-              <Input
-                id="project-prefix"
-                value={prefix}
-                // Alphanumeric only — the server floor rejects symbol
-                // prefixes (EXP-46).
-                onChange={(e) =>
-                  setPrefix(
-                    e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase()
+              <Label>Quickstart</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {PROJECT_TEMPLATES.map((option) => {
+                  const ownerLocked = option.defaults.isPublic && !isOwner
+                  const selected = selectedTemplate?.key === option.key
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      disabled={ownerLocked}
+                      title={ownerLocked ? OWNER_ONLY_PUBLIC_HINT : option.description}
+                      onClick={() => applyTemplate(option)}
+                      className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        selected
+                          ? `border-primary bg-accent/40`
+                          : `border-border hover:border-primary/60 hover:bg-accent/40 disabled:hover:border-border disabled:hover:bg-transparent`
+                      }`}
+                    >
+                      <option.icon className="h-5 w-5 text-muted-foreground" />
+                      <span className="flex items-center gap-1 text-xs font-medium">
+                        {option.label}
+                        {option.defaults.isPublic && (
+                          <Globe className="h-3 w-3 text-muted-foreground" />
+                        )}
+                      </span>
+                    </button>
                   )
-                }
-                placeholder="e.g. API"
-                maxLength={10}
-              />
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {selectedTemplate
+                  ? selectedTemplate.description
+                  : `Optional presets — every project has the same shape.`}
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label>Icon</Label>
-              <IconSwatchGrid value={icon} onChange={setIcon} color={color} />
-            </div>
-            <div className="space-y-2">
-              <Label>Color</Label>
-              <ColorSwatchGrid value={color} onChange={setColor} />
-            </div>
+
+            <ProjectNameField
+              value={name}
+              onChange={handleNameChange}
+              autoFocus
+            />
+            <ProjectPrefixField value={prefix} onChange={setPrefix} />
+            <ProjectIconColorFields
+              icon={icon}
+              onIconChange={setIcon}
+              color={color}
+              onColorChange={setColor}
+            />
 
             <div className="space-y-2">
               <Label>Repository (optional)</Label>
@@ -303,36 +277,13 @@ export function CreateProjectDialog({
               )}
             </div>
 
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <div className="min-w-0">
-                <Label
-                  htmlFor="project-public"
-                  className="flex items-center gap-1.5 text-sm"
-                >
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                  Public board
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {isOwner
-                    ? `Anyone with the link can read it.`
-                    : OWNER_ONLY_PUBLIC_HINT}
-                </p>
-              </div>
-              <Switch
-                id="project-public"
-                checked={isPublic}
-                onCheckedChange={setIsPublic}
-                disabled={!isOwner}
-              />
-            </div>
-
-            {isPublic && (
-              <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
-                Public boards are readable by anyone: issues, comments and
-                @mentions in them are visible to anyone with the link. The
-                workspace name is shown on the board.
-              </p>
-            )}
+            <ProjectPublicSection
+              checked={isPublic}
+              onCheckedChange={setIsPublic}
+              disabled={!isOwner}
+              hint={isOwner ? undefined : OWNER_ONLY_PUBLIC_HINT}
+              showWarning={isPublic}
+            />
 
             {error && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -346,7 +297,6 @@ export function CreateProjectDialog({
               </Button>
             </DialogFooter>
           </form>
-          )}
         </DialogContent>
       </Dialog>
 
