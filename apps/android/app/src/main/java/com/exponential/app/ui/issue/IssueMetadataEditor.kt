@@ -109,34 +109,17 @@ fun IssueMetadataEditor(
                 )
             }
         }
-    }
-
-    Spacer(Modifier.height(20.dp))
-    // Due date card
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassSection()
-            .padding(vertical = 4.dp)
-            .alpha(if (isModerator) 1f else 0.55f),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (isModerator) Modifier.clickable(onClick = onDueDateClick) else Modifier)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.CalendarMonth,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (issue.dueDate != null) dueDateColor(issue.dueDate) else mutedTint,
-            )
-            Spacer(Modifier.width(10.dp))
-            Text("Due date", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.weight(1f))
+        // Due date rides the same grouped card (EXP-167 — was its own card).
+        CardDivider()
+        DetailRow(label = "Due date", enabled = isModerator, onClick = onDueDateClick) {
             if (issue.dueDate != null) {
+                Icon(
+                    Icons.Filled.CalendarMonth,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = dueDateColor(issue.dueDate),
+                )
+                Spacer(Modifier.width(6.dp))
                 Text(
                     formatDueDate(issue.dueDate),
                     style = MaterialTheme.typography.bodyMedium,
