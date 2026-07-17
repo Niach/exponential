@@ -22,10 +22,14 @@
 
 .exp-panel {
   position: fixed;
-  bottom: 76px;
+  /* --exp-vv-inset/--exp-vv-height mirror the visual viewport (set from
+     App.tsx while the panel is mounted): mobile on-screen keyboards shrink
+     only the visual viewport, so without them the panel's lower half sat
+     behind the keyboard. Both default to keyboard-less values on desktop. */
+  bottom: calc(76px + var(--exp-vv-inset, 0px));
   width: 380px;
   max-width: calc(100vw - 32px);
-  max-height: min(85vh, 640px);
+  max-height: min(calc(var(--exp-vv-height, 100vh) * 0.85), 640px);
   display: flex;
   flex-direction: column;
   background: var(--exp-card);
@@ -42,7 +46,7 @@
   .exp-panel {
     left: 0 !important;
     right: 0 !important;
-    bottom: 0;
+    bottom: var(--exp-vv-inset, 0px);
     width: 100%;
     max-width: none;
     border-radius: var(--exp-radius) var(--exp-radius) 0 0;
