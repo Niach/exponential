@@ -10,18 +10,12 @@ import {
   ClipboardList,
   Eye,
   Loader2,
-  MonitorOff,
-  MonitorUp,
   OctagonX,
   RotateCw,
   Sparkles,
   Wrench,
 } from "lucide-react"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import type { CodingSession, User } from "@/db/schema"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
-import { useNow } from "@/hooks/use-now"
-import { codingSessionCollection, workspaceMemberCollection } from "@/lib/collections"
+import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   consumeEcho,
@@ -34,7 +28,6 @@ import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Collapsible,
@@ -50,7 +43,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileDiffList } from "@/components/diff-view"
-import { StartCodingDialog, type StartCodingOptions, type SteerDevice } from "@/components/start-coding-dialog"
 
 // The custom-rendered agent-session viewer (EXP-63 — the web port of the
 // mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
@@ -179,208 +171,6 @@ export function useSteerConfig(): SteerConfig | null {
     }
   }, [])
   return config
-}
-
-// ── Root: badge + agent view + remote start, driven by the synced session row ─
-
-interface IssueSteerPanelProps {
-  issueId: string
-  workspaceId: string
-  currentUserId: string
-  users: User[]
-  /** Show a "No desktop online" hint instead of hiding when no desktop is
-   *  reachable (iOS-parity discoverability on the issue Details tab). */
-  offlineHint?: boolean
-}
-
-export function IssueSteerPanel({
-  issueId,
-  workspaceId,
-  currentUserId,
-  users,
-  offlineHint = false,
-}: IssueSteerPanelProps) {
-  const config = useSteerConfig()
-
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) =>
-          and(eq(s.issueId, issueId), eq(s.status, `running`))
-        ),
-    [issueId]
-  )
-  // Staleness guard (EXP-153): a `running` row whose heartbeat (updated_at)
-  // stopped advancing renders as absent — mirroring the server sweep's
-  // DELETE — so a crashed desktop can't pin a phantom panel if the sweep
-  // lags or isn't running.
-  const now = useNow()
-  // Multi-window desktops can run several sessions on one issue; surface the
-  // most recent (the badge counts them all).
-  const sessions = ((sessionRows ?? []) as CodingSession[]).filter(
-    (s) => !isCodingSessionStale(s.updatedAt, now)
-  )
-  const session = useMemo(() => {
-    if (sessions.length === 0) return null
-    return sessions.reduce((latest, row) =>
-      new Date(row.startedAt) > new Date(latest.startedAt) ? row : latest
-    )
-  }, [sessions])
-
-  // Steer tickets require workspace membership — hide the interactive parts
-  // from public-workspace visitors (the server enforces this regardless).
-  const { data: memberRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ m: workspaceMemberCollection })
-        .where(({ m }) =>
-          and(eq(m.workspaceId, workspaceId), eq(m.userId, currentUserId))
-        ),
-    [workspaceId, currentUserId]
-  )
-  const isMember = (memberRows?.length ?? 0) > 0
-
-  if (!session) {
-    if (!isMember || !config?.enabled) return null
-    return <StartOnDesktop issueId={issueId} offlineHint={offlineHint} />
-  }
-
-  const owner = users.find((u) => u.id === session.userId)
-
-  return (
-    <div className="border-t border-border px-4 py-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <Badge
-          variant="outline"
-          className="gap-1.5 border-emerald-500/40 text-emerald-400"
-        >
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-          </span>
-          Coding now
-          {sessions.length > 1 ? ` (${sessions.length})` : ``}
-        </Badge>
-        <span className="truncate text-xs text-muted-foreground">
-          {owner?.name ?? owner?.email ?? `Someone`}
-          {session.deviceLabel ? ` · ${session.deviceLabel}` : ``}
-        </span>
-      </div>
-      {isMember && config?.enabled ? (
-        <AgentSessionView
-          key={session.id}
-          session={session}
-          currentUserId={currentUserId}
-        />
-      ) : isMember && config && !config.enabled ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          Live steering is unavailable on this instance.
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// ── "Start on my desktop" (remote start via the relay control socket) ────────
-
-function StartOnDesktop({
-  issueId,
-  offlineHint = false,
-}: {
-  issueId: string
-  offlineHint?: boolean
-}) {
-  const [devices, setDevices] = useState<SteerDevice[] | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [starting, setStarting] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    trpc.steer.myDevices
-      .query()
-      .then((res) => active && setDevices(res.devices))
-      .catch(() => active && setDevices([]))
-    return () => {
-      active = false
-    }
-  }, [])
-
-  // Presence lookup still in flight — keep the section quiet.
-  if (!devices) return null
-
-  // No online desktop (or the lookup failed): hide cleanly, unless the caller
-  // wants the mobile-parity hint (the Details tab, where discoverability of
-  // the whole remote-start feature depends on it).
-  if (devices.length === 0) {
-    if (!offlineHint) return null
-    return (
-      <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-        <MonitorOff className="size-3.5 shrink-0" />
-        No desktop online — open the Exponential desktop app to run this issue
-        there.
-      </div>
-    )
-  }
-
-  // The Start-coding dialog (EXP-149) collects the launch options (model /
-  // effort / ultracode / plan mode) and the target device before sending.
-  const start = async (device: SteerDevice, options: StartCodingOptions) => {
-    setStarting(true)
-    try {
-      await trpc.steer.startSession.mutate(
-        { issueId, deviceId: device.deviceId, ...options },
-        { context: { skipErrorToast: true } }
-      )
-      setDialogOpen(false)
-      setSentTo(device.deviceLabel)
-      // The desktop inserts the coding_sessions row when the launcher spins
-      // up, which swaps this whole section for the live panel via Electric.
-      // Re-enable after a grace window in case it never picks up.
-      setTimeout(() => setSentTo(null), 30_000)
-    } catch (error) {
-      toast.error(`Couldn't start on your desktop`, {
-        description: trpcErrorMessage(
-          error,
-          `The start command could not be delivered`
-        ),
-      })
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const busy = starting || sentTo !== null
-
-  return (
-    <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setDialogOpen(true)}
-        disabled={busy}
-      >
-        {starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
-        {devices.length === 1
-          ? `Start coding on ${devices[0].deviceLabel}`
-          : `Start on my desktop`}
-      </Button>
-      <StartCodingDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        devices={devices}
-        starting={starting}
-        onStart={(device, options) => void start(device, options)}
-      />
-      {sentTo && (
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
-          Start sent to {sentTo} — waiting for the desktop…
-        </span>
-      )}
-    </div>
-  )
 }
 
 // ── The agent-session view: structured activity feed over the relay ─────────

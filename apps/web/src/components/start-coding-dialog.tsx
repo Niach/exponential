@@ -3,6 +3,8 @@ import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { Loader2, MonitorUp, Search } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import type { CodingSession, Issue } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import { Button } from "@/components/ui/button"
@@ -150,13 +152,16 @@ export function StartCodingDialog({
     [open, workspaceId]
   )
 
+  // Staleness guard (EXP-153): a heartbeat-dead `running` row must not keep
+  // its issue blocked from a fresh start.
+  const now = useNow()
   const runningIssueIds = useMemo(() => {
     const set = new Set<string>()
     for (const s of (runningRows ?? []) as CodingSession[]) {
-      if (s.issueId) set.add(s.issueId)
+      if (s.issueId && !isCodingSessionStale(s.updatedAt, now)) set.add(s.issueId)
     }
     return set
-  }, [runningRows])
+  }, [runningRows, now])
 
   // Every repo-project issue, for looking up already-checked rows (a pre-checked
   // issue may not itself be "codeable", e.g. a done issue started from detail).

@@ -11,6 +11,8 @@ import {
   MonitorUp,
 } from "lucide-react"
 import type { CodingSession, Issue, Project, User } from "@/db/schema"
+import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { useNow } from "@/hooks/use-now"
 import {
   codingSessionCollection,
   workspaceMemberCollection,
@@ -146,9 +148,13 @@ function AgentRow({
         .where(({ s }) => and(eq(s.issueId, issue.id), eq(s.status, `running`))),
     [issue.id]
   )
+  // Staleness guard (EXP-153): heartbeat-dead `running` rows render as absent.
   // Multi-window desktops can run several sessions on one issue; surface the
   // most recent (the badge counts them all).
-  const sessions = (sessionRows ?? []) as CodingSession[]
+  const now = useNow()
+  const sessions = ((sessionRows ?? []) as CodingSession[]).filter(
+    (s) => !isCodingSessionStale(s.updatedAt, now)
+  )
   const latest = useMemo(() => {
     if (sessions.length === 0) return null
     return sessions.reduce((newest, row) =>
