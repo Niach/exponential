@@ -1,4 +1,4 @@
-• New agent card on issues with a restored start button
-• Start batch coding runs across several issues from your phone
-• Stale "coding now" badges from crashed sessions clear themselves
-• Menu order now matches across platforms
+• Polished start-coding sheet with a scrollable, issue-list-style picker
+• Plan approvals stay answerable until they're actually resolved
+• Richer activity phrases and tolerant timestamp parsing
+• Slimmer issue detail: single repo chip, due date in the metadata card
