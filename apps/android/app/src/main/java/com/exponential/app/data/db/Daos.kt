@@ -72,7 +72,9 @@ interface IssueDao {
     // Reviews (EXP-131): every issue in one workspace with an OPEN pull request.
     // Joins projects to scope by workspace and drop trashed/archived projects;
     // a batch PR links several issues to the SAME pr_url, so the client groups
-    // these rows by pr_url into one review entry.
+    // these rows by pr_url into one review entry. Draft and state-less prUrl
+    // rows are deliberately excluded — parity with web use-reviews-data.ts
+    // (open only).
     @Query(
         "SELECT i.* FROM issues i JOIN projects p ON p.id = i.project_id " +
             "WHERE p.workspace_id = :workspaceId AND i.pr_state = 'open' " +

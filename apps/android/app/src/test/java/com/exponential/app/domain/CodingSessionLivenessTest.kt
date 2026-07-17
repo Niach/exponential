@@ -57,4 +57,19 @@ class CodingSessionLivenessTest {
         assertFalse(CodingSessionLiveness.isStale("2026-07-17T11:30:00+00:00", nowMs))
         assertTrue(CodingSessionLiveness.isStale("2026-07-17T09:00:00+00:00", nowMs))
     }
+
+    @Test
+    fun parsesElectricPostgresTextForm() {
+        // Electric-synced rows carry Postgres text timestamps (space separator,
+        // hour-only offset). Before WireTimestamps these never parsed, which
+        // kept the staleness guard permanently fail-open on synced rows.
+        assertFalse(CodingSessionLiveness.isStale("2026-07-17 11:30:00.123456+00", nowMs))
+        assertTrue(CodingSessionLiveness.isStale("2026-07-17 09:00:00+00", nowMs))
+        assertTrue(
+            CodingSessionLiveness.isLive(session("running", "2026-07-17 11:30:00+00"), nowMs),
+        )
+        assertFalse(
+            CodingSessionLiveness.isLive(session("running", "2026-07-17 08:00:00+00"), nowMs),
+        )
+    }
 }

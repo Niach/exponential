@@ -140,7 +140,9 @@ struct ReviewsListContent: View {
 
     @ViewBuilder
     private func entryRow(_ entry: ReviewEntry) -> some View {
-        NavigationLink(value: AppRoute.issue(accountId: accountId, id: entry.representative.id)) {
+        // The Review detail (the diff + Merge/Close screen) is what a reviewer
+        // wants first (EXP-168); the issue itself is one tap away in the menu.
+        NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
             HStack(alignment: .top, spacing: 10) {
                 // PR glyph — the in_review status icon, green (EXP-120/131).
                 Image(systemName: IssueStatus.inReview.sfSymbol)
@@ -207,6 +209,11 @@ struct ReviewsListContent: View {
             .tint(.green)
         }
         .contextMenu {
+            Button {
+                deps.deepLinkBus.navigateToIssue(entry.representative.id)
+            } label: {
+                Label("Open issue", systemImage: "doc.text")
+            }
             Button {
                 mergeTarget = entry
             } label: {

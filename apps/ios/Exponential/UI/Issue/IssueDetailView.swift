@@ -198,17 +198,20 @@ struct IssueDetailView: View {
                                     .disabled(!vm.permissions.isModerator)
                                 }
                             }
+
+                            Divider().background(Color.white.opacity(0.06))
+
+                            // Due date — inline calendar, embedded as the card's
+                            // last row (EXP-167). Card A's opacity already dims
+                            // every child, so no per-row .opacity here.
+                            DueDatePicker(date: Binding(
+                                get: { parseDate(issue.dueDate) },
+                                set: { newDate in Task { await vm.setDueDate(newDate) } }
+                            ), embedded: true)
+                            .disabled(!vm.permissions.isModerator)
                         }
                         .padding(.vertical, 4)
                         .glassSection()
-                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
-
-                        // Due date — inline calendar
-                        DueDatePicker(date: Binding(
-                            get: { parseDate(issue.dueDate) },
-                            set: { newDate in Task { await vm.setDueDate(newDate) } }
-                        ))
-                        .disabled(!vm.permissions.isModerator)
                         .opacity(vm.permissions.isModerator ? 1 : 0.55)
 
                         // Times (only when a due date is set; matches the

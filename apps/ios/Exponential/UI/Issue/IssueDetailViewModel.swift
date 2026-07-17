@@ -560,7 +560,9 @@ final class IssueDetailViewModel {
                     id: row.id,
                     identifier: row.identifier,
                     title: row.title,
-                    repositoryId: repoAny[row.projectId]
+                    repositoryId: repoAny[row.projectId],
+                    status: row.status,
+                    priority: row.priority
                 )
             }
         }

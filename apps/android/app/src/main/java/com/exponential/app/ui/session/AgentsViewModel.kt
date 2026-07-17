@@ -122,6 +122,8 @@ class AgentsViewModel @Inject constructor(
                         identifier = issue.identifier,
                         title = issue.title,
                         repositoryId = eligibleProjects[issue.projectId]?.repositoryId,
+                        status = issue.status,
+                        priority = issue.priority,
                     )
                 }
         }

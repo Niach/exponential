@@ -60,4 +60,13 @@ final class CodingSessionLivenessTests: XCTestCase {
         XCTAssertFalse(CodingSessionLiveness.isStale(updatedAt: "2026-07-17T11:30:00.123Z", now: now))
         XCTAssertTrue(CodingSessionLiveness.isStale(updatedAt: "2026-07-17T09:00:00.500Z", now: now))
     }
+
+    func testParsesPostgresTextHeartbeat() {
+        // Electric syncs updatedAt as Postgres text (space separator, hour-only
+        // offset) — the guard must read it, not fall open (EXP-153). 11:30 is
+        // inside the 2h window, 09:00 past it.
+        XCTAssertFalse(CodingSessionLiveness.isStale(updatedAt: "2026-07-17 11:30:00+00", now: now))
+        XCTAssertFalse(CodingSessionLiveness.isStale(updatedAt: "2026-07-17 11:30:00.123456+00", now: now))
+        XCTAssertTrue(CodingSessionLiveness.isStale(updatedAt: "2026-07-17 09:00:00+00", now: now))
+    }
 }

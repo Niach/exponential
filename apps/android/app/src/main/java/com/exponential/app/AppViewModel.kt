@@ -13,6 +13,7 @@ import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.defaultWorkspaceId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +60,53 @@ class AppViewModel @Inject constructor(
             auth.activeAccountId
                 .drop(1)
                 .collect { workspaceSelection.clearSelection() }
+        }
+        // EXP-166/EXP-168: default-workspace bootstrap. selectedId starts null
+        // (and re-nulls on account switch / workspace deletion) while Agents +
+        // Reviews gate on it — so resolve a default HERE (the app shell always
+        // runs) instead of relying on the Issues tab having mounted. Priority:
+        // the workspace of the last-opened project (what the Issues root
+        // shows), else the first synced workspace (iOS AppNavigator parity).
+        // Writes only while the selection is null, so explicit switches
+        // (Settings → Workspaces) and the onboarding/create-project selects are
+        // never overridden.
+        @OptIn(ExperimentalCoroutinesApi::class)
+        viewModelScope.launch {
+            combine(
+                auth.activeAccountId,
+                workspaceSelection.selectedId,
+                workspaceSelection.lastProjectVersion, // re-resolve after switcher picks
+            ) { accountId, selected, _ -> accountId to selected }
+                .flatMapLatest { (accountId, selected) ->
+                    if (accountId == null || selected != null) {
+                        flowOf<Pair<String, String?>?>(null)
+                    } else {
+                        // The db derives from the SAME accountId emission —
+                        // combining accountDatabaseFlow separately could pair a
+                        // stale db with a newer account mid-switch and select a
+                        // workspace from the previous account's database.
+                        val db = databaseHolder.database(forAccountId = accountId)
+                        combine(
+                            db.workspaceDao().observeAll(),
+                            db.projectDao().observeAll(),
+                        ) { workspaces, projects ->
+                            accountId to defaultWorkspaceId(
+                                workspaces,
+                                projects,
+                                workspaceSelection.lastProject(accountId),
+                            )
+                        }
+                    }
+                }
+                .collect { resolved ->
+                    val (accountId, defaultId) = resolved ?: return@collect
+                    // The account guard closes the tail of the switch race: a
+                    // resolve computed for an account that is no longer active
+                    // must never write.
+                    if (defaultId != null && auth.activeAccountId.value == accountId) {
+                        workspaceSelection.selectIfNull(defaultId)
+                    }
+                }
         }
         // Stale-selection guard (EXP-43 hardening): a deleted workspace leaves
         // the global selection pointing at a row that no longer exists in Room

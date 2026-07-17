@@ -9,6 +9,7 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
+import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -29,6 +30,7 @@ data class CommentThreadState(
     val comments: List<CommentEntity> = emptyList(),
     val events: List<IssueEventEntity> = emptyList(),
     val usersById: Map<String, UserEntity> = emptyMap(),
+    val labelsById: Map<String, LabelEntity> = emptyMap(),
     val currentUserId: String? = null,
     val isAdmin: Boolean = false,
 )
@@ -50,17 +52,26 @@ class CommentThreadViewModel @Inject constructor(
 
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
-    // Comments + activity events pre-combined into one flow so the outer combine
-    // stays within the 5-arg typed overload.
-    private val commentsAndEvents = combine(dbFlow, issueIdFlow) { db, id -> db to id }
+    // Comments + activity events + labels pre-combined into one flow so the
+    // outer combine stays within the 5-arg typed overload. Labels feed the
+    // event rows' "added label X" phrases (EXP-169) — cross-workspace list,
+    // tiny table, same usage as the "My Issues" rows.
+    private val commentsEventsLabels = combine(dbFlow, issueIdFlow) { db, id -> db to id }
         .flatMapLatest { (db, id) ->
             if (db == null || id == null) {
-                flowOf(emptyList<CommentEntity>() to emptyList<IssueEventEntity>())
+                flowOf(
+                    Triple(
+                        emptyList<CommentEntity>(),
+                        emptyList<IssueEventEntity>(),
+                        emptyList<LabelEntity>(),
+                    ),
+                )
             } else {
                 combine(
                     db.commentDao().observeByIssue(id),
                     db.issueEventDao().observeByIssue(id),
-                ) { comments, events -> comments to events }
+                    db.labelDao().observeAll(),
+                ) { comments, events, labels -> Triple(comments, events, labels) }
             }
         }
 
@@ -69,16 +80,17 @@ class CommentThreadViewModel @Inject constructor(
             .flatMapLatest { (db, id) ->
                 if (db == null || id == null) flowOf(null) else db.issueDao().observeById(id)
             },
-        commentsAndEvents,
+        commentsEventsLabels,
         dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         auth.userId,
         auth.isAdmin,
-    ) { issue, (comments, events), users, userId, isAdmin ->
+    ) { issue, (comments, events, labels), users, userId, isAdmin ->
         CommentThreadState(
             issue = issue,
             comments = comments,
             events = events,
             usersById = users.associateBy { it.id },
+            labelsById = labels.associateBy { it.id },
             currentUserId = userId,
             isAdmin = isAdmin,
         )

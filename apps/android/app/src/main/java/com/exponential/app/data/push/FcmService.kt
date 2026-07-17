@@ -39,9 +39,7 @@ class FcmService : FirebaseMessagingService() {
         // keep the link for those. Routing a tap into a non-active account
         // (switching or an account-scoped route) is still open.
         val targetUserId = data["userId"]
-        val activeUserId =
-            auth.accounts.value.firstOrNull { it.id == auth.activeAccountId.value }?.userId
-        val targetsActiveAccount = targetUserId == null || targetUserId == activeUserId
+        val targetsActiveAccount = targetUserId == null || targetUserId == auth.userId.value
 
         val intent = if (issueId != null && targetsActiveAccount) {
             Intent(Intent.ACTION_VIEW, Uri.parse("exponential://issue/$issueId")).apply {

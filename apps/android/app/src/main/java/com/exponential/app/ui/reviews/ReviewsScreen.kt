@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
@@ -57,10 +58,15 @@ import com.exponential.app.ui.theme.glassRow
  * "Reviews" (EXP-131): the open pull requests in the current workspace, grouped
  * by project. Its own bottom-bar destination beside My Work (EXP-147 — it used
  * to be a PersonalScreen segment). A batch coding run's combined PR shows as
- * ONE entry ("N issues"), never one row per linked issue.
+ * ONE entry ("N issues"), never one row per linked issue. Rows open the Review
+ * detail (EXP-168 — web parity: the reviews queue reviews PRs, not issues);
+ * the long-press sheet keeps an "Open issue" path.
  */
 @Composable
-fun ReviewsScreen(onOpenIssue: (String) -> Unit) {
+fun ReviewsScreen(
+    onOpenIssue: (String) -> Unit,
+    onOpenChanges: (String) -> Unit,
+) {
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Text(
@@ -69,7 +75,7 @@ fun ReviewsScreen(onOpenIssue: (String) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             )
-            ReviewsListContent(onOpenIssue = onOpenIssue)
+            ReviewsListContent(onOpenIssue = onOpenIssue, onOpenChanges = onOpenChanges)
         }
     }
 }
@@ -78,6 +84,7 @@ fun ReviewsScreen(onOpenIssue: (String) -> Unit) {
 @Composable
 private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
+    onOpenChanges: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
@@ -103,7 +110,8 @@ private fun ReviewsListContent(
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
                         entry = entry,
-                        onClick = { onOpenIssue(entry.representative.id) },
+                        onClick = { onOpenChanges(entry.representative.id) },
+                        onOpenIssue = { onOpenIssue(entry.representative.id) },
                         onMerge = { mergeTarget = entry },
                     )
                 }
@@ -152,6 +160,7 @@ private fun ProjectHeader(name: String, count: Int) {
 private fun ReviewRow(
     entry: ReviewEntry,
     onClick: () -> Unit,
+    onOpenIssue: () -> Unit,
     onMerge: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -259,6 +268,18 @@ private fun ReviewRow(
                     },
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+                // Row taps open the Review detail (EXP-168), so issue access
+                // moves here — the representative issue for a batch entry.
+                ListItem(
+                    headlineContent = { Text("Open issue") },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showActions = false
+                            onOpenIssue()
+                        },
                 )
                 ListItem(
                     headlineContent = { Text("Merge pull request") },

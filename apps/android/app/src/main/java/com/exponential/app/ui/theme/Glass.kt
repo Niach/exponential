@@ -106,11 +106,17 @@ fun Modifier.glassCard(): Modifier {
         .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
 }
 
-/** Capsule glass button / filter pill — iOS `.glassButton()`. */
-fun Modifier.glassButton(active: Boolean = false): Modifier {
+/**
+ * Capsule glass button / filter pill — iOS `.glassButton()`. [opaque] lays a
+ * solid Card fill beneath the glass tint (same shape) for pills floating over
+ * scrolling content, where the low-alpha fill alone lets it bleed through
+ * (EXP-165).
+ */
+fun Modifier.glassButton(active: Boolean = false, opaque: Boolean = false): Modifier {
     val shape = RoundedCornerShape(percent = 50)
     return this
         .clip(shape)
+        .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
         .background(if (active) GlassTokens.RowFillActive else GlassTokens.RowFill, shape)
         .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeRow, shape)
 }

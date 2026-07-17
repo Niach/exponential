@@ -305,7 +305,8 @@ fun IssueDetailScreen(
         ) {
             SyncBannerRow(syncBanner)
             if (syncBanner != SyncBanner.None) Spacer(Modifier.height(8.dp))
-            // Header: identifier chip + repo chip (actions live in the nav bar).
+            // Header: identifier chip (actions live in the nav bar). The repo
+            // chip renders once, above the agent/PR card (EXP-170).
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     issue.identifier,
@@ -316,12 +317,6 @@ fun IssueDetailScreen(
                         .glassButton()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-                // The backing repo (name resolved via the repositories API, cached)
-                // — a project is a repository now (masterplan v4 §6).
-                repoName?.let { name ->
-                    Spacer(Modifier.width(6.dp))
-                    RepoChip(name)
-                }
             }
 
             // Conflict affordance: a remote edit to the title or description

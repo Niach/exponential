@@ -7,20 +7,14 @@ import Foundation
 /// kill-switch signal) — so a crashed desktop can't pin a phantom
 /// "coding now" badge when the sweep lags or isn't running.
 public enum CodingSessionLiveness {
-    // Cached: ISO8601DateFormatter construction is not free and this runs per
-    // row. The fractional/plain pair exists because `.withFractionalSeconds`
-    // rejects second-precision strings and vice versa. ISO8601DateFormatter is
-    // documented thread-safe, but it isn't Sendable, so strict concurrency
-    // needs the nonisolated(unsafe) opt-out for a shared cached instance.
-    private nonisolated(unsafe) static let fractional: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-    private nonisolated(unsafe) static let plain = ISO8601DateFormatter()
-
+    /// Parse the synced `updatedAt` heartbeat. Delegates to WireTimestamps so
+    /// Electric's Postgres text form (space separator, hour-only offset) parses
+    /// too — this is what ACTIVATES the guard on synced rows. An ISO8601-only
+    /// parser returned nil for every synced heartbeat, keeping the guard
+    /// permanently fail-open (phantom "coding now" badges). Nil still means
+    /// fail-open by design (see isStale): never hide a live session.
     public static func parseIso(_ timestamp: String) -> Date? {
-        fractional.date(from: timestamp) ?? plain.date(from: timestamp)
+        WireTimestamps.parse(timestamp)
     }
 
     /// Unparseable liveness signal ⇒ live (fail-open: never hide a session

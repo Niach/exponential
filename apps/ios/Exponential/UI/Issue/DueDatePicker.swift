@@ -5,9 +5,23 @@ import SwiftUI
 /// Shows a row with the current date (or "None"), tappable to expand a graphical calendar.
 struct DueDatePicker: View {
     @Binding var date: Date?
+    /// When true, renders WITHOUT its own `.glassSection()` so the picker can sit
+    /// as the last row inside another card (EXP-167 — the Status/Priority card).
+    var embedded: Bool = false
     @State private var expanded = false
 
     var body: some View {
+        Group {
+            if embedded {
+                core
+            } else {
+                core.glassSection()
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: expanded)
+    }
+
+    private var core: some View {
         VStack(spacing: 0) {
             Button {
                 expanded.toggle()
@@ -70,8 +84,6 @@ struct DueDatePicker: View {
                 .padding(.bottom, 8)
             }
         }
-        .glassSection()
-        .animation(.easeInOut(duration: 0.2), value: expanded)
     }
 
     private func formatted(_ date: Date) -> String {

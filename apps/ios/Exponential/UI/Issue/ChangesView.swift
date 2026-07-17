@@ -187,7 +187,7 @@ struct ChangesView: View {
                 ProgressView().tint(.white)
             }
         }
-        .navigationTitle("Changes")
+        .navigationTitle("Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear {

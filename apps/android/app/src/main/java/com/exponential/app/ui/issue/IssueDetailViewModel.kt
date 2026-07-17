@@ -275,6 +275,8 @@ class IssueDetailViewModel @Inject constructor(
                     identifier = issue.identifier,
                     title = issue.title,
                     repositoryId = repoProjects[issue.projectId]?.repositoryId,
+                    status = issue.status,
+                    priority = issue.priority,
                 )
             }
         }

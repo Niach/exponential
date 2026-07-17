@@ -23,10 +23,19 @@ class WorkspaceSelection @Inject constructor(
         _selectedId.value = id
     }
 
+    // Single write point for a DEFAULT selection (EXP-166/EXP-168): only takes
+    // effect while nothing is selected, so explicit switches (Settings →
+    // Workspaces) and the onboarding/create-project selects always win over
+    // the app-level bootstrap (AppViewModel.init).
+    fun selectIfNull(id: String) {
+        if (_selectedId.value == null) _selectedId.value = id
+    }
+
     // Drop the selected workspace when the active account changes: the selected
     // id belongs to the previous account's DB, so the new account must resolve
-    // its own default (HomeViewModel.bootstrap re-selects). Without this the
-    // global selection leaks a workspace id across users/servers.
+    // its own default (AppViewModel's default-workspace bootstrap re-selects).
+    // Without this the global selection leaks a workspace id across
+    // users/servers.
     fun clearSelection() {
         _selectedId.value = null
     }

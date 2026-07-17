@@ -42,7 +42,10 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        handleIntent(intent)
+        // Push-tap extras are only consumed on a FRESH delivery: a recreation
+        // (config change or process-death restore) redelivers the same launcher
+        // intent with the same extras; savedInstanceState != null identifies it.
+        handleIntent(intent, allowPushExtras = savedInstanceState == null)
         maybeRequestNotificationPermission()
         setContent {
             ExponentialTheme {
@@ -54,10 +57,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        // A singleTask re-delivery is always a fresh tap.
+        handleIntent(intent, allowPushExtras = true)
     }
 
-    private fun handleIntent(intent: Intent?) {
+    private fun handleIntent(intent: Intent?, allowPushExtras: Boolean) {
         // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
         // this must run before the exponential:// deep-link guard below. Parse +
         // copy images while the read grant is still live (see ShareIntentParser).
@@ -66,7 +70,17 @@ class MainActivity : ComponentActivity() {
             deepLinkBus.openShare(payload.text, payload.subject, payload.imageUris)
             return
         }
-        val data = intent?.data ?: return
+        val data = intent?.data
+        if (data == null) {
+            // EXP-172: notification-type FCM messages are rendered by the FCM
+            // SDK while the app is backgrounded (FcmService never runs — see the
+            // AndroidManifest note), and the tap launches this activity with the
+            // data payload ({type, issueId, identifier, userId}) as plain
+            // launcher-intent EXTRAS, not a data URI. Route it through the same
+            // bus as the foreground-built PendingIntent path.
+            if (intent != null && allowPushExtras) handlePushExtras(intent)
+            return
+        }
         // Verified App Links (EXP-92): https issue/invite URLs from the
         // manifest's autoVerify filter. Kept dumb here — resolution (slug +
         // identifier → local issue id) happens in AppNavHost, which already
@@ -94,6 +108,23 @@ class MainActivity : ComponentActivity() {
             // picker, which consumes this and re-fetches the repo list.
             "github-connected" -> deepLinkBus.openGithubConnected()
         }
+    }
+
+    // Route a backgrounded push tap's launcher-intent extras to the issue. Same
+    // active-account guard as FcmService.onMessageReceived: only deep-link when
+    // the push targets the ACTIVE account (another account's issue id would
+    // dead-end in the wrong local database); servers predating the userId hint
+    // omit it — keep the link then. AccountStore loads synchronously, so the
+    // guard is valid even during onCreate. AppNavHost parks the bus target
+    // until the auth token is ready, so a cold-start tap navigates post-login.
+    private fun handlePushExtras(intent: Intent) {
+        val issueId = intent.getStringExtra("issueId") ?: return
+        val targetUserId = intent.getStringExtra("userId")
+        if (targetUserId != null && targetUserId != authRepository.userId.value) return
+        // Belt-and-braces beside the savedInstanceState gate: an in-process
+        // recreation reuses this same Intent instance via getIntent().
+        intent.removeExtra("issueId")
+        deepLinkBus.openIssue(issueId)
     }
 
     private fun handleOauthReturn(data: android.net.Uri) {

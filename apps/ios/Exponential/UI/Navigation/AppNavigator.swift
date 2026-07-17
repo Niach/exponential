@@ -278,7 +278,7 @@ struct MainNavigator: View {
                 // host match); push taps only know the recipient's userId.
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
-                path.append(AppRoute.issue(accountId: accountId, id: issueId))
+                appendIssueRoute(accountId: accountId, issueId: issueId)
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -301,7 +301,7 @@ struct MainNavigator: View {
             let userId = deps.deepLinkBus.pendingIssueUserId
             if let issueId = deps.deepLinkBus.consume() {
                 let accountId = pendingAccountId ?? issueAccountId(forUserId: userId)
-                path.append(AppRoute.issue(accountId: accountId, id: issueId))
+                appendIssueRoute(accountId: accountId, issueId: issueId)
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
@@ -575,6 +575,17 @@ struct MainNavigator: View {
         // and the next launch lands back in it.
         SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
         currentProject = CurrentProjectRef(accountId: accountId, projectId: projectId)
+    }
+
+    /// Push the issue detail from a deep-link/push tap. Shared by both drain
+    /// paths (EXP-172). No explicit sync kick: IssueDetailView observes GRDB
+    /// live, and a just-created issue (e.g. a fresh support ticket) arrives over
+    /// the running Electric long-poll — on a cold start the initial sync is
+    /// already in flight by the time this route lands, so there is nothing
+    /// useful to await here (initialSync only passively polls the active
+    /// account's workspaces table; it starts no shape fetch).
+    private func appendIssueRoute(accountId: String, issueId: String) {
+        path.append(AppRoute.issue(accountId: accountId, id: issueId))
     }
 
     private func stopObserving() {
