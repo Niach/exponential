@@ -115,6 +115,7 @@ final class IssueDetailViewModel {
         // GRDB only re-fires on writes — a minute clock re-applies the
         // staleness filter so a phantom session's steer panel clears once its
         // liveness window elapses without any sync delta (EXP-153).
+        livenessTask?.cancel()
         livenessTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))

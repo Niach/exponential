@@ -184,7 +184,7 @@ struct AgentPrCard: View {
                                 Image(systemName: "play.display")
                                     .font(.caption)
                             }
-                            Text(devices.count == 1
+                            Text(devices.count == 1 && !devices[0].deviceLabel.isEmpty
                                 ? "Start coding on \(devices[0].deviceLabel)"
                                 : "Start coding")
                                 .font(.caption.weight(.medium))

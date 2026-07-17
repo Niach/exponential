@@ -548,8 +548,8 @@ export function AgentSessionView({
         { context: { skipErrorToast: true } }
       )
       setConfirmKill(false)
-      // The synced row flips to ended, which unmounts the whole panel; the
-      // relay `bye` tears the socket down in parallel.
+      // The synced row flips to ended — the dock keeps the panel mounted
+      // until the user collapses it; the relay `bye` tears the socket down.
     } catch (error) {
       toast.error(`Couldn't kill the session`, {
         description: trpcErrorMessage(error, `The kill could not be delivered`),

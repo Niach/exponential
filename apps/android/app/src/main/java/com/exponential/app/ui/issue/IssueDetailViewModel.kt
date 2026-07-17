@@ -305,6 +305,7 @@ class IssueDetailViewModel @Inject constructor(
                     _startState.value = SteerStartState.Idle
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 // Surfaces PRECONDITION_FAILED reasons (device offline, no
                 // linked repository, relay off) from the steer router.
                 _startState.value = SteerStartState.Failed(

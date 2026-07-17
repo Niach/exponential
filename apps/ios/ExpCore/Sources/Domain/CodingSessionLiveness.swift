@@ -9,13 +9,15 @@ import Foundation
 public enum CodingSessionLiveness {
     // Cached: ISO8601DateFormatter construction is not free and this runs per
     // row. The fractional/plain pair exists because `.withFractionalSeconds`
-    // rejects second-precision strings and vice versa.
-    private static let fractional: ISO8601DateFormatter = {
+    // rejects second-precision strings and vice versa. ISO8601DateFormatter is
+    // documented thread-safe, but it isn't Sendable, so strict concurrency
+    // needs the nonisolated(unsafe) opt-out for a shared cached instance.
+    private nonisolated(unsafe) static let fractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-    private static let plain = ISO8601DateFormatter()
+    private nonisolated(unsafe) static let plain = ISO8601DateFormatter()
 
     public static func parseIso(_ timestamp: String) -> Date? {
         fractional.date(from: timestamp) ?? plain.date(from: timestamp)

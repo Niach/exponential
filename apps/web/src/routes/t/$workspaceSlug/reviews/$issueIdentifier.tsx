@@ -376,7 +376,7 @@ function ReviewDetailPage() {
                 : `Merge ${issue.identifier}?`}
             </DialogTitle>
             <DialogDescription>
-              {`Squash-merges pull request #${issue.prNumber} (${issue.branch}) into the repository's default branch via the GitHub App.`}
+              {`Squash-merges pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} into the repository's default branch via the GitHub App.`}
               {isBatch
                 ? ` Completes all ${linked.length} linked issues: ${linked
                     .map((i) => i.identifier)
@@ -405,7 +405,7 @@ function ReviewDetailPage() {
                 : `Close ${issue.identifier}'s pull request?`}
             </DialogTitle>
             <DialogDescription>
-              {`Closes pull request #${issue.prNumber} (${issue.branch}) on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
+              {`Closes pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
               {isBatch
                 ? ` The PR is linked to ${linked.length} issues: ${linked
                     .map((i) => i.identifier)

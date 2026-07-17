@@ -19,6 +19,7 @@ import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -185,6 +186,7 @@ class AgentsViewModel @Inject constructor(
                     _startState.value = SteerStartState.Idle
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
                     trpcErrorMessage(t, "The start command could not be delivered"),
                 )
