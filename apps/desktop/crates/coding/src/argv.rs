@@ -89,16 +89,17 @@ impl LaunchOptions {
         }
     }
 
-    /// Options for a RELAY-triggered single-issue start (EXP-149): the remote
-    /// client's Start-coding dialog choices, normalized against the closed
-    /// alias sets, over settings defaults for anything it didn't send.
-    /// `effort: Some("")` is an explicit "CLI default" and beats a non-blank
-    /// settings effort. Plan mode defaults OFF when absent (F7 — an
-    /// option-less start must never park an unattended desktop at the
-    /// plan-approval TUI); a remote client sending `plan_mode: true` opted in
-    /// knowingly.
-    pub fn remote_issue(
+    /// The shared RELAY-start normalization (EXP-149): the remote client's
+    /// Start-coding dialog choices normalized against the closed alias sets,
+    /// over settings defaults for anything it didn't send. `effort: Some("")`
+    /// is an explicit "CLI default" and beats a non-blank settings effort.
+    /// Absent ultracode falls to `default_ultracode` (the run mode's settings
+    /// default). Plan mode defaults OFF when absent (F7 — an option-less start
+    /// must never park an unattended desktop at the plan-approval TUI); a
+    /// remote client sending `plan_mode: true` opted in knowingly.
+    fn remote(
         settings: &Settings,
+        default_ultracode: bool,
         model: Option<&str>,
         effort: Option<&str>,
         ultracode: Option<bool>,
@@ -114,9 +115,35 @@ impl LaunchOptions {
                 Some(effort) => normalize_choice(effort, &EFFORT_LEVELS, ""),
                 None => settings.claude_effort.clone(),
             },
-            ultracode: ultracode.unwrap_or(settings.issue_ultracode),
+            ultracode: ultracode.unwrap_or(default_ultracode),
             plan_mode: plan_mode.unwrap_or(false),
         }
+    }
+
+    /// RELAY-triggered SINGLE-ISSUE start (EXP-149): absent ultracode falls to
+    /// the ISSUE settings default.
+    pub fn remote_issue(
+        settings: &Settings,
+        model: Option<&str>,
+        effort: Option<&str>,
+        ultracode: Option<bool>,
+        plan_mode: Option<bool>,
+    ) -> Self {
+        Self::remote(settings, settings.issue_ultracode, model, effort, ultracode, plan_mode)
+    }
+
+    /// RELAY-triggered BATCH start: absent ultracode falls to the BATCH
+    /// settings default; plan mode stays OFF unless the remote client
+    /// explicitly opted in (F7 — an unattended desktop must never park at a
+    /// plan-approval menu).
+    pub fn remote_batch(
+        settings: &Settings,
+        model: Option<&str>,
+        effort: Option<&str>,
+        ultracode: Option<bool>,
+        plan_mode: Option<bool>,
+    ) -> Self {
+        Self::remote(settings, settings.batch_ultracode, model, effort, ultracode, plan_mode)
     }
 }
 
@@ -328,6 +355,51 @@ mod tests {
         assert_eq!(opts.effort, "");
         // Bogus effort also degrades to blank (omit --effort).
         let opts = LaunchOptions::remote_issue(&settings, None, Some("extreme"), None, None);
+        assert_eq!(opts.effort, "");
+    }
+
+    #[test]
+    fn remote_batch_all_absent_uses_batch_ultracode_and_plan_off() {
+        // All-absent: settings model/effort + the BATCH ultracode default,
+        // plan mode OFF even when the batch plan-mode setting is ON (F7).
+        let mut settings = Settings::default();
+        settings.claude_model = "opus".to_string();
+        settings.claude_effort = "high".to_string();
+        settings.batch_ultracode = true;
+        settings.batch_plan_mode = true; // must NOT leak into a remote start
+        let opts = LaunchOptions::remote_batch(&settings, None, None, None, None);
+        assert_eq!(opts.model, "opus");
+        assert_eq!(opts.effort, "high");
+        assert!(opts.ultracode);
+        assert!(!opts.plan_mode);
+    }
+
+    #[test]
+    fn remote_batch_applies_and_normalizes_sent_options() {
+        let mut settings = Settings::default();
+        settings.claude_effort = "high".to_string();
+        settings.batch_ultracode = true;
+
+        let opts = LaunchOptions::remote_batch(
+            &settings,
+            Some("Sonnet"),
+            Some("max"),
+            Some(false),
+            Some(true),
+        );
+        assert_eq!(opts.model, "sonnet", "case-normalized");
+        assert_eq!(opts.effort, "max");
+        assert!(!opts.ultracode, "explicit remote off beats the batch default");
+        assert!(opts.plan_mode, "explicit remote opt-in");
+
+        // Bogus model falls back to the settings model.
+        let opts = LaunchOptions::remote_batch(&settings, Some("gpt-6"), None, None, None);
+        assert_eq!(opts.model, "fable");
+
+        // Explicit blank effort = "CLI default"; bogus effort also degrades.
+        let opts = LaunchOptions::remote_batch(&settings, None, Some(""), None, None);
+        assert_eq!(opts.effort, "");
+        let opts = LaunchOptions::remote_batch(&settings, None, Some("extreme"), None, None);
         assert_eq!(opts.effort, "");
     }
 }

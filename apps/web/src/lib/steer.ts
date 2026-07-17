@@ -210,11 +210,33 @@ export interface SteerStartOptions {
   planMode?: boolean
 }
 
+/**
+ * The repo group a BATCH remote start carries. Resolved server-side (from the
+ * batch's shared project repository) because the desktop syncs no repositories
+ * collection — the relay frame must be "fat" enough for the launcher to clone
+ * without a lookup. NEVER includes installationId: that is a server-only
+ * secret and must never ride the relay.
+ */
+export interface SteerStartRepo {
+  repositoryId: string
+  fullName: string
+  defaultBranch: string
+}
+
+/**
+ * The subject of a remote start: either a single issue (wire-unchanged) or a
+ * batch of issues sharing one workspace + repo group. Exactly one form.
+ */
+export type SteerStartSubject =
+  | { issueId: string }
+  | { issueIds: string[]; workspaceId: string; repo: SteerStartRepo }
+
 /** POST /start — route a remote start to the device's control socket.
  * Undefined option fields are dropped by JSON.stringify — never sent. */
 export async function relayPostStart(
   config: SteerRelayConfig,
-  body: { userId: string; deviceId: string; issueId: string } & SteerStartOptions,
+  body: { userId: string; deviceId: string } & SteerStartSubject &
+    SteerStartOptions,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<RelayStartResult> {
   const res = await fetchImpl(`${steerHttpBase(config.url)}/start`, {

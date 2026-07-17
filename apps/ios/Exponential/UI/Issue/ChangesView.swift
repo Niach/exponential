@@ -22,11 +22,20 @@ final class ChangesViewModel {
     /// collapsed (reset on every reload).
     private(set) var expanded: Set<String> = []
 
+    /// Membership gates the Merge / Close affordances (resolved from the issue's
+    /// project → workspace, like IssueDetailViewModel.refreshPermissions). The
+    /// server enforces the rule too; this just hides controls a viewer can't use.
+    private(set) var permissions: WorkspacePermissions = .denied
+    private(set) var merging = false
+    private(set) var closing = false
+    private(set) var actionError: String?
+
     private let accountId: String
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private let repositoriesApi: RepositoriesApi
+    private let auth: AuthRepository
 
     private var observationTask: Task<Void, Never>?
     /// nil until the first issue row arrives; a flip re-fetches (Android's
@@ -38,13 +47,15 @@ final class ChangesViewModel {
         issueId: String,
         db: DatabaseManager,
         issuesApi: IssuesApi,
-        repositoriesApi: RepositoriesApi
+        repositoriesApi: RepositoriesApi,
+        auth: AuthRepository
     ) {
         self.accountId = accountId
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
         self.repositoriesApi = repositoriesApi
+        self.auth = auth
     }
 
     func startObserving() {
@@ -59,6 +70,7 @@ final class ChangesViewModel {
                 for try await row in observation.values(in: pool) {
                     guard let self, let row else { continue }
                     self.issue = row
+                    self.refreshPermissions(for: row)
                     // Re-fetch when the diff source flips (a PR opens on a
                     // watched branch) — and once on the first row.
                     let hasPr = row.prUrl?.isEmpty == false
@@ -99,20 +111,71 @@ final class ChangesViewModel {
             expanded.insert(filename)
         }
     }
+
+    /// Resolve membership from the issue's project → workspace (mirror of
+    /// IssueDetailViewModel.refreshPermissions) so the review actions only show
+    /// for members.
+    private func refreshPermissions(for issue: IssueEntity) {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
+            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
+            return try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
+        }) ?? nil
+        permissions = WorkspacePermissions.resolve(
+            workspace: workspace,
+            currentUserId: auth.userId,
+            isAdmin: auth.isAdmin,
+            dbPool: pool
+        )
+    }
+
+    /// Squash-merge the PR via the GitHub App (EXP-131). Success needs no local
+    /// write — Electric echoes the prState/status flips.
+    func mergePr() {
+        guard !merging else { return }
+        merging = true
+        actionError = nil
+        Task {
+            do {
+                try await issuesApi.mergePr(accountId: accountId, issueId: issueId)
+            } catch {
+                actionError = error.localizedDescription
+            }
+            merging = false
+        }
+    }
+
+    /// Close the PR WITHOUT merging (EXP-100 — the drop path). The prState flip
+    /// arrives through Electric sync; failures caption the header.
+    func closePr() {
+        guard !closing else { return }
+        closing = true
+        actionError = nil
+        Task {
+            do {
+                try await issuesApi.closePr(accountId: accountId, issueId: issueId)
+            } catch {
+                actionError = error.localizedDescription
+            }
+            closing = false
+        }
+    }
 }
 
-/// The dedicated diff page (EXP-34): summary header (branch, PR-state badge,
-/// totals, GitHub link) + per-file expandable unified patches with the shared
-/// DiffRendering coloring. Pushed from ChangesSection's "View changes" on both
-/// the PR tier and the pushed-branch tier. Horizontal panning stays inside
-/// each file's code block — the page itself never scrolls sideways. Matches
-/// the Android ChangesScreen's information hierarchy.
+/// The dedicated diff + review page (EXP-34/156): summary header (branch,
+/// PR-state badge, totals, GitHub link, and — for members on an open PR —
+/// Merge / Close PR actions) + per-file expandable unified patches with the
+/// shared DiffRendering coloring. Pushed from AgentPrCard's PR / branch rows.
+/// Horizontal panning stays inside each file's code block — the page itself
+/// never scrolls sideways. Matches the Android ChangesScreen's hierarchy.
 struct ChangesView: View {
     let issueId: String
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var viewModel: ChangesViewModel?
+    @State private var mergeConfirm = false
+    @State private var closeConfirm = false
 
     var body: some View {
         ZStack {
@@ -134,7 +197,8 @@ struct ChangesView: View {
                     issueId: issueId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
-                    repositoriesApi: deps.repositoriesApi
+                    repositoriesApi: deps.repositoriesApi,
+                    auth: deps.auth
                 )
             }
             // Re-arm on every appear: pushing another screen stops the
@@ -144,28 +208,69 @@ struct ChangesView: View {
         .onDisappear {
             viewModel?.stopObserving()
         }
+        // Squash-merge (EXP-131) — confirm-gated like the Reviews list.
+        .alert("Merge pull request?", isPresented: $mergeConfirm) {
+            Button("Merge") { viewModel?.mergePr() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(mergeMessage)
+        }
+        // Close-without-merge (EXP-100) — the drop path; exact copy from the
+        // former ChangesSection.
+        .confirmationDialog(
+            "Close pull request?",
+            isPresented: $closeConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Close PR without merging", role: .destructive) { viewModel?.closePr() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Closes the pull request on GitHub without merging — use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
+        }
+    }
+
+    /// The merge alert message — carries the PR number when known.
+    private var mergeMessage: String {
+        if let number = viewModel?.issue?.prNumber {
+            return "Squash-merges PR #\(number) via the GitHub App."
+        }
+        return "Squash-merges this pull request via the GitHub App."
     }
 
     @ViewBuilder
     private func content(_ vm: ChangesViewModel) -> some View {
-        switch vm.load {
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small).tint(.white)
-                Text("Loading changes…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        case let .failed(message):
-            Text("Couldn't load changes: \(message)")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-        case let .loaded(files):
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    summaryHeader(issue: vm.issue, files: files)
+        let loadedFiles: [PrFile]? = {
+            if case let .loaded(files) = vm.load { return files }
+            return nil
+        }()
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                // The PR/branch header + review actions come from synced issue
+                // fields, so they render in EVERY load state — a diff-fetch
+                // failure must never strand a member without Merge / Close
+                // (Close exists nowhere else on iOS). The stats line only shows
+                // once files are loaded.
+                if vm.issue != nil {
+                    summaryHeader(vm: vm, files: loadedFiles)
+                }
+
+                switch vm.load {
+                case .loading:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small).tint(.white)
+                        Text("Loading changes…")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                case let .failed(message):
+                    Text("Couldn't load changes: \(message)")
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                case let .loaded(files):
                     if files.isEmpty {
                         Text("No changed files.")
                             .font(.caption)
@@ -178,17 +283,18 @@ struct ChangesView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .padding(.bottom, 24)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
         }
     }
 
     // MARK: - Summary header
 
-    private func summaryHeader(issue: IssueEntity?, files: [PrFile]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func summaryHeader(vm: ChangesViewModel, files: [PrFile]?) -> some View {
+        let issue = vm.issue
+        return VStack(alignment: .leading, spacing: 8) {
             if let branch = issue?.branch, !branch.isEmpty {
                 Text(branch)
                     .font(.caption.monospaced())
@@ -205,25 +311,89 @@ struct ChangesView: View {
                         .padding(.vertical, 3)
                         .glassButton()
                 }
-                Text("\(files.count) \(files.count == 1 ? "file" : "files")")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("+\(files.reduce(0) { $0 + $1.additions })")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.green)
-                Text("−\(files.reduce(0) { $0 + $1.deletions })")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.red)
-                Spacer()
-                if let prUrl = issue?.prUrl, let url = URL(string: prUrl) {
-                    Link("Open PR on GitHub", destination: url)
+                // Stats depend on the diff fetch — shown only once it lands.
+                if let files {
+                    Text("\(files.count) \(files.count == 1 ? "file" : "files")")
                         .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text("+\(files.reduce(0) { $0 + $1.additions })")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.green)
+                    Text("−\(files.reduce(0) { $0 + $1.deletions })")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.red)
                 }
+                Spacer()
             }
+            prActionsRow(vm: vm)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .glassSection()
+    }
+
+    /// Review actions (EXP-156): Merge + a subtle Close PR for members on an
+    /// open PR, beside the "Open PR on GitHub" link. Hidden entirely when there
+    /// is no PR to act on.
+    @ViewBuilder
+    private func prActionsRow(vm: ChangesViewModel) -> some View {
+        let issue = vm.issue
+        let canReview = vm.permissions.isMember
+            && issue?.prState == DomainContract.prStateOpen
+            && (issue?.prUrl?.isEmpty == false)
+        let prURL = issue?.prUrl.flatMap { URL(string: $0) }
+        if canReview || prURL != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    if canReview {
+                        Button {
+                            mergeConfirm = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                if vm.merging {
+                                    ProgressView().controlSize(.mini).tint(.white)
+                                } else {
+                                    Image(systemName: "arrow.triangle.merge")
+                                        .font(.caption)
+                                }
+                                Text("Merge")
+                                    .font(.caption.weight(.medium))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                        }
+                        .glassButton()
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .disabled(vm.merging || vm.closing)
+
+                        if vm.closing {
+                            ProgressView().controlSize(.mini).tint(.white)
+                        } else {
+                            Button {
+                                closeConfirm = true
+                            } label: {
+                                Text("Close PR")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(vm.merging)
+                        }
+                    }
+                    Spacer()
+                    if let prURL {
+                        Link("Open PR on GitHub", destination: prURL)
+                            .font(.caption)
+                    }
+                }
+                if let actionError = vm.actionError {
+                    Text(actionError)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                }
+            }
+        }
     }
 
     // MARK: - Per-file section

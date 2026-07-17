@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "sonner"
 import { TRPCClientError } from "@trpc/client"
 import {
@@ -10,25 +9,20 @@ import {
   CircleHelp,
   ClipboardList,
   Eye,
-  Keyboard,
   Loader2,
   MonitorOff,
-  MonitorPlay,
   MonitorUp,
   OctagonX,
   RotateCw,
   Sparkles,
   Wrench,
-  X,
 } from "lucide-react"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
+import { codingSessionCollection, workspaceMemberCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import {
-  codingSessionCollection,
-  workspaceMemberCollection,
-} from "@/lib/collections"
 import {
   consumeEcho,
   groupToolRuns,
@@ -39,8 +33,8 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Collapsible,
@@ -56,25 +50,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileDiffList } from "@/components/diff-view"
-import {
-  StartCodingDialog,
-  type StartCodingOptions,
-  type SteerDevice,
-} from "@/components/start-coding-dialog"
+import { StartCodingDialog, type StartCodingOptions, type SteerDevice } from "@/components/start-coding-dialog"
 
-// Live "coding now" badge + custom-rendered agent-session view for the issue
-// detail screen and the workspace Agents page (EXP-63 — the web port of the
+// The custom-rendered agent-session viewer (EXP-63 — the web port of the
 // mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
 // viewer joins the steer relay's scrubbed ACTIVITY channel
 // ({"t":"join","channel":"activity"}, apps/steer-relay/src/protocol.ts) and
 // renders structured events — narration bubbles + compact tool rows, a
 // pinned "Latest changes" diff above the composer — never raw PTY bytes.
 // Steering is message-shaped like mobile: a steal-claim + chunked input + a
-// SEPARATE `\r` frame. With no running session, members with an online
-// desktop get a "Start on my desktop" button (relay-routed remote start);
-// `offlineHint` callers (the issue Details tab, EXP-87) additionally show the
-// mobile-parity "No desktop online" hint instead of hiding.
-// Everything degrades to just the badge (or nothing) when the relay is off.
+// SEPARATE `\r` frame. Since EXP-106 this view is mounted ONLY by the global
+// agent dock (components/agent-dock) — one at a time — so it always
+// auto-connects and delegates its chrome (title, collapse) to the dock; the
+// "coding now" rows + remote-start affordances moved to issue-coding-rows.tsx.
 
 // ── Wire protocol (activity-viewer side of apps/steer-relay/src/protocol.ts) ─
 
@@ -430,23 +418,26 @@ type NewFeedItem = FeedItem extends infer T
     : never
   : never
 
-// Exported for the workspace Agents page, which renders the view per SESSION
-// row (this component is session-scoped; the IssueSteerPanel wrapper above is
-// issue-scoped). Callers are responsible for the membership + config.enabled
-// gating the wrapper does — the relay enforces both regardless.
+// Mounted ONLY by the global agent dock (one at a time), keyed by session id.
+// Always auto-connects; the caller owns the membership + config.enabled gating
+// (the relay enforces both regardless) and supplies the `title` + `onCollapse`
+// chrome. Session-scoped — the "coding now" rows live in issue-coding-rows.tsx.
 export function AgentSessionView({
   session,
   currentUserId,
-  autoConnect = false,
+  title,
+  onCollapse,
 }: {
   session: CodingSession
   currentUserId: string
-  /** Dial immediately on mount instead of waiting for a "Watch live" click. */
-  autoConnect?: boolean
+  /** Header identity — an issue-identifier Link, or plain text (batch/syncing). */
+  title: React.ReactNode
+  /** Collapse the dock panel (the socket tears down on unmount). */
+  onCollapse: () => void
 }) {
-  // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh
-  // ticket; 0 = panel closed.
-  const [attempt, setAttempt] = useState(autoConnect ? 1 : 0)
+  // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh ticket.
+  // Always starts at 1 — the dock only mounts this while it should be live.
+  const [attempt, setAttempt] = useState(1)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
   const [perm, setPerm] = useState<`view` | `steer`>(`view`)
   const [viewers, setViewers] = useState<PresenceViewer[]>([])
@@ -818,7 +809,6 @@ export function AgentSessionView({
     steererId && steererId !== currentUserId
       ? (viewers.find((v) => v.userId === steererId)?.name ?? `Someone`)
       : null
-  const open = attempt > 0
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
   const composerVisible = live && perm === `steer` && !sessionEnded
@@ -834,39 +824,36 @@ export function AgentSessionView({
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && activeQuestionIds.size > 0
 
-  const closePanel = () => {
-    setAttempt(0)
-    setPhase({ kind: `idle` })
-    setFeed([])
-    setLatestDiff(null)
-    setDiffOpen(false)
-  }
+  /** Presence tooltip — every current viewer, the steerer marked. */
+  const presenceTitle = viewers
+    .map((v) => (v.userId === steererId ? `${v.name} (steering)` : v.name))
+    .join(`, `)
 
   return (
-    <div className="mt-2">
-      <div className="flex flex-wrap items-center gap-2">
-        {!open && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAttempt((n) => n + 1)}
-            disabled={phase.kind === `ended`}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Compact header line — the dock owns the panel frame, so this is just
+          identity + presence + controls. */}
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+        <PhaseIndicator
+          phase={phase}
+          deviceLabel={session.deviceLabel}
+          awaitingInput={awaitingInput}
+        />
+        <div className="min-w-0 flex-1 truncate text-sm">{title}</div>
+        {live && viewers.length > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+            title={presenceTitle}
           >
-            {phase.kind === `closed` ? <RotateCw /> : <MonitorPlay />}
-            {phase.kind === `closed` ? `Reconnect` : `Watch live`}
-          </Button>
+            <Eye className="size-3.5" />
+            {viewers.length}
+          </span>
         )}
-        {open && (
-          <PhaseIndicator
-            phase={phase}
-            deviceLabel={session.deviceLabel}
-            awaitingInput={awaitingInput}
-          />
-        )}
-        {open && phase.kind === `closed` && (
+        {phase.kind === `closed` && (
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={() => setAttempt((n) => n + 1)}
           >
             <RotateCw />
@@ -879,30 +866,25 @@ export function AgentSessionView({
           <Button
             variant="ghost"
             size="sm"
-            className="text-destructive hover:text-destructive"
+            className="shrink-0 text-destructive hover:text-destructive"
             onClick={() => setConfirmKill(true)}
           >
             <OctagonX />
-            Kill session
+            <span className="hidden md:inline">Kill session</span>
           </Button>
         )}
-        {open && (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={closePanel}>
-            <X />
-            Close
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          aria-label="Collapse session"
+          onClick={onCollapse}
+        >
+          <ChevronDown />
+        </Button>
       </div>
 
-      {!open && (phase.kind === `ended` || phase.kind === `closed`) && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          {phase.detail ??
-            (phase.kind === `ended` ? `The session has ended.` : `Connection lost.`)}
-        </div>
-      )}
-
-      {open && (
-        <div className="mt-2 flex h-96 flex-col overflow-hidden rounded-md border border-border bg-card/40">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* The activity feed (bottom-anchored, follow-scroll) */}
           <div className="relative min-h-0 flex-1">
             <div
@@ -992,27 +974,6 @@ export function AgentSessionView({
             )}
           </div>
 
-          {/* Presence (who's watching, who's steering) */}
-          {live && viewers.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
-              <Eye className="size-3" />
-              {viewers.map((viewer) => (
-                <span
-                  key={viewer.userId}
-                  className={
-                    viewer.userId === steererId
-                      ? `inline-flex items-center gap-1 text-foreground`
-                      : `inline-flex items-center gap-1`
-                  }
-                >
-                  {viewer.userId === steererId && <Keyboard className="size-3" />}
-                  {viewer.name}
-                  {viewer.userId === steererId ? ` (steering)` : ``}
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* Status banners (feed retained above) */}
           {phase.kind === `ended` && (
             <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
@@ -1084,8 +1045,7 @@ export function AgentSessionView({
               Watching — only workspace owners or the session owner can steer.
             </div>
           ) : null}
-        </div>
-      )}
+      </div>
 
       <Dialog open={confirmKill} onOpenChange={setConfirmKill}>
         <DialogContent className="sm:max-w-sm">

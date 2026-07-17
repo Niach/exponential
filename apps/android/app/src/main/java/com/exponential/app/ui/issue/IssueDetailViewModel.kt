@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.PrFilesResult
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.LabelsApi
@@ -228,16 +227,79 @@ class IssueDetailViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
-    fun startOnDesktop(device: SteerDevice, options: SteerStartOptions) {
+    /**
+     * Issues the Start-coding sheet can queue (EXP-156). Regular candidates need
+     * a repo-backed, non-archived project and to be open (status not
+     * done/cancelled/duplicate, PR not merged), `updatedAt` desc. The CURRENT
+     * issue is force-included and pinned first — exempt from the issue-level
+     * rules AND the project-archived filter (a run can seed off an archived
+     * project), the same seed handling as desktop/iOS — but a repo-LESS current
+     * issue stays OUT (nothing can host its run), so the sheet never seeds a
+     * phantom id the batch logic can't back with a repository.
+     */
+    val startCandidates: StateFlow<List<StartIssueOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        _project,
+    ) { issues, projects, project ->
+        if (project == null) {
+            emptyList()
+        } else {
+            // Every repo-backed project in the workspace (keyed by id), and the
+            // subset that's also live. Seeds resolve against the former (repo is
+            // the only hard requirement); regular candidates require the latter.
+            val repoProjects = projects
+                .filter { it.workspaceId == project.workspaceId && it.repositoryId != null }
+                .associateBy { it.id }
+            val liveRepoProjectIds = repoProjects.values
+                .filter { it.archivedAt == null && it.deletedAt == null }
+                .map { it.id }
+                .toSet()
+            // Force-include the current issue whenever its project has a repo,
+            // regardless of the project being archived or the issue's own state.
+            val current = issues.firstOrNull {
+                it.id == issueId && it.projectId in repoProjects.keys
+            }
+            val rest = issues
+                .filter {
+                    it.id != issueId &&
+                        it.projectId in liveRepoProjectIds &&
+                        it.archivedAt == null &&
+                        it.status !in TERMINAL_ISSUE_STATUSES &&
+                        it.prState != DomainContract.prStateMerged
+                }
+                .sortedByDescending { it.updatedAt }
+            (listOfNotNull(current) + rest).map { issue ->
+                StartIssueOption(
+                    id = issue.id,
+                    identifier = issue.identifier,
+                    title = issue.title,
+                    repositoryId = repoProjects[issue.projectId]?.repositoryId,
+                )
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Remote-start on the user's own desktop (EXP-156): [issueIds] of size 1
+     * launches a plain single session, 2+ a batch (one Claude on one
+     * `exp/batch-<id8>` branch spanning them). The desktop inserts the
+     * coding_sessions row, which swaps the card via Electric; the Sent state
+     * re-enables after a grace window in case the desktop never picks up.
+     */
+    fun startOnDesktop(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
+        if (issueIds.isEmpty()) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
+            val isBatch = issueIds.size >= 2
             _startState.value = SteerStartState.Sending
             try {
-                steerApi.startSession(accountId, issueId, device.deviceId, options)
-                _startState.value = SteerStartState.Sent(device.deviceLabel)
-                // The desktop inserts the coding_sessions row when the launcher
-                // spins up, which swaps the panel via Electric. Re-enable after
-                // a grace window in case it never picks up.
+                if (isBatch) {
+                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
+                } else {
+                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
+                }
+                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
                 delay(30_000)
                 if (_startState.value is SteerStartState.Sent) {
                     _startState.value = SteerStartState.Idle
@@ -324,32 +386,6 @@ class IssueDetailViewModel @Inject constructor(
                     if (t is CancellationException) throw t
                     _moveError.value = trpcErrorMessage(t, "The issue could not be moved")
                 }
-        }
-    }
-
-    // ── Close PR without merging (EXP-100) ────────────────────────────────────
-
-    // The Changes section's reject path: in-flight flag + error caption. On
-    // success no local state changes — the Electric echo flips prState to
-    // 'closed' and the close affordance disappears with it.
-    private val _prClosing = MutableStateFlow(false)
-    val prClosing: StateFlow<Boolean> = _prClosing
-    private val _prCloseError = MutableStateFlow<String?>(null)
-    val prCloseError: StateFlow<String?> = _prCloseError
-
-    fun closePr() {
-        if (_prClosing.value) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _prClosing.value = true
-            _prCloseError.value = null
-            runCatching { issuesApi.closePr(accountId, issueId) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _prCloseError.value =
-                        trpcErrorMessage(t, "The pull request could not be closed")
-                }
-            _prClosing.value = false
         }
     }
 
@@ -687,15 +723,11 @@ class IssueDetailViewModel @Inject constructor(
             throw error
         }
     }
-
-    // Middle Changes tier (masterplan §4.8): the exp/<IDENTIFIER> branch compared
-    // against the repo default branch. Null when the branch was never pushed —
-    // the view then falls through to the "being coded on <device>" tier.
-    suspend fun loadBranchDiff(): PrFilesResult? {
-        val accountId = auth.activeAccountId.value ?: return null
-        return repositoriesApi.branchDiff(accountId, issueId)
-    }
 }
+
+// Terminal issue statuses that make an issue ineligible to start a NEW coding
+// run (the current issue is exempt — see startCandidates).
+private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")
 
 // Description saves fired while leaving the issue screen must outlive the
 // ViewModel: viewModelScope is cancelled when navigation clears it, which

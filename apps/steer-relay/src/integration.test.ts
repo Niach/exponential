@@ -343,4 +343,110 @@ describe(`steer relay end-to-end`, () => {
 
     desktop.close()
   })
+
+  test(`batch remote start routes a fat frame; bad shapes are 400`, async () => {
+    const desktop = await connect(
+      ticket({ role: `control`, sub: `owner-2`, deviceLabel: `Batch Box` })
+    )
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-batch` }))
+
+    let devices: { deviceId: string }[] = []
+    for (let i = 0; i < 20 && devices.length === 0; i++) {
+      const res = await fetch(`${base}/devices/owner-2`, {
+        headers: { "x-relay-secret": `integration-secret` },
+      })
+      devices = ((await res.json()) as { devices: { deviceId: string }[] }).devices
+      if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
+    }
+    expect(devices).toMatchObject([{ deviceId: `dev-batch` }])
+
+    const repo = {
+      repositoryId: `repo-1`,
+      fullName: `acme/api`,
+      defaultBranch: `main`,
+    }
+    const postStart = (body: unknown) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify(body),
+      })
+
+    const batch = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: [`issue-1`, `issue-2`],
+      workspaceId: `ws-1`,
+      repo,
+      ultracode: true,
+    })
+    expect(batch.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueIds: [`issue-1`, `issue-2`],
+      workspaceId: `ws-1`,
+      repo,
+      ultracode: true,
+    })
+
+    // 400 cases — every one is rejected before the hub is touched.
+    const bothSubjects = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueId: `issue-1`,
+      issueIds: [`issue-2`],
+      workspaceId: `ws-1`,
+      repo,
+    })
+    expect(bothSubjects.status).toBe(400)
+
+    const noWorkspace = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: [`issue-1`],
+      repo,
+    })
+    expect(noWorkspace.status).toBe(400)
+
+    const noRepo = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: [`issue-1`],
+      workspaceId: `ws-1`,
+    })
+    expect(noRepo.status).toBe(400)
+
+    const tooMany = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: Array.from({ length: 31 }, (_, i) => `issue-${i}`),
+      workspaceId: `ws-1`,
+      repo,
+    })
+    expect(tooMany.status).toBe(400)
+
+    const repoMissingBranch = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: [`issue-1`],
+      workspaceId: `ws-1`,
+      repo: { repositoryId: `repo-1`, fullName: `acme/api` },
+    })
+    expect(repoMissingBranch.status).toBe(400)
+
+    const nonStringMember = await postStart({
+      userId: `owner-2`,
+      deviceId: `dev-batch`,
+      issueIds: [`issue-1`, 42],
+      workspaceId: `ws-1`,
+      repo,
+    })
+    expect(nonStringMember.status).toBe(400)
+
+    desktop.close()
+  })
 })

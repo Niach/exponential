@@ -157,7 +157,7 @@ describe(`device presence + remote start`, () => {
       { deviceId: `dev-1`, deviceLabel: `MacBook` },
     ])
 
-    const routed = hub.startSession(`owner`, `dev-1`, `issue-9`)
+    const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
     expect(routed).toEqual({ ok: true })
     // Option-less start stays byte-identical to the pre-options frame.
     expect(desktop.lastFrame(`start_session`)).toEqual({
@@ -165,7 +165,9 @@ describe(`device presence + remote start`, () => {
       issueId: `issue-9`,
     })
 
-    expect(hub.startSession(`owner`, `dev-404`, `issue-9`)).toEqual({
+    expect(
+      hub.startSession(`owner`, `dev-404`, { issueId: `issue-9` })
+    ).toEqual({
       ok: false,
       reason: `device_offline`,
     })
@@ -180,7 +182,7 @@ describe(`device presence + remote start`, () => {
     hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
     hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
 
-    const routed = hub.startSession(`owner`, `dev-1`, `issue-9`, {
+    const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, {
       model: `opus`,
       effort: ``,
       ultracode: true,
@@ -197,12 +199,69 @@ describe(`device presence + remote start`, () => {
     })
 
     // Partial options: undefined fields never reach the wire.
-    hub.startSession(`owner`, `dev-1`, `issue-10`, { model: `sonnet` })
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` }, {
+      model: `sonnet`,
+    })
     expect(desktop.lastFrame(`start_session`)).toEqual({
       t: `start_session`,
       issueId: `issue-10`,
       model: `sonnet`,
     })
+  })
+
+  test(`startSession routes a batch subject as a fat start_session frame`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    const repo = {
+      repositoryId: `repo-1`,
+      fullName: `acme/api`,
+      defaultBranch: `main`,
+    }
+    const routed = hub.startSession(
+      `owner`,
+      `dev-1`,
+      { issueIds: [`issue-1`, `issue-2`], workspaceId: `ws-1`, repo },
+      { ultracode: true }
+    )
+    expect(routed).toEqual({ ok: true })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueIds: [`issue-1`, `issue-2`],
+      workspaceId: `ws-1`,
+      repo,
+      ultracode: true,
+    })
+
+    // Undefined options never reach the batch frame either.
+    hub.startSession(`owner`, `dev-1`, {
+      issueIds: [`issue-3`],
+      workspaceId: `ws-1`,
+      repo,
+    })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueIds: [`issue-3`],
+      workspaceId: `ws-1`,
+      repo,
+    })
+  })
+
+  test(`batch start to an offline device reports device_offline`, () => {
+    const hub = new Hub()
+    expect(
+      hub.startSession(`owner`, `dev-gone`, {
+        issueIds: [`issue-1`, `issue-2`],
+        workspaceId: `ws-1`,
+        repo: {
+          repositoryId: `repo-1`,
+          fullName: `acme/api`,
+          defaultBranch: `main`,
+        },
+      })
+    ).toEqual({ ok: false, reason: `device_offline` })
   })
 
   test(`same-device reconnect replaces the old socket`, () => {

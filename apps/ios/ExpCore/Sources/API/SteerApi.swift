@@ -113,6 +113,20 @@ private struct StartSessionInput: Encodable {
     let planMode: Bool?
 }
 
+/// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
+/// `exp/batch-<id8>` branch, ending in ONE combined PR the server links to
+/// every listed issue. Same `steer.startSession` endpoint — exactly one of
+/// issueId/issueIds is present. Nil options are omitted (synthesized Encodable
+/// uses encodeIfPresent) and mean "desktop settings default".
+private struct StartBatchSessionInput: Encodable {
+    let issueIds: [String]
+    let deviceId: String
+    let model: String?
+    let effort: String?
+    let ultracode: Bool?
+    let planMode: Bool?
+}
+
 private struct StartSessionResult: Decodable {
     let ok: Bool
 }
@@ -172,6 +186,38 @@ public final class SteerApi: Sendable {
                 path: "steer.startSession",
                 input: StartSessionInput(
                     issueId: issueId,
+                    deviceId: deviceId,
+                    model: options.model,
+                    effort: options.effort,
+                    ultracode: options.ultracode,
+                    planMode: options.planMode
+                )
+            )
+        } catch let TrpcError.httpError(status, body) {
+            if let message = Self.trpcErrorMessage(fromBody: body) {
+                throw SteerStartError.rejected(message)
+            }
+            throw TrpcError.httpError(status, body)
+        }
+    }
+
+    /// Batch remote-start (EXP-156): route a `start_session` carrying 2+ issue
+    /// ids to the chosen desktop — the launcher runs ONE batch Claude session
+    /// and opens ONE combined PR the server links to every issue. Same endpoint
+    /// and PRECONDITION_FAILED → `SteerStartError.rejected` mapping as the
+    /// single-issue form.
+    public func startSession(
+        accountId: String,
+        issueIds: [String],
+        deviceId: String,
+        options: SteerStartOptions = SteerStartOptions()
+    ) async throws {
+        do {
+            let _: StartSessionResult = try await trpc.mutation(
+                accountId: accountId,
+                path: "steer.startSession",
+                input: StartBatchSessionInput(
+                    issueIds: issueIds,
                     deviceId: deviceId,
                     model: options.model,
                     effort: options.effort,

@@ -345,6 +345,50 @@ describe(`relay admin HTTP`, () => {
     expect(`planMode` in body).toBe(false)
   })
 
+  it(`serializes a batch subject verbatim: issueIds/workspaceId/repo, no issueId/installationId`, async () => {
+    const fetchImpl = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { ok: true }))
+
+    await relayPostStart(
+      CONFIG,
+      {
+        userId: `user-1`,
+        deviceId: `dev-1`,
+        issueIds: [`issue-1`, `issue-2`],
+        workspaceId: `ws-1`,
+        repo: {
+          repositoryId: `repo-1`,
+          fullName: `acme/api`,
+          defaultBranch: `main`,
+        },
+        ultracode: true,
+      },
+      fetchImpl
+    )
+    const body = JSON.parse(
+      (fetchImpl.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>
+    expect(body).toEqual({
+      userId: `user-1`,
+      deviceId: `dev-1`,
+      issueIds: [`issue-1`, `issue-2`],
+      workspaceId: `ws-1`,
+      repo: {
+        repositoryId: `repo-1`,
+        fullName: `acme/api`,
+        defaultBranch: `main`,
+      },
+      ultracode: true,
+    })
+    // A batch body never carries the single-issue key, and the repo group
+    // never carries the server-only installationId.
+    expect(`issueId` in body).toBe(false)
+    expect(`installationId` in (body.repo as Record<string, unknown>)).toBe(
+      false
+    )
+  })
+
   it(`surfaces the relay reason on 404 (device offline)`, async () => {
     const fetchImpl = vi
       .fn<RelayFetch>()

@@ -1,10 +1,13 @@
-import { Fragment, useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { Bot, MonitorPlay, X } from "lucide-react"
+import { useState } from "react"
+import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { Bot, Loader2, Monitor, MonitorOff, MonitorPlay, MonitorUp } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
-import { AgentSessionView, useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/components/agent-session"
+import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { StartCodingDialog } from "@/components/start-coding-dialog"
+import { useRemoteCodingStart } from "@/hooks/use-remote-coding-start"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
@@ -12,12 +15,11 @@ import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { displayUserName } from "@/lib/user-display"
 import { Button } from "@/components/ui/button"
 
-// Workspace Agents view: every desktop coding session in the workspace,
-// running first (live indicator + inline Watch/Steer via the steer relay),
-// then the recently ended ones. The list is pure client work over the synced
-// coding_sessions shape; watching reuses the AgentSessionView renderer from
-// agent-session.tsx (ticket minted by trpc.steer.mintTicket — membership and
-// perm are enforced server-side at mint time, the UI only mirrors them).
+// Workspace Agents view: the caller's online desktops (remote-start entry
+// point) plus every RUNNING coding session in the workspace. Rows focus the
+// global dock (components/agent-dock) — the live viewer lives there alone, one
+// at a time — instead of expanding inline. Membership + a configured relay gate
+// the interactive parts; the server enforces both regardless.
 export const Route = createFileRoute(`/t/$workspaceSlug/agents/`)({
   beforeLoad: async ({ context }) => {
     if (!context.session) {
@@ -51,41 +53,124 @@ function RunningIndicator() {
   )
 }
 
+// The caller's online desktops + a page-level Start-coding dialog (the multi-
+// issue picker). Rendered only for members on a relay-enabled instance.
+function MyDesktops({ workspaceId }: { workspaceId: string }) {
+  const remote = useRemoteCodingStart()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [seedDeviceId, setSeedDeviceId] = useState<string | undefined>(undefined)
+
+  const openFor = (deviceId: string) => {
+    setSeedDeviceId(deviceId)
+    setDialogOpen(true)
+  }
+
+  const busy = remote.starting || remote.sentTo !== null
+
+  return (
+    <div className="mb-4">
+      <SectionLabel label="My desktops" count={remote.devices?.length ?? 0} />
+      {remote.devices === null ? (
+        <div className="px-3 py-3 text-sm text-muted-foreground">Loading…</div>
+      ) : remote.devices.length === 0 ? (
+        <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+          <MonitorOff className="size-3.5 shrink-0" />
+          No desktop online — open the Exponential desktop app to start coding.
+        </div>
+      ) : (
+        remote.devices.map((device) => (
+          <div
+            key={device.deviceId}
+            className="flex items-center gap-2 border-b border-border/30 px-3 py-2"
+          >
+            <Monitor className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-sm">
+              {device.deviceLabel || device.deviceId}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => openFor(device.deviceId)}
+            >
+              <MonitorUp />
+              Start coding
+            </Button>
+          </div>
+        ))
+      )}
+      {remote.sentTo && (
+        <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />
+          Start sent to {remote.sentTo} — waiting for the desktop…
+        </div>
+      )}
+      <StartCodingDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        devices={remote.devices ?? []}
+        starting={remote.starting}
+        workspaceId={workspaceId}
+        initialDeviceId={seedDeviceId}
+        onStart={(device, options, issueIds) => {
+          remote
+            .start(device, options, issueIds)
+            .then(() => setDialogOpen(false))
+            .catch(() => {})
+        }}
+      />
+    </div>
+  )
+}
+
 function SessionRow({
   row,
-  watching,
   canWatch,
-  onToggleWatch,
-  onOpenIssue,
+  workspaceSlug,
+  onOpen,
 }: {
   row: AgentSessionRow
-  watching: boolean
-  /** Whether the Watch button shows at all (running + member + relay on). */
+  /** Whether the Watch button shows at all (member + relay on). */
   canWatch: boolean
-  onToggleWatch: () => void
-  onOpenIssue: () => void
+  workspaceSlug: string
+  onOpen: () => void
 }) {
   const { session, issue, project, user } = row
-  const isRunning = session.status === `running`
+  const isBatch = !session.issueId
 
   return (
     <div
       className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-2 hover:bg-muted/50"
-      onClick={onOpenIssue}
+      onClick={onOpen}
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
     >
       <span className="flex items-center">
-        {isRunning ? (
-          <RunningIndicator />
-        ) : (
-          <span className="inline-flex size-2 rounded-full bg-muted-foreground/40" />
-        )}
+        <RunningIndicator />
       </span>
       <span className="truncate font-mono text-xs text-muted-foreground">
-        {issue?.identifier ?? `—`}
+        {issue && project ? (
+          <Link
+            to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+            params={{
+              workspaceSlug,
+              projectSlug: project.slug,
+              issueIdentifier: issue.identifier,
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="hover:underline"
+          >
+            {issue.identifier}
+          </Link>
+        ) : isBatch ? (
+          `Batch`
+        ) : (
+          `—`
+        )}
       </span>
       <div className="min-w-0 pr-2">
-        <div className="truncate text-sm">{issue?.title ?? `Issue syncing…`}</div>
+        <div className="truncate text-sm">
+          {isBatch ? `Batch session` : (issue?.title ?? `Issue syncing…`)}
+        </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {project && (
             <span className="inline-flex min-w-0 items-center gap-1">
@@ -102,24 +187,22 @@ function SessionRow({
             {session.deviceLabel ? ` · ${session.deviceLabel}` : ``}
           </span>
           <span className="shrink-0 whitespace-nowrap">
-            {isRunning
-              ? `· started ${relativeTime(session.startedAt)}`
-              : `· ended ${relativeTime(session.endedAt ?? session.startedAt)}`}
+            {`· started ${relativeTime(session.startedAt)}`}
           </span>
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {isRunning && canWatch && (
+        {canWatch && (
           <Button
             variant="outline"
             size="sm"
             onClick={(e) => {
               e.stopPropagation()
-              onToggleWatch()
+              onOpen()
             }}
           >
-            {watching ? <X /> : <MonitorPlay />}
-            {watching ? `Close` : `Watch`}
+            <MonitorPlay />
+            Watch
           </Button>
         )}
       </div>
@@ -129,42 +212,22 @@ function SessionRow({
 
 function AgentsPage() {
   const { workspaceSlug } = Route.useParams()
-  const navigate = useNavigate()
   const { data: session } = useSession()
   const workspace = useWorkspaceBySlug(workspaceSlug)
-  const { running, ended, isLoading } = useAgentsData(workspace?.id)
+  const { running, isLoading } = useAgentsData(workspace?.id)
   const { isMember } = useWorkspacePermissions(workspace)
   const steerConfig = useSteerConfig()
-
-  // The running session whose steer viewer is expanded inline (one at a time —
-  // each viewer holds a live relay socket).
-  const [watchSessionId, setWatchSessionId] = useState<string | null>(null)
+  const dock = useAgentDock()
 
   const currentUserId = session?.user?.id
   // Steer tickets require workspace membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the Watch
-  // button renders (mirrors the IssueSteerPanel wrapper's gating).
-  const canWatch = Boolean(
-    currentUserId && isMember && steerConfig?.enabled
-  )
-
-  const openIssue = (row: AgentSessionRow) => {
-    if (!row.issue || !row.project) return
-    void navigate({
-      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
-      params: {
-        workspaceSlug,
-        projectSlug: row.project.slug,
-        issueIdentifier: row.issue.identifier,
-      },
-    })
-  }
+  // affordance renders.
+  const canWatch = Boolean(currentUserId && isMember && steerConfig?.enabled)
 
   if (!workspace) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
-
-  const isEmpty = running.length === 0 && ended.length === 0
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
@@ -180,69 +243,32 @@ function AgentsPage() {
         </h1>
       </div>
 
-      {/* The old "Get the desktop app" card lived here — replaced by the
-          sidebar's Getting started entry (EXP-88), whose coding card
-          carries the download link. */}
       <div className="flex-1 overflow-y-auto">
+        {isMember && steerConfig?.enabled && (
+          <MyDesktops workspaceId={workspace.id} />
+        )}
+
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>
-        ) : isEmpty ? (
+        ) : running.length === 0 ? (
           <EmptyState
             icon={Bot}
             title="No coding sessions yet"
-            description="When someone starts coding an issue in the desktop app, the live session appears here to watch and steer."
+            description="When you or a teammate starts coding, live sessions appear here and in the dock."
           />
         ) : (
-          <>
-            {running.length > 0 && (
-              <div className="mb-4">
-                <SectionLabel label="Running" count={running.length} />
-                {running.map((row) => (
-                  <Fragment key={row.session.id}>
-                    <SessionRow
-                      row={row}
-                      watching={watchSessionId === row.session.id}
-                      canWatch={canWatch}
-                      onToggleWatch={() =>
-                        setWatchSessionId((prev) =>
-                          prev === row.session.id ? null : row.session.id
-                        )
-                      }
-                      onOpenIssue={() => openIssue(row)}
-                    />
-                    {watchSessionId === row.session.id &&
-                      canWatch &&
-                      currentUserId && (
-                        <div className="border-b border-border/30 px-3 pb-3">
-                          <AgentSessionView
-                            key={row.session.id}
-                            session={row.session}
-                            currentUserId={currentUserId}
-                            autoConnect
-                          />
-                        </div>
-                      )}
-                  </Fragment>
-                ))}
-              </div>
-            )}
-
-            {ended.length > 0 && (
-              <div className="mb-4">
-                <SectionLabel label="Recently ended" count={ended.length} />
-                {ended.map((row) => (
-                  <SessionRow
-                    key={row.session.id}
-                    row={row}
-                    watching={false}
-                    canWatch={false}
-                    onToggleWatch={() => {}}
-                    onOpenIssue={() => openIssue(row)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+          <div className="mb-4">
+            <SectionLabel label="Running" count={running.length} />
+            {running.map((row) => (
+              <SessionRow
+                key={row.session.id}
+                row={row}
+                canWatch={canWatch}
+                workspaceSlug={workspaceSlug}
+                onOpen={() => dock?.openDock(row.session.id)}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>

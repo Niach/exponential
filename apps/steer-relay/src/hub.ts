@@ -13,8 +13,14 @@ import {
   type ClientFrame,
   type PresenceViewer,
   type ServerFrame,
+  type StartRepoGroup,
   type StartSessionOptions,
 } from "./protocol"
+
+// A remote start's subject: a single issue (wire-unchanged) or a batch group.
+export type StartSubject =
+  | { issueId: string }
+  | { issueIds: string[]; workspaceId: string; repo: StartRepoGroup }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this.
@@ -458,18 +464,32 @@ export class Hub {
   }
 
   /** Route a remote "Start on my desktop" to the device's control socket.
-   * `options` fields are optional launch options (EXP-149); undefineds are
-   * dropped by JSON.stringify, so an option-less start stays byte-identical
-   * to the pre-options frame. */
+   * `subject` is a single issue (wire-unchanged) or a batch group (issueIds +
+   * workspaceId + repo). `options` fields are optional launch options
+   * (EXP-149); undefineds are dropped by JSON.stringify, so an option-less
+   * single-issue start stays byte-identical to the pre-options frame. */
   startSession(
     userId: string,
     deviceId: string,
-    issueId: string,
+    subject: StartSubject,
     options: StartSessionOptions = {}
   ): { ok: true } | { ok: false; reason: `device_offline` } {
     const entry = this.devices.get(userId)?.get(deviceId)
     if (!entry) return { ok: false, reason: `device_offline` }
-    entry.conn.sock.send(frame({ t: `start_session`, issueId, ...options }))
+    // Build each variant explicitly — a raw union spread won't narrow for the
+    // ServerFrame `frame()` call. Single-issue key order (t, issueId, options)
+    // stays byte-for-byte with the pre-batch frame.
+    const payload: ServerFrame =
+      `issueId` in subject
+        ? { t: `start_session`, issueId: subject.issueId, ...options }
+        : {
+            t: `start_session`,
+            issueIds: subject.issueIds,
+            workspaceId: subject.workspaceId,
+            repo: subject.repo,
+            ...options,
+          }
+    entry.conn.sock.send(frame(payload))
     return { ok: true }
   }
 

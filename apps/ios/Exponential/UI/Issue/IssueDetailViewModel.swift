@@ -494,6 +494,78 @@ final class IssueDetailViewModel {
         return result ?? []
     }
 
+    /// Candidate issues for the unified Start-coding sheet (EXP-156): every
+    /// eligible issue in the current issue's workspace, the current issue pinned
+    /// first (pre-checked) and the rest by recency. Eligibility = the issue's
+    /// project is repo-backed and not archived, the issue isn't archived, its
+    /// status isn't terminal (done/cancelled/duplicate) and its PR isn't merged.
+    /// The CURRENT issue is exempt from the issue-level checks (archived /
+    /// terminal / merged) so it always appears — you opened the card from it.
+    /// One-shot read; the sheet is transient. (Trashed projects never reach the
+    /// local store, so "not deleted" is implicit.)
+    func startCodingCandidates() async -> [StartCodingSheet.IssueOption] {
+        guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
+        let currentId = issue.id
+        let currentProjectId = issue.projectId
+        let result: [StartCodingSheet.IssueOption]? = try? await pool.read { db in
+            guard let current = try ProjectEntity.fetchOne(db, key: currentProjectId) else { return [] }
+            let projects = try ProjectEntity
+                .filter(Column("workspace_id") == current.workspaceId)
+                .fetchAll(db)
+            // projectId → repositoryId for repo-backed projects. `repoActive` is
+            // the normal eligibility set (non-archived); `repoAny` also holds
+            // archived repo-backed projects so the current issue on an archived
+            // board can still be force-included (parity with the desktop
+            // dialog). A repo-LESS project is in neither map.
+            var repoActive: [String: String] = [:]
+            var repoAny: [String: String] = [:]
+            for project in projects {
+                guard let repoId = project.repositoryId else { continue }
+                repoAny[project.id] = repoId
+                if project.archivedAt == nil {
+                    repoActive[project.id] = repoId
+                }
+            }
+            let terminal: Set<String> = [
+                IssueStatus.done.rawValue,
+                IssueStatus.cancelled.rawValue,
+                IssueStatus.duplicate.rawValue,
+            ]
+            let rows = try IssueEntity
+                .filter(Array(repoAny.keys).contains(Column("project_id")))
+                .fetchAll(db)
+                .filter { row in
+                    // The current issue is force-included as long as its project
+                    // is repo-backed (archived OK) — exempt from the archived /
+                    // terminal / merged rules so a checked pre-seed is never a
+                    // stray. A repo-LESS current issue isn't in repoAny and
+                    // correctly stays out of the pool entirely.
+                    if row.id == currentId {
+                        return repoAny[row.projectId] != nil
+                    }
+                    guard repoActive[row.projectId] != nil else { return false }
+                    if row.archivedAt != nil { return false }
+                    if terminal.contains(row.status) { return false }
+                    if row.prState == DomainContract.prStateMerged { return false }
+                    return true
+                }
+                .sorted { a, b in
+                    if a.id == currentId { return true }
+                    if b.id == currentId { return false }
+                    return a.updatedAt > b.updatedAt
+                }
+            return rows.map { row in
+                StartCodingSheet.IssueOption(
+                    id: row.id,
+                    identifier: row.identifier,
+                    title: row.title,
+                    repositoryId: repoAny[row.projectId]
+                )
+            }
+        }
+        return result ?? []
+    }
+
     private func refreshProject(issue: IssueEntity, pool: DatabasePool) {
         guard project?.id != issue.projectId else { return }
         project = (try? pool.read { db in
