@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +52,10 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueStatus
+import com.exponential.app.ui.components.PriorityIcon
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -71,12 +79,17 @@ private const val PREFS_NAME = "coding_start"
 private const val MAX_BATCH_ISSUES = 30
 private const val LARGE_BATCH_HINT_THRESHOLD = 6
 
-/** One issue the sheet can queue for a run — repositoryId gates same-repo batches. */
+/**
+ * One issue the sheet can queue for a run — repositoryId gates same-repo
+ * batches; status/priority feed the list-style row visuals (EXP-173).
+ */
 data class StartIssueOption(
     val id: String,
     val identifier: String,
     val title: String,
     val repositoryId: String?,
+    val status: String? = null,
+    val priority: String? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -239,11 +252,23 @@ fun StartCodingSheet(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
             } else {
-                checkedInOrder.forEach { option ->
-                    IssueCheckRow(option = option, checked = true, onToggle = { toggleIssue(option.id) })
-                }
-                uncheckedFiltered.forEach { option ->
-                    IssueCheckRow(option = option, checked = false, onToggle = { toggleIssue(option.id) })
+                // The issues scroll INSIDE this bounded area (EXP-173) so the
+                // Model/Effort/switch/Start controls stay near the fold. The
+                // heightIn(max) cap makes the lazy child's constraints finite,
+                // which is what legalizes nesting it in the outer scroll Column
+                // (~5.5 rows — the half row is the scroll affordance).
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 264.dp),
+                ) {
+                    items(checkedInOrder + uncheckedFiltered, key = { it.id }) { option ->
+                        IssueCheckRow(
+                            option = option,
+                            checked = option.id in checked,
+                            onToggle = { toggleIssue(option.id) },
+                        )
+                    }
                 }
             }
 
@@ -395,30 +420,39 @@ fun StartCodingSheet(
     }
 }
 
-// One checkable issue: a leading Checkbox, a mono identifier, and the title on
-// a single line — the sheet's scrolling Column renders these directly (no
-// nested LazyColumn).
+// One checkable issue, styled like the regular issue-list row (EXP-173):
+// Checkbox, priority icon, mono identifier column, status icon, title —
+// the IssueRow anatomy with the checkbox as the selection affordance.
 @Composable
 private fun IssueCheckRow(
     option: StartIssueOption,
     checked: Boolean,
     onToggle: () -> Unit,
 ) {
+    val status = IssueStatus.fromWire(option.status)
+    val priority = IssuePriority.fromWire(option.priority)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = 20.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = checked, onCheckedChange = { onToggle() })
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(4.dp))
+        PriorityIcon(priority, size = 16.dp)
+        Spacer(Modifier.width(10.dp))
         Text(
             option.identifier,
             style = MaterialTheme.typography.labelMedium,
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(min = 60.dp),
         )
+        Spacer(Modifier.width(10.dp))
+        StatusIcon(status, size = 16.dp)
         Spacer(Modifier.width(10.dp))
         Text(
             option.title,

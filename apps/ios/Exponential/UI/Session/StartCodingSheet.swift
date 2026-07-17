@@ -24,6 +24,10 @@ struct StartCodingSheet: View {
         let identifier: String?
         let title: String
         let repositoryId: String?
+        // Wire status/priority strings, so the picker rows can render the same
+        // status/priority glyphs as the issue list (EXP-173).
+        var status: String? = nil
+        var priority: String? = nil
     }
 
     let devices: [SteerDevice]
@@ -104,9 +108,20 @@ struct StartCodingSheet: View {
                         Text(issues.isEmpty ? "No eligible issues to code." : "No matching issues.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
+                    } else if checkedRows.count + uncheckedRows.count <= 6 {
                         ForEach(checkedRows) { issueRow($0) }
                         ForEach(uncheckedRows) { issueRow($0) }
+                    } else {
+                        // Many candidates: scroll them inside a bounded box (one
+                        // section row) so the Model / Effort / toggle sections
+                        // stay near the top instead of being pushed off-screen.
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(checkedRows) { issueRow($0).padding(.vertical, 6) }
+                                ForEach(uncheckedRows) { issueRow($0).padding(.vertical, 6) }
+                            }
+                        }
+                        .frame(maxHeight: 280)
                     }
                 } header: {
                     Text("Issues")
@@ -214,13 +229,28 @@ struct StartCodingSheet: View {
                 Image(systemName: checked.contains(option.id) ? "checkmark.circle.fill" : "circle")
                     .font(.caption)
                     .foregroundStyle(checked.contains(option.id) ? Accent.indigo : .secondary)
-                if let identifier = option.identifier {
-                    Text(identifier)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                }
+
+                // Issue-list row anatomy (EXP-173): priority icon, mono
+                // identifier, status icon, title.
+                Image(systemName: IssuePriority.from(option.priority).sfSymbol)
+                    .font(.caption)
+                    .foregroundStyle(IssuePriority.from(option.priority).color)
+                    .frame(width: 16)
+
+                Text(option.identifier ?? "")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 60, alignment: .leading)
+
+                Image(systemName: IssueStatus.from(option.status).sfSymbol)
+                    .font(.caption)
+                    .foregroundStyle(IssueStatus.from(option.status).color)
+                    .frame(width: 16)
+
                 Text(option.title)
+                    .font(.subheadline)
                     .lineLimit(1)
+
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())

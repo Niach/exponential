@@ -136,7 +136,9 @@ final class AgentsViewModel {
                     id: row.id,
                     identifier: row.identifier,
                     title: row.title,
-                    repositoryId: repoByProject[row.projectId]
+                    repositoryId: repoByProject[row.projectId],
+                    status: row.status,
+                    priority: row.priority
                 )
             }
     }
