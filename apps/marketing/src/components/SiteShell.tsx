@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
-import { ExpLogo, IcArrow, IcGithub } from "./icons"
+import { ExpLogo, IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
 export function SiteHeader() {
@@ -33,9 +33,6 @@ export function SiteHeader() {
             <a href={LINKS.downloadPage}>Download</a>
           </nav>
           <div className="topbar-right">
-            <a className="btn btn-ghost btn-sm" href={LINKS.github.repo}>
-              <IcGithub size={14} /> GitHub
-            </a>
             <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
               Sign in
             </a>
@@ -122,7 +119,7 @@ export function SiteFooter() {
               </span>
             ))}
             <span className="foot-legal">
-              &copy; 2026 &mdash; Elastic License 2.0
+              &copy; 2026 &middot; Elastic License 2.0
             </span>
           </span>
         </div>

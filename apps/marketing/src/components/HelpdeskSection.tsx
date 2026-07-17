@@ -18,23 +18,9 @@ export function HelpdeskSection() {
             </motion.span>
             <h2 className={`section-title`}>Feedback becomes a conversation.</h2>
             <p className={`section-sub`}>
-              A widget report doesn&rsquo;t have to be a dead drop. With the
-              helpdesk enabled, every report opens an email conversation pinned
-              to the issue &mdash; answered from a support inbox your whole
-              team shares.
+              Every report can open an email thread pinned to the issue. You
+              reply from the issue, reporters reply from their inbox.
             </p>
-            <ul className={`hd-points`}>
-              <li>
-                Reporters reply from their inbox or a magic link &mdash; no
-                account needed.
-              </li>
-              <li>Your answers send as email, straight from the issue.</li>
-              <li>Internal notes stay internal, next to the thread.</li>
-              <li>
-                Ship the fix, close the thread &mdash; the transcript link
-                keeps working.
-              </li>
-            </ul>
             <span className={`hd-pro`}>
               <span className={`hd-pro-badge`}>Pro</span> Included in the Pro
               plan
@@ -72,19 +58,19 @@ export function HelpdeskSection() {
               </div>
               <motion.div className={`hd-msg is-in`} variants={cardReveal}>
                 <p>
-                  Still broken for me on Safari &mdash; I tried &ldquo;Pay
+                  Still broken for me on Safari. I tried &ldquo;Pay
                   now&rdquo; twice and nothing happens.
                 </p>
                 <span className={`hd-msg-meta`}>jamie@acme.shop &middot; 2h</span>
               </motion.div>
               <motion.div className={`hd-note`} variants={cardReveal}>
                 <span className={`hd-note-label`}>
-                  Internal note &mdash; never sent to the reporter
+                  Internal note &middot; never sent to the reporter
                 </span>
-                <p>Repro&rsquo;d on 17.5. Fix is EXP-151 &mdash; merging today.</p>
+                <p>Repro&rsquo;d on 17.5. Fix is EXP-151, merging today.</p>
               </motion.div>
               <motion.div className={`hd-msg is-out`} variants={cardReveal}>
-                <p>Fixed and live &mdash; thanks for the report!</p>
+                <p>Fixed and live. Thanks for the report!</p>
                 <span className={`hd-msg-meta`}>
                   Danny &middot; emailed to jamie@acme.shop
                 </span>

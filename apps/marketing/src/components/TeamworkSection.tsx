@@ -14,10 +14,9 @@ export function TeamworkSection() {
           <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
             Teamwork
           </motion.span>
-          <h2 className={`section-title`}>Your whole team in the loop.</h2>
+          <h2 className={`section-title`}>Everyone in sync.</h2>
           <p className={`section-sub`}>
-            Shared boards, an inbox that only holds what concerns you, and
-            mentions that pull the right person in at the right line.
+            Shared boards, one inbox, mentions that pull the right person in.
           </p>
         </motion.div>
 
@@ -45,8 +44,7 @@ export function TeamworkSection() {
               ))}
             </div>
             <p className={`tw-card-caption`}>
-              Assignments, replies, mentions, merges &mdash; one list, marked
-              read everywhere at once.
+              Assignments, replies, mentions and merges in one list.
             </p>
           </motion.div>
 
@@ -58,13 +56,12 @@ export function TeamworkSection() {
             <div className={`tw-composer`} aria-hidden>
               <p>
                 <span className={`tw-pill tw-pill-person`}>@robin</span> this
-                regressed in <span className={`tw-pill tw-pill-issue`}>#EXP-142</span>{` `}
-                &mdash; can you take the Safari path?
+                regressed in <span className={`tw-pill tw-pill-issue`}>#EXP-142</span>,
+                can you take the Safari path?
               </p>
             </div>
             <p className={`tw-card-caption`}>
-              @ pulls someone in and subscribes them &mdash; # links the work,
-              on every client.
+              @ pulls someone in, # links the work.
             </p>
           </motion.div>
 
@@ -86,8 +83,7 @@ export function TeamworkSection() {
               </span>
             </div>
             <p className={`tw-card-caption`}>
-              Every open pull request in one list &mdash; review the diff and
-              merge without leaving the tracker.
+              Review and merge without leaving the tracker.
             </p>
           </motion.div>
 
@@ -110,8 +106,7 @@ export function TeamworkSection() {
               <span className={`tw-avatar is-more`}>+2</span>
             </div>
             <p className={`tw-card-caption`}>
-              One link brings the team in &mdash; everyone can triage, comment,
-              and close.
+              One link brings the whole team in.
             </p>
           </motion.div>
         </motion.div>

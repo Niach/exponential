@@ -51,38 +51,43 @@ export const CHAPTERS: Chapter[] = CHAPTER_INFO.map(({ id, label }) => {
 })
 
 // ── Camera (single global key list; 1-frame gaps = hard cuts under whip blur) ─
+// EXP-155: every shot reads ~15–20% tighter so the embedded film stays legible
+// at page width. Viewport-in-window bounds for the 1568×980 chassis:
+// 960/s ≤ x ≤ 1568−960/s and 540/s ≤ y ≤ 980−540/s (deliberately violated
+// only where an edge is meant to pin past the window, e.g. the S6 dock tilt).
 export const CAMERA_KEYS: CamKey[] = [
-  // S1 — full browser window, then a push toward the pay button
-  { f: 0, s: 1.0, x: 784, y: 490 },
-  { f: 22, s: 1.0, x: 784, y: 490 },
-  { f: 46, s: 1.3, x: 829, y: 520 },
-  { f: 78, s: 1.3, x: 829, y: 520 },
-  // S2 — settle onto the FAB corner / widget panel zone (window edges pinned)
-  { f: 98, s: 1.5, x: 928, y: 620 },
-  { f: 254, s: 1.5, x: 928, y: 620 },
-  // S3 — hard cut onto the app board (ships S3 framing)
-  { f: 255, s: 1.55, x: 615, y: 395 },
-  { f: 332, s: 1.55, x: 615, y: 395 },
+  // S1 — browser window fills the viewport height, then a push to the pay button
+  { f: 0, s: 1.1, x: 784, y: 490 },
+  { f: 22, s: 1.1, x: 784, y: 490 },
+  { f: 46, s: 1.55, x: 920, y: 475 },
+  { f: 78, s: 1.55, x: 920, y: 475 },
+  // S2 — settle onto the FAB corner / widget panel zone (bottom-right pinned)
+  { f: 98, s: 1.75, x: 1019, y: 671 },
+  { f: 254, s: 1.75, x: 1019, y: 671 },
+  // S3 — hard cut onto the app board (left/top pinned like the ships framing)
+  { f: 255, s: 1.8, x: 535, y: 347 },
+  { f: 332, s: 1.8, x: 535, y: 347 },
   // S4 — fly to the detail header + properties
-  { f: 356, s: 1.4, x: 800, y: 330 },
-  { f: 408, s: 1.4, x: 800, y: 330 },
-  // S5 — dialog centered
-  { f: 420, s: 1.45, x: 784, y: 470 },
-  { f: 500, s: 1.45, x: 784, y: 470 },
-  // S6 — tilt down onto the dock (window bottom pinned)
-  { f: 518, s: 1.5, x: 685, y: 686 },
-  { f: 600, s: 1.5, x: 685, y: 686 },
-  // S7 — up onto the diff, slow reading drift
-  { f: 620, s: 1.5, x: 930, y: 400 },
-  { f: 632, s: 1.5, x: 930, y: 400 },
-  { f: 672, s: 1.5, x: 930, y: 455, ease: "linear" },
+  { f: 356, s: 1.65, x: 905, y: 330 },
+  { f: 408, s: 1.65, x: 905, y: 330 },
+  // S5 — dialog centered (bottom clears the caption band)
+  { f: 420, s: 1.7, x: 784, y: 500 },
+  { f: 500, s: 1.7, x: 784, y: 500 },
+  // S6 — tilt down onto the dock (window bottom pinned; y keeps the terminal
+  // status line above the screen-space caption band)
+  { f: 518, s: 1.7, x: 610, y: 718 },
+  { f: 600, s: 1.7, x: 610, y: 718 },
+  // S7 — up onto the diff, slow reading drift (full 1264px pane caps the zoom)
+  { f: 620, s: 1.55, x: 928, y: 400 },
+  { f: 632, s: 1.55, x: 928, y: 400 },
+  { f: 672, s: 1.55, x: 928, y: 455, ease: "linear" },
   // S8 — pan left to the rail + reviews sidebar
-  { f: 676, s: 1.5, x: 930, y: 455 },
-  { f: 688, s: 1.5, x: 630, y: 430 },
-  { f: 732, s: 1.5, x: 630, y: 430 },
+  { f: 676, s: 1.55, x: 928, y: 455 },
+  { f: 688, s: 1.7, x: 575, y: 385 },
+  { f: 732, s: 1.7, x: 575, y: 385 },
   // S9 — hard cut back to the site; settle exactly onto the f0 framing (loop)
-  { f: 735, s: 1.06, x: 800, y: 500 },
-  { f: 779, s: 1.0, x: 784, y: 490 },
+  { f: 735, s: 1.16, x: 800, y: 498 },
+  { f: 779, s: 1.1, x: 784, y: 490 },
 ]
 
 // Whip-pan blur at both hard cuts.

@@ -2,12 +2,19 @@
 
 /* ── The closed-loop movie (Remotion Player embed, LoopMovie.tsx) ── */
 
+/* Breaks out of the 1240px text shell so the film reads big; centered on
+   the viewport (the shell itself is centered, so 50%/-50% lands on the
+   page axis). */
 .movie {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 28px;
+  margin-top: 12px;
   text-align: left;
+  width: min(1440px, calc(100vw - 48px));
+  position: relative;
+  left: 50%;
+  translate: -50% 0;
 }
 
 /* The stage reserves the full 16:9 box pre-mount (CLS-safe). */
@@ -123,42 +130,77 @@
   }
 }
 
+/* ── LoopClip — small decorative chapter excerpt (LoopClip.tsx) ── */
+
+.clip {
+  aspect-ratio: 1920 / 1080;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0d0d10;
+  pointer-events: none;
+}
+
 /* ── Home-page layout (home agent) ── */
 
-.hero-dl-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 18px;
-  font-size: 0.8125rem;
-  color: var(--fg-dim);
-  text-decoration: none;
-  transition: color 0.15s ease;
-}
-
-.hero-dl-link:hover {
-  color: var(--fg);
-}
-
-.home-ide-wrap {
-  border-radius: 10px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-}
-
-.home-ide-caption {
-  margin-top: 14px;
+.hero-movie-caption {
+  margin: 0 0 4px;
   text-align: center;
   font-size: 13px;
   color: var(--fg-dim);
 }
 
-.home-loop {
-  text-align: center;
+/* The switching hero word: explicit measured width (set from JS) transitions
+   between words; sizers reserve nothing in flow, the active word rides
+   in-flow while the exiting one is popped absolute by AnimatePresence. */
+.hero-rotator {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.home-loop .section-sub {
-  margin-left: auto;
-  margin-right: auto;
+/* Zero-size clipped measuring box — the sizers must never contribute to
+   layout or page scroll width, only be measurable via offsetWidth. */
+.hero-rotator-sizers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.hero-rotator-sizer {
+  display: block;
+  width: max-content;
+}
+
+.hero-rotator-word {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-rotator {
+    transition: none;
+  }
+}
+
+.home-agents-grid {
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 56px;
+  align-items: center;
+}
+
+@media (max-width: 860px) {
+  .home-agents-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
 }
 
 /* ── Feedback-widget dialog mock (static, decorative) ── */
