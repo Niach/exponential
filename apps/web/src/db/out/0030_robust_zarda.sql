@@ -1,0 +1,2 @@
+ALTER TABLE "widget_configs" ADD COLUMN "support_project_id" uuid;--> statement-breakpoint
+ALTER TABLE "widget_configs" ADD CONSTRAINT "widget_configs_support_project_id_projects_id_fk" FOREIGN KEY ("support_project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;

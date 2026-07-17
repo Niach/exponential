@@ -878,6 +878,15 @@ export const widgetConfigs = pgTable(
     projectId: uuid(`project_id`)
       .notNull()
       .references(() => projects.id, { onDelete: `cascade` }),
+    // Where SUPPORT-mode (helpdesk) tickets land when the widget splits its
+    // targets (EXP-162). NULL = same project as feedback (`project_id`) —
+    // every pre-split config keeps working unchanged. `set null` (not
+    // cascade): deleting the support project must degrade support, never
+    // delete the config — feedback still targets `project_id`.
+    supportProjectId: uuid(`support_project_id`).references(
+      () => projects.id,
+      { onDelete: `set null` }
+    ),
     name: varchar({ length: 255 }).notNull(),
     // `expw_` + 32 base62 chars. Public by design (it ships inside the host
     // page's snippet); the domain allowlist + rate limiting are the controls,

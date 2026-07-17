@@ -22,11 +22,12 @@ import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 
 const FEEDBACK_WORKSPACE_SLUG = `feedback`
 const FEEDBACK_WORKSPACE_NAME = `Exponential Feedback`
-// The feedback workspace holds exactly ONE project: the dogfood "Exponential"
-// project — a PUBLIC feedback board (is_public) since v7; the workspace
-// itself is a normal private workspace. Feedback (widget + /feedback route)
-// and dogfood coding share it — a separate `feedback` project only split the
-// same triage board in two.
+// The feedback workspace's canonical dogfood project: "Exponential" — a
+// PUBLIC feedback board (is_public) since v7; the workspace itself is a
+// normal private workspace. Feedback (widget + /feedback route) and dogfood
+// coding share it — a separate `feedback` project only split the same triage
+// board in two. Since EXP-162 a second bootstrap project exists: the private
+// helpdesk `Support` board (see ensureSupportProject).
 const PUBLIC_PROJECT_SLUG = `exponential`
 const PUBLIC_PROJECT_NAME = `Exponential`
 const PUBLIC_PROJECT_PREFIX = `EXP`
@@ -40,6 +41,12 @@ const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
 // Pre-collapse deployments seeded this second project next to the dogfood one;
 // collapseLegacyFeedbackProject folds it away.
 const LEGACY_FEEDBACK_PROJECT_SLUG = `feedback`
+// The dogfood helpdesk board (EXP-162): a PRIVATE, helpdesk-enabled sibling of
+// the public feedback board — the dogfood widget's support tickets land here
+// (widget_configs.support_project_id) while feedback stays on `exponential`.
+const SUPPORT_PROJECT_SLUG = `support`
+const SUPPORT_PROJECT_NAME = `Support`
+const SUPPORT_PROJECT_PREFIX = `SUP`
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -271,16 +278,100 @@ async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
   }
 }
 
+// The dogfood helpdesk gate rides the normal plan machinery
+// (assertCanUseHelpdesk is Pro+ on cloud) — comp the feedback workspace to
+// `business` via the existing admin comp floor instead of special-casing it
+// in billing. One-shot (only when comp_tier IS NULL) so a deliberate admin
+// change sticks. Side effect: business limits (storage/widgets/seats) apply
+// to the shared dogfood workspace — intended.
+async function ensureFeedbackWorkspaceComp(publicWorkspaceId: string) {
+  await db
+    .update(workspaces)
+    .set({ compTier: `business` })
+    .where(
+      and(
+        eq(workspaces.id, publicWorkspaceId),
+        sql`${workspaces.compTier} IS NULL`
+      )
+    )
+}
+
+// The dogfood Support project (EXP-162): private, helpdesk-enabled, protected
+// (bootstrap-managed — deleting it would cascade the dogfood support
+// conversations). Idempotent; heals the helpdesk/protection flags on existing
+// rows like ensurePublicProject heals publicness. Returns the project id.
+async function ensureSupportProject(
+  publicWorkspaceId: string
+): Promise<string> {
+  const [existing] = await db
+    .select({
+      id: projects.id,
+      isPublic: projects.isPublic,
+      helpdeskEnabled: projects.helpdeskEnabled,
+      isProtected: projects.isProtected,
+    })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, publicWorkspaceId),
+        eq(projects.slug, SUPPORT_PROJECT_SLUG)
+      )
+    )
+    .limit(1)
+  if (existing) {
+    const patch: Partial<typeof projects.$inferInsert> = {}
+    // Support conversations carry reporter PII — an adopted pre-existing
+    // `support` project must never stay anonymously readable.
+    if (existing.isPublic) patch.isPublic = false
+    if (!existing.helpdeskEnabled) patch.helpdeskEnabled = true
+    if (!existing.isProtected) patch.isProtected = true
+    if (Object.keys(patch).length > 0) {
+      await db.update(projects).set(patch).where(eq(projects.id, existing.id))
+      if (patch.isPublic === false) invalidatePublicProjectCache()
+    }
+    return existing.id
+  }
+
+  const [project] = await db
+    .insert(projects)
+    .values({
+      workspaceId: publicWorkspaceId,
+      name: SUPPORT_PROJECT_NAME,
+      slug: SUPPORT_PROJECT_SLUG,
+      prefix: SUPPORT_PROJECT_PREFIX,
+      isPublic: false,
+      icon: `message-circle`,
+      helpdeskEnabled: true,
+      isProtected: true,
+    })
+    .returning({ id: projects.id })
+  return project.id
+}
+
 const FEEDBACK_WIDGET_NAME = `Exponential App`
 
 // The dogfood widget: the Exponential web app itself embeds the feedback
 // widget pointed at the public feedback board. Domains stay open (allow-all)
 // on purpose — self-hosted instances with arbitrary hostnames load this same
 // cloud widget, and the widget is the ONLY anonymous write path to the board;
-// rate limiting is the abuse control.
-async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
+// rate limiting is the abuse control. Since EXP-162 the config splits its
+// targets: feedback → the public `exponential` board, support → the private
+// Support project (helpdesk). Existing configs get a ONE-SHOT heal, gated on
+// `formConfig.modes` being ABSENT: the modes-aware settings UI always writes
+// a modes array on save, so its absence proves the config predates EXP-130
+// support mode and was never deliberately configured — while a NULL
+// support_project_id alone is NOT proof (the UI stores NULL for "Same as
+// project" and for feedback-only, and the heal must never fight those).
+async function ensureFeedbackWidgetConfig(
+  publicWorkspaceId: string,
+  supportProjectId: string
+) {
   const [existing] = await db
-    .select({ id: widgetConfigs.id })
+    .select({
+      id: widgetConfigs.id,
+      supportProjectId: widgetConfigs.supportProjectId,
+      formConfig: widgetConfigs.formConfig,
+    })
     .from(widgetConfigs)
     .where(
       and(
@@ -289,7 +380,18 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
       )
     )
     .limit(1)
-  if (existing) return
+  if (existing) {
+    const form = existing.formConfig ?? {}
+    if (existing.supportProjectId != null || Array.isArray(form.modes)) return
+    await db
+      .update(widgetConfigs)
+      .set({
+        supportProjectId,
+        formConfig: { ...form, modes: [`feedback`, `support`] },
+      })
+      .where(eq(widgetConfigs.id, existing.id))
+    return
+  }
 
   const [project] = await db
     .select({ id: projects.id })
@@ -311,9 +413,11 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
     await tx.insert(widgetConfigs).values({
       workspaceId: publicWorkspaceId,
       projectId: project.id,
+      supportProjectId,
       name: FEEDBACK_WIDGET_NAME,
       publicKey: generateWidgetKey(),
       allowedDomains: [],
+      formConfig: { modes: [`feedback`, `support`] },
       widgetUserId,
     })
   })
@@ -435,15 +539,18 @@ export function bootstrapCloud(): Promise<void> {
       await promoteInitialAdmins()
       if (isCloudInstance()) {
         const publicWorkspaceId = await ensureFeedbackWorkspace()
+        await ensureFeedbackWorkspaceComp(publicWorkspaceId)
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
         // Canonical project first — it upserts its backing repository row
         // inline (the dogfood board is feedback + repo-backed). Then fold the
         // legacy feedback project into the canonical one, then seed the
-        // widget config — which needs the Exponential project as its target.
+        // Support project + widget config — which needs the Exponential
+        // project (feedback target) and Support project (helpdesk target).
         await ensurePublicProject(publicWorkspaceId)
         await ensurePublicRepositoryInstallation(publicWorkspaceId)
         await collapseLegacyFeedbackProject(publicWorkspaceId)
-        await ensureFeedbackWidgetConfig(publicWorkspaceId)
+        const supportProjectId = await ensureSupportProject(publicWorkspaceId)
+        await ensureFeedbackWidgetConfig(publicWorkspaceId, supportProjectId)
       }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)

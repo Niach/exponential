@@ -38,10 +38,8 @@ import {
 } from "@/components/getting-started/getting-started-model"
 import { McpSetupTabs } from "@/components/getting-started/mcp-setup-tabs"
 import { WidgetLauncherPreview } from "@/components/widget-launcher-preview"
-import {
-  CreateProjectDialog,
-  OWNER_ONLY_PUBLIC_HINT,
-} from "@/components/create-project-dialog"
+import { CreateProjectDialog } from "@/components/create-project-dialog"
+import { OWNER_ONLY_PUBLIC_HINT } from "@/components/project-form-fields"
 import type { ProjectTemplate } from "@/lib/project-types"
 import type { Workspace } from "@/db/schema"
 

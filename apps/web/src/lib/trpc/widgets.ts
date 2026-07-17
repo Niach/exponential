@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { count, eq } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { projects, users, widgetConfigs, widgetSubmissions } from "@/db/schema"
@@ -50,6 +51,8 @@ const formConfigSchema = z
 // Support mode files helpdesk tickets, so it needs both the plan gate and a
 // target project with the helpdesk switched on — otherwise tickets would land
 // invisibly (the Support inbox nav keys off projects.helpdesk_enabled).
+// `projectId` is the EFFECTIVE support target: supportProjectId when the
+// config splits its destinations (EXP-162), else the primary projectId.
 async function assertSupportModeUsable(workspaceId: string, projectId: string) {
   await assertCanUseHelpdesk(workspaceId)
   const [project] = await db
@@ -108,6 +111,7 @@ export const widgetsRouter = router({
       // Owner-only: exposes publicKey + submission counts, consumed only by the
       // owner-gated widget settings section.
       await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
+      const supportProjects = alias(projects, `support_projects`)
       return await ctx.db
         .select({
           id: widgetConfigs.id,
@@ -115,6 +119,8 @@ export const widgetsRouter = router({
           publicKey: widgetConfigs.publicKey,
           projectId: widgetConfigs.projectId,
           projectName: projects.name,
+          supportProjectId: widgetConfigs.supportProjectId,
+          supportProjectName: supportProjects.name,
           allowedDomains: widgetConfigs.allowedDomains,
           enabled: widgetConfigs.enabled,
           formConfig: widgetConfigs.formConfig,
@@ -124,11 +130,15 @@ export const widgetsRouter = router({
         .from(widgetConfigs)
         .innerJoin(projects, eq(widgetConfigs.projectId, projects.id))
         .leftJoin(
+          supportProjects,
+          eq(widgetConfigs.supportProjectId, supportProjects.id)
+        )
+        .leftJoin(
           widgetSubmissions,
           eq(widgetSubmissions.widgetConfigId, widgetConfigs.id)
         )
         .where(eq(widgetConfigs.workspaceId, input.workspaceId))
-        .groupBy(widgetConfigs.id, projects.name)
+        .groupBy(widgetConfigs.id, projects.name, supportProjects.name)
         .orderBy(widgetConfigs.createdAt)
     }),
 
@@ -137,6 +147,9 @@ export const widgetsRouter = router({
       z.object({
         workspaceId: z.string().uuid(),
         projectId: z.string().uuid(),
+        // Where SUPPORT tickets land (EXP-162); null/absent = same as
+        // projectId.
+        supportProjectId: z.string().uuid().nullable().optional(),
         name: widgetNameSchema,
         allowedDomains: allowedDomainsSchema.default([]),
         formConfig: formConfigSchema,
@@ -155,8 +168,22 @@ export const widgetsRouter = router({
           message: `Project must belong to the workspace`,
         })
       }
+      if (input.supportProjectId != null) {
+        const supportProject = await getProjectWorkspaceId(
+          input.supportProjectId
+        )
+        if (supportProject.workspaceId !== input.workspaceId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Support project must belong to the workspace`,
+          })
+        }
+      }
       if (input.formConfig?.modes?.includes(`support`)) {
-        await assertSupportModeUsable(input.workspaceId, input.projectId)
+        await assertSupportModeUsable(
+          input.workspaceId,
+          input.supportProjectId ?? input.projectId
+        )
       }
 
       return await ctx.db.transaction(async (tx) => {
@@ -169,6 +196,7 @@ export const widgetsRouter = router({
           .values({
             workspaceId: input.workspaceId,
             projectId: input.projectId,
+            supportProjectId: input.supportProjectId ?? null,
             name: input.name,
             publicKey: generateWidgetKey(),
             allowedDomains: input.allowedDomains,
@@ -187,6 +215,9 @@ export const widgetsRouter = router({
         widgetConfigId: z.string().uuid(),
         name: widgetNameSchema.optional(),
         projectId: z.string().uuid().optional(),
+        // Tri-state: undefined = unchanged, null = clear (support falls back
+        // to projectId), uuid = point support at that project (EXP-162).
+        supportProjectId: z.string().uuid().nullable().optional(),
         allowedDomains: allowedDomainsSchema.optional(),
         enabled: z.boolean().optional(),
         formConfig: formConfigSchema,
@@ -207,15 +238,32 @@ export const widgetsRouter = router({
           })
         }
       }
+      if (
+        input.supportProjectId != null &&
+        input.supportProjectId !== config.supportProjectId
+      ) {
+        const supportProject = await getProjectWorkspaceId(
+          input.supportProjectId
+        )
+        if (supportProject.workspaceId !== config.workspaceId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Support project must belong to the workspace`,
+          })
+        }
+      }
 
       // Gate on the FINAL state, but only when this update actually touches
-      // it (new modes, or a project repoint re-checked against the new
-      // target) — a lapsed plan must not block unrelated edits like renaming
-      // or disabling, and stale stored support degrades gracefully at serve
-      // time via effectiveWidgetModes.
+      // it (new modes, or a project/support-target repoint re-checked against
+      // the new target) — a lapsed plan must not block unrelated edits like
+      // renaming or disabling, and stale stored support degrades gracefully
+      // at serve time via effectiveWidgetModes.
       const touchesSupportState =
         input.formConfig !== undefined ||
-        (input.projectId !== undefined && input.projectId !== config.projectId)
+        (input.projectId !== undefined &&
+          input.projectId !== config.projectId) ||
+        (input.supportProjectId !== undefined &&
+          input.supportProjectId !== config.supportProjectId)
       const finalModes =
         input.formConfig !== undefined
           ? input.formConfig?.modes
@@ -225,10 +273,14 @@ export const widgetsRouter = router({
         Array.isArray(finalModes) &&
         finalModes.includes(`support`)
       ) {
-        await assertSupportModeUsable(
-          config.workspaceId,
-          input.projectId ?? config.projectId
-        )
+        // The FINAL effective support target: a cleared supportProjectId
+        // falls back to the (possibly also updated) primary project.
+        const finalSupportTarget =
+          (input.supportProjectId !== undefined
+            ? input.supportProjectId
+            : config.supportProjectId) ??
+          (input.projectId ?? config.projectId)
+        await assertSupportModeUsable(config.workspaceId, finalSupportTarget)
       }
 
       await ctx.db.transaction(async (tx) => {
@@ -238,6 +290,9 @@ export const widgetsRouter = router({
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.projectId !== undefined
               ? { projectId: input.projectId }
+              : {}),
+            ...(input.supportProjectId !== undefined
+              ? { supportProjectId: input.supportProjectId }
               : {}),
             ...(input.allowedDomains !== undefined
               ? { allowedDomains: input.allowedDomains }

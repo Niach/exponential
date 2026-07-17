@@ -15,12 +15,7 @@ function SettingsProjects() {
 
   return (
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isOwner}>
-      {workspace && (
-        <WorkspaceProjectsSection
-          workspaceId={workspace.id}
-          workspaceSlug={workspace.slug}
-        />
-      )}
+      {workspace && <WorkspaceProjectsSection workspace={workspace} />}
     </SettingsSectionGuard>
   )
 }

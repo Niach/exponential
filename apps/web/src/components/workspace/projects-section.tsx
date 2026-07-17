@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link } from "@tanstack/react-router"
-import { Github, GitBranch, Globe, LifeBuoy, Trash2 } from "lucide-react"
+import { Github, Globe, LifeBuoy, Pencil, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -23,29 +20,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  buildPublicBoardUrl,
-  PublicBoardLinkRow,
-} from "@/components/workspace/public-board-share"
+import { CreateProjectDialog } from "@/components/create-project-dialog"
+import { ProjectSettingsDialog } from "@/components/workspace/project-settings-dialog"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
-import { type PickerRepo } from "@/components/github-repo-picker"
-import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
-import type { Project } from "@/db/schema"
+import type { Workspace } from "@/db/schema"
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 
 export function WorkspaceProjectsSection({
-  workspaceId,
-  workspaceSlug,
+  workspace,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  workspace: Workspace
 }) {
+  const workspaceId = workspace.id
   const projects = useWorkspaceProjects(workspaceId)
   const visibleProjects = projects.filter((p) => !p.archivedAt)
 
   // The workspace's connected repos — used to render each project's repo chip
-  // (uuid → owner/name) and to feed the "Change repository…" dialog.
+  // (uuid → owner/name) and to feed the settings dialog's repo picker.
   const [repos, setRepos] = useState<RepoList | null>(null)
   const refreshRepos = useCallback(async () => {
     try {
@@ -71,14 +63,12 @@ export function WorkspaceProjectsSection({
   // Bumped on delete so the trash card refetches (restored projects re-appear
   // in the synced list on their own via Electric).
   const [trashRefreshKey, setTrashRefreshKey] = useState(0)
-  const [repoTarget, setRepoTarget] = useState<Project | null>(null)
-  const [publicTargetId, setPublicTargetId] = useState<string | null>(null)
-  // Live row so toggle writes reflect immediately via Electric sync.
-  const publicTarget =
-    visibleProjects.find((p) => p.id === publicTargetId) ?? null
-  const [helpdeskTargetId, setHelpdeskTargetId] = useState<string | null>(null)
-  const helpdeskTarget =
-    visibleProjects.find((p) => p.id === helpdeskTargetId) ?? null
+  const [createOpen, setCreateOpen] = useState(false)
+  // Live row so edit-dialog toggle writes reflect immediately via Electric
+  // sync (and a concurrently-trashed target closes the dialog).
+  const [editTargetId, setEditTargetId] = useState<string | null>(null)
+  const editTarget =
+    visibleProjects.find((p) => p.id === editTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -105,6 +95,12 @@ export function WorkspaceProjectsSection({
           <CardDescription>
             Manage projects in this team.
           </CardDescription>
+          <CardAction>
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              New project
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {visibleProjects.length === 0 ? (
@@ -118,11 +114,11 @@ export function WorkspaceProjectsSection({
                   ? repoMap.get(project.repositoryId)
                   : undefined
                 const TypeIcon = getProjectIcon(project)
-                const isPublicBoard = project.isPublic
                 return (
                   <div
                     key={project.id}
-                    className="flex items-center gap-3 px-3 py-2.5"
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
+                    onClick={() => setEditTargetId(project.id)}
                   >
                     <TypeIcon
                       className="h-4 w-4 shrink-0"
@@ -143,57 +139,49 @@ export function WorkspaceProjectsSection({
                         </span>
                       </Badge>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground"
-                      title="Change repository"
-                      onClick={() => setRepoTarget(project)}
-                    >
-                      <GitBranch className="h-3.5 w-3.5" />
-                    </Button>
-                    {isPublicBoard && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground"
-                        title="Public board settings"
-                        onClick={() => setPublicTargetId(project.id)}
-                      >
-                        <Globe className="h-3.5 w-3.5" />
-                      </Button>
+                    {project.isPublic && (
+                      <Globe
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                        aria-label="Public board"
+                      />
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={`h-7 w-7 shrink-0 ${
-                        project.helpdeskEnabled
-                          ? `text-indigo-400`
-                          : `text-muted-foreground`
-                      }`}
-                      title="Helpdesk settings"
-                      onClick={() => setHelpdeskTargetId(project.id)}
-                    >
-                      <LifeBuoy className="h-3.5 w-3.5" />
-                    </Button>
+                    {project.helpdeskEnabled && (
+                      <LifeBuoy
+                        className="h-3.5 w-3.5 shrink-0 text-indigo-400"
+                        aria-label="Helpdesk enabled"
+                      />
+                    )}
                     <Badge
                       variant="outline"
                       className="hidden shrink-0 font-mono text-xs sm:inline-flex"
                     >
                       {project.prefix}
                     </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground"
+                      title="Project settings"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditTargetId(project.id)
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     {!project.isProtected && (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                         title="Move to trash"
-                        onClick={() =>
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setDeleteTarget({
                             id: project.id,
                             name: project.name,
                           })
-                        }
+                        }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -249,29 +237,23 @@ export function WorkspaceProjectsSection({
         </DialogContent>
       </Dialog>
 
-      <ChangeRepositoryDialog
-        project={repoTarget}
-        workspaceId={workspaceId}
+      <CreateProjectDialog
+        open={createOpen}
         onOpenChange={(open) => {
-          if (!open) setRepoTarget(null)
+          setCreateOpen(open)
+          // An inline-connected repo should show up as a chip right away.
+          if (!open) void refreshRepos()
         }}
-        onChanged={() => void refreshRepos()}
+        workspace={workspace}
       />
 
-      <PublicBoardDialog
-        project={publicTarget}
-        workspaceSlug={workspaceSlug}
+      <ProjectSettingsDialog
+        project={editTarget}
+        workspace={workspace}
         onOpenChange={(open) => {
-          if (!open) setPublicTargetId(null)
+          if (!open) setEditTargetId(null)
         }}
-      />
-
-      <HelpdeskDialog
-        project={helpdeskTarget}
-        workspaceSlug={workspaceSlug}
-        onOpenChange={(open) => {
-          if (!open) setHelpdeskTargetId(null)
-        }}
+        onRepoChanged={() => void refreshRepos()}
       />
     </>
   )
@@ -387,279 +369,5 @@ function PendingDeletionCard({
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-// Owner controls for a feedback board's public surface. The board itself is
-// always publicly readable (that's what a feedback board IS); these toggles
-// govern what visitors see beyond the issues.
-function PublicBoardDialog({
-  project,
-  workspaceSlug,
-  onOpenChange,
-}: {
-  project: Project | null
-  workspaceSlug: string
-  onOpenChange: (open: boolean) => void
-}) {
-  const [busy, setBusy] = useState(false)
-
-  const publicUrl = project
-    ? buildPublicBoardUrl(workspaceSlug, project.slug)
-    : ``
-
-  const update = async (
-    updates: Partial<{
-      publicShowComments: boolean
-      publicShowActivity: boolean
-    }>
-  ) => {
-    if (!project) return
-    setBusy(true)
-    try {
-      await trpc.projects.update.mutate({ id: project.id, ...updates })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open={project !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            Public board
-          </DialogTitle>
-          <DialogDescription>
-            Anyone with the link can read{` `}
-            <span className="font-medium text-foreground">
-              {project?.name}
-            </span>
-            : issue titles, descriptions and @mentions are public. Visitors
-            submit feedback through the embeddable widget.
-          </DialogDescription>
-        </DialogHeader>
-
-        <PublicBoardLinkRow url={publicUrl} />
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <Label className="text-sm">Show comments</Label>
-              <p className="text-xs text-muted-foreground">
-                Visitors see issue discussions (authors stay anonymized).
-              </p>
-            </div>
-            <Switch
-              checked={project?.publicShowComments ?? true}
-              disabled={busy}
-              onCheckedChange={(checked) =>
-                void update({ publicShowComments: checked })
-              }
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <Label className="text-sm">Show activity</Label>
-              <p className="text-xs text-muted-foreground">
-                Status and label changes appear on public issues.
-              </p>
-            </div>
-            <Switch
-              checked={project?.publicShowActivity ?? false}
-              disabled={busy}
-              onCheckedChange={(checked) =>
-                void update({ publicShowActivity: checked })
-              }
-            />
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// Owner control for a project's helpdesk switch (Pro-gated on cloud — the
-// server throws the plan-limit error, surfaced here as an upgrade nudge).
-// Live `project` row from Electric so the switch reflects the write.
-function HelpdeskDialog({
-  project,
-  workspaceSlug,
-  onOpenChange,
-}: {
-  project: Project | null
-  workspaceSlug: string
-  onOpenChange: (open: boolean) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setError(null)
-  }, [project?.id])
-
-  const toggle = async (enabled: boolean) => {
-    if (!project) return
-    setBusy(true)
-    setError(null)
-    try {
-      await trpc.projects.update.mutate({
-        id: project.id,
-        helpdeskEnabled: enabled,
-      })
-    } catch (err) {
-      setError(
-        isPlanLimitError(err)
-          ? `The helpdesk is available on Pro and Business plans.`
-          : `Could not update the helpdesk setting.`
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open={project !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LifeBuoy className="h-4 w-4" />
-            Helpdesk
-          </DialogTitle>
-          <DialogDescription>
-            Let people who reach out through the widget continue the
-            conversation over email + a private reply page. Conversations for
-            {` `}
-            <span className="font-medium text-foreground">
-              {project?.name}
-            </span>{` `}
-            land in the team&apos;s Support inbox.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <Label className="text-sm">Enable helpdesk</Label>
-            <p className="text-xs text-muted-foreground">
-              Pro and Business plans.
-            </p>
-          </div>
-          <Switch
-            checked={project?.helpdeskEnabled ?? false}
-            disabled={busy}
-            onCheckedChange={(checked) => void toggle(checked)}
-          />
-        </div>
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        {project?.helpdeskEnabled && (
-          <Button variant="outline" size="sm" asChild className="w-fit">
-            <Link to="/t/$workspaceSlug/support" params={{ workspaceSlug }}>
-              Open Support inbox
-            </Link>
-          </Button>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ChangeRepositoryDialog({
-  project,
-  workspaceId,
-  onOpenChange,
-  onChanged,
-}: {
-  project: Project | null
-  workspaceId: string
-  onOpenChange: (open: boolean) => void
-  onChanged: () => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Reset transient state whenever the target project changes.
-  useEffect(() => {
-    setBusy(false)
-    setError(null)
-  }, [project?.id])
-
-  const apply = async (repositoryId: string) => {
-    if (!project) return
-    setBusy(true)
-    setError(null)
-    try {
-      await trpc.projects.setRepository.mutate(
-        { projectId: project.id, repositoryId },
-        { context: { skipErrorToast: true } }
-      )
-      onChanged()
-      onOpenChange(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // A brand-new repo: register it (idempotent upsert/un-archive) then point the
-  // project at the returned repository id.
-  const handleConnect = async (picked: PickerRepo) => {
-    setBusy(true)
-    setError(null)
-    try {
-      const { repository } = await trpc.repositories.add.mutate(
-        {
-          workspaceId,
-          fullName: picked.fullName,
-          defaultBranch: picked.defaultBranch,
-          private: picked.private,
-        },
-        { context: { skipErrorToast: true } }
-      )
-      if (repository) {
-        await apply(repository.id)
-        return
-      }
-      setError(`Could not connect ${picked.fullName}.`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open={project !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Change repository</DialogTitle>
-          <DialogDescription>
-            Choose the repository{` `}
-            <span className="font-medium text-foreground">
-              {project?.name}
-            </span>
-            {` `}is coded on. New &ldquo;Start coding&rdquo; launches use it;
-            existing worktrees keep working locally.
-          </DialogDescription>
-        </DialogHeader>
-
-        {error && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-
-        <ConnectedRepoPicker
-          workspaceId={workspaceId}
-          value={project?.repositoryId ?? null}
-          disabled={busy}
-          onSelectRegistry={(repo) => void apply(repo.id)}
-          onConnectNew={(picked) => void handleConnect(picked)}
-        />
-      </DialogContent>
-    </Dialog>
   )
 }

@@ -450,6 +450,157 @@ describe(`widget modes`, () => {
   })
 })
 
+// EXP-162: a config may split its targets — feedback stays on project_id,
+// support tickets file into support_project_id. The SUPPORT TARGET's
+// helpdesk/trash state gates support; the primary's is irrelevant to it (and
+// vice versa).
+describe(`split support target (EXP-162)`, () => {
+  // Primary helpdesk deliberately OFF — only the split target's flag counts.
+  const splitConfig = {
+    ...config,
+    formConfig: { modes: [`feedback`, `support`] },
+    projectHelpdeskEnabled: false,
+    supportProjectId: `proj-support`,
+    supportProjectHelpdeskEnabled: true,
+    supportProjectDeletedAt: null,
+  } as unknown as WidgetConfigWithProject
+
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.dbInserts.length = 0
+    h.txShouldFail = false
+    h.getSoleHumanMemberId.mockClear()
+    h.getSoleHumanMemberId.mockResolvedValue(null)
+    h.ensureSubscribed.mockClear()
+    h.fireAndForgetNewIssueNotify.mockClear()
+    h.assertCanUseHelpdesk.mockClear()
+    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
+    h.createSupportThreadInTx.mockClear()
+    h.sendSupportConfirmationEmail.mockClear()
+  })
+
+  const supportForm = (): FormData => {
+    const form = new FormData()
+    form.set(`mode`, `support`)
+    form.set(`message`, `Where is my invoice?`)
+    form.set(`email`, `reporter@example.com`)
+    return form
+  }
+
+  it(`serves both modes off the split target's helpdesk flag`, async () => {
+    expect(await effectiveWidgetModes(splitConfig)).toEqual([
+      `feedback`,
+      `support`,
+    ])
+  })
+
+  it(`drops support when the split target's helpdesk is off`, async () => {
+    const stale = {
+      ...splitConfig,
+      supportProjectHelpdeskEnabled: false,
+      // Even with the PRIMARY helpdesk on — the split target decides.
+      projectHelpdeskEnabled: true,
+    } as unknown as WidgetConfigWithProject
+    expect(await effectiveWidgetModes(stale)).toEqual([`feedback`])
+  })
+
+  it(`drops support when the split target is trashed`, async () => {
+    const trashed = {
+      ...splitConfig,
+      supportProjectDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithProject
+    expect(await effectiveWidgetModes(trashed)).toEqual([`feedback`])
+  })
+
+  it(`keeps serving support when only the FEEDBACK board is trashed`, async () => {
+    // The config route must not hide the whole widget over a trashed primary
+    // while a live split support target remains.
+    const feedbackTrashed = {
+      ...splitConfig,
+      projectDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithProject
+    expect(await effectiveWidgetModes(feedbackTrashed)).toEqual([`support`])
+  })
+
+  it(`returns NO modes when both targets are unavailable`, async () => {
+    const allDead = {
+      ...splitConfig,
+      projectDeletedAt: new Date(),
+      supportProjectDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithProject
+    expect(await effectiveWidgetModes(allDead)).toEqual([])
+  })
+
+  it(`files the ticket into the support project, emailing the PRIMARY name`, async () => {
+    await createWidgetSupportSubmission({
+      config: splitConfig,
+      formData: supportForm(),
+      userAgent: null,
+    })
+
+    const issue = h.inserts.find((i) => i.table === issues)
+    expect(issue?.values.projectId).toBe(`proj-support`)
+    const subscriber = h.inserts.find((i) => i.table === issueSubscribers)
+    expect(subscriber?.values.projectId).toBe(`proj-support`)
+    expect(h.createSupportThreadInTx.mock.calls[0][1]).toMatchObject({
+      projectId: `proj-support`,
+    })
+    // The product-facing identity stays the primary project's name — a
+    // support project named "Support" must not render "Support support".
+    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ projectName: `Board` })
+    )
+  })
+
+  it(`falls back to the primary project when support_project_id is NULL`, async () => {
+    await createWidgetSupportSubmission({
+      config: supportConfig,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    const issue = h.inserts.find((i) => i.table === issues)
+    expect(issue?.values.projectId).toBe(`proj-1`)
+  })
+
+  it(`a trashed feedback board doesn't block support at a live split target`, async () => {
+    const feedbackTrashed = {
+      ...splitConfig,
+      projectDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithProject
+
+    const result = await createWidgetSupportSubmission({
+      config: feedbackTrashed,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    expect(result.identifier).toBe(`EXP-9`)
+
+    // …while the feedback path still refuses the trashed primary board.
+    await expect(
+      createWidgetSubmission({
+        config: feedbackTrashed,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it(`a trashed support target rejects support despite a live primary`, async () => {
+    const supportTrashed = {
+      ...splitConfig,
+      supportProjectDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithProject
+    await expect(
+      createWidgetSupportSubmission({
+        config: supportTrashed,
+        formData: supportForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 403 })
+    expect(h.inserts).toHaveLength(0)
+  })
+})
+
 // The submit route relays WidgetRequestError.code into the JSON body; the
 // client uses it to re-reveal a hidden identity-email input. Validation
 // behavior (statuses/messages) is unchanged — only the code is additive.
