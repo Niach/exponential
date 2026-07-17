@@ -255,6 +255,9 @@ fn render_image_slot(
                         .id(id.into())
                         .cursor_pointer()
                         .on_click(move |_, window, cx| {
+                            // In the blurred-editor preview a bubbling click
+                            // would also start editing behind the lightbox.
+                            cx.stop_propagation();
                             crate::image_preview::open_image_preview(
                                 url.clone(),
                                 alt.clone(),
@@ -364,6 +367,14 @@ pub struct MarkdownEditor {
     uploads_in_flight: usize,
     link_editor: Option<LinkEditor>,
     error: Option<SharedString>,
+    /// Blurred-preview seam (EXP-161): while no text block owns focus the
+    /// editor renders a [`MarkdownView`] of its own document — live
+    /// `@email`/`#IDENT` pills, clickable links, rendered GFM — and swaps
+    /// back to the editable blocks on click. Opt-in (detail description);
+    /// the create dialog keeps the always-editable surface.
+    preview_when_blurred: bool,
+    resolver: Option<RefResolver>,
+    on_open_issue: Option<OpenIssueCallback>,
 }
 
 impl MarkdownEditor {
@@ -385,6 +396,9 @@ impl MarkdownEditor {
             uploads_in_flight: 0,
             link_editor: None,
             error: None,
+            preview_when_blurred: false,
+            resolver: None,
+            on_open_issue: None,
         };
         this.rebuild_from_markdown("", window, cx);
         this
@@ -433,6 +447,26 @@ impl MarkdownEditor {
     /// The shared image cache (pass to a sibling [`MarkdownView`]).
     pub fn images(&self) -> Entity<ImageCache> {
         self.images.clone()
+    }
+
+    /// Render the read-only [`MarkdownView`] (decoration pills, clickable
+    /// links) while no text block owns focus; clicking it re-enters editing
+    /// (EXP-161).
+    pub fn set_preview_when_blurred(&mut self, preview: bool) {
+        self.preview_when_blurred = preview;
+    }
+
+    /// Resolve `@email`/`#IDENT` into pills in the blurred preview (§4.5).
+    pub fn set_resolver(&mut self, resolver: RefResolver) {
+        self.resolver = Some(resolver);
+    }
+
+    /// Clicking a resolved `#IDENT` pill in the blurred preview.
+    pub fn set_on_open_issue(
+        &mut self,
+        on_open_issue: impl Fn(&str, &mut Window, &mut App) + 'static,
+    ) {
+        self.on_open_issue = Some(Rc::new(on_open_issue));
     }
 
     // -- Document I/O --------------------------------------------------------
@@ -494,6 +528,9 @@ impl MarkdownEditor {
         });
         if let Some(input) = input {
             input.update(cx, |state, cx| state.focus(window, cx));
+            // The blurred preview swaps to the edit surface off this focus —
+            // the input's Focus event can't fire while it is unmounted.
+            cx.notify();
         }
     }
 
@@ -1271,8 +1308,63 @@ impl MarkdownEditor {
     }
 }
 
+/// Read-only rendered surface of a blurred [`MarkdownEditor`] (EXP-161):
+/// the same [`MarkdownView`] pass comments use — decoration pills, clickable
+/// links, task toggles — over the editor's own document. Clicking anywhere
+/// else in it focuses the editor (append position) and swaps the editable
+/// blocks back in.
+fn render_editor_preview(
+    editor: &MarkdownEditor,
+    markdown: String,
+    cx: &mut Context<MarkdownEditor>,
+) -> gpui::AnyElement {
+    let mut view = MarkdownView::new("md-editor-preview-view", markdown)
+        .images(editor.images.clone());
+    if let Some(resolver) = editor.resolver.clone() {
+        view = view.resolver(resolver);
+    }
+    if let Some(on_open_issue) = editor.on_open_issue.clone() {
+        view = view.on_open_issue(move |identifier, window, cx| {
+            cx.stop_propagation();
+            on_open_issue(identifier, window, cx);
+        });
+    }
+    let entity = cx.entity();
+    view = view.on_source_edit(move |markdown, window, cx| {
+        // A task-checkbox toggle is a structural edit: persist immediately
+        // (there is no blur to ride on) and stay in preview.
+        cx.stop_propagation();
+        entity.update(cx, |this, cx| {
+            this.set_markdown(&markdown, window, cx);
+            this.emit_commit(window, cx);
+        });
+    });
+    div()
+        .id("md-editor-preview")
+        .w_full()
+        .py_1()
+        .min_h(px(96.))
+        .cursor_text()
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.focus(window, cx);
+        }))
+        .child(view)
+        .into_any_element()
+}
+
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.preview_when_blurred
+            && self.link_editor.is_none()
+            && self.error.is_none()
+            && !self.is_focused(window, cx)
+        {
+            let markdown = self.markdown(cx);
+            if !markdown.trim().is_empty() {
+                return render_editor_preview(self, markdown, cx);
+            }
+        }
+
         let theme_border = cx.theme().border;
         let error = self.error.clone();
         let completion = self.render_completion(window, cx);
@@ -1308,6 +1400,7 @@ impl Render for MarkdownEditor {
                     .children(self.render_edit_blocks(cx)),
             )
             .when_some(completion, |el, completion| el.child(completion))
+            .into_any_element()
     }
 }
 
@@ -1556,6 +1649,10 @@ fn render_view_line(
                 let Some((_, target)) = targets.get(index) else {
                     return;
                 };
+                // Inside the blurred-editor preview a click outside any target
+                // means "start editing" — a hit on a link/pill must not also
+                // bubble into that.
+                cx.stop_propagation();
                 match target {
                     ClickTarget::Url(url) => {
                         if let Err(error) = api::opener::open_in_browser(url) {
