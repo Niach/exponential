@@ -15,6 +15,7 @@ import {
   Link2,
   LogIn,
   LogOut,
+  Megaphone,
   Plus,
   Search,
   Settings,
@@ -42,6 +43,7 @@ import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
+import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
 import { copyPublicBoardUrl } from "@/components/workspace/public-board-share"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -160,6 +162,7 @@ export function WorkspaceSidebar({
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
   const isAuthed = Boolean(session?.user)
   // Solo users never see the "workspace" concept: no switcher, no name. The
@@ -438,6 +441,9 @@ export function WorkspaceSidebar({
         </SidebarContent>
 
         <SidebarFooter>
+          {/* EXP-164: dismissable "What's new" teaser for the latest changelog
+              entry — hidden again until the next release once dismissed. */}
+          {isAuthed && <WhatsNewCard onOpen={() => setWhatsNewOpen(true)} />}
           <SidebarMenu>
             {/* EXP-88: re-entry point for the Getting started cards once the
                 board's inline block is gone (issues exist / dismissed). */}
@@ -494,6 +500,11 @@ export function WorkspaceSidebar({
                   <Bell className="mr-2 h-4 w-4" />
                   Account & notifications
                 </DropdownMenuItem>
+                {/* Re-entry point once the footer card is dismissed. */}
+                <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
+                  <Megaphone className="mr-2 h-4 w-4" />
+                  What&apos;s new
+                </DropdownMenuItem>
                 {!showChrome && isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
@@ -525,6 +536,9 @@ export function WorkspaceSidebar({
         </SidebarFooter>
       </Sidebar>
 
+      {isAuthed && (
+        <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
+      )}
       {workspace && isAuthed && (
         <CreateProjectDialog
           open={createProjectOpen}
