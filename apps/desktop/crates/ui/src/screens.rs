@@ -173,16 +173,8 @@ impl ScreensPanel {
         }
         match screen {
             Screen::IssueDetail { issue_id } => {
-                // EXP-67: a PR/lane click may request the Changes tab —
-                // consume the marker only when it targets THIS issue (a stale
-                // marker for another issue must not flip the tab).
-                let open_changes = crate::navigation::take_pending_issue_changes(&self.nav, cx)
-                    .is_some_and(|pending| pending == issue_id);
                 self.issue_detail.update(cx, |detail, cx| {
                     detail.set_issue(issue_id, window, cx);
-                    if open_changes {
-                        detail.show_changes(cx);
-                    }
                 });
             }
             Screen::FileViewer { path } => {

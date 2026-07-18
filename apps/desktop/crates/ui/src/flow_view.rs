@@ -437,7 +437,6 @@ impl FlowView {
             _ => foreground,
         };
         let branch = lane.branch.clone();
-        let issue_id = lane.issue_id.clone();
         let current = lane.current;
         let delete_branch = lane.branch.clone();
         // Never the trunk's default lane or the checked-out branch —
@@ -505,23 +504,16 @@ impl FlowView {
             })
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
-                if let Some(issue_id) = issue_id.clone() {
-                    // Issue lanes open the issue's Changes tab — the
-                    // issue-centric diff surface (EXP-67). Clear any branch
-                    // view so the SC screen doesn't stay pinned to a stale
-                    // history selection.
-                    crate::sidebar::set_view_branch(window, cx, None);
-                    navigation::navigate_issue_changes(window, cx, issue_id);
-                } else {
-                    // Clicking VIEWS the branch's history in the changes
-                    // screen — never a checkout (that's the top-bar chip).
-                    crate::sidebar::set_view_branch(
-                        window,
-                        cx,
-                        if current { None } else { Some(branch.clone()) },
-                    );
-                    navigation::navigate(window, cx, Screen::SourceControl);
-                }
+                // Clicking VIEWS the branch's history in the changes screen —
+                // never a checkout (that's the top-bar chip). Issue lanes too
+                // (EXP-179): the issue-detail Changes tab is gone (web parity,
+                // EXP-157) — Source Control is the one diff surface.
+                crate::sidebar::set_view_branch(
+                    window,
+                    cx,
+                    if current { None } else { Some(branch.clone()) },
+                );
+                navigation::navigate(window, cx, Screen::SourceControl);
             }))
             .child(gutter)
             .child({
@@ -650,11 +642,10 @@ impl Render for FlowView {
         self.ensure_counts(&flow, cx);
         let lane_connectors = connectors(&flow.lanes);
         // Highlight follows the ACTIVE center tab (EXP-67): an issue lane is
-        // selected while its issue detail is the active screen; branch lanes
-        // are selected while the Source Control screen shows them (the
-        // rail's view-branch selection, falling back to the checked-out
-        // lane). Previously issue lanes never highlighted — only the
-        // view-branch path did.
+        // selected while its issue detail is the active screen OR while the
+        // Source Control screen views its branch (lane clicks land there
+        // since EXP-179); branch lanes highlight on the view-branch path
+        // alone (falling back to the checked-out lane).
         let active_screen = navigation::resolved_screen(&self.nav, cx);
         let active_issue = match &active_screen {
             Some(Screen::IssueDetail { issue_id }) => Some(issue_id.clone()),
@@ -671,16 +662,16 @@ impl Render for FlowView {
         let mut section = v_flex().w_full().p_1().px_2();
         for (lane, connector) in flow.lanes.iter().zip(&lane_connectors) {
             let session_live = local_sessions.read(cx).is_branch_live(&lane.branch);
-            let viewing = match &lane.issue_id {
-                Some(issue_id) => active_issue.as_deref() == Some(issue_id.as_str()),
-                None => {
-                    sc_active
-                        && match &view_branch {
-                            Some(viewed) => *viewed == lane.branch,
-                            None => lane.current,
-                        }
-                }
-            };
+            let branch_viewed = sc_active
+                && match &view_branch {
+                    Some(viewed) => *viewed == lane.branch,
+                    None => lane.current,
+                };
+            let viewing = branch_viewed
+                || lane
+                    .issue_id
+                    .as_deref()
+                    .is_some_and(|issue_id| active_issue.as_deref() == Some(issue_id));
             section = section.child(self.render_lane(lane, connector, viewing, session_live, cx));
         }
         if let Some(error) = &self.error {

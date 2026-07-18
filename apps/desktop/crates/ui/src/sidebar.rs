@@ -1240,8 +1240,16 @@ impl SidebarPanel {
                     this.review_arm_seq += 1;
                     cx.notify();
                 }
-                // A PR row's payload is the diff — land on the Changes tab.
-                crate::navigation::navigate_issue_changes(window, cx, nav_id.clone());
+                // The issue detail (the Changes tab is gone — EXP-179, web
+                // parity with EXP-157): PR state + merge live on the row
+                // itself, the issue body is what's left to inspect.
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::IssueDetail {
+                        issue_id: nav_id.clone(),
+                    },
+                );
             }))
             .child(
                 h_flex()

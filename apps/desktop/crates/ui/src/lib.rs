@@ -44,7 +44,6 @@ mod github_connect;
 mod icons;
 mod image_preview;
 mod inbox;
-mod issue_changes;
 pub mod issue_detail;
 mod issue_list;
 mod join_workspace;
