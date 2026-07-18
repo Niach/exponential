@@ -49,9 +49,8 @@ use sync::Store;
 use domain::rows::Issue;
 
 use crate::actions::{NextIssue, PrevIssue};
-use crate::coding_flow::{LocalSessions, StartCodingControl};
+use crate::coding_flow::{window_terminal_manager, CodingHub, LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
-use crate::issue_changes::IssueChanges;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, navigate, replace_screen, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
@@ -67,6 +66,21 @@ const KEY_CONTEXT: &str = "IssueDetail";
 /// shared with the timeline, whose full-bleed divider re-centers its content
 /// to this same column.
 pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
+
+/// Center a detail column to [`DETAIL_COLUMN_W`] while keeping its width
+/// DEFINITE (EXP-179). As a FLEX item, `max_w` + `mx_auto` disables stretch
+/// and taffy sizes the column fit-content — gpui's text then gets measured
+/// at unconstrained width and caches that layout: paragraphs paint wrapped
+/// but occupy one line of layout height (the section below overlaps them),
+/// and at wide sizes render as one clipped line. Under a display-BLOCK
+/// wrapper (gpui's div default) the same `max_w` + `mx_auto` resolves like
+/// CSS block flow — width = min(container, max), auto margins split the
+/// rest — with no content-measure pass above the wrapping text.
+pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
+    div()
+        .w_full()
+        .child(column.w_full().max_w(px(DETAIL_COLUMN_W)).mx_auto())
+}
 
 /// Register the EXP-48 J/K switcher bindings (call once from `ui::init`).
 ///
@@ -143,14 +157,6 @@ pub fn install_description_editor(cx: &mut App, build: DescriptionEditorBuilder)
 // The view
 // ---------------------------------------------------------------------------
 
-/// The segmented header's two panes (§4.8): the issue body vs. the single
-/// worktree/PR diff surface.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DetailTab {
-    Details,
-    Changes,
-}
-
 /// EXP-48 switcher position: where the displayed issue sits in the active
 /// issue list's flattened visible ordering.
 struct SwitcherState {
@@ -194,9 +200,6 @@ pub struct IssueDetailView {
     start_coding: Entity<StartCodingControl>,
     properties: Entity<PropertiesPanel>,
     timeline: Entity<IssueTimeline>,
-    /// §4.8 segmented header: Details (the body) vs. Changes (the diff tab).
-    tab: DetailTab,
-    changes: Entity<IssueChanges>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -207,7 +210,6 @@ impl IssueDetailView {
         let start_coding = cx.new(StartCodingControl::new);
         let properties = cx.new(|cx| PropertiesPanel::new(window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
-        let changes = cx.new(|cx| IssueChanges::new(window, cx));
 
         let mut subscriptions = Vec::new();
         // Title saves on blur when changed (web `handleTitleBlur`).
@@ -261,8 +263,6 @@ impl IssueDetailView {
             start_coding,
             properties,
             timeline,
-            tab: DetailTab::Details,
-            changes,
             _subscriptions: subscriptions,
         }
     }
@@ -346,15 +346,8 @@ impl IssueDetailView {
         });
         self.timeline
             .update(cx, |timeline, cx| {
-                timeline.set_issue(Some(issue_id.clone()), window, cx)
+                timeline.set_issue(Some(issue_id), window, cx)
             });
-        // §4.8: navigating resets to the Details pane; the Changes tab (hidden)
-        // repoints and won't fetch until it becomes visible again.
-        self.tab = DetailTab::Details;
-        self.changes.update(cx, |changes, cx| {
-            changes.set_visible(false, cx);
-            changes.set_issue(Some(issue_id), cx);
-        });
 
         self.sync_from_issue(window, cx);
         // Land keyboard focus on the detail root so the scoped J/K switcher
@@ -466,9 +459,9 @@ impl IssueDetailView {
     /// The editor saves on blur, but tab/view switches tear the editor's
     /// element out of the tree without a blur ever firing — the keystrokes
     /// only live in the seam's markdown mirror. Every path that re-points or
-    /// hides this view (issue switch, Details↔Changes, center-tab close /
-    /// undock, workspace switch) routes through here first. Same normalize +
-    /// dedupe as the editor's `on_save` hook, so a clean editor is a no-op.
+    /// hides this view (issue switch, center-tab close / undock, workspace
+    /// switch) routes through here first. Same normalize + dedupe as the
+    /// editor's `on_save` hook, so a clean editor is a no-op.
     pub(crate) fn flush_description(&self, cx: &mut App) {
         let Some(editor) = &self.editor else {
             return;
@@ -659,33 +652,18 @@ impl IssueDetailView {
     // -- header pieces -----------------------------------------------------------
 
     /// The detail's ONE header row (EXP-67 — the former separate tab strip
-    /// merged in to save vertical space): the §4.8 Details · Changes segments
-    /// on the left, the actions right-aligned. The breadcrumb trail lives in
-    /// the TOP BAR (project picker › identifier › title) and the center tab
-    /// already shows the identifier (EXP-65 follow-up: the identifier here
-    /// was redundant).
+    /// merged in to save vertical space): the actions right-aligned. The
+    /// §4.8 Details · Changes segments are gone (EXP-179 — web dropped its
+    /// changes tab in EXP-157; branch diffs live in Source Control). The
+    /// breadcrumb trail lives in the TOP BAR (project picker › identifier ›
+    /// title) and the center tab already shows the identifier (EXP-65
+    /// follow-up: the identifier here was redundant).
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
-            let active = this.tab == tab;
-            Button::new(match tab {
-                DetailTab::Details => "issue-tab-details",
-                DetailTab::Changes => "issue-tab-changes",
-            })
-            .ghost()
-            .xsmall()
-            .label(label)
-            .text_color(if active {
-                cx.theme().foreground
-            } else {
-                cx.theme().muted_foreground
-            })
-        };
-
         let mut row = h_flex()
             .w_full()
             .px_4()
@@ -697,21 +675,6 @@ impl IssueDetailView {
             .text_color(cx.theme().muted_foreground)
             .border_b_1()
             .border_color(cx.theme().border);
-
-        // Left: the Details · Changes segments (selecting Changes makes the
-        // tab visible — it fetches on focus; Details hides it, stopping its
-        // poll).
-        row = row
-            .child(
-                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
-                )),
-            )
-            .child(
-                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
-                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
-                )),
-            );
 
         row = row.child(div().flex_1().min_w_0());
 
@@ -777,7 +740,9 @@ impl IssueDetailView {
     /// duplicate for a duplicate issue (L27 removed the standalone "Mark as
     /// duplicate…" entry; the status control now owns that path via
     /// interception). After the delete fires, the web navigates back to the
-    /// board — the tabbed analog is popping the back stack.
+    /// board — the tabbed analog is popping the back stack. "Update from
+    /// main" (rehomed from the deleted Changes tab, EXP-179) appears while
+    /// the issue's worktree exists on disk.
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
@@ -787,11 +752,44 @@ impl IssueDetailView {
         let project_id = issue.project_id.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
         let can_move = !crate::issue_list::move_target_projects(cx, &project_id).is_empty();
+        // Update-from-main context (EXP-179, ex-Changes-tab §4.9 action):
+        // resolved repo + a worktree on disk. Blocked while a session runs —
+        // a second `claude` in the same worktree would supersede the session
+        // transcript the activity emitter tails.
+        let update_ctx = self.start_coding.read(cx).resolved_repo().cloned().and_then(|repo| {
+            let settings = CodingHub::global(cx).read(cx).settings.clone();
+            let clone = coding::clone_path(&settings.repos_root_path(), &repo.full_name);
+            let branch = coding::branch_name(&settings.branch_prefix, &issue.identifier);
+            let worktree = coding::worktree_path(&clone, &branch);
+            worktree.join(".git").exists().then(|| UpdateFromMainContext {
+                settings,
+                worktree,
+                default_branch: repo.default_branch,
+                identifier: issue.identifier.clone(),
+            })
+        });
+        let session_running = session_running(&issue.id, cx);
         Button::new("issue-actions")
             .ghost()
             .xsmall()
             .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
             .dropdown_menu(move |mut menu, window, cx| {
+                if let Some(ctx) = update_ctx.clone() {
+                    let item = if session_running {
+                        PopupMenuItem::new(
+                            "Update from main — stop the running session first",
+                        )
+                        .icon(Icon::from(ExpIcon::Repeat))
+                        .disabled(true)
+                    } else {
+                        PopupMenuItem::new("Update from main")
+                            .icon(Icon::from(ExpIcon::Repeat))
+                            .on_click(move |_, window, cx| {
+                                update_from_main(&ctx, window, cx);
+                            })
+                    };
+                    menu = menu.item(item).separator();
+                }
                 if is_duplicate {
                     let issue_id = issue_id.clone();
                     menu = menu
@@ -980,9 +978,6 @@ impl IssueDetailView {
             .child(Input::new(&self.title_input).appearance(false));
 
         let mut column = v_flex()
-            .w_full()
-            .max_w(px(DETAIL_COLUMN_W))
-            .mx_auto()
             .child(title)
             .child(self.render_description(issue, window, cx));
 
@@ -995,28 +990,8 @@ impl IssueDetailView {
         // timeline's own content re-centers to the same column width.
         v_flex()
             .w_full()
-            .child(column)
+            .child(centered_column(column))
             .child(self.timeline.clone())
-    }
-
-    /// Flip to the Changes tab (EXP-67: PR rows / flow lanes land here — the
-    /// screens panel calls this right after `set_issue` when the navigation
-    /// carried the pending-Changes marker).
-    pub(crate) fn show_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        self.select_tab(DetailTab::Changes, cx);
-    }
-
-    fn select_tab(&mut self, tab: DetailTab, cx: &mut gpui::Context<Self>) {
-        if self.tab == tab {
-            return;
-        }
-        // Details → Changes unmounts the description editor without a blur —
-        // write a pending edit through before the swap (EXP-68).
-        self.flush_description(cx);
-        self.tab = tab;
-        self.changes
-            .update(cx, |changes, cx| changes.set_visible(tab == DetailTab::Changes, cx));
-        cx.notify();
     }
 }
 
@@ -1076,36 +1051,24 @@ impl Render for IssueDetailView {
             }
         }
 
-        // §4.8: Changes is a full-width single diff surface (no properties
-        // panel); Details keeps the two-pane body + properties panel.
-        let body = match self.tab {
-            DetailTab::Changes => div()
-                .flex_1()
-                .min_h_0()
-                .overflow_hidden()
-                .child(self.changes.clone())
-                .into_any_element(),
-            DetailTab::Details => {
-                let left = self.render_left_column(&issue, window, cx);
-                h_flex()
+        // The two-pane body: scrolling detail column + properties panel.
+        let left = self.render_left_column(&issue, window, cx);
+        let body = h_flex()
+            .flex_1()
+            .min_h_0()
+            .items_start()
+            .overflow_hidden()
+            .child(
+                div()
+                    .id("issue-detail-scroll")
                     .flex_1()
-                    .min_h_0()
-                    .items_start()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .id("issue-detail-scroll")
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.body_scroll)
-                            .child(left),
-                    )
-                    .child(self.properties.clone())
-                    .into_any_element()
-            }
-        };
+                    .min_w_0()
+                    .h_full()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.body_scroll)
+                    .child(left),
+            )
+            .child(self.properties.clone());
         view.child(body).into_any_element()
     }
 }
@@ -1311,6 +1274,59 @@ fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
                 && subscriber.user_id.as_deref() == Some(user_id)
                 && subscriber.unsubscribed != Some(true)
         })
+}
+
+/// A running `coding_sessions` row for the issue (any client — the synced
+/// shape). Heartbeat-stale rows count as absent (EXP-153).
+fn session_running(issue_id: &str, cx: &App) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    Store::global(cx)
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+        .any(|session| {
+            session.issue_id.as_deref() == Some(issue_id)
+                && crate::queries::coding_session_is_live(session, now)
+        })
+}
+
+/// Everything the actions-menu "Update from main" click needs, resolved at
+/// render time (menus must not read `self`).
+#[derive(Clone)]
+struct UpdateFromMainContext {
+    settings: coding::Settings,
+    worktree: std::path::PathBuf,
+    default_branch: String,
+    identifier: String,
+}
+
+/// Update from main (v4 §4.9, rehomed from the deleted Changes tab —
+/// EXP-179): a Claude task in the worktree — "rebase onto origin/<default>,
+/// resolve conflicts, verify the build, then push with --force-with-lease" —
+/// opened as a `ClaudeTask` terminal tab.
+fn update_from_main(ctx: &UpdateFromMainContext, window: &mut Window, cx: &mut App) {
+    let Some(manager) = window_terminal_manager(window, cx) else {
+        return;
+    };
+    let prompt = coding::resolve_pr_prompt(&ctx.default_branch);
+    let label = format!("Update from main · {}", ctx.identifier);
+    // A worktree prepared by a pre-EXP-98 app version still carries a stale
+    // `.mcp.json`, which alone re-raises claude's project-approval dialog.
+    coding::remove_stale_legacy_mcp_json(&ctx.worktree);
+    let task = coding::claude_task(&ctx.settings, &ctx.worktree, &prompt, &label);
+    let _ = manager.update(cx, |manager, cx| {
+        // EXP-145: keep the issue identity visible once claude's OSC titles
+        // take over the tab.
+        manager.open_tab(
+            terminal::TabKind::ClaudeTask,
+            task.tab_title.clone(),
+            Some(ctx.identifier.clone().into()),
+            &task.spawn,
+            None,
+            cx,
+        )
+    });
 }
 
 /// The §4.2 steer presence pill: a "coding now" badge while a

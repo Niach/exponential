@@ -397,11 +397,11 @@ impl Render for IssueTimeline {
         };
 
         // Content re-centers to the detail column; the section border lives
-        // on the full-width wrapper below (EXP-67 full-bleed divider).
+        // on the full-width wrapper below (EXP-67 full-bleed divider). The
+        // centering must ride `centered_column` — `max_w` + `mx_auto` here
+        // made taffy size the column fit-content, mis-measuring wrapped
+        // comment text (EXP-179).
         let mut body = v_flex()
-            .w_full()
-            .max_w(gpui::px(crate::issue_detail::DETAIL_COLUMN_W))
-            .mx_auto()
             .px_4()
             .py_3()
             .child(
@@ -471,7 +471,9 @@ impl Render for IssueTimeline {
             .w_full()
             .border_t_1()
             .border_color(cx.theme().border)
-            .child(body.child(composer))
+            .child(crate::issue_detail::centered_column(
+                body.child(composer),
+            ))
     }
 }
 

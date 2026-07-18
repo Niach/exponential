@@ -850,6 +850,16 @@ impl StartCodingControl {
         .detach();
     }
 
+    /// The probe's resolved repository, if it landed. The issue detail's
+    /// actions menu gates worktree maintenance (Update from main, EXP-179)
+    /// on it — the same live server state that drives the button.
+    pub fn resolved_repo(&self) -> Option<&api::repositories::IssueRepository> {
+        match &self.probe {
+            RepoProbe::Ready(Some(repo)) => Some(repo),
+            _ => None,
+        }
+    }
+
     /// Re-probe (the tiny retry next to the repo-less disabled state — a repo
     /// link or App install can resolve without navigating away).
     fn retry(&mut self, cx: &mut gpui::Context<Self>) {

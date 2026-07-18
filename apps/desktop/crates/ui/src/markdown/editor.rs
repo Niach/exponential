@@ -285,8 +285,10 @@ fn render_image_slot(
 }
 
 pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
+    // No `w_full` here: a percent width resolves fit-content under a
+    // `max_w`-clamped ancestor (EXP-179) — leaving the width auto lets the
+    // parent flex column stretch it to the real column width instead.
     div()
-        .w_full()
         .h(px(80.))
         .rounded(px(4.))
         .bg(cx.theme().muted)
