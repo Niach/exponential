@@ -44,7 +44,9 @@ import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
@@ -66,6 +68,11 @@ sealed interface SteerStartState {
 }
 
 internal val LiveGreen = Color(0xFF34D399)
+
+// EXP-194: the `in_review` parking spot (PR open, terminal still alive) renders
+// a STATIC blue dot + "Ready for review" instead of the running pulse. Reuses
+// the shared design-token blue (StatusColors' Done/Low tint).
+internal val ReviewBlue = DesignTokens.Semantic.Blue
 
 @Composable
 fun AgentPrCard(
@@ -134,8 +141,10 @@ fun AgentPrCard(
     }
 }
 
-// Live session: pulsing dot + "Coding now" + who/where, tapping into the steer
-// viewer when steering is available; an inert caption when it's off.
+// Live session: a status dot + label + who/where, tapping into the steer
+// viewer when steering is available; an inert caption when it's off. `running`
+// shows the pulsing green "Coding now"; the `in_review` PR-open parking spot
+// shows a static blue "Ready for review" (EXP-194).
 @Composable
 private fun SessionRow(
     session: CodingSessionEntity,
@@ -145,6 +154,7 @@ private fun SessionRow(
     onWatch: (String) -> Unit,
 ) {
     val watchable = isMember && steerEnabled == true
+    val inReview = session.status == DomainContract.codingSessionStatusInReview
     Column {
         Row(
             modifier = Modifier
@@ -152,12 +162,12 @@ private fun SessionRow(
                 .let { if (watchable) it.clickable { onWatch(session.id) } else it },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PulsingDot()
+            if (inReview) StaticDot(ReviewBlue) else PulsingDot()
             Spacer(Modifier.width(8.dp))
             Text(
-                "Coding now",
+                if (inReview) "Ready for review" else "Coding now",
                 style = MaterialTheme.typography.labelLarge,
-                color = LiveGreen,
+                color = if (inReview) ReviewBlue else LiveGreen,
             )
             Spacer(Modifier.width(8.dp))
             val who = userDisplayName(sessionOwner, session.userId)
@@ -374,5 +384,17 @@ internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
             .size(size)
             .clip(CircleShape)
             .background(LiveGreen.copy(alpha = alpha)),
+    )
+}
+
+// Static (non-pulsing) status dot — the `in_review` "ready for review" signal
+// (EXP-194). Internal so the Agents tab reuses the exact glyph.
+@Composable
+internal fun StaticDot(color: Color, size: androidx.compose.ui.unit.Dp = 8.dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(color),
     )
 }

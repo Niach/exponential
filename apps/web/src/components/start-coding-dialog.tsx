@@ -146,13 +146,18 @@ export function StartCodingDialog({
         ? query
             .from({ s: codingSessionCollection })
             .where(({ s }) =>
-              and(eq(s.teamId, teamId), eq(s.status, `running`))
+              and(
+                eq(s.teamId, teamId),
+                // in_review terminals are still alive and occupy the issue's
+                // worktree (EXP-194) — they block a restart like running ones.
+                inArray(s.status, [`running`, `in_review`])
+              )
             )
         : undefined,
     [open, teamId]
   )
 
-  // Staleness guard (EXP-153): a heartbeat-dead `running` row must not keep
+  // Staleness guard (EXP-153): a heartbeat-dead row must not keep
   // its issue blocked from a fresh start.
   const now = useNow()
   const runningIssueIds = useMemo(() => {

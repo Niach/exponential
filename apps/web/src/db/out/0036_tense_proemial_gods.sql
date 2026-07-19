@@ -1,0 +1,1 @@
+ALTER TYPE "public"."coding_session_status" ADD VALUE 'in_review' BEFORE 'ended';

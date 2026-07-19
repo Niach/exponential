@@ -7,8 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // EXP-153: the client-side staleness guard must mirror the server sweep's
-// rule — a `running` row is live only while its heartbeat (updated_at) is
-// inside the contract stale window; stale rows render as absent.
+// rule — a live row (`running` or the EXP-194 `in_review` parking spot) is
+// live only while its heartbeat (updated_at) is inside the contract stale
+// window; stale and `ended` rows render as absent.
 class CodingSessionLivenessTest {
 
     // 2026-07-17T12:00:00Z
@@ -40,6 +41,26 @@ class CodingSessionLivenessTest {
     @Test
     fun nonRunningIsNeverLive() {
         assertFalse(CodingSessionLiveness.isLive(session("ended", "2026-07-17T11:59:00Z"), nowMs))
+    }
+
+    @Test
+    fun inReviewWithinStaleWindowIsLive() {
+        // EXP-194: the `in_review` PR-open parking spot is live while fresh —
+        // the terminal is still alive ("ready for review").
+        assertTrue(CodingSessionLiveness.isLive(session("in_review", "2026-07-17T11:30:00Z"), nowMs))
+    }
+
+    @Test
+    fun inReviewPastWindowIsNotLive() {
+        // A stale in_review heartbeat drops out just like a stale running one.
+        assertFalse(CodingSessionLiveness.isLive(session("in_review", "2026-07-17T09:00:00Z"), nowMs))
+    }
+
+    @Test
+    fun endedIsNeverLiveEvenWhenFresh() {
+        // `ended` is the desktop kill-switch — never live, regardless of a
+        // fresh heartbeat.
+        assertFalse(CodingSessionLiveness.isLive(session("ended", "2026-07-17T11:59:59Z"), nowMs))
     }
 
     @Test

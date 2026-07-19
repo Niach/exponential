@@ -1,6 +1,12 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issueEvents, issues, boards, repositories } from "@/db/schema"
+import {
+  codingSessions,
+  issueEvents,
+  issues,
+  boards,
+  repositories,
+} from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -105,6 +111,27 @@ export async function applyPrLifecycleStatusInTx(
     to: `in_review` | `done`
   }
 ): Promise<void> {
+  if (opts.to === `in_review`) {
+    // The agent's PR is up — its live session enters review so every client
+    // can show "ready for review" instead of "coding now" (EXP-194). Placed
+    // BEFORE the eligibility gate: the session must flip even when a human
+    // already parked the issue in `in_review`. running-conditioned so an
+    // `ended` row is never resurrected, and the server never writes `ended`
+    // itself (that flip is the desktop kill-switch). updatedAt stamped
+    // explicitly (no $onUpdate on this table) so the review badge starts
+    // with a full staleness window. Merge (`done`) deliberately leaves
+    // sessions alone — the terminal exit ends them.
+    await tx
+      .update(codingSessions)
+      .set({ status: `in_review`, updatedAt: new Date() })
+      .where(
+        and(
+          eq(codingSessions.issueId, opts.issueId),
+          eq(codingSessions.status, `running`)
+        )
+      )
+  }
+
   const eligible =
     opts.to === `done` ? DONE_FROM_STATUSES : IN_REVIEW_FROM_STATUSES
   if (!eligible.has(opts.currentStatus)) return

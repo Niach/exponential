@@ -1,8 +1,8 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { codingSessions } from "@/db/schema"
+import { codingSessions, issues } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -82,8 +82,13 @@ export const codingSessionsRouter = router({
   // routine case (EXP-105) — so when the client supplies the row's original
   // start scope, the row is re-created under the SAME id (fresh startedAt —
   // the original is lost with the row), restoring badge + steerability
-  // within one heartbeat interval. An EXISTING non-running row is NEVER
+  // within one heartbeat interval (an issue-scoped re-create derives
+  // running/in_review from the issue's own status so a post-PR session
+  // resurfaces with the right badge). An EXISTING `ended` row is NEVER
   // resurrected: `ended` is an explicit end/kill and must stay final.
+  // `in_review` rows (PR open, terminal still alive — EXP-194) heartbeat
+  // like running ones, but the ping only ever advances updated_at — it can
+  // never downgrade in_review back to running.
   // Fire-and-forget on the client: failures are reported, never thrown.
   heartbeat: authedProcedure
     .input(
@@ -115,6 +120,15 @@ export const codingSessionsRouter = router({
           if (input.issueId) {
             const issueCtx = await getIssueTeamContext(input.issueId)
             await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
+            // A swept session may resurface AFTER its PR opened (laptop
+            // suspend through the whole run) — re-derive the review badge
+            // from the issue so the re-created row doesn't claim
+            // "coding now" on a parked issue.
+            const [issue] = await ctx.db
+              .select({ status: issues.status })
+              .from(issues)
+              .where(eq(issues.id, input.issueId))
+              .limit(1)
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
@@ -122,7 +136,7 @@ export const codingSessionsRouter = router({
               boardId: issueCtx.boardId,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
-              status: `running`,
+              status: issue?.status === `in_review` ? `in_review` : `running`,
             })
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
@@ -131,6 +145,9 @@ export const codingSessionsRouter = router({
               teamId: input.teamId!,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
+              // Batch rows have no issue to re-derive review state from —
+              // a resurrected batch session degrades to `running` (badge
+              // label only; rare suspend edge, never kills anything).
               status: `running`,
             })
           }
@@ -147,17 +164,19 @@ export const codingSessionsRouter = router({
           message: `Only the session owner can heartbeat it`,
         })
       }
-      if (existing.status !== `running`) return { alive: false }
+      if (existing.status === `ended`) return { alive: false }
 
       // Status-conditioned so a heartbeat racing a kill/end can never
-      // resurrect the row's freshness after it ended.
+      // resurrect the row's freshness after it ended. The SET touches only
+      // updatedAt — never status — so a ping cannot downgrade an
+      // `in_review` row back to `running`.
       const updated = await ctx.db
         .update(codingSessions)
         .set({ updatedAt: new Date() })
         .where(
           and(
             eq(codingSessions.id, input.id),
-            eq(codingSessions.status, `running`)
+            inArray(codingSessions.status, [`running`, `in_review`])
           )
         )
         .returning({ id: codingSessions.id })

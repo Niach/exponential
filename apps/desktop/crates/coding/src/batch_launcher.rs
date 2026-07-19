@@ -13,6 +13,7 @@
 
 use crate::argv::LaunchOptions;
 use crate::launcher::LaunchOrigin;
+use domain::IssueStatus;
 
 /// The repo this session works (the dialog enforces ONE repo per run).
 #[derive(Clone, Debug)]
@@ -33,6 +34,9 @@ pub struct BatchIssueSpec {
     pub issue_identifier: String,
     pub title: String,
     pub description: Option<String>,
+    /// Status snapshot at dialog time — the launcher flips backlog/todo
+    /// issues to `in_progress` at launch (EXP-194).
+    pub status: IssueStatus,
 }
 
 /// The dialog's launch input for ONE batch run.

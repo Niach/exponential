@@ -70,7 +70,7 @@ class AgentsViewModel @Inject constructor(
 
     val state: StateFlow<AgentsState> = combine(
         dbFlow.scopedQuery(emptyList()) {
-            it.codingSessionDao().observeByStatus(DomainContract.codingSessionStatusRunning)
+            it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
         },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         _steerEnabled,

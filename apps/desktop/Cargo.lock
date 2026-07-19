@@ -1137,6 +1137,7 @@ dependencies = [
  "anyhow",
  "api",
  "dirs",
+ "domain",
  "gpui",
  "gpui_platform",
  "libc",

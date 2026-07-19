@@ -51,7 +51,7 @@
     "values": ["open", "closed", "merged", "draft"]
   },
   "codingSessionStatus": {
-    "values": ["running", "ended"]
+    "values": ["running", "in_review", "ended"]
   },
   "codingSession": {
     "staleHours": 2

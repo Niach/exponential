@@ -228,6 +228,8 @@ fn main() {
         PrepareRequest::Issue(LaunchRequest {
             issue_id: issue_id.to_string(),
             issue_identifier: identifier.to_string(),
+            // in_progress ⇒ no step-6.5 flip: the canned sequence stays exact.
+            issue_status: domain::IssueStatus::InProgress,
             device_label: "concurrentbox".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {

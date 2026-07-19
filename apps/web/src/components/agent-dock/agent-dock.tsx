@@ -217,7 +217,6 @@ function DockTab({
   onClick: () => void
 }) {
   const { session, issue } = row
-  const running = session.status === `running`
   const label = issue?.identifier ?? `Batch`
   return (
     <Button
@@ -228,8 +227,11 @@ function DockTab({
         expanded && `bg-muted`
       )}
     >
-      {running ? (
+      {session.status === `running` ? (
         <RunningDot />
+      ) : session.status === `in_review` ? (
+        // Agent finished, PR open (EXP-194) — steady sky dot, no ping.
+        <span className="size-2 shrink-0 rounded-full bg-sky-500" />
       ) : (
         <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
       )}

@@ -12,7 +12,7 @@ object DomainContract {
     val commentKindValues: List<String> = listOf("regular")
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
-    val codingSessionStatusValues: List<String> = listOf("running", "ended")
+    val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
@@ -36,6 +36,7 @@ object DomainContract {
     const val prStateMerged: String = "merged"
     const val prStateDraft: String = "draft"
     const val codingSessionStatusRunning: String = "running"
+    const val codingSessionStatusInReview: String = "in_review"
     const val codingSessionStatusEnded: String = "ended"
     const val subscriberSourceCreator: String = "creator"
     const val subscriberSourceAssignee: String = "assignee"

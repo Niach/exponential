@@ -125,7 +125,14 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // Lifecycle of a live desktop coding session (coding_sessions.status). A row
 // is one interactive terminal session (one ghostty + one claude child in one
 // worktree); `running` drives the "coding now" badge + Watch/Steer button.
-export const codingSessionStatusValues = [`running`, `ended`] as const
+// `in_review` = the agent's PR is open and the terminal is still alive
+// awaiting review (EXP-194) — the server only ever writes running→in_review,
+// NEVER →ended: that flip is the desktop's remote-kill signal.
+export const codingSessionStatusValues = [
+  `running`,
+  `in_review`,
+  `ended`,
+] as const
 
 // Why a user is subscribed to an issue (issue_subscribers.source, varchar).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.

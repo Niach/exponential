@@ -45,7 +45,11 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
   )
 }
 
-function RunningIndicator() {
+function RunningIndicator({ status }: { status: string }) {
+  // Agent finished, PR open (EXP-194) — steady sky dot instead of the ping.
+  if (status === `in_review`) {
+    return <span className="inline-flex size-2 rounded-full bg-sky-500" />
+  }
   return (
     <span className="relative flex size-2">
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -146,7 +150,7 @@ function SessionRow({
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
     >
       <span className="flex items-center">
-        <RunningIndicator />
+        <RunningIndicator status={session.status} />
       </span>
       <span className="truncate font-mono text-xs text-muted-foreground">
         {issue && board ? (
@@ -169,8 +173,15 @@ function SessionRow({
         )}
       </span>
       <div className="min-w-0 pr-2">
-        <div className="truncate text-sm">
-          {isBatch ? `Batch session` : (issue?.title ?? `Issue syncing…`)}
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          <span className="truncate">
+            {isBatch ? `Batch session` : (issue?.title ?? `Issue syncing…`)}
+          </span>
+          {session.status === `in_review` && (
+            <span className="shrink-0 text-xs text-sky-400">
+              Ready for review
+            </span>
+          )}
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {board && (
@@ -238,7 +249,7 @@ function AgentsPage() {
           Agents
           {running.length > 0 && (
             <span className="text-sm font-normal text-muted-foreground">
-              · {running.length} running
+              · {running.length} live
             </span>
           )}
         </h1>
@@ -259,7 +270,7 @@ function AgentsPage() {
           />
         ) : (
           <div className="mb-4">
-            <SectionLabel label="Running" count={running.length} />
+            <SectionLabel label="Live" count={running.length} />
             {running.map((row) => (
               <SessionRow
                 key={row.session.id}

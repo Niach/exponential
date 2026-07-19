@@ -43,9 +43,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.issue.PulsingDot
+import com.exponential.app.ui.issue.ReviewBlue
 import com.exponential.app.ui.issue.StartCodingSheet
+import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.SteerStartState
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
@@ -283,6 +286,7 @@ private fun AgentSessionRow(
     onClick: () -> Unit,
     onInfo: () -> Unit,
 ) {
+    val inReview = session.status == DomainContract.codingSessionStatusInReview
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -291,7 +295,9 @@ private fun AgentSessionRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PulsingDot()
+        // running → pulsing green; in_review PR-open parking spot → static blue
+        // "ready for review" (EXP-194).
+        if (inReview) StaticDot(ReviewBlue) else PulsingDot()
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -320,9 +326,17 @@ private fun AgentSessionRow(
             }
             val device = session.deviceLabel?.takeIf { it.isNotBlank() } ?: "Desktop"
             Text(
-                "$device · started ${relativeTime(session.startedAt)}",
+                if (inReview) {
+                    "Ready for review · $device"
+                } else {
+                    "$device · started ${relativeTime(session.startedAt)}"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                color = if (inReview) {
+                    ReviewBlue
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

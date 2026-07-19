@@ -23,7 +23,7 @@
 // DELETE is the atomic claim, and the desktop's own end mutation tolerates a
 // vanished row either way.
 
-import { and, eq, lte } from "drizzle-orm"
+import { and, inArray, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"
 import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
@@ -47,7 +47,10 @@ export async function runCodingSessionSweep(
     .delete(codingSessions)
     .where(
       and(
-        eq(codingSessions.status, `running`),
+        // in_review rows heartbeat too (the terminal is still alive during
+        // review) — a crashed desktop must not pin a phantom "ready for
+        // review" badge any more than a "coding now" one.
+        inArray(codingSessions.status, [`running`, `in_review`]),
         lte(codingSessions.updatedAt, cutoff)
       )
     )
@@ -66,7 +69,7 @@ async function sweep(): Promise<void> {
     const result = await runCodingSessionSweep()
     if (result.sessionsDeleted > 0) {
       console.log(
-        `[coding-session-sweep] deleted ${result.sessionsDeleted} stale running session(s)`
+        `[coding-session-sweep] deleted ${result.sessionsDeleted} stale session(s)`
       )
     }
   } catch (err) {

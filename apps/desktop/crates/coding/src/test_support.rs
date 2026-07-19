@@ -43,8 +43,19 @@ pub(crate) fn temp_dir(tag: &str) -> TempDir {
 /// Serve a fixed sequence of canned responses, one connection each
 /// (`Connection: close`), in request order.
 pub(crate) fn canned_server(responses: Vec<(u16, String)>) -> String {
+    canned_server_recording(responses).0
+}
+
+/// [`canned_server`] that also records each request's raw head+body (the
+/// tRPC procedure rides the request path, e.g. `POST /api/trpc/issues.update`)
+/// so a test can assert WHICH calls the launcher made, in order.
+pub(crate) fn canned_server_recording(
+    responses: Vec<(u16, String)>,
+) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&requests);
     std::thread::spawn(move || {
         for (status, body) in responses {
             let Ok((mut stream, _)) = listener.accept() else { return };
@@ -80,6 +91,10 @@ pub(crate) fn canned_server(responses: Vec<(u16, String)>) -> String {
                     }
                 }
             }
+            recorded
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).into_owned());
             let response = format!(
                 "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -87,7 +102,7 @@ pub(crate) fn canned_server(responses: Vec<(u16, String)>) -> String {
             let _ = stream.write_all(response.as_bytes());
         }
     });
-    base
+    (base, requests)
 }
 
 /// A fake §7.1-step-3 provider: hands back a pre-made temp worktree and
@@ -152,3 +167,4 @@ pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123",
 pub(crate) const START_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"}}}}"#;
 pub(crate) const START_BATCH_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-b","issueId":null,"teamId":"ws-1","status":"running"}}}}"#;
 pub(crate) const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
+pub(crate) const UPDATE_OK: &str = r#"{"result":{"data":{"issue":{"id":"issue-1","identifier":"EXP-42","status":"in_progress"}}}}"#;

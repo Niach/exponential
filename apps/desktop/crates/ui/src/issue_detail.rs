@@ -1345,7 +1345,9 @@ fn update_from_main(ctx: &UpdateFromMainContext, window: &mut Window, cx: &mut A
 
 /// The §4.2 steer presence pill: a "coding now" badge while a
 /// `coding_sessions` row is `running` for this issue (the Watch/viewer UI is
-/// §08 — another track wires it onto this pill).
+/// §08 — another track wires it onto this pill). An `in_review` row (agent
+/// done, PR open, terminal still alive — EXP-194) renders the same pill in
+/// BLUE with a "ready for review" verb.
 fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let collections = Store::global(cx).collections();
     let now = chrono::Utc::now().timestamp();
@@ -1359,16 +1361,29 @@ fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
         })
         .cloned()?;
 
+    let in_review = session.status.as_deref()
+        == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW);
+    let verb = if in_review { "ready for review" } else { "coding now" };
+    let tone = if in_review {
+        theme::tokens::BLUE
+    } else {
+        theme::tokens::GREEN
+    };
+
     let who = session
         .user_id
         .as_deref()
         .and_then(|id| collections.users.read(cx).get(id).cloned())
         .map(|user| comments::author_label(Some(&user)));
     let label = match (who, session.device_label.as_deref()) {
-        (Some(who), Some(device)) => format!("{who} coding now · {device}"),
-        (Some(who), None) => format!("{who} coding now"),
-        (None, Some(device)) => format!("Coding now · {device}"),
-        (None, None) => "Coding now".to_string(),
+        (Some(who), Some(device)) => format!("{who} {verb} · {device}"),
+        (Some(who), None) => format!("{who} {verb}"),
+        (None, Some(device)) => {
+            let mut capitalized = capitalize_first(verb);
+            capitalized.push_str(&format!(" · {device}"));
+            capitalized
+        }
+        (None, None) => capitalize_first(verb),
     };
 
     Some(
@@ -1379,16 +1394,20 @@ fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
             .py_0p5()
             .rounded_full()
             .border_1()
-            .border_color(theme::tokens::GREEN.to_hsla().opacity(0.4))
+            .border_color(tone.to_hsla().opacity(0.4))
             .items_center()
             .text_xs()
-            .child(
-                div()
-                    .size_1p5()
-                    .rounded_full()
-                    .bg(theme::tokens::GREEN.to_hsla()),
-            )
+            .child(div().size_1p5().rounded_full().bg(tone.to_hsla()))
             .child(SharedString::from(label)),
     )
+}
+
+/// "ready for review" → "Ready for review" (the who-less pill variants).
+fn capitalize_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
 

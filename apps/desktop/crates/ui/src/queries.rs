@@ -602,20 +602,26 @@ pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
         .issues_in_team(team_id, cx)
 }
 
-/// EXP-153: a `running` coding_sessions row renders as live only while its
-/// `updated_at` (heartbeat-advanced) is inside the contract stale window —
-/// stale rows are treated as ABSENT, mirroring the server sweep's DELETE
-/// (never as `ended`, which is the kill-switch signal). Missing/unparseable
-/// `updated_at` → live (fail-open: never hide a session the server still
-/// considers alive; the sweep is the backstop). No re-render timer: gpui
-/// re-evaluates on every notify, and this process is the heartbeat writer
-/// for its own sessions — a phantom row from a crashed prior instance
-/// re-evaluates on the next render regardless.
+/// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
+/// alive) coding_sessions row renders as live only while its `updated_at`
+/// (heartbeat-advanced) is inside the contract stale window — stale rows are
+/// treated as ABSENT, mirroring the server sweep's DELETE (never as `ended`,
+/// which is the kill-switch signal). Missing/unparseable `updated_at` → live
+/// (fail-open: never hide a session the server still considers alive; the
+/// sweep is the backstop). No re-render timer: gpui re-evaluates on every
+/// notify, and this process is the heartbeat writer for its own sessions — a
+/// phantom row from a crashed prior instance re-evaluates on the next render
+/// regardless.
 pub(crate) fn coding_session_is_live(
     session: &domain::rows::CodingSession,
     now_epoch: i64,
 ) -> bool {
-    if session.status.as_deref() != Some(domain::contract::CODING_SESSION_STATUS_RUNNING) {
+    let live_status = matches!(
+        session.status.as_deref(),
+        Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+            | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+    );
+    if !live_status {
         return false;
     }
     match session
@@ -727,6 +733,17 @@ mod tests {
         assert!(!coding_session_is_live(&s, now));
         let s = session(None, Some("2026-07-17T11:59:00Z"));
         assert!(!coding_session_is_live(&s, now));
+    }
+
+    /// EXP-194: an `in_review` row (PR open, terminal alive) is live while
+    /// fresh and absent when stale — exactly like `running`.
+    #[test]
+    fn coding_session_in_review_is_live_until_stale() {
+        let now = 1784289600_i64;
+        let fresh = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
+        assert!(coding_session_is_live(&fresh, now));
+        let stale = session(Some("in_review"), Some("2026-07-17T09:00:00Z"));
+        assert!(!coding_session_is_live(&stale, now));
     }
 
     #[test]
