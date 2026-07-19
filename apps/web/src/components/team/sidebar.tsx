@@ -25,7 +25,10 @@ import {
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
+import {
+  useUnreadNotificationCount,
+  useUnreadSupportCount,
+} from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
@@ -70,6 +73,14 @@ import {
 // isn't subscribed for anonymous public-team viewers.
 function InboxUnreadBadge() {
   const unread = useUnreadNotificationCount()
+  if (unread === 0) return null
+  return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
+}
+
+// Unread helpdesk activity in THIS team, for the Support entry. Same
+// authed-only caveat as InboxUnreadBadge.
+function SupportUnreadBadge({ teamId }: { teamId?: string }) {
+  const unread = useUnreadSupportCount(teamId)
   if (unread === 0) return null
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
 }
@@ -329,6 +340,7 @@ export function TeamSidebar({
                             <span>Support</span>
                           </Link>
                         </SidebarMenuButton>
+                        <SupportUnreadBadge teamId={team?.id} />
                       </SidebarMenuItem>
                     )}
                 </SidebarMenu>

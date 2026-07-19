@@ -207,6 +207,10 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
+    // Raw observed notification rows — cached so the Support tab's unread dot
+    // can recompute against the ACTIVE team when the selection changes
+    // without a new sync delta.
+    @State private var observedNotifications: [NotificationEntity] = []
     @State private var agentsRunning = false
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
@@ -345,6 +349,7 @@ struct MainNavigator: View {
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     showsSupport: helpdeskEnabled,
+                    supportUnread: supportUnread,
                     showsCompose: resolvedComposeTarget != nil,
                     onIssues: { path = [] },
                     onSearch: { if !isOnSearch { path = [.search] } },
@@ -390,6 +395,19 @@ struct MainNavigator: View {
     /// `teams.helpdesk_enabled` flag is on.
     private var helpdeskEnabled: Bool {
         teamState.activeTeam?.helpdeskEnabled == true
+    }
+
+    /// Unread helpdesk activity in the ACTIVE team lights the Support tab's
+    /// dot (EXP-182): issue-less support_reply rows carry a synced team_id —
+    /// the same rule the inbox's per-team Support groups use.
+    private var supportUnread: Bool {
+        guard let teamId = teamState.activeTeamId else { return false }
+        return observedNotifications.contains {
+            $0.type == DomainContract.notificationTypeSupportReply
+                && $0.issueId == nil
+                && $0.teamId == teamId
+                && $0.readAt == nil
+        }
     }
 
     private var isOnMyWork: Bool {
@@ -551,6 +569,7 @@ struct MainNavigator: View {
         let notifTask = Task { @MainActor in
             do {
                 for try await notifications in notifObs.values(in: pool) {
+                    observedNotifications = notifications
                     unreadCount = notifications.filter { $0.readAt == nil }.count
                 }
             } catch {}

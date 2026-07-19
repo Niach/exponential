@@ -164,6 +164,28 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    // Unread helpdesk activity in the selected team — drives the bottom bar's
+    // Support dot (EXP-182): issue-less support_reply rows carry a synced
+    // team_id, the same rule the inbox's per-team Support groups use.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val supportUnread: StateFlow<Boolean> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        auth.activeAccountId,
+        auth.accounts,
+        teamSelection.selectedId,
+    ) { db, activeId, accounts, teamId ->
+        Triple(db, accounts.firstOrNull { it.id == activeId }?.userId, teamId)
+    }.flatMapLatest { (db, userId, teamId) ->
+        if (db == null || userId == null || teamId == null) flowOf(false)
+        else db.notificationDao()
+            .observeUnreadSupportCount(
+                userId,
+                teamId,
+                DomainContract.notificationTypeSupportReply,
+            )
+            .map { it > 0 }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // True while at least one coding session is running on the active account —
     // drives the bottom bar's green Agents dot. Heartbeat-stale rows count as
     // absent (EXP-153); the minute ticker clears the dot once the liveness

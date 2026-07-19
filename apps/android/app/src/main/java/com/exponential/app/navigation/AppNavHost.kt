@@ -184,6 +184,7 @@ fun AppNavHost() {
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
             val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
+            val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
@@ -193,6 +194,7 @@ fun AppNavHost() {
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
                 helpdeskEnabled = helpdeskEnabled,
+                supportUnread = supportUnread,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
             )
@@ -239,6 +241,7 @@ private fun AuthenticatedNav(
     unreadCount: Int,
     agentsRunning: Boolean,
     helpdeskEnabled: Boolean,
+    supportUnread: Boolean,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
@@ -501,6 +504,7 @@ private fun AuthenticatedNav(
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             showsSupport = helpdeskEnabled,
+            supportUnread = supportUnread,
             showsCompose = composeBoardId != null,
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onSearch = {
