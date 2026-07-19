@@ -74,7 +74,7 @@ jobs:
 
       # ONE production release APK + ONE production Play bundle (EXP-68) —
       # the debug and staging artifacts are gone from releases (a staging
-      # build is a local `bun run android:build :staging` away when needed).
+      # build is a local `./gradlew :app:assembleStagingDebug` away when needed).
       - name: Build release APK + Play bundle
         working-directory: apps/android
         # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,

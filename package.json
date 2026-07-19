@@ -11,6 +11,10 @@
     "node": ">=20.19.0 || >=22.12.0"
   },
   "scripts": {
+    "backend": "docker compose up -d && bun --filter @exp/web dev",
+    "ios": "cd apps/ios && tuist generate",
+    "android": "cd apps/android && ./gradlew :app:installProductionDebug && adb shell am start -n at.exponential/com.exponential.app.MainActivity",
+
     "dev": "bun --filter @exp/web dev",
     "build": "bun --filter @exp/widget build && bun --filter @exp/web build && bun --filter @exp/marketing build",
     "build:web": "bun --filter @exp/web build",
@@ -38,23 +42,14 @@
     "test:steer-relay": "bun --filter @exp/steer-relay test && bun --filter @exp/steer-ticket test",
 
     "dev:desktop": "cd apps/desktop && EXP_INSTANCE_URL=http://localhost:3000 cargo run -p app",
-    "dev:desktop:staging": "cd apps/desktop && EXP_INSTANCE_URL=https://next.exponential.at cargo run -p app",
-    "dev:desktop:prod": "cd apps/desktop && EXP_INSTANCE_URL=https://app.exponential.at cargo run -p app",
     "build:desktop": "cd apps/desktop && cargo build --release -p app",
-    "build:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging",
     "appimage:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-appimage.sh production",
-    "appimage:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging && ./scripts/build-appimage.sh staging",
     "macapp:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-macos-app.sh production",
-    "macapp:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging && ./scripts/build-macos-app.sh staging",
-    "run:desktop:mac": "bun run macapp:desktop && open \"apps/desktop/target/Exponential.app\"",
-    "run:desktop:mac:staging": "bun run macapp:desktop:staging && open \"apps/desktop/target/Exponential (staging).app\"",
     "test:desktop": "cd apps/desktop && cargo test",
     "clean:desktop": "cd apps/desktop && cargo clean",
 
     "android:build": "cd apps/android && ./gradlew :app:assembleProductionDebug",
-    "android:build:staging": "cd apps/android && ./gradlew :app:assembleStagingDebug",
     "android:install": "cd apps/android && ./gradlew :app:installProductionDebug",
-    "android:install:staging": "cd apps/android && ./gradlew :app:installStagingDebug",
 
     "backend:up": "docker compose up -d",
     "backend:down": "docker compose down",

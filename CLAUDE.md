@@ -55,6 +55,9 @@ All commands run from the repo root unless noted.
 
 ```bash
 bun install                        # Install workspace deps (run from root)
+bun run backend                    # Start the LOCAL backend: docker compose up -d + web dev server (app at localhost:3000 via Caddy)
+bun run ios                        # Start iOS: tuist generate (opens Xcode; run the Exponential scheme) — Mac-only
+bun run android                    # Start Android: install productionDebug + launch on the connected device/emulator
 bun dev                            # Start web dev server (apps/web, localhost:5173)
 bun run dev:marketing              # Start marketing dev server (apps/marketing)
 bun run dev:push-relay             # Start push relay dev server (apps/push-relay, localhost:4001)
@@ -82,16 +85,12 @@ bun run storage:init               # one-time Garage bootstrap (after backend:up
 bun run lint                       # ESLint fix across workspaces
 bun run format                     # Prettier format
 
-bun run android:build              # ./gradlew :app:assembleProductionDebug in apps/android (:staging variant exists)
-bun run android:install            # ./gradlew :app:installProductionDebug (:staging variant exists)
+bun run android:build              # ./gradlew :app:assembleProductionDebug in apps/android
+bun run android:install            # ./gradlew :app:installProductionDebug
 
 bun run dev:desktop                # gpui IDE against LOCAL backend (EXP_INSTANCE_URL=http://localhost:3000)
-bun run dev:desktop:staging        # gpui IDE, "Cloud" button → next.exponential.at (EXP_INSTANCE_URL override)
-bun run dev:desktop:prod           # gpui IDE, "Cloud" button → app.exponential.at
 bun run build:desktop              # cargo build --release -p app (production channel)
-bun run build:desktop:staging      # cargo build --release -p app --features staging (staging channel: next.exponential.at + distinct app id)
 bun run appimage:desktop           # build + package a Linux AppImage (production)
-bun run appimage:desktop:staging   # build + package a Linux AppImage (staging)
 bun run test:desktop               # cargo test (apps/desktop workspace)
 bun run clean:desktop              # cargo clean (EXP-76: run on zed/gpui rev bumps — cargo never GCs stranded artifacts)
 

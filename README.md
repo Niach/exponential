@@ -68,7 +68,10 @@ docker run -d --name exponential-web --network host \
 ## Development
 
 ```sh
-bun dev               # web app (localhost:5173)
+bun run backend       # local backend: docker compose up -d + web dev server (localhost:3000)
+bun run ios           # iOS: tuist generate → Xcode (Mac-only)
+bun run android       # Android: install productionDebug + launch on device/emulator
+bun dev               # web app only (localhost:5173)
 bun run typecheck     # tsc
 bun run test          # vitest
 bun run test:e2e      # playwright (needs docker compose up)
