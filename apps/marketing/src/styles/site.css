@@ -67,7 +67,9 @@
   color: var(--fg-muted);
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  transition: color 120ms, background 120ms;
+  transition:
+    color 120ms,
+    background 120ms;
 }
 
 .nav a:hover {
@@ -146,6 +148,16 @@ h1.hero-title {
   line-height: 1;
   letter-spacing: -0.04em;
   margin: 0 0 20px;
+  /* The widest transient slot segment may briefly exceed tiny viewports
+     mid-spin — clip instead of widening the page scroll width. */
+  overflow-x: clip;
+}
+
+/* Authored H1 lines — block + nowrap pins the wrap point, so the hero
+   slot machine can never change the line count (no vertical page jump). */
+.hero-title-line {
+  display: block;
+  white-space: nowrap;
 }
 
 .hero-title em {

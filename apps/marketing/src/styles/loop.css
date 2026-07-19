@@ -120,36 +120,97 @@
   color: var(--fg-dim);
 }
 
-@media (max-width: 720px) {
-  .movie-rail {
-    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  }
-
-  .movie-chip-phrase {
-    display: none;
-  }
+/* Phone narration line under the rail — hidden on desktop, where the
+   chips carry their own label + phrase. */
+.movie-rail-now {
+  display: none;
 }
 
-/* ── LoopClip — small decorative chapter excerpt (LoopClip.tsx) ── */
+@media (max-width: 720px) {
+  .movie {
+    width: calc(100vw - 32px);
+    gap: 10px;
+  }
 
-.clip {
-  aspect-ratio: 1920 / 1080;
-  width: 100%;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #0d0d10;
-  pointer-events: none;
+  /* The chips collapse to a segmented progress bar: five tappable
+     segments (36px hit area) with a 3px pill each; the active chapter's
+     label + phrase render once in .movie-rail-now below instead. */
+  .movie-rail {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .movie-chip {
+    position: relative;
+    min-height: 36px;
+    padding: 0;
+    border: none;
+    background: none;
+    border-radius: 999px;
+  }
+
+  .movie-chip::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 3px;
+    margin-top: -1.5px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    transition: background 140ms;
+  }
+
+  .movie-chip:hover {
+    background: none;
+  }
+
+  .movie-chip.is-active {
+    background: none;
+    border-color: transparent;
+  }
+
+  .movie-chip.is-active::after {
+    background: var(--fg);
+  }
+
+  /* Keep the chapter names for screen readers; hide them visually. */
+  .movie-chip-label,
+  .movie-chip-phrase {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    margin: 0;
+    display: block;
+  }
+
+  .movie-rail-now {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .movie-rail-now-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg);
+  }
+
+  .movie-rail-now-phrase {
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
 }
 
 /* ── Home-page layout (home agent) ── */
-
-.hero-movie-caption {
-  margin: 0 0 4px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--fg-dim);
-}
 
 /* The switching hero word: explicit measured width (set from JS) transitions
    between words; sizers reserve nothing in flow, the active word rides
@@ -158,7 +219,14 @@
   position: relative;
   display: inline-block;
   white-space: nowrap;
-  transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Fast enough to keep up with the 240–300ms slot-machine steps — a
+     laggier glide lets the incoming segment poke past the slot (clipped
+     ugly on small phones). */
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  /* The slot is a masked window: segments wipe in horizontally with the
+     width glide but stay free to fly through vertically. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 /* Zero-size clipped measuring box — the sizers must never contribute to
@@ -186,203 +254,5 @@
 @media (prefers-reduced-motion: reduce) {
   .hero-rotator {
     transition: none;
-  }
-}
-
-.home-agents-grid {
-  display: grid;
-  grid-template-columns: 2fr 3fr;
-  gap: 56px;
-  align-items: center;
-}
-
-@media (max-width: 860px) {
-  .home-agents-grid {
-    grid-template-columns: 1fr;
-    gap: 32px;
-  }
-}
-
-/* ── Feedback-widget dialog mock (static, decorative) ── */
-
-.wmock {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.wmock-card {
-  width: 264px;
-  text-align: left;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-  pointer-events: none;
-  user-select: none;
-}
-
-.wmock-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.wmock-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg);
-}
-
-.wmock-x {
-  color: var(--fg-dim);
-}
-
-.wmock-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-}
-
-.wmock-shot {
-  position: relative;
-  height: 76px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.wmock-shot-page {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-}
-
-.wmock-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg-soft);
-}
-
-.wmock-bar.is-w60 {
-  width: 60%;
-}
-.wmock-bar.is-w80 {
-  width: 80%;
-}
-.wmock-bar.is-w40 {
-  width: 40%;
-}
-
-/* The red annotation rectangle on the mini screenshot */
-.wmock-shot-mark {
-  position: absolute;
-  right: 14px;
-  top: 22px;
-  width: 44px;
-  height: 22px;
-  border: 1.5px solid #ef4444;
-  border-radius: 3px;
-}
-
-.wmock-shot-chips {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  display: flex;
-  gap: 4px;
-}
-
-.wmock-chip {
-  font-size: 9.5px;
-  font-weight: 500;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.65);
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-}
-
-.wmock-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.wmock-label {
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--fg-dim);
-}
-
-.wmock-input {
-  font-size: 11.5px;
-  color: var(--fg-muted);
-  background: var(--bg);
-  border: 1px solid var(--input);
-  border-radius: 7px;
-  padding: 6px 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.wmock-textarea {
-  min-height: 40px;
-  white-space: normal;
-}
-
-.wmock-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.wmock-send {
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 7px;
-  background: var(--fg);
-  color: var(--bg);
-}
-
-.wmock-caption {
-  margin: 0;
-  font-size: 12px;
-  color: var(--fg-dim);
-}
-
-.home-mobile {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in oklab, var(--bg-elev) 40%, var(--bg));
-}
-
-.home-mobile-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 56px;
-  align-items: center;
-}
-
-.home-mobile-copy .btn {
-  margin-top: 20px;
-}
-
-@media (max-width: 860px) {
-  .home-mobile-grid {
-    grid-template-columns: 1fr;
-    gap: 40px;
-  }
-
-  .home-mobile-copy {
-    text-align: center;
   }
 }

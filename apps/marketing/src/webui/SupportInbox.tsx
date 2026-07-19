@@ -8,12 +8,36 @@ import { getIssue, PRIORITY_LABEL, STATUS_LABEL } from "../ide/data"
 import { useWeb } from "./state"
 import { PriorityIcon, StatusIcon } from "../ide/bits"
 import { IcCheck, IcSend } from "../ide/icons"
-import { IcExternalLink, IcLifeBuoy, IcLock, IcMail, IcStickyNote } from "./icons"
-import { getThread, SUPPORT_THREADS, WEB_USER, type SupportMessage } from "./data"
+import {
+  IcExternalLink,
+  IcLifeBuoy,
+  IcLock,
+  IcMail,
+  IcStickyNote,
+} from "./icons"
+import {
+  getThread,
+  SUPPORT_THREADS,
+  WEB_USER,
+  type SupportMessage,
+  type SupportThread,
+} from "./data"
 
-function Bubble({ message, reporter }: { message: SupportMessage; reporter: string }) {
+/* Exported for the home page's collaboration scene (CollabSection), which
+   composes the same real-UI pieces outside the full 3-pane inbox. */
+export function Bubble({
+  message,
+  reporter,
+}: {
+  message: SupportMessage
+  reporter: string
+}) {
   const isInbound = message.direction === `inbound`
-  const kind = isInbound ? ` is-inbound` : message.internal ? ` is-internal` : ` is-reply`
+  const kind = isInbound
+    ? ` is-inbound`
+    : message.internal
+      ? ` is-internal`
+      : ` is-reply`
   return (
     <div className={`web-bubble${kind}`}>
       {message.internal && (
@@ -34,6 +58,38 @@ function Bubble({ message, reporter }: { message: SupportMessage; reporter: stri
   )
 }
 
+/* Presentational thread-list row — shared with CollabSection. */
+export function SupportThreadRow({
+  thread,
+  unread,
+  selected,
+  interactive,
+  onClick,
+}: {
+  thread: SupportThread
+  unread: boolean
+  selected: boolean
+  interactive: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`web-sup-row${selected ? ` is-selected` : ``}${interactive ? ` is-click` : ``}`}
+      onClick={interactive ? onClick : undefined}
+    >
+      <span className="web-sup-row1">
+        <span className="web-sup-name">{thread.reporterName}</span>
+        <span className="web-sup-time">{thread.time}</span>
+        {unread && <span className="web-sup-dot" />}
+      </span>
+      <span className="web-sup-preview">
+        {thread.messages[thread.messages.length - 1]?.body}
+      </span>
+    </button>
+  )
+}
+
 export function WebSupportInbox() {
   const {
     interactive,
@@ -47,16 +103,20 @@ export function WebSupportInbox() {
   } = useWeb()
   const [mode, setMode] = useState<`reply` | `note`>(`reply`)
   const [draft, setDraft] = useState(``)
-  const [extraMessages, setExtraMessages] = useState<Record<string, SupportMessage[]>>({})
+  const [extraMessages, setExtraMessages] = useState<
+    Record<string, SupportMessage[]>
+  >({})
 
   const visible = SUPPORT_THREADS.filter((t) =>
-    threadFilter === `resolved` ? t.resolved : !t.resolved,
+    threadFilter === `resolved` ? t.resolved : !t.resolved
   )
   const thread = selectedThreadId ? getThread(selectedThreadId) : null
   const inFilter = thread ? visible.some((t) => t.id === thread.id) : false
   const shown = inFilter ? thread : null
   const issue = shown ? getIssue(shown.issueId) : null
-  const messages = shown ? [...shown.messages, ...(extraMessages[shown.id] ?? [])] : []
+  const messages = shown
+    ? [...shown.messages, ...(extraMessages[shown.id] ?? [])]
+    : []
 
   const send = () => {
     const body = draft.trim()
@@ -100,26 +160,16 @@ export function WebSupportInbox() {
           ))}
         </div>
         <div className="web-sup-threads">
-          {visible.map((t) => {
-            const unread = t.unread && !threadRead.has(t.id)
-            return (
-              <button
-                key={t.id}
-                type="button"
-                className={`web-sup-row${t.id === selectedThreadId ? ` is-selected` : ``}${interactive ? ` is-click` : ``}`}
-                onClick={interactive ? () => selectThread(t.id) : undefined}
-              >
-                <span className="web-sup-row1">
-                  <span className="web-sup-name">{t.reporterName}</span>
-                  <span className="web-sup-time">{t.time}</span>
-                  {unread && <span className="web-sup-dot" />}
-                </span>
-                <span className="web-sup-preview">
-                  {t.messages[t.messages.length - 1]?.body}
-                </span>
-              </button>
-            )
-          })}
+          {visible.map((t) => (
+            <SupportThreadRow
+              key={t.id}
+              thread={t}
+              unread={Boolean(t.unread) && !threadRead.has(t.id)}
+              selected={t.id === selectedThreadId}
+              interactive={interactive}
+              onClick={() => selectThread(t.id)}
+            />
+          ))}
         </div>
       </div>
 
@@ -239,7 +289,8 @@ export function WebSupportInbox() {
           <div className="web-rail-foot">
             <div className="web-rail-lock">
               <IcLock size={11} />
-              Replies are emailed to the reporter with a private conversation link.
+              Replies are emailed to the reporter with a private conversation
+              link.
             </div>
           </div>
         </div>

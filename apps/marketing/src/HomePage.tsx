@@ -1,51 +1,71 @@
 import { useEffect, useRef, useState } from "react"
-import {
-  AnimatePresence,
-  motion,
-  useReducedMotion,
-  useScroll,
-  useTransform,
-} from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
-import { HelpdeskSection } from "./components/HelpdeskSection"
+import { AgentsSection } from "./components/AgentsSection"
+import { CollabSection } from "./components/CollabSection"
 import { HomePricing } from "./components/HomePricing"
-import { TeamworkSection } from "./components/TeamworkSection"
 import { IcArrow } from "./components/icons"
 import {
   EASE_EXPO,
-  eyebrowDraw,
   heroChild,
   heroStagger,
   heroTitleStagger,
   heroWord,
-  sectionReveal,
 } from "./lib/animations"
 import { LINKS } from "./lib/links"
-import { LoopClip } from "./movie/LoopClip"
 import { LoopMovie } from "./movie/LoopMovie"
-import { MobileDemo } from "./mobile/MobileDemo"
 
-const ROTATOR_WORDS = [`app`, `product`, `team`, `roadmap`]
-const ROTATOR_INTERVAL_MS = 2400
+/* The hero slot machine spins through these once and lands on the last
+   entry — the segment includes `your` so the final headline reads
+   "Make yourself go exponential." (EXP-176). */
+const SLOT_SEGMENTS = [
+  `your app`,
+  `your product`,
+  `your team`,
+  `your website`,
+  `your business`,
+  `yourself`,
+]
+/* Delay in ms BEFORE leaving segment i: hold the opener while the hero
+   entrance settles, fly through the middle, decelerate into the landing. */
+const SLOT_DELAYS = [1400, 280, 240, 300, 430]
+const SLOT_LAST = SLOT_SEGMENTS.length - 1
 
-/* The switching word in the hero H1. SSR renders the first word as plain
-   in-flow text (no width style); after mount the slot gets an explicit
-   measured width that TRANSITIONS between words, so the centered line
-   glides instead of snapping. Words are re-measured once webfonts land. */
+/* The switching segment in the hero H1 — a FINITE slot-machine reel, not a
+   loop: one decelerating pass that settles on `yourself` and never runs
+   again. SSR renders segment 0 as plain in-flow text (no width style);
+   after mount the slot gets an explicit measured width that TRANSITIONS
+   between segments, so the line glides instead of snapping. Segments are
+   re-measured once webfonts land. Reduced motion jumps straight to the
+   final segment. */
 function RotatingWord() {
   const reduced = useReducedMotion()
   const [index, setIndex] = useState(0)
   const [width, setWidth] = useState<number | null>(null)
   const [fontsReady, setFontsReady] = useState(false)
   const sizerRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const doneRef = useRef(false)
 
   useEffect(() => {
-    if (reduced) return
-    const id = window.setInterval(
-      () => setIndex((i) => (i + 1) % ROTATOR_WORDS.length),
-      ROTATOR_INTERVAL_MS,
-    )
-    return () => window.clearInterval(id)
+    if (doneRef.current) return
+    if (reduced) {
+      doneRef.current = true
+      setIndex(SLOT_LAST)
+      return
+    }
+    let step = 0
+    let id: number
+    const advance = () => {
+      step += 1
+      setIndex(step)
+      if (step < SLOT_LAST) {
+        id = window.setTimeout(advance, SLOT_DELAYS[step])
+      } else {
+        doneRef.current = true
+      }
+    }
+    id = window.setTimeout(advance, SLOT_DELAYS[0])
+    return () => window.clearTimeout(id)
   }, [reduced])
 
   useEffect(() => {
@@ -63,34 +83,48 @@ function RotatingWord() {
     if (el) setWidth(el.offsetWidth)
   }, [index, fontsReady])
 
+  const landing = index === SLOT_LAST
   return (
     <span
       className={`hero-rotator`}
       style={width === null ? undefined : { width }}
     >
       <span className={`hero-rotator-sizers`} aria-hidden>
-        {ROTATOR_WORDS.map((word, i) => (
+        {SLOT_SEGMENTS.map((segment, i) => (
           <span
-            key={word}
+            key={segment}
             ref={(el) => {
               sizerRefs.current[i] = el
             }}
             className={`hero-rotator-sizer`}
           >
-            {word}
+            {segment}
           </span>
         ))}
       </span>
+      {/* Flight props collapse under reduced motion so the single
+          0→final index hop is an instant text swap (framer does not
+          honor the OS preference on its own). */}
       <AnimatePresence mode={`popLayout`} initial={false}>
         <motion.span
-          key={ROTATOR_WORDS[index]}
+          key={index}
           className={`hero-rotator-word`}
-          initial={{ opacity: 0, y: `0.55em` }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: `-0.55em` }}
-          transition={{ duration: 0.45, ease: EASE_EXPO }}
+          initial={reduced ? false : { opacity: 0, y: `0.6em` }}
+          animate={
+            !reduced && landing
+              ? { opacity: 1, y: [`0.6em`, `-0.05em`, `0em`] }
+              : { opacity: 1, y: 0 }
+          }
+          exit={reduced ? { opacity: 0 } : { opacity: 0, y: `-0.6em` }}
+          transition={
+            reduced
+              ? { duration: 0 }
+              : landing
+                ? { duration: 0.55, ease: EASE_EXPO }
+                : { duration: 0.24, ease: `easeOut` }
+          }
         >
-          {ROTATOR_WORDS[index]}
+          {SLOT_SEGMENTS[index]}
         </motion.span>
       </AnimatePresence>
     </span>
@@ -98,14 +132,6 @@ function RotatingWord() {
 }
 
 export function HomePage() {
-  const reduced = useReducedMotion()
-  const mobileRef = useRef<HTMLDivElement>(null)
-  const { scrollYProgress } = useScroll({
-    target: mobileRef,
-    offset: [`start end`, `end start`],
-  })
-  const phoneY = useTransform(scrollYProgress, [0, 1], [12, -12])
-
   return (
     <>
       <SiteHeader />
@@ -120,23 +146,30 @@ export function HomePage() {
             animate={`visible`}
           >
             {/* Words are individually animated spans; the real space text
-                nodes between them keep copy/screen-reader output intact. */}
+                nodes between them keep copy/screen-reader output intact.
+                The two authored lines are fixed (block + nowrap) so the
+                slot machine can never move the wrap point — the H1 height
+                is constant at every viewport (EXP-176: no page jump). */}
             <motion.h1 className={`hero-title`} variants={heroTitleStagger}>
-              <motion.span className={`hero-word`} variants={heroWord}>
-                Make
-              </motion.span>{` `}
-              <motion.span className={`hero-word`} variants={heroWord}>
-                your
-              </motion.span>{` `}
-              <motion.span className={`hero-word`} variants={heroWord}>
-                <RotatingWord />
-              </motion.span>{` `}
-              <motion.span className={`hero-word`} variants={heroWord}>
-                go
-              </motion.span>{` `}
-              <motion.span className={`hero-word`} variants={heroWord}>
-                exponential.
-              </motion.span>
+              <span className={`hero-title-line`}>
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  Make
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  <RotatingWord />
+                </motion.span>
+              </span>
+              {` `}
+              <span className={`hero-title-line`}>
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  go
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  exponential.
+                </motion.span>
+              </span>
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>
               The development platform for teams and agents. Feedback in, pull
@@ -158,65 +191,17 @@ export function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: EASE_EXPO, delay: 0.3 }}
           >
-            <p className={`hero-movie-caption`}>
-              From bug report to merged PR. Watch it happen.
-            </p>
             <LoopMovie />
           </motion.div>
         </section>
 
-        {/* ── Agents ───────────────────────────── */}
-        <section id={`agents`}>
-          <div className={`shell`}>
-            <div className={`home-agents-grid`}>
-              <motion.div className={`home-agents-copy`} {...sectionReveal}>
-                <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-                  Agents
-                </motion.span>
-                <h2 className={`section-title`}>Bring your own agents.</h2>
-                <p className={`section-sub`}>
-                  Start a coding session on any issue. The agent works on a
-                  real branch and opens the PR when it&rsquo;s done.
-                </p>
-              </motion.div>
-              <motion.div {...sectionReveal}>
-                <LoopClip chapter={`code`} />
-              </motion.div>
-            </div>
-          </div>
-        </section>
+        {/* ── Agents: Start coding → Claude on your desktop, steered
+               from your phone (merged Agents + Mobile, EXP-176) ── */}
+        <AgentsSection />
 
-        {/* ── Helpdesk ─────────────────────────── */}
-        <HelpdeskSection />
-
-        {/* ── Teamwork ─────────────────────────── */}
-        <TeamworkSection />
-
-        {/* ── Mobile ───────────────────────────── */}
-        <section id={`mobile`} className={`home-mobile`}>
-          <div className={`shell`}>
-            <div className={`home-mobile-grid`} ref={mobileRef}>
-              <motion.div className={`home-mobile-copy`} {...sectionReveal}>
-                <motion.span className={`section-eyebrow`} {...eyebrowDraw}>
-                  Mobile
-                </motion.span>
-                <h2 className={`section-title`}>
-                  Steer your agents from anywhere.
-                </h2>
-                <p className={`section-sub`}>
-                  Watch live coding sessions and steer them by message. Native
-                  apps for iOS and Android.
-                </p>
-                <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
-                  Get the apps <IcArrow size={12} />
-                </a>
-              </motion.div>
-              <motion.div style={reduced ? undefined : { y: phoneY }}>
-                <MobileDemo autoTour />
-              </motion.div>
-            </div>
-          </div>
-        </section>
+        {/* ── Collaboration: widget → Support inbox, realtime with the
+               team (merged Teamwork + Helpdesk, EXP-176) ── */}
+        <CollabSection />
 
         {/* ── Pricing ──────────────────────────── */}
         <HomePricing />

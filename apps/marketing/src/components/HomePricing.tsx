@@ -6,35 +6,14 @@ import {
   staggerContainer,
   viewportOnce,
 } from "../lib/animations"
+import { CLOUD_PLANS, EVERY_PLAN_INCLUDES } from "../lib/plans"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
 
-/* ── Home pricing — the three cloud tiers at a glance ──
-   Compact by design: name + price + one line. The full comparison (features,
-   Enterprise, self-host tiers) lives on /pricing/; keep amounts in sync with
-   PlanCards.tsx and apps/web/src/lib/billing.ts. */
-const HOME_PLANS = [
-  {
-    name: `Free`,
-    amount: `$0`,
-    cadence: `forever`,
-    tagline: `For you and your side projects.`,
-  },
-  {
-    name: `Pro`,
-    amount: `$5`,
-    cadence: `/seat/mo`,
-    tagline: `Adds the helpdesk and more widgets.`,
-    highlight: true,
-  },
-  {
-    name: `Business`,
-    amount: `$10`,
-    cadence: `/seat/mo`,
-    tagline: `More storage, unlimited widgets.`,
-  },
-]
-
+/* ── Home pricing — the four cloud tiers at a glance ──
+   Compact by design: name + price + one line, mapped from the canonical
+   lib/plans.ts (the full feature cards + self-host tiers live on
+   /pricing/). */
 export function HomePricing() {
   return (
     <section id={`pricing`} className={`home-pricing`}>
@@ -50,16 +29,16 @@ export function HomePricing() {
         </motion.div>
 
         <motion.div
-          className={`plan-grid home-plan-grid`}
+          className={`plan-grid plan-grid-cloud`}
           variants={staggerContainer}
           initial={`hidden`}
           whileInView={`visible`}
           viewport={viewportOnce}
         >
-          {HOME_PLANS.map((p) => (
+          {CLOUD_PLANS.map((p) => (
             <motion.div
-              key={p.name}
-              className={`plan-card${p.highlight ? ` is-highlight` : ``}`}
+              key={p.id}
+              className={`plan-card${p.highlight ? ` is-highlight` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
               variants={cardReveal}
             >
               {p.highlight && <span className={`plan-flag`}>Most popular</span>}
@@ -67,13 +46,17 @@ export function HomePricing() {
                 <h3>{p.name}</h3>
                 <div className={`plan-price`}>
                   <span className={`plan-amount`}>{p.amount}</span>
-                  <span className={`plan-cadence`}>{p.cadence}</span>
+                  {p.cadence && (
+                    <span className={`plan-cadence`}>{p.cadence}</span>
+                  )}
                 </div>
-                <p className={`plan-tagline`}>{p.tagline}</p>
+                <p className={`plan-tagline`}>{p.homeTagline}</p>
               </div>
             </motion.div>
           ))}
         </motion.div>
+
+        <p className={`plan-footnote`}>{EVERY_PLAN_INCLUDES}</p>
 
         <div className={`home-pricing-links`}>
           <a className={`btn btn-primary`} href={LINKS.app.login}>
@@ -81,6 +64,9 @@ export function HomePricing() {
           </a>
           <a className={`btn btn-ghost`} href={`/pricing/`}>
             Compare all plans
+          </a>
+          <a className={`btn btn-ghost`} href={`/docs/self-host/`}>
+            Self-host
           </a>
         </div>
       </div>

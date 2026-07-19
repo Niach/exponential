@@ -64,6 +64,11 @@
   .topbar-right .btn-ghost {
     display: none;
   }
+  /* The widest hero slot segment ("Make your business") must fit the
+     nowrap title line on small phones. */
+  h1.hero-title {
+    font-size: 40px;
+  }
   .hero-cta .btn {
     font-size: 12.5px;
     padding: 7px 12px;

@@ -1,12 +1,15 @@
-// ClosedLoop — composition root. A seamless-looping ~26s product story:
-// feedback in → PR out → reporter hears back. 1920×1080 @ 30fps, 780 frames.
-// Player-compatible by construction: the background is a static CSS gradient
-// (no staticFile assets), everything below is frame-driven.
+// ClosedLoop — composition root. A seamless-looping product story: feedback
+// in → PR out → reporter hears back. 1920×1080 @ 30fps, 780 story frames plus
+// an END_HOLD rest tail (see timeline.ts). Player-compatible by construction:
+// the background is a static CSS gradient (no staticFile assets), everything
+// below is frame-driven. `textScale` (Player inputProps) scales ONLY the
+// screen-space caption layer — the marketing embed passes 1.5 on phone
+// widths so the narrative text stays readable at small sizes (EXP-176).
 
-import React from "react"
-import { AbsoluteFill } from "remotion"
-import { C } from "../ships/theme"
-import { Film } from "./scenes/Film"
+import React from "react";
+import { AbsoluteFill } from "remotion";
+import { C } from "../ships/theme";
+import { Film } from "./scenes/Film";
 
 // Static twin of src/components.tsx Background (which the marketing player
 // must not import — that module pulls staticFile-based footage components).
@@ -24,11 +27,13 @@ const GradientBackground: React.FC = () => (
       }}
     />
   </AbsoluteFill>
-)
+);
 
-export const ClosedLoop: React.FC = () => (
+export const ClosedLoop: React.FC<{ textScale?: number }> = ({
+  textScale = 1,
+}) => (
   <AbsoluteFill>
     <GradientBackground />
-    <Film />
+    <Film textScale={textScale} />
   </AbsoluteFill>
-)
+);

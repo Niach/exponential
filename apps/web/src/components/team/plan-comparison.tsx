@@ -6,7 +6,6 @@ import {
   Loader2,
   Minus,
   Plus,
-  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -23,15 +22,18 @@ import {
 } from "@/hooks/use-billing"
 import { cn } from "@/lib/utils"
 
-// Per-seat model (masterplan v5 §3.2). Boards, repositories and coding
-// sessions are UNLIMITED on every tier — that is stated explicitly as a row so
-// buyers see it. Push + email notifications and remote steer are free on every
-// tier and are deliberately NOT a paywalled row. The monetized axes are seats
-// (team size), storage per team, the feedback widget, and the helpdesk.
-type Feature = { label: string; enabled: boolean }
+// Per-seat model (masterplan v5 §3.2). The cards list ONLY the monetized
+// axes — seats (team size), storage per team, the feedback widget, the
+// helpdesk, priority support (EXP-176 unified this across the marketing
+// frontpage, /pricing and this grid — canonical copy lives in
+// apps/marketing/src/lib/plans.ts; keep the bullets in sync). Everything
+// never-gated (unlimited boards/repos/coding sessions, native apps,
+// real-time sync, push/email/steer) lives in the ONE shared
+// EVERY_PLAN_INCLUDES sentence under the grid.
+const EVERY_PLAN_INCLUDES = `Every plan includes unlimited boards, repos and coding sessions, all native apps, real-time sync, and push, email & remote steer.`
 
-// Display-only union: Enterprise is a "Contact us" card, not a PlanTier — it
-// never reaches checkout/seat logic (getProductId returns null for it).
+// Display-only union: Enterprise is a "Contact sales" card, not a PlanTier —
+// it never reaches checkout/seat logic (getProductId returns null for it).
 type ComparisonTier = PlanTier | `enterprise`
 
 type TierInfo = {
@@ -43,22 +45,7 @@ type TierInfo = {
   priceUnit: string
   // Billing cadence caption under the price.
   cadence: string
-  features: Feature[]
-}
-
-function commonFeatures(
-  storage: string,
-  widget: Feature,
-  helpdesk: Feature
-): Feature[] {
-  return [
-    { label: `Unlimited boards & repos`, enabled: true },
-    { label: `Unlimited coding sessions`, enabled: true },
-    { label: storage, enabled: true },
-    widget,
-    helpdesk,
-    { label: `Push, email & remote steer`, enabled: true },
-  ]
+  features: string[]
 }
 
 const TIERS: TierInfo[] = [
@@ -67,14 +54,9 @@ const TIERS: TierInfo[] = [
     name: `Free`,
     pricePerSeat: `$0`,
     priceUnit: `forever`,
+    // The seat cap doubles as the cadence caption, so it isn't a bullet.
     cadence: `1 seat`,
-    features: [
-      ...commonFeatures(
-        `250 MB storage`,
-        { label: `1 feedback widget`, enabled: true },
-        { label: `Helpdesk & support inbox`, enabled: false }
-      ),
-    ],
+    features: [`250 MB storage`, `1 feedback widget`],
   },
   {
     tier: `pro`,
@@ -83,11 +65,10 @@ const TIERS: TierInfo[] = [
     priceUnit: `/seat/mo`,
     cadence: `Billed yearly`,
     features: [
-      ...commonFeatures(
-        `5 GB storage`,
-        { label: `3 feedback widgets`, enabled: true },
-        { label: `Helpdesk & support inbox`, enabled: true }
-      ),
+      `Everything in Free`,
+      `5 GB storage`,
+      `3 feedback widgets`,
+      `Helpdesk & support inbox`,
     ],
   },
   {
@@ -97,12 +78,10 @@ const TIERS: TierInfo[] = [
     priceUnit: `/seat/mo`,
     cadence: `Billed monthly or yearly`,
     features: [
-      ...commonFeatures(
-        `50 GB storage`,
-        { label: `Unlimited feedback widgets`, enabled: true },
-        { label: `Helpdesk & support inbox`, enabled: true }
-      ),
-      { label: `Priority support`, enabled: true },
+      `Everything in Pro`,
+      `50 GB storage`,
+      `Unlimited feedback widgets`,
+      `Priority support`,
     ],
   },
   {
@@ -112,23 +91,20 @@ const TIERS: TierInfo[] = [
     priceUnit: ``,
     cadence: `For larger teams`,
     features: [
-      { label: `Everything in Business`, enabled: true },
-      { label: `SSO / OIDC (coming soon)`, enabled: true },
-      { label: `SLA & DPA`, enabled: true },
-      { label: `Dedicated support`, enabled: true },
+      `Everything in Business`,
+      `SSO / OIDC (coming soon)`,
+      `SLA & DPA`,
+      `Dedicated support channel`,
+      `Onboarding & migration help`,
     ],
   },
 ]
 
-function FeatureRow({ label, enabled }: Feature) {
+function FeatureRow({ label }: { label: string }) {
   return (
     <div className="flex items-start gap-2 text-[13px] leading-snug">
-      {enabled ? (
-        <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
-      ) : (
-        <X className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/50" />
-      )}
-      <span className={cn(!enabled && `text-muted-foreground/50`)}>{label}</span>
+      <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+      <span>{label}</span>
     </div>
   )
 }
@@ -262,7 +238,8 @@ export function PlanComparison({
   const getProductId = (tier: ComparisonTier): string | null => {
     if (tier === `pro`) return proProductId
     if (tier === `business`) {
-      if (businessYearlyProductId && businessYearly) return businessYearlyProductId
+      if (businessYearlyProductId && businessYearly)
+        return businessYearlyProductId
       return businessProductId
     }
     // `free` has no product; `enterprise` is display-only (Contact us).
@@ -274,147 +251,160 @@ export function PlanComparison({
   // breakpoints overflowed the cards — column count must follow the CONTAINER.
   // @4xl (56rem) is the narrowest that fits four seat-stepper cards.
   return (
-    <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-4">
-      {TIERS.map((t) => {
-        const isCurrent = t.tier === currentPlan
-        const productId = getProductId(t.tier)
-        // With an active subscription, "current" means the exact product —
-        // so a Business-monthly team can still switch to Business-yearly.
-        const isCurrentProduct = subscription
-          ? productId === subscription.productId
-          : isCurrent
-        const canSwitch =
-          Boolean(subscription) &&
-          !subscription?.cancelAtPeriodEnd &&
-          t.tier !== `free` &&
-          productId !== null &&
-          !isCurrentProduct
-        const canUpgrade =
-          !subscription && !isCurrent && t.tier !== `free` && productId !== null
-        const showYearlyToggle =
-          t.tier === `business` && Boolean(businessYearlyProductId)
+    <div className="space-y-3">
+      <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-4">
+        {TIERS.map((t) => {
+          const isCurrent = t.tier === currentPlan
+          const productId = getProductId(t.tier)
+          // With an active subscription, "current" means the exact product —
+          // so a Business-monthly team can still switch to Business-yearly.
+          const isCurrentProduct = subscription
+            ? productId === subscription.productId
+            : isCurrent
+          const canSwitch =
+            Boolean(subscription) &&
+            !subscription?.cancelAtPeriodEnd &&
+            t.tier !== `free` &&
+            productId !== null &&
+            !isCurrentProduct
+          const canUpgrade =
+            !subscription &&
+            !isCurrent &&
+            t.tier !== `free` &&
+            productId !== null
+          const showYearlyToggle =
+            t.tier === `business` && Boolean(businessYearlyProductId)
 
-        return (
-          <Card
-            key={t.tier}
-            className={cn(
-              `flex h-full min-w-0 flex-col gap-4 overflow-hidden py-4`,
-              isCurrent && `border-primary/40`
-            )}
-          >
-            <CardHeader className="gap-1.5 px-4">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">{t.name}</CardTitle>
-                {isCurrent && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    Current
-                  </Badge>
+          return (
+            <Card
+              key={t.tier}
+              className={cn(
+                `flex h-full min-w-0 flex-col gap-4 overflow-hidden py-4`,
+                isCurrent && `border-primary/40`
+              )}
+            >
+              <CardHeader className="gap-1.5 px-4">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">{t.name}</CardTitle>
+                  {isCurrent && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Current
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-semibold tracking-tight">
+                    {t.pricePerSeat}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {t.priceUnit}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">{t.cadence}</p>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col gap-4 px-4">
+                <div className="space-y-2">
+                  {t.features.map((f) => (
+                    <FeatureRow key={f} label={f} />
+                  ))}
+                </div>
+
+                {(showYearlyToggle || canUpgrade || canSwitch) && (
+                  <div className="mt-auto space-y-2.5 border-t pt-3">
+                    {showYearlyToggle && (
+                      <div className="flex items-center justify-between gap-2">
+                        <Label
+                          htmlFor={yearlyToggleId}
+                          className="text-xs text-muted-foreground"
+                        >
+                          Bill yearly
+                        </Label>
+                        <Switch
+                          id={yearlyToggleId}
+                          checked={businessYearly}
+                          onCheckedChange={setBusinessYearly}
+                        />
+                      </div>
+                    )}
+
+                    {canUpgrade && (
+                      <>
+                        <SeatStepper seats={seats} onChange={setSeats} />
+                        <Button
+                          className="w-full min-w-0"
+                          size="sm"
+                          onClick={() => handleCheckout(t.tier)}
+                          disabled={loading !== null}
+                        >
+                          {loading === t.tier ? (
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          ) : (
+                            <CreditCard className="mr-1.5 size-3.5" />
+                          )}
+                          <span className="truncate">
+                            {loading === t.tier
+                              ? `Loading...`
+                              : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
+                          </span>
+                        </Button>
+                      </>
+                    )}
+
+                    {canSwitch && (
+                      <>
+                        <Button
+                          className="w-full"
+                          size="sm"
+                          onClick={() => handleSwitchPlan(t.tier)}
+                          disabled={loading !== null}
+                        >
+                          {loading === t.tier ? (
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          ) : (
+                            <ArrowRightLeft className="mr-1.5 size-3.5" />
+                          )}
+                          {loading === t.tier ? `Switching...` : `Switch plan`}
+                        </Button>
+                        <p className="text-center text-[11px] leading-snug text-muted-foreground">
+                          Applies now · billed at your next renewal
+                        </p>
+                      </>
+                    )}
+                  </div>
                 )}
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-semibold tracking-tight">
-                  {t.pricePerSeat}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t.priceUnit}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{t.cadence}</p>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col gap-4 px-4">
-              <div className="space-y-2">
-                {t.features.map((f) => (
-                  <FeatureRow key={f.label} label={f.label} enabled={f.enabled} />
-                ))}
-              </div>
 
-              {(showYearlyToggle || canUpgrade || canSwitch) && (
-                <div className="mt-auto space-y-2.5 border-t pt-3">
-                  {showYearlyToggle && (
-                    <div className="flex items-center justify-between gap-2">
-                      <Label
-                        htmlFor={yearlyToggleId}
-                        className="text-xs text-muted-foreground"
-                      >
-                        Bill yearly
-                      </Label>
-                      <Switch
-                        id={yearlyToggleId}
-                        checked={businessYearly}
-                        onCheckedChange={setBusinessYearly}
-                      />
-                    </div>
-                  )}
-
-                  {canUpgrade && (
-                    <>
-                      <SeatStepper seats={seats} onChange={setSeats} />
-                      <Button
-                        className="w-full min-w-0"
-                        size="sm"
-                        onClick={() => handleCheckout(t.tier)}
-                        disabled={loading !== null}
-                      >
-                        {loading === t.tier ? (
-                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                        ) : (
-                          <CreditCard className="mr-1.5 size-3.5" />
-                        )}
-                        <span className="truncate">
-                          {loading === t.tier
-                            ? `Loading...`
-                            : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
-                        </span>
-                      </Button>
-                    </>
-                  )}
-
-                  {canSwitch && (
-                    <>
-                      <Button
-                        className="w-full"
-                        size="sm"
-                        onClick={() => handleSwitchPlan(t.tier)}
-                        disabled={loading !== null}
-                      >
-                        {loading === t.tier ? (
-                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                        ) : (
-                          <ArrowRightLeft className="mr-1.5 size-3.5" />
-                        )}
-                        {loading === t.tier ? `Switching...` : `Switch plan`}
-                      </Button>
-                      <p className="text-center text-[11px] leading-snug text-muted-foreground">
-                        Applies now · billed at your next renewal
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {t.tier === `enterprise` && (
-                <div className="mt-auto border-t pt-3">
-                  <Button className="w-full" size="sm" variant="outline" asChild>
-                    <a
-                      href="https://exponential.at/contact/"
-                      target="_blank"
-                      rel="noreferrer"
+                {t.tier === `enterprise` && (
+                  <div className="mt-auto border-t pt-3">
+                    <Button
+                      className="w-full"
+                      size="sm"
+                      variant="outline"
+                      asChild
                     >
-                      Contact us
-                    </a>
-                  </Button>
-                </div>
-              )}
+                      <a
+                        href="https://exponential.at/contact/"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Contact sales
+                      </a>
+                    </Button>
+                  </div>
+                )}
 
-              {isCurrentProduct && t.tier !== `free` && (
-                <p className="mt-auto text-center text-xs text-muted-foreground">
-                  Your current plan
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )
-      })}
+                {isCurrentProduct && t.tier !== `free` && (
+                  <p className="mt-auto text-center text-xs text-muted-foreground">
+                    Your current plan
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+      <p className="text-xs leading-snug text-muted-foreground">
+        {EVERY_PLAN_INCLUDES}
+      </p>
     </div>
   )
 }

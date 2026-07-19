@@ -3,6 +3,7 @@ import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
 import { PlanCards, SelfHostCards } from "./components/PlanCards"
 import { ComparisonTable } from "./components/ComparisonTable"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
+import { EVERY_PLAN_INCLUDES } from "./lib/plans"
 
 export function PricingPage() {
   return (
@@ -33,8 +34,8 @@ export function PricingPage() {
           <div className="shell">
             <PlanCards />
             <p className="plan-footnote">
-              Unlimited boards, repos and coding sessions on every tier.
-              Agents are free everywhere — you only ever pay for people.
+              {EVERY_PLAN_INCLUDES} Agents are free everywhere — you only ever
+              pay for people.
             </p>
           </div>
         </section>

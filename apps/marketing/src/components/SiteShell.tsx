@@ -58,12 +58,12 @@ export function FooterCTA({
       <div className="shell footer-cta-inner">
         <h2>{title}</h2>
         <p>{subtitle}</p>
+        {/* EXP-176: the Self-host button moved into the home pricing
+            section (next to "Compare all plans"); /pricing has its own
+            self-host section and SiteFooter links it site-wide. */}
         <div className="footer-cta-buttons">
           <a className="btn btn-primary" href={LINKS.app.login}>
             Sign up free <IcArrow size={12} />
-          </a>
-          <a className="btn btn-ghost" href="/docs/self-host/">
-            Self-host
           </a>
         </div>
         <div className="footer-cta-dl">

@@ -1,5 +1,5 @@
 /* Comparison data mirrors the in-app source of truth:
-   apps/web/src/components/workspace/plan-comparison.tsx + apps/web/src/lib/billing.ts.
+   apps/web/src/components/team/plan-comparison.tsx + apps/web/src/lib/billing.ts.
    Keep in sync when limits or prices change. */
 
 export type CompareCell = {
@@ -28,7 +28,10 @@ export const linearComparison: CompareRow[] = [
   },
   {
     label: `AI coding`,
-    exponential: { value: `Bring your own agents — run locally, free`, good: true },
+    exponential: {
+      value: `Bring your own agents — run locally, free`,
+      good: true,
+    },
     linear: { value: `Cloud agents, billed per use` },
   },
   {
