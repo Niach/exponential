@@ -12,6 +12,7 @@ import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
+import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -129,13 +130,17 @@ function TeamLayout() {
               onOpenSearch={() => setSearchOpen(true)}
             />
 
-            <main className="flex-1 flex flex-col min-h-screen">
+            {/* `min-w-0` on both the flex child and the content wrapper is
+                what keeps ANY wide descendant from widening the whole page
+                (flex children default to min-width:auto); `overflow-x-clip`
+                contains stragglers inside the content region. */}
+            <main className="flex-1 flex flex-col min-h-screen min-w-0">
               <TeamMobileTopbar
                 teamSlug={teamSlug}
-                boards={boards ?? []}
-                teamId={team?.id}
+                team={team}
+                boards={boards}
               />
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 min-w-0 overflow-x-clip">
                 <Outlet />
               </div>
               {team && user && (
@@ -146,6 +151,15 @@ function TeamLayout() {
                 />
               )}
             </main>
+
+            {/* Native-style bottom navigation (EXP-189) — fixed-position,
+                so JSX placement only affects stacking. */}
+            <MobileTabBar
+              teamSlug={teamSlug}
+              team={team}
+              boards={boards}
+              onOpenSearch={() => setSearchOpen(true)}
+            />
 
             {team && (
               <IssueSearchSheet

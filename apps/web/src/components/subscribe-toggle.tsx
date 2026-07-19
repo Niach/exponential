@@ -58,13 +58,17 @@ export function SubscribeToggle({
         onClick={() => void toggle()}
         disabled={busy}
       >
+        {/* Icon-only below `sm` — the label doesn't fit the mobile
+            breadcrumb row (EXP-189). */}
         {subscribed ? (
           <>
-            <Bell className="size-3" /> Subscribed
+            <Bell className="size-3" />
+            <span className="hidden sm:inline">Subscribed</span>
           </>
         ) : (
           <>
-            <BellOff className="size-3" /> Subscribe
+            <BellOff className="size-3" />
+            <span className="hidden sm:inline">Subscribe</span>
           </>
         )}
       </Button>

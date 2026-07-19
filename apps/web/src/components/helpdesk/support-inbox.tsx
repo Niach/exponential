@@ -17,6 +17,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { issueCollection, boardCollection } from "@/lib/collections"
 import { relativeTime } from "@/components/comment-rows/format"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { displayUserName } from "@/lib/user-display"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { Badge } from "@/components/ui/badge"
@@ -123,7 +124,7 @@ export function SupportInbox({
             </Button>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
           {threads === null ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -278,8 +279,10 @@ function ConversationPane({
 
   return (
     <>
-      {/* Middle — chat thread */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Middle — chat thread. On mobile the floating tab bar stays
+          visible, so the column reserves clearance to keep the composer
+          above it. */}
+      <div className={`flex min-w-0 flex-1 flex-col ${TAB_BAR_CLEARANCE}`}>
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Button
             variant="ghost"

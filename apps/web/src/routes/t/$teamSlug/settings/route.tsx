@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
   SETTINGS_NAV,
   useSettingsPage,
@@ -25,7 +26,9 @@ function SettingsLayout() {
   const navContext = { isCloud: Boolean(config?.isCloud), solo }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6">
+    <div
+      className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}
+    >
       <div>
         <h1 className="text-2xl font-bold">
           {solo ? `Settings` : `Team Settings`}

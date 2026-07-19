@@ -4,6 +4,7 @@ import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
@@ -128,7 +129,7 @@ function BoardPage() {
         canCreate={permissions.canCreate}
       />
 
-      <div className="flex-1 overflow-auto">
+      <div className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
         <IssueList
           groups={visibleGroups}
           issueLabelMap={issueLabelMap}

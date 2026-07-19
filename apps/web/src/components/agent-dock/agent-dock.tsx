@@ -113,9 +113,11 @@ export function AgentDock({
       className={cn(
         // z-40 covers the layout while staying under every z-50 overlay
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.
+        // On mobile the collapsed strip sits above the floating tab bar
+        // (EXP-189) — the bar itself is z-[35], under the fullscreen z-40.
         fullscreen && expandedRow
           ? `fixed inset-0 z-40 flex flex-col`
-          : `sticky bottom-0 z-30 border-t`,
+          : `sticky bottom-0 z-30 border-t max-md:bottom-[calc(5rem+env(safe-area-inset-bottom))] max-md:border-b`,
         `border-border bg-background`
       )}
     >
