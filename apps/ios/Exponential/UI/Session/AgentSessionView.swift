@@ -257,12 +257,13 @@ struct AgentSessionView: View {
                 ToolRow(name: name, detail: detail)
             case let .userMessage(_, text):
                 UserMessageBubble(text: text)
-            case let .question(id, text, options, multiSelect, planMode):
+            case let .question(id, text, options, multiSelect, planMode, _, answer):
                 QuestionCard(
                     text: text,
                     options: options,
                     multiSelect: multiSelect,
                     planMode: planMode,
+                    answer: answer,
                     active: model?.activeQuestionIds.contains(id) ?? false,
                     canAnswer: canAnswer,
                     onAnswer: { key, submit in model?.sendAnswer(key, submit: submit) },
@@ -330,10 +331,10 @@ struct AgentSessionView: View {
                     diffChip(diff)
                 }
                 if inputVisible {
-                    if model.isSteering {
-                        steerCaption("You're steering")
-                    } else if let name = model.remoteSteererName {
-                        // Input stays enabled — sending steals the claim.
+                    // No own-steering notice — steering should feel seamless
+                    // (EXP-197); only another person's claim is worth a
+                    // caption. Input stays enabled — sending steals the claim.
+                    if let name = model.remoteSteererName {
                         steerCaption("\(name) is steering")
                     }
                     inputRow(model)
@@ -517,12 +518,15 @@ private struct QuestionCard: View {
     let options: [AgentSessionModel.QuestionOption]
     let multiSelect: Bool
     let planMode: Bool
+    /// The chosen answer once the question resolved (EXP-197) — replaces the
+    /// option rows.
+    let answer: String?
     /// Still answerable per the feed — the session is blocked on this card.
     let active: Bool
     /// Live + steer perm — whether this client may answer at all.
     let canAnswer: Bool
     /// (key, submit) — single-select taps submit (digit + Enter); multi-select
-    /// taps toggle with the digit alone and `onSubmit` sends the Enter.
+    /// taps toggle with the digit alone and `onSubmit` advances (Tab).
     let onAnswer: (String, Bool) -> Void
     let onSubmit: () -> Void
 
@@ -532,9 +536,11 @@ private struct QuestionCard: View {
     private static let clampLines = 6
     private static let clampChars = 600
 
+    /// Plans are always fully rendered — never folded (EXP-197).
     private var clampable: Bool {
-        text.count > Self.clampChars
-            || text.filter { $0 == "\n" }.count >= Self.clampLines
+        !planMode
+            && (text.count > Self.clampChars
+                || text.filter { $0 == "\n" }.count >= Self.clampLines)
     }
 
     private var answerable: Bool { active && canAnswer }
@@ -564,28 +570,44 @@ private struct QuestionCard: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .buttonStyle(.plain)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
-                        if answerable {
-                            // The wire's first option of a plan is the primary
-                            // approve action ("Approve — auto-accept edits").
-                            let primary = planMode && index == 0
-                            Button {
-                                pick(option)
-                            } label: {
-                                optionLabel(option, showKey: !planMode)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
+                if let answer {
+                    // Answered (EXP-197): the chosen answer replaces the options.
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.green)
+                            .padding(.top, 2)
+                        Text(answer)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white)
+                            .textSelection(.enabled)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
+                            if answerable {
+                                // The wire's first option of a plan is the primary
+                                // approve action ("Approve — auto-accept edits").
+                                let primary = planMode && index == 0
+                                Button {
+                                    pick(option)
+                                } label: {
+                                    optionLabel(option, showKey: !planMode)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                }
+                                .glassButton(isActive: primary || picked.contains(option.key))
+                                .buttonStyle(.plain)
+                            } else {
+                                optionLabel(option)
                             }
-                            .glassButton(isActive: primary || picked.contains(option.key))
-                            .buttonStyle(.plain)
-                        } else {
-                            optionLabel(option)
                         }
                     }
                 }
                 if answerable, multiSelect {
-                    Button("Submit selection") {
+                    // Advances to the picker's next tab / review step (Tab on
+                    // the wire — see AgentSessionModel.sendSubmit).
+                    Button("Continue") {
                         onSubmit()
                     }
                     .font(.caption.weight(.medium))

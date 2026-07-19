@@ -81,6 +81,49 @@ class AgentFeedTest {
         assertEquals(emptySet<Long>(), activeQuestionIds(feed))
     }
 
+    // EXP-197: `Question answered:` narrations fold into the earliest
+    // unanswered card; resolved cards are never active.
+
+    @Test
+    fun `resolved question is never active and retires earlier plan cards`() {
+        val feed = listOf(question(1).copy(resolved = true, answer = "Red"))
+        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
+        assertEquals(
+            emptySet<Long>(),
+            activeQuestionIds(listOf(plan(1), question(2).copy(resolved = true))),
+        )
+    }
+
+    @Test
+    fun `answers attach earliest-first in question order`() {
+        val feed = listOf(question(1), question(2))
+        val first = attachQuestionAnswer(feed, "Red")!!
+        assertEquals("Red", (first[0] as AgentFeedItem.Question).answer)
+        assertEquals(null, (first[1] as AgentFeedItem.Question).answer)
+        val second = attachQuestionAnswer(first, "Blue")!!
+        assertEquals("Blue", (second[1] as AgentFeedItem.Question).answer)
+    }
+
+    @Test
+    fun `answers never attach to plan cards or already-answered cards`() {
+        assertEquals(null, attachQuestionAnswer(listOf(plan(1)), "Red"))
+        assertEquals(
+            null,
+            attachQuestionAnswer(listOf(question(1).copy(resolved = true, answer = "Red")), "Blue"),
+        )
+        assertEquals(null, attachQuestionAnswer(emptyList(), "Red"))
+    }
+
+    @Test
+    fun `dismissal retires every pending non-plan card`() {
+        val feed = listOf(question(1), plan(2), question(3))
+        val out = dismissPendingQuestions(feed)!!
+        assertEquals(true, (out[0] as AgentFeedItem.Question).resolved)
+        assertEquals(false, (out[1] as AgentFeedItem.Question).resolved)
+        assertEquals(true, (out[2] as AgentFeedItem.Question).resolved)
+        assertEquals(null, dismissPendingQuestions(out.filterIsInstance<AgentFeedItem.Question>().filter { it.resolved }))
+    }
+
     // EXP-97: consecutive runs of >=2 tool calls collapse into one render row.
 
     @Test

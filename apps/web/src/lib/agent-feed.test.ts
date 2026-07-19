@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   activeQuestionIds,
+  attachQuestionAnswer,
   consumeEcho,
+  dismissPendingQuestions,
   ECHO_CAP,
   ECHO_TTL_MS,
   groupToolRuns,
@@ -124,6 +126,68 @@ describe(`activeQuestionIds`, () => {
       { id: 2, kind: `tool` },
     ]
     expect(activeQuestionIds(feed)).toEqual(new Set())
+  })
+})
+
+// EXP-197: `Question answered:` narrations fold into the earliest unanswered
+// card; resolved cards are never active.
+type QuestionItem = {
+  id: number
+  kind: string
+  planMode?: boolean
+  resolved?: boolean
+  answer?: string
+}
+
+describe(`question answers`, () => {
+  it(`resolved question is never active and retires earlier plan cards`, () => {
+    expect(
+      activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
+    ).toEqual(new Set())
+    expect(
+      activeQuestionIds([
+        { id: 1, kind: `question`, planMode: true },
+        { id: 2, kind: `question`, resolved: true },
+      ])
+    ).toEqual(new Set())
+  })
+
+  it(`answers attach earliest-first in question order`, () => {
+    const feed: QuestionItem[] = [
+      { id: 1, kind: `question` },
+      { id: 2, kind: `question` },
+    ]
+    const first = attachQuestionAnswer(feed, `Red`)!
+    expect(first[0]).toMatchObject({ resolved: true, answer: `Red` })
+    expect(first[1].resolved).toBeUndefined()
+    const second = attachQuestionAnswer(first, `Blue`)!
+    expect(second[1]).toMatchObject({ resolved: true, answer: `Blue` })
+  })
+
+  it(`answers never attach to plan cards or already-answered cards`, () => {
+    expect(
+      attachQuestionAnswer([{ id: 1, kind: `question`, planMode: true }], `x`)
+    ).toBeNull()
+    expect(
+      attachQuestionAnswer(
+        [{ id: 1, kind: `question`, resolved: true, answer: `Red` }],
+        `Blue`
+      )
+    ).toBeNull()
+    expect(attachQuestionAnswer([], `x`)).toBeNull()
+  })
+
+  it(`dismissal retires every pending non-plan card`, () => {
+    const feed: QuestionItem[] = [
+      { id: 1, kind: `question` },
+      { id: 2, kind: `question`, planMode: true },
+      { id: 3, kind: `question` },
+    ]
+    const out = dismissPendingQuestions(feed)!
+    expect(out[0].resolved).toBe(true)
+    expect(out[1].resolved).toBeUndefined()
+    expect(out[2].resolved).toBe(true)
+    expect(dismissPendingQuestions(out)).toBeNull()
   })
 })
 

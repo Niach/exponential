@@ -44,6 +44,54 @@ export function consumeEcho(
  *  the no-protocol-change signal that a pending plan approval was answered. */
 export const PLAN_RESOLVED_NARRATION = `Plan approval answered.`
 
+/** The desktop's answered-question narration prefix (steer/src/activity.rs,
+ *  EXP-197): one `Question answered: <answer>` narration per question flushes
+ *  with the transcript once an AskUserQuestion resolves — folded into the
+ *  earliest unanswered question card instead of rendering as a narration. */
+export const QUESTION_ANSWERED_PREFIX = `Question answered: `
+
+/** The desktop's dismissed-question narration (EXP-197) — the ask resolved
+ *  WITHOUT answers (Esc / rejected); retires every pending question card. */
+export const QUESTION_DISMISSED_NARRATION = `Question dismissed.`
+
+interface QuestionLike {
+  id: number
+  kind: string
+  planMode?: boolean
+  /** Set once the question resolved (EXP-197) — never answerable again. */
+  resolved?: boolean
+  /** The chosen answer, when the resolution carried one. */
+  answer?: string
+}
+
+/** Fold an answer into the EARLIEST unanswered non-plan question card
+ *  (answers arrive in question order, so earliest-first keeps multi-question
+ *  asks aligned). Null when no card is waiting — the caller falls back to
+ *  rendering the narration so the answer is never lost. */
+export function attachQuestionAnswer<T extends QuestionLike>(
+  feed: readonly T[],
+  answer: string
+): T[] | null {
+  const index = feed.findIndex(
+    (i) => i.kind === `question` && i.planMode !== true && i.resolved !== true
+  )
+  if (index < 0) return null
+  const next = [...feed]
+  next[index] = { ...next[index], resolved: true, answer }
+  return next
+}
+
+/** Retire every pending non-plan question card (the ask was dismissed).
+ *  Null when nothing was pending. */
+export function dismissPendingQuestions<T extends QuestionLike>(
+  feed: readonly T[]
+): T[] | null {
+  const pending = (i: T) =>
+    i.kind === `question` && i.planMode !== true && i.resolved !== true
+  if (!feed.some(pending)) return null
+  return feed.map((i) => (pending(i) ? { ...i, resolved: true } : i))
+}
+
 /** Ids of the `question` items still answerable (EXP-174): the TRAILING
  *  consecutive question run (a multi-question batch lands back-to-back and
  *  the TUI auto-advances in order; any later event means the session moved
@@ -54,7 +102,13 @@ export const PLAN_RESOLVED_NARRATION = `Plan approval answered.`
  *  screen. Only a newer question, a human message, or the desktop's explicit
  *  `PLAN_RESOLVED_NARRATION` proves a plan picker actually resolved. */
 export function activeQuestionIds(
-  feed: readonly { id: number; kind: string; planMode?: boolean; text?: string }[]
+  feed: readonly {
+    id: number
+    kind: string
+    planMode?: boolean
+    resolved?: boolean
+    text?: string
+  }[]
 ): Set<number> {
   const ids = new Set<number>()
   // Still inside the trailing consecutive question run.
@@ -64,8 +118,15 @@ export function activeQuestionIds(
   for (let i = feed.length - 1; i >= 0; i--) {
     const item = feed[i]
     if (item.kind === `question`) {
-      if (trailing || (item.planMode === true && !retired)) ids.add(item.id)
-      retired = true
+      if (item.resolved === true) {
+        // An answered/dismissed card is itself a resolution signal (it
+        // proves the TUI moved past it) and is never active (EXP-197).
+        trailing = false
+        retired = true
+      } else {
+        if (trailing || (item.planMode === true && !retired)) ids.add(item.id)
+        retired = true
+      }
     } else {
       trailing = false
       if (item.kind === `user_message`) retired = true

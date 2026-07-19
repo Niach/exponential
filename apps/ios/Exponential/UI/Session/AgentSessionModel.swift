@@ -51,14 +51,21 @@ final class AgentSessionModel {
         /// An interactive question (AskUserQuestion / plan approval, EXP-78).
         /// `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) —
         /// presentation-only, absent on events from older desktops/relays.
-        case question(id: Int, text: String, options: [QuestionOption], multiSelect: Bool, planMode: Bool)
+        /// `resolved`/`answer` are set client-side when the desktop's
+        /// `Question answered:` / `Question dismissed.` narration folds into
+        /// the card (EXP-197) — a resolved card renders its answer and is
+        /// never answerable again.
+        case question(
+            id: Int, text: String, options: [QuestionOption], multiSelect: Bool,
+            planMode: Bool, resolved: Bool, answer: String?
+        )
 
         var id: Int {
             switch self {
             case let .narration(id, _): id
             case let .tool(id, _, _): id
             case let .userMessage(id, _): id
-            case let .question(id, _, _, _, _): id
+            case let .question(id, _, _, _, _, _, _): id
             }
         }
 
@@ -118,6 +125,17 @@ final class AgentSessionModel {
     /// answered.
     static let planResolvedNarration = "Plan approval answered."
 
+    /// The desktop's answered-question narration prefix (EXP-197): one
+    /// `Question answered: <answer>` narration per question flushes with the
+    /// transcript once an AskUserQuestion resolves — folded into the earliest
+    /// unanswered question card instead of rendering as a narration row.
+    static let questionAnsweredPrefix = "Question answered: "
+
+    /// The desktop's dismissed-question narration (EXP-197) — the ask
+    /// resolved WITHOUT answers (Esc / rejected); retires every pending
+    /// question card.
+    static let questionDismissedNarration = "Question dismissed."
+
     /// Ids of the question items still answerable (EXP-174): the TRAILING
     /// consecutive question run (any later event means the desktop TUI moved
     /// on), PLUS any plan-approval question with no resolution signal after
@@ -135,9 +153,17 @@ final class AgentSessionModel {
         var retired = false
         for item in feed.reversed() {
             switch item {
-            case let .question(id, _, _, _, planMode):
-                if trailing || (planMode && !retired) { ids.insert(id) }
-                retired = true
+            case let .question(id, _, _, _, planMode, resolved, _):
+                if resolved {
+                    // An answered/dismissed card is itself a resolution
+                    // signal (it proves the TUI moved past it) and is never
+                    // active (EXP-197).
+                    trailing = false
+                    retired = true
+                } else {
+                    if trailing || (planMode && !retired) { ids.insert(id) }
+                    retired = true
+                }
             case .userMessage:
                 trailing = false
                 retired = true
@@ -309,9 +335,13 @@ final class AgentSessionModel {
         scheduleIdleRelease()
     }
 
-    /// Submit a multi-select question (Enter).
+    /// Advance a multi-select question. Tab, NOT Enter: with the cursor on an
+    /// option row Enter TOGGLES it (verified against claude v2.1.215 —
+    /// silently corrupting the selection), while Tab moves to the next
+    /// tab/review step, whose picker the grid watcher publishes as its own
+    /// card (EXP-197).
     func sendSubmit() {
-        sendAnswer("\r")
+        sendAnswer("\t")
     }
 
     /// Best-effort claim release — closing the socket also releases it
@@ -469,8 +499,19 @@ final class AgentSessionModel {
         guard let event, let kind = event["kind"] as? String else { return }
         switch kind {
         case "narration":
-            guard let text = event["text"] as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            guard let text = event["text"] as? String else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            // Question-resolution signals fold into the pending card instead
+            // of rendering as narration rows (EXP-197).
+            if trimmed.hasPrefix(Self.questionAnsweredPrefix) {
+                let answer = String(trimmed.dropFirst(Self.questionAnsweredPrefix.count))
+                if attachQuestionAnswer(answer) { return }
+                // No card waiting — fall through so the answer still shows.
+            } else if trimmed == Self.questionDismissedNarration {
+                dismissPendingQuestions()
+                return
+            }
             append(.narration(id: takeEventId(), text: text))
         case "tool":
             guard let name = event["name"] as? String else { return }
@@ -501,10 +542,43 @@ final class AgentSessionModel {
             let planMode = (event["planMode"] as? Bool) ?? false
             append(.question(
                 id: takeEventId(), text: text, options: options,
-                multiSelect: multiSelect, planMode: planMode
+                multiSelect: multiSelect, planMode: planMode,
+                resolved: false, answer: nil
             ))
         default:
             break
+        }
+    }
+
+    /// Fold an answer into the EARLIEST unanswered non-plan question card
+    /// (answers arrive in question order, so earliest-first keeps
+    /// multi-question asks aligned, EXP-197). False when no card is waiting —
+    /// the caller renders the narration so the answer is never lost.
+    private func attachQuestionAnswer(_ answer: String) -> Bool {
+        guard let index = feed.firstIndex(where: { item in
+            // (id, text, options, multiSelect, planMode, resolved, answer)
+            if case .question(_, _, _, _, false, false, _) = item { return true }
+            return false
+        }) else { return false }
+        guard case let .question(id, text, options, multiSelect, _, _, _) = feed[index]
+        else { return false }
+        feed[index] = .question(
+            id: id, text: text, options: options, multiSelect: multiSelect,
+            planMode: false, resolved: true, answer: answer
+        )
+        return true
+    }
+
+    /// Retire every pending non-plan question card (the ask was dismissed).
+    private func dismissPendingQuestions() {
+        feed = feed.map { item in
+            if case let .question(id, text, options, multiSelect, false, false, answer) = item {
+                return .question(
+                    id: id, text: text, options: options, multiSelect: multiSelect,
+                    planMode: false, resolved: true, answer: answer
+                )
+            }
+            return item
         }
     }
 

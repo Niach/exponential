@@ -46,6 +46,7 @@ use terminal::{display_offset, screen_lines, TermHandle};
 use crate::frames::{ActivityEvent, QuestionOption};
 use crate::plan_picker::{PlanPickerWatcher, Transition};
 use crate::publisher::ActivitySender;
+use crate::question_picker::{self, normalize_question_text, QuestionPickerWatcher};
 
 /// The mask token substituted for every redacted secret.
 const REDACTED: &str = "[redacted]";
@@ -87,6 +88,20 @@ const MCP_JSON_FILE: &str = ".exp-mcp.json";
 /// is not a resolution signal for plan cards. Never reword without updating
 /// the web / iOS / Android agent-session views.
 pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
+
+/// Answered-question narration prefix (EXP-197). When the transcript flushes
+/// an answered `AskUserQuestion` (claude withholds the entry until the picker
+/// resolves), the emitter publishes one `Question answered: <answer>`
+/// narration per question — clients match this EXACT prefix to fold the
+/// answer into the pending question card instead of rendering a narration
+/// row. Never reword without updating the web / iOS / Android views.
+pub const QUESTION_ANSWERED_PREFIX: &str = "Question answered: ";
+
+/// Dismissed-question narration (EXP-197) — published when an
+/// `AskUserQuestion` resolves WITHOUT answers (Esc / rejected), so viewers
+/// retire the pending card instead of leaving it answerable-looking. Clients
+/// match the EXACT text; same reword rule as above.
+pub const QUESTION_DISMISSED_NARRATION: &str = "Question dismissed.";
 
 // ---------------------------------------------------------------------------
 // Redaction
@@ -202,15 +217,78 @@ fn mcp_expu_key(worktree: &Path) -> Option<String> {
 // Transcript parsing
 // ---------------------------------------------------------------------------
 
+/// Cross-line transcript state (EXP-197): which grid-published questions are
+/// owed a transcript twin, and which `AskUserQuestion` tool_uses are still
+/// awaiting their tool_result (the answers live on the RESULT entry).
+#[derive(Default)]
+pub struct TranscriptState {
+    /// Grid-emitted plan questions whose transcript twins are still owed —
+    /// claude flushes the `ExitPlanMode` transcript entry only AFTER the
+    /// picker is answered, so each grid emission pre-pays one transcript
+    /// plan question that must then be swallowed instead of re-shown as
+    /// freshly pending (EXP-150).
+    pub suppress_plan_questions: usize,
+    /// Normalized texts of grid-published `AskUserQuestion` questions — their
+    /// transcript twins (flushed post-answer) are swallowed by text identity
+    /// (counting is unreliable: tab revisits and the review screen make grid
+    /// emissions ≠ twin count).
+    pub recent_grid_questions: Vec<String>,
+    /// `AskUserQuestion` tool_use id → its question texts, in order — awaiting
+    /// the tool_result entry that carries `toolUseResult.answers`.
+    pub pending_asks: Vec<(String, Vec<String>)>,
+}
+
+/// Grid-question memory cap — a session never has this many live pickers.
+const RECENT_GRID_QUESTIONS_CAP: usize = 16;
+/// Un-resulted AskUserQuestion tool_use cap.
+const PENDING_ASKS_CAP: usize = 8;
+
+impl TranscriptState {
+    /// Remember a grid-published question so its transcript twin is swallowed.
+    pub fn remember_grid_question(&mut self, text: &str) {
+        self.recent_grid_questions.push(normalize_question_text(text));
+        if self.recent_grid_questions.len() > RECENT_GRID_QUESTIONS_CAP {
+            let excess = self.recent_grid_questions.len() - RECENT_GRID_QUESTIONS_CAP;
+            self.recent_grid_questions.drain(..excess);
+        }
+    }
+
+    /// Whether `text` matches a remembered grid question — consumes the match.
+    /// Substring containment (either way, with a length floor) covers screen
+    /// wrapping and a question whose head scrolled off the grid.
+    fn consume_grid_question(&mut self, text: &str) -> bool {
+        let norm = normalize_question_text(text);
+        let matched = self.recent_grid_questions.iter().position(|g| {
+            const MIN: usize = 12;
+            g == &norm
+                || (g.len() >= MIN && norm.contains(g.as_str()))
+                || (norm.len() >= MIN && g.contains(norm.as_str()))
+        });
+        match matched {
+            Some(pos) => {
+                self.recent_grid_questions.remove(pos);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// Parse one Claude Code transcript JSONL line into activity events.
 /// `assistant` entries: `text` blocks become narration, `tool_use` blocks
 /// become tool headlines — except `AskUserQuestion`/`ExitPlanMode`, which
 /// become interactive `question` events (EXP-78). `user` entries become
 /// `user_message` events ONLY when they are genuine human turns
 /// (`origin.kind == "human"` — the initial prompt and steered messages);
-/// tool RESULTS and injected system content are never published. Every string
-/// is redacted and truncated to the relay caps.
-pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEvent> {
+/// tool RESULTS and injected system content are never published — with ONE
+/// targeted exception: an `AskUserQuestion` tool_result's collected answers
+/// (human-chosen input, EXP-197) become `Question answered:` narrations.
+/// Every string is redacted and truncated to the relay caps.
+pub fn process_transcript_line(
+    line: &str,
+    redactor: &Redactor,
+    state: &mut TranscriptState,
+) -> Vec<ActivityEvent> {
     let line = line.trim();
     if line.is_empty() {
         return Vec::new();
@@ -219,11 +297,149 @@ pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEve
         return Vec::new();
     };
     match entry.get("type").and_then(Value::as_str) {
-        Some("assistant") => parse_assistant_entry(&entry, redactor),
-        Some("user") => parse_user_entry(&entry, redactor).into_iter().collect(),
+        Some("assistant") => {
+            record_pending_asks(&entry, state);
+            parse_assistant_entry(&entry, redactor)
+                .into_iter()
+                .filter(|event| match event {
+                    // The late twin of a plan the grid watcher already
+                    // published at pending time (EXP-150).
+                    ActivityEvent::Question {
+                        plan_mode: Some(true),
+                        ..
+                    } if state.suppress_plan_questions > 0 => {
+                        state.suppress_plan_questions -= 1;
+                        false
+                    }
+                    // The late twin of a grid-published AskUserQuestion —
+                    // matched by text, since it flushes only post-answer.
+                    ActivityEvent::Question {
+                        text,
+                        plan_mode: None,
+                        ..
+                    } => !state.consume_grid_question(text),
+                    _ => true,
+                })
+                .collect()
+        }
+        Some("user") => {
+            let mut events = take_ask_answers(&entry, redactor, state);
+            events.extend(parse_user_entry(&entry, redactor));
+            events
+        }
         // system/summary/etc. → never published.
         _ => Vec::new(),
     }
+}
+
+/// Stateless wrapper over [`process_transcript_line`] (kept for callers/tests
+/// that don't track cross-line ask state).
+pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEvent> {
+    process_transcript_line(line, redactor, &mut TranscriptState::default())
+}
+
+/// Record every `AskUserQuestion` tool_use (id + question texts, in order) so
+/// the answers on its later tool_result entry can be published.
+fn record_pending_asks(entry: &Value, state: &mut TranscriptState) {
+    let Some(content) = entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for block in content {
+        if block.get("type").and_then(Value::as_str) != Some("tool_use")
+            || block.get("name").and_then(Value::as_str) != Some("AskUserQuestion")
+        {
+            continue;
+        }
+        let Some(id) = block.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(questions) = block
+            .get("input")
+            .and_then(|i| i.get("questions"))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        let texts: Vec<String> = questions
+            .iter()
+            .filter_map(|q| q.get("question").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect();
+        if texts.is_empty() {
+            continue;
+        }
+        state.pending_asks.push((id.to_string(), texts));
+        if state.pending_asks.len() > PENDING_ASKS_CAP {
+            let excess = state.pending_asks.len() - PENDING_ASKS_CAP;
+            state.pending_asks.drain(..excess);
+        }
+    }
+}
+
+/// An `AskUserQuestion` tool_result → its collected answers, published as one
+/// `Question answered: <answer>` narration per question (in question order,
+/// from the entry's `toolUseResult.answers` map), or the single dismissal
+/// narration when it resolved without answers (Esc / rejected — the
+/// `toolUseResult` is a plain string then). ONLY results whose tool_use id
+/// was recorded as an AskUserQuestion are ever read — generic tool results
+/// stay unpublished (the EXP-78 privacy stance); the answers themselves are
+/// human-chosen input.
+fn take_ask_answers(
+    entry: &Value,
+    redactor: &Redactor,
+    state: &mut TranscriptState,
+) -> Vec<ActivityEvent> {
+    let Some(content) = entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    for block in content {
+        if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+            continue;
+        }
+        let Some(tid) = block.get("tool_use_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(pos) = state.pending_asks.iter().position(|(id, _)| id == tid) else {
+            continue;
+        };
+        let (_, questions) = state.pending_asks.remove(pos);
+        let answers = entry
+            .get("toolUseResult")
+            .and_then(|v| v.get("answers"))
+            .and_then(Value::as_object);
+        let mut emitted = false;
+        if let Some(map) = answers {
+            for question in &questions {
+                if let Some(answer) = map.get(question).and_then(Value::as_str) {
+                    if answer.trim().is_empty() {
+                        continue;
+                    }
+                    events.push(ActivityEvent::Narration {
+                        text: truncate(
+                            &format!("{QUESTION_ANSWERED_PREFIX}{}", redactor.redact(answer)),
+                            NARRATION_MAX,
+                        ),
+                    });
+                    emitted = true;
+                }
+            }
+        }
+        if !emitted {
+            events.push(ActivityEvent::Narration {
+                text: QUESTION_DISMISSED_NARRATION.to_string(),
+            });
+        }
+    }
+    events
 }
 
 fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEvent> {
@@ -594,21 +810,20 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut last_diff_at: Option<Instant> = None;
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
-    // Grid-emitted plan questions whose transcript twins are still owed —
-    // claude flushes the `ExitPlanMode` transcript entry only AFTER the
-    // picker is answered, so each grid emission pre-pays one transcript
-    // plan question that must then be swallowed instead of re-shown as
-    // freshly pending (EXP-150).
-    let mut suppress_plan_questions: usize = 0;
+    let mut question_watcher = QuestionPickerWatcher::new();
+    let mut transcript_state = TranscriptState::default();
 
     while active.load(Ordering::SeqCst) {
-        // 0) Plan-picker watch on the live grid (EXP-150): the transcript
-        //    cannot show a PENDING plan approval (its entry lands only once
-        //    the picker is answered), but the picker is on screen exactly
-        //    while it is pending. Runs before the transcript tail so a
-        //    same-tick flush can never race the suppression counter.
+        // 0) Picker watch on the live grid: the transcript cannot show a
+        //    PENDING plan approval or AskUserQuestion (claude flushes their
+        //    entries only once the picker is answered — EXP-150/EXP-197), but
+        //    the picker is on screen exactly while it is pending. Runs before
+        //    the transcript tail so a same-tick flush can never race the twin
+        //    suppression state.
         if let Some(term) = &config.term {
-            match picker_watcher.tick(&screen_lines(term), display_offset(term)) {
+            let lines = screen_lines(term);
+            let grid_offset = display_offset(term);
+            match picker_watcher.tick(&lines, grid_offset) {
                 Some(Transition::Show(snapshot)) => {
                     let text = plan_body(spawn_time, snapshot.plan_box_first_line.as_deref())
                         .map(|raw| truncate(&redactor.redact(&raw), QUESTION_TEXT_MAX))
@@ -629,7 +844,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                         multi_select: None,
                         plan_mode: Some(true),
                     });
-                    suppress_plan_questions += 1;
+                    transcript_state.suppress_plan_questions += 1;
                 }
                 Some(Transition::Resolved) => {
                     // Retires the pending plan card on every client the
@@ -640,6 +855,33 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     });
                 }
                 None => {}
+            }
+            // AskUserQuestion pickers (EXP-197) — published the moment they
+            // settle on screen, so steering clients can answer while the
+            // question is actually pending. `question_picker::detect`
+            // excludes plan screens itself; the transcript twin (flushed
+            // post-answer) is swallowed by text identity, and the answers
+            // arrive via the tool_result → `Question answered:` narrations.
+            if let Some(snapshot) =
+                question_watcher.tick(question_picker::detect(&lines), grid_offset)
+            {
+                let text = truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX);
+                transcript_state.remember_grid_question(&text);
+                let options = snapshot
+                    .options
+                    .into_iter()
+                    .take(QUESTION_OPTIONS_MAX)
+                    .map(|o| QuestionOption {
+                        label: truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
+                        key: o.key,
+                    })
+                    .collect();
+                sender.send(ActivityEvent::Question {
+                    text,
+                    options,
+                    multi_select: snapshot.multi_select.then_some(true),
+                    plan_mode: None,
+                });
             }
         }
 
@@ -666,13 +908,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
         // 2) Tail any new complete lines from the current transcript.
         if let Some(path) = current.clone() {
-            offset = tail_transcript(
-                &path,
-                offset,
-                &redactor,
-                &sender,
-                &mut suppress_plan_questions,
-            );
+            offset = tail_transcript(&path, offset, &redactor, &sender, &mut transcript_state);
         }
 
         // 3) Debounced worktree diff snapshot (only when changed).
@@ -696,16 +932,14 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
 /// Read complete newline-terminated lines from `path` starting at byte
 /// `offset`, publish their events, and return the new offset (a trailing
-/// partial line is left for the next poll). Each pending debit in
-/// `suppress_plan_questions` swallows one transcript-derived plan question —
-/// the late twin of a plan the grid watcher already published at pending
-/// time (EXP-150).
+/// partial line is left for the next poll). `state` carries the cross-line
+/// twin-suppression + pending-ask bookkeeping (EXP-150/EXP-197).
 fn tail_transcript(
     path: &Path,
     offset: u64,
     redactor: &Redactor,
     sender: &ActivitySender,
-    suppress_plan_questions: &mut usize,
+    state: &mut TranscriptState,
 ) -> u64 {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -728,19 +962,7 @@ fn tail_transcript(
     while let Some(pos) = buf[line_start..].iter().position(|&b| b == b'\n') {
         let end = line_start + pos;
         let line = String::from_utf8_lossy(&buf[line_start..end]);
-        for event in parse_transcript_line(&line, redactor) {
-            if *suppress_plan_questions > 0
-                && matches!(
-                    &event,
-                    ActivityEvent::Question {
-                        plan_mode: Some(true),
-                        ..
-                    }
-                )
-            {
-                *suppress_plan_questions -= 1;
-                continue;
-            }
+        for event in process_transcript_line(&line, redactor, state) {
             sender.send(event);
         }
         line_start = end + 1;
@@ -1209,9 +1431,12 @@ mod tests {
         // One grid-emitted plan question is owed a transcript twin: the FIRST
         // transcript plan question is swallowed, later ones pass through
         // (grid detection missed ⇒ degraded fallback still works).
-        let mut suppress = 1usize;
-        tail_transcript(&path, 0, &redactor, &sender, &mut suppress);
-        assert_eq!(suppress, 0);
+        let mut state = TranscriptState {
+            suppress_plan_questions: 1,
+            ..Default::default()
+        };
+        tail_transcript(&path, 0, &redactor, &sender, &mut state);
+        assert_eq!(state.suppress_plan_questions, 0);
         let events: Vec<ActivityEvent> = rx
             .drain()
             .map(|cmd| match cmd {
@@ -1227,6 +1452,188 @@ mod tests {
             other => panic!("expected narration + one plan question, got {other:?}"),
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The transcript pair claude flushes once an AskUserQuestion is answered
+    /// (captured against v2.1.215): the assistant tool_use entry followed by
+    /// the tool_result user entry whose `toolUseResult.answers` maps question
+    /// text → the chosen label(s).
+    fn answered_ask_lines() -> (String, String) {
+        let tool_use = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_ask1", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which toppings do you want?", "multiSelect": true,
+                      "options": [ { "label": "Cheese" }, { "label": "Ham" } ] },
+                    { "question": "Which size?",
+                      "options": [ { "label": "Small" }, { "label": "Large" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        let tool_result = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_ask1",
+                  "content": "Your questions have been answered: ..." },
+            ]},
+            "toolUseResult": {
+                "questions": [],
+                "answers": {
+                    "Which toppings do you want?": "Mushrooms, Cheese",
+                    "Which size?": "Large"
+                }
+            }
+        })
+        .to_string();
+        (tool_use, tool_result)
+    }
+
+    #[test]
+    fn answered_ask_emits_answer_narrations_in_question_order() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let (tool_use, tool_result) = answered_ask_lines();
+
+        let question_events = process_transcript_line(&tool_use, &redactor, &mut state);
+        // No grid emission happened (degraded path) — the twins pass through.
+        assert_eq!(question_events.len(), 2);
+        assert_eq!(state.pending_asks.len(), 1);
+
+        let events = process_transcript_line(&tool_result, &redactor, &mut state);
+        assert_eq!(
+            events,
+            vec![
+                ActivityEvent::Narration {
+                    text: format!("{QUESTION_ANSWERED_PREFIX}Mushrooms, Cheese")
+                },
+                ActivityEvent::Narration {
+                    text: format!("{QUESTION_ANSWERED_PREFIX}Large")
+                },
+            ]
+        );
+        assert!(state.pending_asks.is_empty());
+    }
+
+    #[test]
+    fn grid_published_question_swallows_its_transcript_twin() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        // The grid watcher published the questions at pending time — the
+        // screen re-wraps the text, so the remembered copy differs only in
+        // whitespace.
+        state.remember_grid_question("Which toppings\ndo you want?");
+        state.remember_grid_question("Which size?");
+
+        let (tool_use, tool_result) = answered_ask_lines();
+        let events = process_transcript_line(&tool_use, &redactor, &mut state);
+        assert_eq!(events, vec![], "post-answer twins must be swallowed");
+        assert!(state.recent_grid_questions.is_empty(), "matches are consumed");
+
+        // The answers still flow.
+        let events = process_transcript_line(&tool_result, &redactor, &mut state);
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn clipped_grid_question_still_matches_its_twin() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        // A long question whose head scrolled off the grid — the remembered
+        // text is a suffix of the transcript's full text.
+        state.remember_grid_question("toppings do you want?");
+        let (tool_use, _) = answered_ask_lines();
+        let events = process_transcript_line(&tool_use, &redactor, &mut state);
+        // First twin swallowed by containment, second passes through.
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn unrelated_question_is_not_swallowed() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        state.remember_grid_question("A completely different question?");
+        let (tool_use, _) = answered_ask_lines();
+        let events = process_transcript_line(&tool_use, &redactor, &mut state);
+        assert_eq!(events.len(), 2);
+        assert_eq!(state.recent_grid_questions.len(), 1);
+    }
+
+    #[test]
+    fn rejected_ask_emits_the_dismissal_narration() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let (tool_use, _) = answered_ask_lines();
+        process_transcript_line(&tool_use, &redactor, &mut state);
+
+        // Esc / reject: the toolUseResult is a plain string, no answers.
+        let rejected = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_ask1",
+                  "is_error": true,
+                  "content": "The user doesn't want to proceed with this tool use." },
+            ]},
+            "toolUseResult": "User rejected tool use"
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&rejected, &redactor, &mut state),
+            vec![ActivityEvent::Narration {
+                text: QUESTION_DISMISSED_NARRATION.to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn generic_tool_results_never_publish() {
+        // A tool_result whose id was NOT a recorded AskUserQuestion — the
+        // EXP-78 privacy stance holds: nothing is read, nothing published.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let generic = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_read1",
+                  "content": "secret file contents" },
+            ]},
+            "toolUseResult": { "answers": { "q": "leak" } }
+        })
+        .to_string();
+        assert_eq!(process_transcript_line(&generic, &redactor, &mut state), vec![]);
+    }
+
+    #[test]
+    fn ask_answers_are_redacted() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let tool_use = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_ask2", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which key?", "options": [ { "label": "A" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        process_transcript_line(&tool_use, &redactor, &mut state);
+        let result = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_ask2", "content": "ok" },
+            ]},
+            "toolUseResult": { "answers": { "Which key?": "use expu_abcdefghijklmnop0123456789" } }
+        })
+        .to_string();
+        match &process_transcript_line(&result, &redactor, &mut state)[..] {
+            [ActivityEvent::Narration { text }] => {
+                assert!(text.starts_with(QUESTION_ANSWERED_PREFIX));
+                assert!(!text.contains("expu_abcdef"), "typed answer leaked a key: {text}");
+            }
+            other => panic!("expected one answer narration, got {other:?}"),
+        }
     }
 
     /// A fresh temp plans dir with the given `(name, body)` files, plus an
