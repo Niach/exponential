@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-create-or-join-mobile-web`,
+    date: `2026-07-19`,
+    title: `Create or join a team, a merged inbox, and a mobile-friendly web app`,
+    summary: `Pick your own first team, My Issues lives in the Inbox now, and the web app works properly on phones.`,
+    body: `- **Create or join** — new accounts no longer get an auto-created personal team. On first launch you create a team (you own it) or join one by pasting an invite link; invites can now also be emailed directly.
+- **One inbox** — My Issues merged into the Inbox as a tab on web and in the IDE, so notifications and your assigned work live on one page. Support gets an unread badge on every client.
+- **Web on your phone** — a bottom tab bar, mobile-sized layouts, and detail pages that use the full screen.
+- **Fixes** — desktop steering activity works again, Android keeps the helpdesk entry after partial syncs and refreshes repositories after board creation, and the IDE got a round of polish.`,
+  },
+  {
     id: `2026-07-teams-boards-helpdesk`,
     date: `2026-07-19`,
     title: `Boards, a simpler helpdesk, and a private-by-default product`,
