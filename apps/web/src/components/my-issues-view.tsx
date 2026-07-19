@@ -3,6 +3,7 @@ import { CircleUser } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -60,7 +61,7 @@ export function MyIssuesView({
         canCreate={false}
       />
 
-      <div className="flex-1 overflow-auto">
+      <div className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
         {issuesReady && totalIssueCount === 0 ? (
           <EmptyState
             icon={CircleUser}

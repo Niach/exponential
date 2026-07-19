@@ -9,6 +9,7 @@ import { AgentSessionView } from "@/components/agent-session"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { useMobileChromeVisible } from "@/components/team/mobile-tab-bar"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of every
 // running session in the team, with at most one expanded live viewer. It's
@@ -42,6 +43,7 @@ export function AgentDock({
   // Fullscreen (EXP-184) lives here — outside the per-session `key` remount,
   // so switching dock tabs keeps fullscreen; any collapse exits it.
   const [fullscreen, setFullscreen] = useState(false)
+  const tabBarVisible = useMobileChromeVisible()
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
@@ -117,7 +119,13 @@ export function AgentDock({
         // (EXP-189) — the bar itself is z-[35], under the fullscreen z-40.
         fullscreen && expandedRow
           ? `fixed inset-0 z-40 flex flex-col`
-          : `sticky bottom-0 z-30 border-t max-md:bottom-[calc(5rem+env(safe-area-inset-bottom))] max-md:border-b`,
+          : cn(
+              `sticky bottom-0 z-30 border-t`,
+              // Only clear the floating tab bar where it actually renders —
+              // detail routes hide it (useMobileChromeVisible).
+              tabBarVisible &&
+                `max-md:bottom-[calc(5rem+env(safe-area-inset-bottom))] max-md:border-b`
+            ),
         `border-border bg-background`
       )}
     >
