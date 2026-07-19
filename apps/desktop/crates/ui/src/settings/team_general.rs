@@ -169,40 +169,36 @@ impl GeneralPane {
             state.set_value("", window, cx);
         });
         let delete_input = self.delete_input.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
+        // AlertDialog — a plain Dialog never renders the button_props footer
+        // (EXP-181). The typed-confirm block rides as a child between the
+        // description and the stock ok/cancel footer.
+        window.open_alert_dialog(cx, move |alert, _, cx| {
             let name = team_name.clone();
             let confirm_name = team_name.clone();
             let team_id = team_id.clone();
             let content_input = delete_input.clone();
             let ok_input = delete_input.clone();
-            dialog
+            alert
+                .overlay_closable(true)
+                .close_button(true)
                 .title("Delete team")
-                .content(move |content, _, cx| {
-                    content
+                .description(SharedString::from(format!(
+                    "This will permanently delete {name} and all its boards, \
+                     issues, and data. This cannot be undone."
+                )))
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .mt_2()
                         .child(
                             div()
-                                .text_sm()
+                                .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(SharedString::from(format!(
-                                    "This will permanently delete {name} and all its boards, \
-                                     issues, and data. This cannot be undone."
-                                ))),
+                                .child(SharedString::from(format!("Type {name} to confirm"))),
                         )
-                        .child(
-                            v_flex()
-                                .gap_1()
-                                .mt_2()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(SharedString::from(format!(
-                                            "Type {name} to confirm"
-                                        ))),
-                                )
-                                .child(Input::new(&content_input).small()),
-                        )
-                })
+                        .child(Input::new(&content_input).small())
+                        .into_any_element(),
+                )
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text("Delete team")

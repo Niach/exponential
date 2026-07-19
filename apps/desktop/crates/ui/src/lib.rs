@@ -51,6 +51,7 @@ pub mod markdown;
 mod mention_input;
 mod navigation;
 mod oauth;
+mod pr_diff;
 mod properties_panel;
 mod queries;
 mod repo_resolver;

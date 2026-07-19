@@ -376,7 +376,9 @@ impl RunBar {
     ) {
         let configs = self.configs.clone();
         let this = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        // AlertDialog — a plain Dialog never renders the button_props footer
+        // (EXP-181), which left this gate with no way to confirm.
+        window.open_alert_dialog(cx, move |alert, _, cx| {
             let configs = configs.clone();
             let config = config.clone();
             let board_id = board_id.clone();
@@ -384,12 +386,12 @@ impl RunBar {
             let device_id = device_id.clone();
             let store_path = store_path.clone();
             let this = this.clone();
-            dialog
+            alert
+                .overlay_closable(true)
+                .close_button(true)
                 .title("Trust & Run")
-                .w(px(560.))
-                .content(move |content, _, cx| {
-                    content.child(trust_dialog_body(&configs, cx))
-                })
+                .width(px(560.))
+                .child(trust_dialog_body(&configs, cx).into_any_element())
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text("Trust & Run")
@@ -875,7 +877,18 @@ mod run_configs_editor {
                 .w(px(640.))
                 .h(height)
                 .overlay_closable(true)
-                .button_props(DialogButtonProps::default().ok_text("Done"))
+                // Plain Dialogs never render button_props (EXP-181) — the
+                // Done affordance is an explicit footer.
+                .footer(
+                    h_flex().justify_end().child(
+                        Button::new("run-configs-done")
+                            .small()
+                            .label("Done")
+                            .on_click(|_, window, cx| {
+                                window.close_dialog(cx);
+                            }),
+                    ),
+                )
                 .child(view.clone())
         });
     }

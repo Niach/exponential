@@ -73,6 +73,12 @@ pub(crate) fn build_screen_content(
             view.update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             view.into()
         }
+        Screen::PrDiff { issue_id } => {
+            let view = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
+            let issue_id = issue_id.clone();
+            view.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
+            view.into()
+        }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         Screen::Account => cx.new(|cx| crate::settings::AccountView::new(window, cx)).into(),
     }
@@ -89,6 +95,9 @@ pub struct ScreensPanel {
     /// One shared support-thread view, re-pointed on tab switch (EXP-180 —
     /// same single-instance model as the issue detail).
     support_thread: Entity<crate::support_thread::SupportThreadView>,
+    /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
+    /// Reviews rows' target).
+    pr_diff: Entity<crate::pr_diff::PrDiffView>,
     /// Open tabs in strip order — every [`Screen`] value is one tab identity
     /// (several issues / files at once; SC/settings/account dedupe).
     tabs: Vec<Screen>,
@@ -108,6 +117,7 @@ impl ScreensPanel {
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
         let support_thread =
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
+        let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
         let nav = nav_for_window(window, cx);
 
         let mut subscriptions = Vec::new();
@@ -147,6 +157,7 @@ impl ScreensPanel {
             source_control,
             file_viewer,
             support_thread,
+            pr_diff,
             tabs: Vec::new(),
             tabs_team: None,
             _subscriptions: subscriptions,
@@ -197,6 +208,10 @@ impl ScreensPanel {
                 // Re-pointing also restarts the 15s poll on tab reactivation.
                 self.support_thread
                     .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
+            }
+            Screen::PrDiff { issue_id } => {
+                self.pr_diff
+                    .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             }
             _ => {}
         }
@@ -448,6 +463,7 @@ impl Render for ScreensPanel {
             Some(Screen::SupportThread { .. }) => {
                 self.support_thread.clone().into_any_element()
             }
+            Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
         };
 
         let active_ix = screen
