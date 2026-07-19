@@ -516,16 +516,17 @@ pub fn on_active_window(cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 's
 /// from user interaction (sidebar, menus, future keymap), which happens in
 /// the active window.
 pub fn init(cx: &mut App) {
-    // My Issues / Inbox are tool windows, not screens — the actions select
-    // the rail tool (the sidebar swaps to the mini list; the center stays).
+    // My Issues / Inbox are tabs of the ONE Inbox tool window (EXP-186), not
+    // screens — the actions select the rail tool + tab (the sidebar swaps to
+    // the mini list; the center stays).
     cx.on_action(|_: &OpenMyIssues, cx| {
         on_active_window(cx, |window, cx| {
-            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::MyIssues);
+            crate::sidebar::open_inbox_tab(window, cx, crate::sidebar::InboxTab::MyIssues);
         });
     });
     cx.on_action(|_: &OpenInbox, cx| {
         on_active_window(cx, |window, cx| {
-            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::Inbox);
+            crate::sidebar::open_inbox_tab(window, cx, crate::sidebar::InboxTab::Inbox);
         });
     });
     cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));

@@ -69,10 +69,11 @@ pub(crate) const DEFAULT_DOCK_WIDTH: f32 = 520.;
 /// — there is deliberately no unselected/collapsed state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolWindow {
-    /// Notification groups (mini inbox); rows open the issue detail.
+    /// The merged personal tool window (EXP-186): an Inbox tab (notification
+    /// groups; rows open the issue detail) + a My Issues tab (issues assigned
+    /// to me across the team) — ONE rail entry, mirroring mobile's segmented
+    /// My Work screen. The active tab is [`RailShared::inbox_tab`].
     Inbox,
-    /// Issues assigned to me across the team (mini list).
-    MyIssues,
     /// Every issue in the team (mini list).
     AllIssues,
     /// Open pull requests across the team: issue-linked ones grouped by
@@ -90,12 +91,24 @@ pub(crate) enum ToolWindow {
     SourceControl,
 }
 
+/// The Inbox tool window's active tab (EXP-186 — sticky across tool
+/// switches, like mobile's persisted My Work segment).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InboxTab {
+    /// The notification stream.
+    Inbox,
+    /// The My Issues board (assignee == me across the team).
+    MyIssues,
+}
+
 /// Per-window state both rail and tool-window panel read: which tool window
 /// is active plus the shared repo-backed entities. Lives in a window-keyed
 /// registry (same pattern as `navigation::nav_for_window`) because the views
 /// are constructed on different paths.
 pub(crate) struct RailShared {
     tool: ToolWindow,
+    /// The Inbox tool window's active tab (EXP-186).
+    inbox_tab: InboxTab,
     /// The trunk git chrome (rendered by the top bar). Driven every rail
     /// render so the §4.1 auto-clone lifecycle and the rail's conflict badge
     /// stay live regardless of the visible screen.
@@ -126,11 +139,12 @@ impl RailShared {
     }
 
     /// The issue list whose ordering the detail's prev/next switcher follows
-    /// (EXP-48): the My Issues board while that tool window is active, the
-    /// All Issues board otherwise (it is the window's persistent issue list).
+    /// (EXP-48): the My Issues board while the Inbox tool window shows its
+    /// My Issues tab, the All Issues board otherwise (it is the window's
+    /// persistent issue list).
     pub(crate) fn active_issue_board(&self) -> &Entity<BoardView> {
-        match self.tool {
-            ToolWindow::MyIssues => &self.board_my,
+        match (self.tool, self.inbox_tab) {
+            (ToolWindow::Inbox, InboxTab::MyIssues) => &self.board_my,
             _ => &self.board_all,
         }
     }
@@ -180,6 +194,7 @@ pub(crate) fn rail_shared_for_window(
     let shared = cx.new(|_| RailShared {
         // Issues-first default: the All Issues list is the board.
         tool: ToolWindow::AllIssues,
+        inbox_tab: InboxTab::Inbox,
         git_bar,
         file_tree,
         board_all,
@@ -222,6 +237,19 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
     if tool == ToolWindow::SourceControl {
         navigate(window, cx, Screen::SourceControl);
     }
+}
+
+/// Activate the Inbox tool window ON a specific tab (the `OpenInbox` /
+/// `OpenMyIssues` actions — plain rail clicks keep the sticky tab instead).
+pub(crate) fn open_inbox_tab(window: &mut Window, cx: &mut App, tab: InboxTab) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.inbox_tab != tab {
+            shared.inbox_tab = tab;
+            cx.notify();
+        }
+    });
+    activate_tool(window, cx, ToolWindow::Inbox);
 }
 
 /// Whether the ACTIVE team's synced row has the helpdesk flag on — the gate
@@ -481,21 +509,13 @@ impl Render for RailView {
                     })),
             )
             .child(self.divider(cx))
-            // Issue tool windows — Inbox on top, then My Issues, All Issues.
+            // Issue tool windows — Inbox (with its My Issues tab, EXP-186)
+            // on top, then All Issues.
             .child(self.rail_tool_icon(
                 "rail-inbox",
                 Icon::new(IconName::Inbox),
                 ToolWindow::Inbox,
                 "Inbox",
-                false,
-                accent,
-                cx,
-            ))
-            .child(self.rail_tool_icon(
-                "rail-my-issues",
-                Icon::new(IconName::CircleUser),
-                ToolWindow::MyIssues,
-                "My Issues",
                 false,
                 accent,
                 cx,
@@ -791,11 +811,48 @@ impl SidebarPanel {
 
     // -- issue tool windows ---------------------------------------------------
 
+    /// *Inbox* tool window (EXP-186): the merged personal surface — an Inbox
+    /// tab (notification stream) + a My Issues tab (the full board pinned to
+    /// assignee == me across the team), switched by header tab buttons (the
+    /// Support Open/Resolved pattern), mirroring mobile's segmented My Work
+    /// screen.
     fn render_inbox_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let data = queries::inbox(cx);
+        let tab = self.shared.read(cx).inbox_tab;
         let header = self
             .tool_header(Icon::new(IconName::Inbox), "Inbox", cx)
-            .when(data.total_unread > 0, |this| {
+            .child(
+                Button::new("inbox-tab-inbox")
+                    .ghost()
+                    .xsmall()
+                    .label("Inbox")
+                    .selected(tab == InboxTab::Inbox)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_inbox_tab(InboxTab::Inbox, cx);
+                    })),
+            )
+            .child(
+                Button::new("inbox-tab-my-issues")
+                    .ghost()
+                    .xsmall()
+                    .label("My Issues")
+                    .selected(tab == InboxTab::MyIssues)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_inbox_tab(InboxTab::MyIssues, cx);
+                    })),
+            );
+
+        if tab == InboxTab::MyIssues {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .child(header)
+                .child(self.my_issues_body(cx))
+                .into_any_element();
+        }
+
+        let data = queries::inbox(cx);
+        let header = header.when(data.total_unread > 0, |this| {
                 this.child(
                     Button::new("inbox-mark-all-read")
                         .ghost()
@@ -1135,9 +1192,19 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// *My Issues* tool window: the full board pinned to assignee == me
-    /// across the team (its bar renders the title, tabs and filter).
-    fn render_my_issues_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// Switch the Inbox tool window's active tab (EXP-186).
+    fn set_inbox_tab(&mut self, tab: InboxTab, cx: &mut gpui::Context<Self>) {
+        self.shared.update(cx, |shared, cx| {
+            if shared.inbox_tab != tab {
+                shared.inbox_tab = tab;
+                cx.notify();
+            }
+        });
+    }
+
+    /// The Inbox tool window's *My Issues* tab body: the full board pinned to
+    /// assignee == me across the team (its bar renders the tabs and filter).
+    fn my_issues_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let query = match (
             active_team_id(&self.nav, cx),
             queries::active_account(cx),
@@ -2330,7 +2397,6 @@ impl Render for SidebarPanel {
             .border_color(cx.theme().sidebar_border)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
-                ToolWindow::MyIssues => self.render_my_issues_tool(cx),
                 ToolWindow::AllIssues => self.render_all_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
                 ToolWindow::Support => self.render_support_tool(cx),

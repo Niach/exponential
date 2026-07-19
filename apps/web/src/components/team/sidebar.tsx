@@ -6,7 +6,6 @@ import {
   Bot,
   Check,
   ChevronsUpDown,
-  CircleUser,
   FolderKanban,
   GitPullRequest,
   Inbox,
@@ -277,19 +276,6 @@ export function TeamSidebar({
                       <SidebarMenuButton onClick={onOpenSearch}>
                         <Search className="h-4 w-4" />
                         <span>Search</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
-                  {isAuthed && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
-                        <Link
-                          to="/t/$teamSlug/my-issues"
-                          params={{ teamSlug }}
-                        >
-                          <CircleUser className="h-4 w-4" />
-                          <span>My Issues</span>
-                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}

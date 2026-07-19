@@ -22,7 +22,6 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 const typeIcon: Record<string, typeof Bell> = {
   issue_assigned: UserPlus,
@@ -75,7 +74,8 @@ type Group = IssueGroup | SupportGroup
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
 // no composition, no actor avatar). Reviewing open PRs moved to the
-// dedicated Reviews page.
+// dedicated Reviews page. Rendered as the "Inbox" tab of the Inbox page
+// (EXP-186), whose header owns the tab switcher + "Mark all read".
 export function InboxView({ teamSlug }: { teamSlug: string }) {
   // The notifications shape is scoped to the current user, NOT to a
   // team — the stream spans all the user's teams (matching the
@@ -166,8 +166,6 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     )
   }, [notifications, issueMap, boardMap, teamMap])
 
-  const totalUnread = groups.reduce((sum, g) => sum + g.unread, 0)
-
   const markGroupRead = async (items: Notification[]) => {
     await Promise.all(
       items
@@ -178,22 +176,6 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <Bell className="h-4 w-4" />
-          Inbox
-        </h1>
-        {totalUnread > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void trpc.notifications.markAllRead.mutate()}
-          >
-            Mark all read
-          </Button>
-        )}
-      </div>
-
       <div className="flex-1 space-y-2 overflow-y-auto">
         {groups.length === 0 ? (
           <EmptyState

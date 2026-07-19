@@ -43,7 +43,9 @@ export function IssueFilterBar({
   return (
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between py-3">
-        <h1 className="hidden md:block text-base font-medium">{title}</h1>
+        {title !== `` && (
+          <h1 className="hidden md:block text-base font-medium">{title}</h1>
+        )}
         <div className="flex items-center gap-1 ml-auto">
           {actions}
           <IssueFilterPopover
