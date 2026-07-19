@@ -450,7 +450,7 @@ private fun RepositoriesSection(
                 // GitHub App — fall back to the web team settings, which
                 // explain/handle both.
                 val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
-                    state.team?.slug?.let { slug -> "$base/w/$slug/settings" }
+                    state.team?.slug?.let { slug -> "$base/t/$slug/settings" }
                 }
                 TextButton(
                     onClick = {
