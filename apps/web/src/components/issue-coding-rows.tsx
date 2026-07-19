@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import {
   ChevronRight,
@@ -70,6 +70,39 @@ function RunningPing() {
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
       <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
     </span>
+  )
+}
+
+/** Static counterpart of RunningPing for `in_review` sessions (EXP-194) —
+ * the agent finished and its PR is up; nothing is "running", so no ping. */
+function ReviewDot() {
+  return <span className="inline-flex size-2 rounded-full bg-sky-500" />
+}
+
+/** Live-session badge — "Coding now" (running) or "Ready for review"
+ * (in_review). Shared by the issue detail row and the Agents page. */
+export function SessionStatusBadge({
+  status,
+  count = 1,
+}: {
+  status: string
+  count?: number
+}) {
+  const inReview = status === `in_review`
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        `gap-1.5`,
+        inReview
+          ? `border-sky-500/40 text-sky-400`
+          : `border-emerald-500/40 text-emerald-400`
+      )}
+    >
+      {inReview ? <ReviewDot /> : <RunningPing />}
+      {inReview ? `Ready for review` : `Coding now`}
+      {count > 1 ? ` (·${count})` : ``}
+    </Badge>
   )
 }
 
@@ -175,11 +208,14 @@ function AgentRow({
       query
         .from({ s: codingSessionCollection })
         .where(({ s }) =>
-          and(eq(s.issueId, issue.id), eq(s.status, `running`))
+          and(
+            eq(s.issueId, issue.id),
+            inArray(s.status, [`running`, `in_review`])
+          )
         ),
     [issue.id]
   )
-  // Staleness guard (EXP-153): heartbeat-dead `running` rows render as absent.
+  // Staleness guard (EXP-153): heartbeat-dead rows render as absent.
   // Multi-window desktops can run several sessions on one issue; surface the
   // most recent (the badge counts them all).
   const now = useNow()
@@ -196,14 +232,7 @@ function AgentRow({
   if (latest) {
     const owner = users.find((u) => u.id === latest.userId)
     const codingBadge = (
-      <Badge
-        variant="outline"
-        className="gap-1.5 border-emerald-500/40 text-emerald-400"
-      >
-        <RunningPing />
-        Coding now
-        {sessions.length > 1 ? ` (·${sessions.length})` : ``}
-      </Badge>
+      <SessionStatusBadge status={latest.status} count={sessions.length} />
     )
     const ownerLabel = (
       <span className="truncate text-xs text-muted-foreground">

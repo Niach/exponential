@@ -282,8 +282,18 @@ struct AgentsView: View {
 
     @ViewBuilder
     private func sessionRowContent(_ row: AgentsViewModel.Row) -> some View {
+        // in_review keeps the session live but parks the issue in review: a
+        // static blue "Ready for review" dot/label instead of pulsing-green
+        // "Coding now" (EXP-194).
+        let inReview = row.session.status == DomainContract.codingSessionStatusInReview
         HStack(spacing: 12) {
-            PulsingLiveDot()
+            if inReview {
+                Circle()
+                    .fill(DesignTokens.Semantic.blue)
+                    .frame(width: 9, height: 9)
+            } else {
+                PulsingLiveDot()
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -298,10 +308,18 @@ struct AgentsView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
-                Text(byline(row.session))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if inReview {
+                        Text("Ready for review")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(DesignTokens.Semantic.blue)
+                            .lineLimit(1)
+                    }
+                    Text(byline(row.session))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 0)

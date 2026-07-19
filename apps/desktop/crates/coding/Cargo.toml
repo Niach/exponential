@@ -9,6 +9,8 @@ license.workspace = true
 # the launcher returns the session id and the app/ui layer hands it to the
 # steer publisher).
 api = { path = "../api" }
+# Typed issue-status snapshots for the launcher's in_progress flip (EXP-194).
+domain = { path = "../domain" }
 terminal = { path = "../terminal" }
 
 serde = { workspace = true }

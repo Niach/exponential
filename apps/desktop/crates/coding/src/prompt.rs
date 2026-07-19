@@ -9,13 +9,15 @@
 //! ([`deliver_prompt_file`]).
 //!
 //! The named MCP tools are real and verified: `exponential_pr_open` (the
-//! server opens + links the PR through the GitHub App),
-//! `exponential_issues_update_status`, and `exponential_comments_list`
-//! (accepts human identifiers, so the prompt passes the issue identifier —
-//! the launcher never needs the UUID). The desktop never opens the PR itself
-//! — Claude does, via MCP. The plan/approval gate is NOT prompt text
-//! anymore: native plan mode (`--permission-mode plan`,
-//! [`crate::argv::permission_args`]) owns it.
+//! server opens + links the PR through the GitHub App) and
+//! `exponential_comments_list` (accepts human identifiers, so the prompt
+//! passes the issue identifier — the launcher never needs the UUID). The
+//! desktop never opens the PR itself — Claude does, via MCP. Issue status is
+//! NOT Claude's job: the launcher flips backlog/todo issues to `in_progress`
+//! at launch (EXP-194 — under plan mode an MCP status call would only land
+//! after plan approval), and the PR lifecycle owns in_review/done. The
+//! plan/approval gate is NOT prompt text anymore: native plan mode
+//! (`--permission-mode plan`, [`crate::argv::permission_args`]) owns it.
 
 use crate::mcp_json::write_private;
 use std::fs;
@@ -94,10 +96,9 @@ repository. BEFORE implementing anything, read the issue's full comment thread b
 calling the `exponential_comments_list` MCP tool with issueId `{identifier}` — \
 comments often refine or override the description and are part of the requirements. \
 Implement the change, then commit and push your branch and open a pull \
-request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
-with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
+request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set those yourself. Do not use `gh`.
+`done` — you do not set the issue status yourself. Do not use `gh`.
 
 ## Issue context
 
@@ -134,10 +135,9 @@ repository. BEFORE implementing anything, read the issue's full comment thread b
 calling the `exponential_comments_list` MCP tool with issueId `EXP-42` — \
 comments often refine or override the description and are part of the requirements. \
 Implement the change, then commit and push your branch and open a pull \
-request by calling the `exponential_pr_open` MCP tool. You may set the issue status \
-with `exponential_issues_update_status` (`in_progress` when you start). Opening the PR \
+request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set those yourself. Do not use `gh`.
+`done` — you do not set the issue status yourself. Do not use `gh`.
 
 ## Issue context
 
@@ -177,10 +177,13 @@ The login page flickers on slow connections.
     fn template_names_the_real_mcp_tools_and_carries_no_plan_gate() {
         let prompt = render_prompt("EXP-1", "T", None);
         assert!(prompt.contains("`exponential_pr_open`"));
-        assert!(prompt.contains("`exponential_issues_update_status`"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
-        assert!(prompt.contains("`in_progress` when you start"));
         assert!(prompt.contains("Do not use `gh`."));
+        // The LAUNCHER owns the in_progress flip (EXP-194) — the prompt must
+        // not delegate issue status to the agent (under plan mode that MCP
+        // call would only land after plan approval).
+        assert!(!prompt.contains("`exponential_issues_update_status`"));
+        assert!(!prompt.contains("`in_progress` when you start"));
         // Native plan mode owns the approval gate — the prompt must not
         // re-impose a text gate.
         assert!(!prompt.contains("WAIT for explicit go-ahead"));

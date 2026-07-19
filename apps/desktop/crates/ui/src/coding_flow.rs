@@ -644,6 +644,7 @@ pub fn build_launch(
     let request = LaunchRequest {
         issue_id: issue.id.clone(),
         issue_identifier: issue.identifier.clone(),
+        issue_status: issue.status,
         device_label: coding::default_device_label(),
         origin,
         options,
@@ -789,12 +790,16 @@ pub struct StartCodingControl {
 impl StartCodingControl {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
         // The hub (settings + doctor) and the local-session registry drive
-        // the enabled state — re-render whenever either moves.
+        // the enabled state — re-render whenever either moves. The synced
+        // coding_sessions collection drives the running↔in_review tone
+        // (EXP-194: the server flips the row when the agent's PR opens).
         let hub = CodingHub::global(cx);
         let sessions = LocalSessions::global(cx);
+        let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         let subscriptions = vec![
             cx.observe(&hub, |_, _, cx| cx.notify()),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
+            cx.observe(&synced_sessions, |_, _, cx| cx.notify()),
         ];
         Self {
             issue_id: None,
@@ -963,6 +968,26 @@ impl Render for StartCodingControl {
         // Local session running → "Coding…" + the play button becomes STOP.
         let running = LocalSessions::global(cx).read(cx).get(&issue_id).is_some();
         if running {
+            // The terminal is still alive during review — the synced row's
+            // `in_review` flip (EXP-194: the agent's PR is up) only changes
+            // the tone; Stop stays either way.
+            let now = chrono::Utc::now().timestamp();
+            let in_review = Store::global(cx)
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .iter()
+                .any(|session| {
+                    session.issue_id.as_deref() == Some(issue_id.as_str())
+                        && queries::coding_session_is_live(session, now)
+                        && session.status.as_deref()
+                            == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+                });
+            let (tone, label) = if in_review {
+                (theme::tokens::BLUE, "In review…")
+            } else {
+                (theme::tokens::GREEN, "Coding…")
+            };
             return h_flex()
                 .flex_shrink_0()
                 .gap_1()
@@ -973,13 +998,8 @@ impl Render for StartCodingControl {
                         .items_center()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(
-                            div()
-                                .size_1p5()
-                                .rounded_full()
-                                .bg(theme::tokens::GREEN.to_hsla()),
-                        )
-                        .child("Coding…"),
+                        .child(div().size_1p5().rounded_full().bg(tone.to_hsla()))
+                        .child(label),
                 )
                 .child(
                     Button::new("stop-coding")

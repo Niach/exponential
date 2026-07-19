@@ -186,8 +186,10 @@ class AppViewModel @Inject constructor(
             .map { it > 0 }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // True while at least one coding session is running on the active account —
-    // drives the bottom bar's green Agents dot. Heartbeat-stale rows count as
+    // True while at least one coding session is live on the active account —
+    // drives the bottom bar's Agents dot. A live session is `running` or the
+    // `in_review` PR-open parking spot (EXP-194 — the dot counts in_review as
+    // the "agent finished, look at it" signal). Heartbeat-stale rows count as
     // absent (EXP-153); the minute ticker clears the dot once the liveness
     // window elapses without any sync delta.
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -196,7 +198,7 @@ class AppViewModel @Inject constructor(
             if (db == null) flowOf(false)
             else combine(
                 db.codingSessionDao()
-                    .observeByStatus(DomainContract.codingSessionStatusRunning),
+                    .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
             ) { sessions, now -> sessions.any { CodingSessionLiveness.isLive(it, now) } }
         }

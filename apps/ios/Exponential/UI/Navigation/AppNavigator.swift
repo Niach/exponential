@@ -574,10 +574,14 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        // Running coding sessions drive the Agents tab's green dot.
+        // Live coding sessions drive the Agents tab's dot — running AND in_review
+        // (the "agent finished, look at it" signal counts too, EXP-194).
         let sessionObs = ValueObservation.tracking { db in
             try CodingSessionEntity
-                .filter(Column("status") == DomainContract.codingSessionStatusRunning)
+                .filter([
+                    DomainContract.codingSessionStatusRunning,
+                    DomainContract.codingSessionStatusInReview,
+                ].contains(Column("status")))
                 .fetchAll(db)
         }
         let sessionTask = Task { @MainActor in

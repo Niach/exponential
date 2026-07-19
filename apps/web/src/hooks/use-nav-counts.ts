@@ -44,9 +44,10 @@ export function useReviewsOpenPrCount(
   }, [data])
 }
 
-// Live count of running coding sessions in the team (team-scoped by the
-// denormalized team_id). Staleness guard (EXP-153): heartbeat-dead rows
-// don't count.
+// Live count of live coding sessions in the team (team-scoped by the
+// denormalized team_id) — running AND in_review (EXP-194: an agent awaiting
+// review is exactly what the dot should pull attention to). Staleness guard
+// (EXP-153): heartbeat-dead rows don't count.
 export function useAgentsRunningCount(teamId?: string): number {
   const { data } = useLiveQuery(
     (query) =>
@@ -56,7 +57,7 @@ export function useAgentsRunningCount(teamId?: string): number {
             .where(({ sessions }) =>
               and(
                 eq(sessions.teamId, teamId),
-                eq(sessions.status, `running`)
+                inArray(sessions.status, [`running`, `in_review`])
               )
             )
         : undefined,

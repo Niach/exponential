@@ -45,6 +45,22 @@ final class CodingSessionLivenessTests: XCTestCase {
         )
     }
 
+    // EXP-194: an in_review session (PR opened, issue parked, terminal alive)
+    // is still live — the badge and the agents dot keep counting it.
+    func testInReviewWithinStaleWindowIsLive() {
+        XCTAssertTrue(
+            CodingSessionLiveness.isLive(session(status: "in_review", updatedAt: "2026-07-17T11:30:00Z"), now: now)
+        )
+    }
+
+    func testInReviewPastWindowIsNotLive() {
+        // The staleness guard applies to in_review too — a crashed desktop
+        // can't pin a phantom "ready for review" row.
+        XCTAssertFalse(
+            CodingSessionLiveness.isLive(session(status: "in_review", updatedAt: "2026-07-17T09:00:00Z"), now: now)
+        )
+    }
+
     func testUnparseableTimestampFailsOpen() {
         // A garbled liveness signal must never hide a session the server
         // still considers alive — the sweep is the backstop.

@@ -1,11 +1,14 @@
 import Foundation
 
-/// EXP-153: client-side staleness guard for `running` coding_sessions rows.
+/// EXP-153: client-side staleness guard for live coding_sessions rows.
 /// A row whose synced `updatedAt` (heartbeat-advanced by the desktop) is
 /// older than the contract stale window renders as ABSENT — mirroring the
 /// server sweep's DELETE (never as `ended`, that flip is the desktop
 /// kill-switch signal) — so a crashed desktop can't pin a phantom
 /// "coding now" badge when the sweep lags or isn't running.
+/// EXP-194: liveness spans both `running` and `in_review` — the terminal stays
+/// alive (watchable/steerable) after the PR opens and the issue parks in
+/// review, so the badge and the bottom-nav agents dot both keep counting it.
 public enum CodingSessionLiveness {
     /// Parse the synced `updatedAt` heartbeat. Delegates to WireTimestamps so
     /// Electric's Postgres text form (space separator, hour-only offset) parses
@@ -25,7 +28,8 @@ public enum CodingSessionLiveness {
     }
 
     public static func isLive(_ session: CodingSessionEntity, now: Date = Date()) -> Bool {
-        session.status == DomainContract.codingSessionStatusRunning
+        (session.status == DomainContract.codingSessionStatusRunning
+            || session.status == DomainContract.codingSessionStatusInReview)
             && !isStale(updatedAt: session.updatedAt, now: now)
     }
 }

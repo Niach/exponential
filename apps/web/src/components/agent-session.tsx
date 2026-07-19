@@ -436,7 +436,9 @@ export function AgentSessionView({
             return
           }
           if (retryStarting) {
-            if (sessionStatusRef.current === `running`) {
+            // An `in_review` terminal is still alive and steerable (EXP-194)
+            // — only a truly ended session stops the redial.
+            if (sessionStatusRef.current !== `ended`) {
               setPhase({ kind: `starting` })
               retryTimer = setTimeout(() => void dial(true), STARTING_RETRY_MS)
             } else {

@@ -356,6 +356,7 @@ fn remote_batch_start(
                 issue_identifier: issue.identifier.clone(),
                 title: issue.title.clone(),
                 description: issue.description.clone(),
+                status: issue.status,
             });
         }
         specs

@@ -5,13 +5,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-// EXP-153: client-side staleness guard for `running` coding_sessions rows. A
+// EXP-153: client-side staleness guard for live coding_sessions rows. A
 // row whose synced `updated_at` (heartbeat-advanced by the desktop) is older
 // than the contract stale window renders as ABSENT — mirroring the server
 // sweep's DELETE (never as `ended`, that flip is the desktop kill-switch
-// signal) — so a crashed desktop can't pin a phantom "coding now" badge when
-// the sweep lags or isn't running.
+// signal) — so a crashed desktop can't pin a phantom badge when the sweep
+// lags or isn't running.
+//
+// EXP-194: a session is live in both the `running` and `in_review` states (the
+// PR-open parking spot — terminal still alive, "ready for review"); only
+// `ended` and stale rows drop out.
 object CodingSessionLiveness {
+
+    // The coding_session statuses that can render as a live badge (EXP-194):
+    // `running` and the `in_review` PR-open parking spot. The DAO query filters
+    // to these; isLive then applies the staleness cut on top.
+    val liveStatuses: List<String> = listOf(
+        DomainContract.codingSessionStatusRunning,
+        DomainContract.codingSessionStatusInReview,
+    )
 
     // Tolerant wire-timestamp → epoch ms. Delegates to WireTimestamps so the
     // Electric-synced Postgres text form (`yyyy-MM-dd HH:mm:ss.ffffff+00`)
@@ -28,7 +40,8 @@ object CodingSessionLiveness {
     }
 
     fun isLive(session: CodingSessionEntity, nowMs: Long = System.currentTimeMillis()): Boolean =
-        session.status == DomainContract.codingSessionStatusRunning &&
+        (session.status == DomainContract.codingSessionStatusRunning ||
+            session.status == DomainContract.codingSessionStatusInReview) &&
             !isStale(session.updatedAt, nowMs)
 
     // Cold minute clock for combine()-based re-evaluation — Room flows only

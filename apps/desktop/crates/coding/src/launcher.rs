@@ -29,7 +29,7 @@ use std::sync::Arc;
 use api::error::ApiError;
 use api::token_store::TokenStore;
 use api::trpc::TrpcClient;
-use api::{coding_sessions, repositories, users};
+use api::{coding_sessions, issues, repositories, users};
 use gpui::App;
 use terminal::pty::SpawnSpec;
 use terminal::tab::{TabId, TabKind};
@@ -37,6 +37,7 @@ use terminal::TerminalManager;
 
 use crate::argv::{session_args, LaunchOptions};
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest};
+use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
@@ -93,6 +94,9 @@ pub struct LaunchRequest {
     pub issue_id: String,
     /// e.g. `EXP-42` — becomes the branch name (`<prefix><IDENTIFIER>`).
     pub issue_identifier: String,
+    /// Status snapshot at launch time — step 6.5 flips backlog/todo issues
+    /// to `in_progress` (EXP-194).
+    pub issue_status: IssueStatus,
     /// Hostname; also `coding_sessions.device_label`.
     pub device_label: String,
     pub origin: LaunchOrigin,
@@ -481,6 +485,37 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         Err(err) => return Err(err.into()),
     };
 
+    // Step 6.5 (EXP-194) — the LAUNCHER parks backlog/todo issues in
+    // `in_progress`. Under plan mode the agent's MCP status call would only
+    // land after plan approval, so without this the issue lingers in backlog
+    // while visibly "coding now". After the session row so a Disabled
+    // outcome never flips anything; best-effort — a failed write never
+    // blocks the launch. Only backlog/todo flip: never downgrade
+    // in_progress/in_review/done/cancelled/duplicate (client-side snapshot,
+    // same guard the dialog's state hints use).
+    let flip_ids: Vec<&str> = match req {
+        PrepareRequest::Issue(issue_req) => matches!(
+            issue_req.issue_status,
+            IssueStatus::Backlog | IssueStatus::Todo
+        )
+        .then_some(issue_req.issue_id.as_str())
+        .into_iter()
+        .collect(),
+        PrepareRequest::Batch(batch_req) => batch_req
+            .issues
+            .iter()
+            .filter(|issue| {
+                matches!(issue.status, IssueStatus::Backlog | IssueStatus::Todo)
+            })
+            .map(|issue| issue.issue_id.as_str())
+            .collect(),
+    };
+    for issue_id in flip_ids {
+        let mut input = issues::IssuesUpdateInput::new(issue_id);
+        input.status = Some(IssueStatus::InProgress);
+        let _ = issues::issues_update(&deps.trpc, &input);
+    }
+
     // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
     // the native permission posture, and the prompt positional-last (bytes
     // typed into the PTY before the TUI enters raw mode get swallowed during
@@ -678,8 +713,8 @@ mod tests {
     use crate::batch_launcher::{BatchIssueSpec, RepoGroup};
     use crate::prompt::{PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE};
     use crate::test_support::{
-        canned_server, make_deps, temp_dir, FakeWorktrees, FOR_ISSUE_OK, MINT_OK, START_BATCH_OK,
-        START_OK, TOKEN_OK,
+        canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, FOR_ISSUE_OK,
+        MINT_OK, START_BATCH_OK, START_OK, TOKEN_OK, UPDATE_OK,
     };
     use api::token_store::SecretKind;
     use std::fs;
@@ -688,6 +723,9 @@ mod tests {
         LaunchRequest {
             issue_id: "issue-1".to_string(),
             issue_identifier: identifier.to_string(),
+            // Already in_progress ⇒ step 6.5 skips the flip, keeping the
+            // canned-server sequences below one-to-one with steps 0–6.
+            issue_status: IssueStatus::InProgress,
             device_label: "testbox".to_string(),
             origin: LaunchOrigin::Local,
             // The dialog defaults: fable, no effort, no ultracode, plan mode ON.
@@ -724,12 +762,14 @@ mod tests {
                     issue_identifier: "EXP-42".to_string(),
                     title: "Fix login flicker".to_string(),
                     description: Some("Steps.".to_string()),
+                    status: IssueStatus::InProgress,
                 },
                 BatchIssueSpec {
                     issue_id: "issue-2".to_string(),
                     issue_identifier: "EXP-43".to_string(),
                     title: "Add badge".to_string(),
                     description: None,
+                    status: IssueStatus::InProgress,
                 },
             ],
             device_label: "testbox".to_string(),
@@ -931,6 +971,82 @@ mod tests {
         // Step 5: direct delivery — NO PROMPT.md on disk (the stale copy is
         // gone, no fresh one written).
         assert!(!worktree.join(PROMPT_FILE).exists());
+    }
+
+    /// Step 6.5 (EXP-194): a backlog/todo issue is flipped to `in_progress`
+    /// by the LAUNCHER, after the session row (request order proves it), so
+    /// the issue never lingers in backlog while plan mode holds the agent's
+    /// MCP calls back.
+    #[test]
+    fn prepare_flips_a_todo_issue_to_in_progress() {
+        let dir = temp_dir("flip");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, requests) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+            (200, UPDATE_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree,
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.issue_status = IssueStatus::Todo;
+
+        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+        let seen = requests.lock().unwrap();
+        let update = seen
+            .iter()
+            .find(|request| request.starts_with("POST /api/trpc/issues.update"))
+            .expect("the launcher must send the in_progress flip");
+        assert!(update.ends_with(r#"{"id":"issue-1","status":"in_progress"}"#));
+        // After codingSessions.start — a Disabled outcome never flips.
+        assert!(
+            seen.iter()
+                .position(|r| r.starts_with("POST /api/trpc/codingSessions.start"))
+                < seen
+                    .iter()
+                    .position(|r| r.starts_with("POST /api/trpc/issues.update"))
+        );
+    }
+
+    /// Step 6.5 only ever PROMOTES backlog/todo — an issue already
+    /// in_progress (or beyond) is left alone.
+    #[test]
+    fn prepare_skips_the_flip_for_non_backlog_todo() {
+        let dir = temp_dir("no-flip");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, requests) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree,
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        // request() snapshots in_progress — the default fixture is the guard.
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+        assert!(
+            !requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.contains("issues.update")),
+            "an in_progress issue must not be re-flipped"
+        );
     }
 
     /// Plan mode OFF rides the classic skip flag — the dialog's choice, not

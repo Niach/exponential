@@ -131,6 +131,9 @@ struct IssueRow {
     identifier: String,
     title: String,
     description: Option<String>,
+    /// Status snapshot at open — the launcher's step 6.5 flips backlog/todo
+    /// to `in_progress` at launch (EXP-194).
+    status: IssueStatus,
     /// The closed-state note (`done`/`cancelled`/`duplicate`/PR-merged),
     /// shown muted next to the title. Only pre-seeded rows can carry one
     /// (EXP-119 filters closed rows out of the pool) — it flags a re-run.
@@ -262,6 +265,7 @@ impl StartCodingDialogView {
                     identifier: issue.identifier,
                     title: issue.title,
                     description: issue.description,
+                    status: issue.status,
                     state_hint,
                 }
             })
@@ -469,6 +473,7 @@ impl StartCodingDialogView {
                 issue_identifier: row.identifier.clone(),
                 title: row.title.clone(),
                 description: row.description.clone(),
+                status: row.status,
             });
         }
         Some(BatchLaunchRequest {

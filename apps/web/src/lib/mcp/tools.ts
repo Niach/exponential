@@ -15,6 +15,7 @@ import {
 import { db } from "@/db/connection"
 import {
   attachments,
+  codingSessions,
   comments,
   issueLabels,
   issues,
@@ -1109,6 +1110,29 @@ export function registerExponentialTools(
                 to: `in_review`,
               })
             }
+          }
+
+          // Batch sessions carry no issue linkage (issue_id NULL), so the
+          // per-issue session flip inside applyPrLifecycleStatusInTx misses
+          // them — flip the CALLER's running batch session(s) in the
+          // affected team(s) instead (EXP-194). Deliberately loose, like
+          // batch runs themselves: two concurrent batch runs by the same
+          // user in one team both flip on either's PR — the schema has no
+          // batch↔PR linkage to be more precise with.
+          if (issueIds?.length) {
+            await tx
+              .update(codingSessions)
+              .set({ status: `in_review`, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(codingSessions.userId, user.id),
+                  inArray(codingSessions.teamId, [
+                    ...new Set(teamIdByIssue.values()),
+                  ]),
+                  isNull(codingSessions.issueId),
+                  eq(codingSessions.status, `running`)
+                )
+              )
           }
         })
 

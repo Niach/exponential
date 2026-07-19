@@ -18,11 +18,14 @@ export interface AgentSessionRow {
   user: User | undefined
 }
 
-// Team Agents page + dock data: the RUNNING coding sessions in the
+// Team Agents page + dock data: the LIVE coding sessions in the
 // team (synced coding_sessions shape, team-scoped by the denormalized
 // team_id), joined client-side to their issue / board / driving user,
-// newest-first. Ended sessions dropped out with the redesign — the live trail
-// lives on each issue, and the dock/Agents page only surface running work.
+// newest-first. Live = `running` OR `in_review` (EXP-194: the agent's PR is
+// open, terminal still alive awaiting review — consumers read
+// `session.status` to render "Ready for review" vs "Coding now"). Ended
+// sessions dropped out with the redesign — the live trail lives on each
+// issue, and the dock/Agents page only surface live work.
 export function useAgentsData(teamId?: string) {
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
@@ -77,12 +80,12 @@ export function useAgentsData(teamId?: string) {
       }
     }
 
-    // Staleness guard (EXP-153): heartbeat-dead `running` rows render as
-    // absent (not "ended" — swept rows leave no recap entry either).
+    // Staleness guard (EXP-153): heartbeat-dead rows render as absent
+    // (not "ended" — swept rows leave no recap entry either).
     const running = sessions
       .filter(
         (session) =>
-          session.status === `running` &&
+          (session.status === `running` || session.status === `in_review`) &&
           !isCodingSessionStale(session.updatedAt, now)
       )
       .sort(

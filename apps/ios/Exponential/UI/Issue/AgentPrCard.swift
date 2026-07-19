@@ -130,11 +130,21 @@ struct AgentPrCard: View {
 
     private func sessionRowContent(_ session: CodingSessionEntity, chevron: Bool) -> some View {
         let owner = users.first { $0.id == session.userId }
+        // in_review parks the issue in review with the terminal still alive: a
+        // static blue "Ready for review" rather than the pulsing-green "Coding
+        // now" (EXP-194).
+        let inReview = session.status == DomainContract.codingSessionStatusInReview
         return HStack(spacing: 8) {
-            PulsingLiveDot()
-            Text("Coding now")
+            if inReview {
+                Circle()
+                    .fill(DesignTokens.Semantic.blue)
+                    .frame(width: 9, height: 9)
+            } else {
+                PulsingLiveDot()
+            }
+            Text(inReview ? "Ready for review" : "Coding now")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(DesignTokens.Semantic.green)
+                .foregroundStyle(inReview ? DesignTokens.Semantic.blue : DesignTokens.Semantic.green)
             Text(sessionByline(owner: owner, session: session))
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))

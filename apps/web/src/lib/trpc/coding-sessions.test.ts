@@ -38,6 +38,10 @@ const TEAM_ID = `22222222-2222-4222-8222-222222222222`
 const SESSION_ID = `33333333-3333-4333-8333-333333333333`
 
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
+const updates: { table: unknown; values: Record<string, unknown> }[] = []
+// Queued results for successive db.select(...).limit(1) calls (heartbeat
+// reads the session row, then — on the issue-scoped re-create — the issue).
+const selectResults: unknown[][] = []
 
 const fakeDb = {
   insert: (table: unknown) => ({
@@ -45,8 +49,28 @@ const fakeDb = {
       inserts.push({ table, values })
       return {
         returning: async () => [{ id: SESSION_ID, ...values }],
+        // The heartbeat re-create insert is awaited without .returning().
+        then: (resolve: (value: unknown) => unknown) =>
+          Promise.resolve(undefined).then(resolve),
       }
     },
+  }),
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => selectResults.shift() ?? [],
+      }),
+    }),
+  }),
+  update: (table: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: () => ({
+        returning: async () => {
+          updates.push({ table, values })
+          return [{ id: SESSION_ID }]
+        },
+      }),
+    }),
   }),
 }
 
@@ -65,6 +89,8 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 
 beforeEach(() => {
   inserts.length = 0
+  updates.length = 0
+  selectResults.length = 0
   h.assertTeamMember.mockClear()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.getIssueTeamContext.mockClear()
@@ -182,5 +208,65 @@ describe(`codingSessions.start — batch path`, () => {
     await caller.start({ teamId: TEAM_ID })
 
     expect(inserts[0]!.values.deviceLabel).toBeNull()
+  })
+})
+
+// EXP-194: `in_review` (PR open, terminal still alive) heartbeats like
+// `running`, but the ping only ever advances updated_at — it can never
+// downgrade the status — and an `ended` row stays final.
+describe(`codingSessions.heartbeat — in_review liveness`, () => {
+  it(`advances updated_at for an in_review row without touching status`, async () => {
+    selectResults.push([{ userId: `actor`, status: `in_review` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates).toHaveLength(1)
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
+  })
+
+  it(`reports an ended row as dead without any write`, async () => {
+    selectResults.push([{ userId: `actor`, status: `ended` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: false })
+    expect(updates).toHaveLength(0)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`re-creates a swept issue-scoped row as in_review when the issue is parked in review`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    selectResults.push([{ status: `in_review` }]) // the issue's own status
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      status: `in_review`,
+    })
+  })
+
+  it(`re-creates a swept batch row as running (no issue to derive from)`, async () => {
+    selectResults.push([]) // session row gone (swept)
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      status: `running`,
+    })
   })
 })

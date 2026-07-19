@@ -203,9 +203,11 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE team_id = :teamId")
     fun observeByTeam(teamId: String): Flow<List<CodingSessionEntity>>
 
-    // Account-wide live sessions (the Agents tab + its bottom-bar dot).
-    @Query("SELECT * FROM coding_sessions WHERE status = :status ORDER BY started_at DESC")
-    fun observeByStatus(status: String): Flow<List<CodingSessionEntity>>
+    // Account-wide live sessions (the Agents tab + its bottom-bar dot). Takes a
+    // status list so both live states (`running` + `in_review`, EXP-194) match;
+    // CodingSessionLiveness.isLive still applies the staleness cut on top.
+    @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
+    fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)

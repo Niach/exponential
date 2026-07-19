@@ -153,11 +153,15 @@ final class IssueDetailViewModel {
                 }
             }
 
-            // Live "coding now" sessions for this issue (14th synced shape).
+            // Live sessions for this issue (14th synced shape) — running AND
+            // in_review (the terminal stays alive after the PR opens, EXP-194).
             let sessionObs = ValueObservation.tracking { db in
                 try CodingSessionEntity
                     .filter(Column("issue_id") == self.issueId)
-                    .filter(Column("status") == DomainContract.codingSessionStatusRunning)
+                    .filter([
+                        DomainContract.codingSessionStatusRunning,
+                        DomainContract.codingSessionStatusInReview,
+                    ].contains(Column("status")))
                     .fetchAll(db)
             }
             Task {

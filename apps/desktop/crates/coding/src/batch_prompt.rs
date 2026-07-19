@@ -24,11 +24,12 @@ pub struct BatchPromptArgs<'a> {
 
 /// Render the batch seed prompt: ground rules + workflow + one context
 /// section per issue. Mirrors the single-issue template's contract anchors
-/// (`exponential_pr_open`, `exponential_issues_update_status`,
-/// `exponential_comments_list` read-the-thread-first, `in_progress`, no `gh`)
-/// and carries NO plan-gate text — native plan mode owns the approval
-/// gate. Opening the PR flips every issue to `in_review` server-side and
-/// merging it completes them to `done`, so the agent only sets `in_progress`.
+/// (`exponential_pr_open`, `exponential_comments_list`
+/// read-the-thread-first, no `gh`) and carries NO plan-gate text — native
+/// plan mode owns the approval gate. Issue status is not the agent's job
+/// (EXP-194): the launcher flips backlog/todo issues to `in_progress` at
+/// launch, opening the PR flips every issue to `in_review` server-side, and
+/// merging it completes them to `done`.
 pub fn render_batch_prompt(args: &BatchPromptArgs<'_>) -> String {
     let n = args.issues.len();
     let branch = args.branch;
@@ -59,10 +60,9 @@ MCP tools.
 1. BEFORE implementing anything, read EVERY issue's full comment thread by \
 calling the `exponential_comments_list` MCP tool with each issueId — comments \
 often refine or override the descriptions and are part of the requirements.
-2. You may set each issue's status with `exponential_issues_update_status` \
-(`in_progress` when you start it). Opening the combined PR moves every issue to \
+2. Opening the combined PR moves every issue to \
 `in_review` automatically, and merging it later completes them to `done` — you \
-do not set those yourself.
+do not set issue statuses yourself.
 3. Implement the issues; commit with clear messages and push the branch: \
 `git push -u origin {branch}`.
 4. Open ONE combined pull request for the whole batch by calling the \
@@ -106,12 +106,14 @@ mod tests {
                 issue_identifier: "EXP-42".to_string(),
                 title: "Fix login flicker".to_string(),
                 description: Some("Steps in the issue.".to_string()),
+                status: domain::IssueStatus::Todo,
             },
             BatchIssueSpec {
                 issue_id: "22222222-2222-4222-8222-222222222222".to_string(),
                 issue_identifier: "EXP-43".to_string(),
                 title: "Add badge".to_string(),
                 description: None,
+                status: domain::IssueStatus::Backlog,
             },
         ]
     }
@@ -139,10 +141,12 @@ mod tests {
         assert!(prompt.contains("head: \"exp/batch-a1b2c3d4\""));
         assert!(prompt.contains("base defaults to `main`"));
         assert!(prompt.contains("git push -u origin exp/batch-a1b2c3d4"));
-        assert!(prompt.contains("`exponential_issues_update_status`"));
         assert!(prompt.contains("`exponential_comments_list`"));
         assert!(prompt.contains("read EVERY issue's full comment thread"));
-        assert!(prompt.contains("`in_progress` when you start"));
+        // The LAUNCHER owns the in_progress flip (EXP-194) — the prompt must
+        // not delegate issue status to the agent.
+        assert!(!prompt.contains("`exponential_issues_update_status`"));
+        assert!(!prompt.contains("`in_progress` when you start"));
         assert!(prompt.contains("Do not use `gh`"));
         assert!(prompt.contains("Never force-push"));
         // The old orchestrator contract must be GONE: no release PR tool, no

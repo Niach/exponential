@@ -2,10 +2,10 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Agents tab: every running coding session in the active account
-/// (the synced `coding_sessions` shape), joined to its issue for display.
-/// Desktop is the only session runner — this list is the mobile window into
-/// what is coding right now.
+/// Backs the Agents tab: every live coding session in the active account
+/// (the synced `coding_sessions` shape) — running AND in_review (EXP-194),
+/// joined to its issue for display. Desktop is the only session runner — this
+/// list is the mobile window into what is coding right now.
 @MainActor @Observable
 final class AgentsViewModel {
     struct Row: Identifiable {
@@ -43,7 +43,12 @@ final class AgentsViewModel {
 
         let sessionObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
-                .filter(Column("status") == DomainContract.codingSessionStatusRunning)
+                // Both live statuses — an in_review session is still watchable
+                // (EXP-194); `rebuild()`'s liveness filter drops stale rows.
+                .filter([
+                    DomainContract.codingSessionStatusRunning,
+                    DomainContract.codingSessionStatusInReview,
+                ].contains(Column("status")))
                 .fetchAll(db)
         }
         sessionTask = Task { [weak self] in

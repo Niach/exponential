@@ -187,6 +187,9 @@ mod tests {
     fn only_an_explicit_ended_status_counts() {
         assert!(session_row_is_ended(Some(&session("ended"))));
         assert!(!session_row_is_ended(Some(&session("running"))));
+        // EXP-194: the server flips running→in_review when the agent's PR
+        // opens — a REVIEW flip must never read as a remote kill.
+        assert!(!session_row_is_ended(Some(&session("in_review"))));
         // Absent row (sign-out clear / not yet synced) must NOT fire (§8.8:
         // the kill signal is the row FLIP, not the row's absence).
         assert!(!session_row_is_ended(None));
