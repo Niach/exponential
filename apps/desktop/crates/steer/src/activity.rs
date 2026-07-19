@@ -419,17 +419,22 @@ fn tool_detail(name: &str, input: Option<&Value>) -> Option<String> {
 // Transcript location
 // ---------------------------------------------------------------------------
 
-/// `~/.claude/boards` — the root Claude Code writes per-cwd session
-/// transcripts under. `None` when no home dir is resolvable.
+/// `~/.claude/projects` — the root Claude Code writes per-cwd session
+/// transcripts under. `None` when no home dir is resolvable. "projects" is
+/// CLAUDE CODE's external directory name, not our renamed product entity —
+/// it must never be touched by product vocabulary renames (EXP-191: the
+/// EXP-180 project→board sweep rewrote it to `boards` and silenced the
+/// activity stream).
 pub fn transcript_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".claude").join("boards"))
+    Some(PathBuf::from(home).join(".claude").join("projects"))
 }
 
 /// Claude Code munges a cwd into its transcript dir name by replacing every
 /// non-alphanumeric character with `-` (verified against live dirs, e.g.
-/// `/home/x/Boards/2026/foo.com` → `-home-x-Boards-2026-foo-com`).
-pub fn munge_board_dir(path: &Path) -> String {
+/// `/home/x/Projects/2026/foo.com` → `-home-x-Projects-2026-foo-com`).
+/// "project" here is Claude Code's vocabulary (see [`transcript_root`]).
+pub fn munge_claude_project_dir(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -580,7 +585,8 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     });
 
     let spawn_time = SystemTime::now();
-    let transcript_dir = transcript_root().map(|root| root.join(munge_board_dir(&config.worktree)));
+    let transcript_dir =
+        transcript_root().map(|root| root.join(munge_claude_project_dir(&config.worktree)));
 
     let mut current: Option<PathBuf> = None;
     let mut offset: u64 = 0;
@@ -1283,12 +1289,24 @@ mod tests {
     #[test]
     fn munge_matches_claude_code_scheme() {
         assert_eq!(
-            munge_board_dir(Path::new("/home/x/Boards/2026/foo.com")),
-            "-home-x-Boards-2026-foo-com"
+            munge_claude_project_dir(Path::new("/home/x/Projects/2026/foo.com")),
+            "-home-x-Projects-2026-foo-com"
         );
         assert_eq!(
-            munge_board_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
+            munge_claude_project_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
             "-a-b-worktrees-exp-EXP-1"
+        );
+    }
+
+    #[test]
+    fn transcript_root_is_claude_code_projects_dir() {
+        // `projects` is Claude Code's on-disk name — a product vocabulary
+        // rename must never reach it (EXP-191).
+        let root = transcript_root().expect("home dir resolvable in tests");
+        assert!(
+            root.ends_with(Path::new(".claude").join("projects")),
+            "transcript root must be ~/.claude/projects, got {}",
+            root.display()
         );
     }
 }
