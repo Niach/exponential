@@ -15,8 +15,8 @@ import androidx.compose.ui.unit.dp
  * The Support tab (EXP-180): the team helpdesk inbox as its own bottom-bar
  * destination — a tab that exists only while the active team's synced
  * `helpdesk_enabled` flag is on (AppNavHost gates it). Owns the screen chrome
- * in PersonalScreen's visual language; the list itself (filter pills, rows,
- * poll lifecycle) lives in [SupportInboxContent].
+ * in PersonalScreen's visual language; the list itself (Open/Resolved
+ * segmented control, rows, poll lifecycle) lives in [SupportInboxContent].
  */
 @Composable
 fun SupportScreen(

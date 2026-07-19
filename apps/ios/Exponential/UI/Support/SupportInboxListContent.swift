@@ -2,10 +2,12 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Support inbox list (EXP-180): the Support tab's content. No chrome of
-/// its own (the InboxListContent precedent) — SupportView owns the screen
-/// chrome; this view owns its poll lifecycle (re-armed on appear, cancelled
-/// on disappear, restarted on a team switch).
+/// The Support inbox list (EXP-180): the Support tab's content — an
+/// Open/Resolved GlassSegmentedControl (the My Work tab language, EXP-192)
+/// over the thread rows. No chrome of its own (the InboxListContent
+/// precedent) — SupportView owns the screen chrome; this view owns its poll
+/// lifecycle (re-armed on appear, cancelled on disappear, restarted on a
+/// team switch).
 struct SupportInboxListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -14,9 +16,14 @@ struct SupportInboxListContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            filterPills
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+            GlassSegmentedControl(
+                options: SupportThreadFilter.allCases,
+                selection: viewModel?.filter ?? .open,
+                label: { label(for: $0) },
+                onSelect: { viewModel?.setFilter($0) }
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
 
             if let vm = viewModel {
                 content(vm)
@@ -36,40 +43,6 @@ struct SupportInboxListContent: View {
         .onChange(of: teamId) { _, newTeamId in
             viewModel?.startPolling(accountId: accountId, teamId: newTeamId)
         }
-    }
-
-    // Open/Resolved pills — the same glass-pill language as the MyWork
-    // segment control, sized to content.
-    private var filterPills: some View {
-        HStack(spacing: 4) {
-            ForEach(SupportThreadFilter.allCases, id: \.rawValue) { f in
-                filterButton(f)
-            }
-            Spacer()
-        }
-    }
-
-    private func filterButton(_ f: SupportThreadFilter) -> some View {
-        let active = (viewModel?.filter ?? .open) == f
-        return Button {
-            viewModel?.setFilter(f)
-        } label: {
-            Text(label(for: f))
-                .font(.caption.weight(active ? .semibold : .regular))
-                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    active ? Color.white.opacity(0.12) : Color.white.opacity(0.04),
-                    in: Capsule()
-                )
-                .overlay(
-                    Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                )
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label(for: f))
     }
 
     private func label(for f: SupportThreadFilter) -> String {

@@ -36,18 +36,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SupportThreadRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * The Support tab's list (EXP-180): the active team's support tickets,
- * Open/Resolved filter pills over rows in the Inbox list's visual language.
- * Tap → the conversation (support/{threadId}). SupportScreen owns the screen
- * chrome; this owns the poll lifecycle via its ViewModel.
+ * The Support tab's list (EXP-180): the active team's support tickets behind
+ * an Open/Resolved segmented control (the My Work tab language, EXP-192) over
+ * rows in the Inbox list's visual language. Tap → the conversation
+ * (support/{threadId}). SupportScreen owns the screen chrome; this owns the
+ * poll lifecycle via its ViewModel.
  */
 @Composable
 fun SupportInboxContent(
@@ -58,21 +59,13 @@ fun SupportInboxContent(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SupportFilter.entries.forEach { filter ->
-                FilterPill(
-                    label = filter.label,
-                    active = state.filter == filter,
-                    onClick = { viewModel.setFilter(filter) },
-                )
-            }
-        }
+        GlassSegmentedControl(
+            options = SupportFilter.entries,
+            selected = state.filter,
+            label = { it.label },
+            onSelect = { viewModel.setFilter(it) },
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
         Spacer(Modifier.padding(top = 8.dp))
         when {
             state.loading && state.threads.isEmpty() -> LoadingState()
@@ -101,21 +94,6 @@ fun SupportInboxContent(
             }
         }
     }
-}
-
-@Composable
-private fun FilterPill(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (active) 1f else TextEmphasis.Secondary,
-        ),
-        modifier = Modifier
-            .glassButton(active = active)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
 }
 
 @Composable
