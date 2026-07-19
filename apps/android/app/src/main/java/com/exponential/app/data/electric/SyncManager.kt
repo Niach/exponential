@@ -436,7 +436,7 @@ private fun applyPartialUpdate(
     } catch (_: Exception) { return }
 
     val schema = schemaCache.of(db.openHelper.writableDatabase, table)
-    val plan = planPartialUpdate(schema.pkColumns, schema.columns, columns) ?: return
+    val plan = planPartialUpdate(schema.pkColumns, schema.columns, columns, schema.integerColumns) ?: return
     if (plan.droppedColumns.isNotEmpty()) onDropped(plan.droppedColumns)
     // Pure-unknown partial: no known columns to write, but returning cleanly
     // lets the offset advance instead of refailing the batch forever.
@@ -450,11 +450,15 @@ private fun applyPartialUpdate(
 
 /**
  * Lazily-read, per-app-run cache of each table's primary-key columns + full
- * column set, from `PRAGMA table_info`. Shared across account DBs — every
- * account's Room instance has the identical schema.
+ * column set + INTEGER-affinity columns, from `PRAGMA table_info`. Shared
+ * across account DBs — every account's Room instance has the identical schema.
  */
 internal class SchemaCache {
-    data class TableSchema(val pkColumns: List<String>, val columns: Set<String>)
+    data class TableSchema(
+        val pkColumns: List<String>,
+        val columns: Set<String>,
+        val integerColumns: Set<String>,
+    )
 
     private val lock = Any()
     private val byTable = mutableMapOf<String, TableSchema>()
@@ -465,17 +469,26 @@ internal class SchemaCache {
 
     private fun read(db: SupportSQLiteDatabase, table: String): TableSchema {
         val columns = linkedSetOf<String>()
+        val integerColumns = linkedSetOf<String>()
         val pk = mutableListOf<Pair<Int, String>>()
         db.query("PRAGMA table_info(\"$table\")").use { cursor ->
             val nameIdx = cursor.getColumnIndex("name")
+            val typeIdx = cursor.getColumnIndex("type")
             val pkIdx = cursor.getColumnIndex("pk")
             while (cursor.moveToNext()) {
                 val name = cursor.getString(nameIdx)
                 columns.add(name)
+                // SQLite affinity rule 1: any declared type containing "INT" is
+                // INTEGER affinity — covers Room's Boolean columns (EXP-185).
+                if (cursor.getString(typeIdx).uppercase().contains("INT")) integerColumns.add(name)
                 val order = cursor.getInt(pkIdx)
                 if (order > 0) pk.add(order to name)
             }
         }
-        return TableSchema(pkColumns = pk.sortedBy { it.first }.map { it.second }, columns = columns)
+        return TableSchema(
+            pkColumns = pk.sortedBy { it.first }.map { it.second },
+            columns = columns,
+            integerColumns = integerColumns,
+        )
     }
 }

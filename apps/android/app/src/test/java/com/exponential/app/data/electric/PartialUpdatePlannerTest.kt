@@ -108,6 +108,51 @@ class PartialUpdatePlannerTest {
     }
 
     @Test
+    fun bindsQuotedPostgresBooleansOnIntegerColumns() {
+        // The EXP-185 regression: Electric ships `helpdesk_enabled` as the
+        // Postgres text form "t" in a partial update; bound as TEXT into the
+        // INTEGER-affinity Boolean column it read back as false, so the
+        // Support tab never appeared.
+        for ((wire, bound) in listOf("t" to 1L, "true" to 1L, "1" to 1L, "f" to 0L, "false" to 0L, "0" to 0L)) {
+            val plan = planPartialUpdate(
+                pkColumns = listOf("id"),
+                knownColumns = setOf("id", "helpdesk_enabled"),
+                wireColumns = linkedMapOf("helpdesk_enabled" to JsonPrimitive(wire)),
+                integerColumns = setOf("helpdesk_enabled"),
+            )
+            assertEquals(listOf<Any?>(bound), plan!!.args)
+        }
+    }
+
+    @Test
+    fun keepsQuotedBooleanTextOnNonIntegerColumns() {
+        val plan = planPartialUpdate(
+            pkColumns = listOf("id"),
+            knownColumns = setOf("id", "title", "helpdesk_enabled"),
+            wireColumns = linkedMapOf(
+                "title" to JsonPrimitive("t"),
+                "helpdesk_enabled" to JsonPrimitive("t"),
+            ),
+            integerColumns = setOf("helpdesk_enabled"),
+        )
+        // Only the INTEGER-affinity column converts; the TEXT column keeps "t".
+        assertEquals(listOf<Any?>("t", 1L), plan!!.args)
+    }
+
+    @Test
+    fun keepsNonBooleanTextOnIntegerColumns() {
+        val plan = planPartialUpdate(
+            pkColumns = listOf("id"),
+            knownColumns = setOf("id", "number"),
+            wireColumns = linkedMapOf("number" to JsonPrimitive("42")),
+            integerColumns = setOf("number"),
+        )
+        // "42" is not a boolean form ("1"/"0" aside) — SQLite's INTEGER
+        // affinity coerces the numeric text on storage, so pass it through.
+        assertEquals(listOf<Any?>("42"), plan!!.args)
+    }
+
+    @Test
     fun ignoresTheIdColumnInTheSetList() {
         val plan = planPartialUpdate(
             pkColumns = listOf("id"),
