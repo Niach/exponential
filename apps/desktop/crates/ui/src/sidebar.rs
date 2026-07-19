@@ -80,6 +80,10 @@ pub(crate) enum ToolWindow {
     /// repo — both with an inline squash-merge action (server-side via the
     /// GitHub App).
     Reviews,
+    /// Support tickets of the active team (EXP-180 — server-only tRPC data,
+    /// polled). The rail icon renders only while the active team's synced
+    /// `helpdesk_enabled` flag is on.
+    Support,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -220,6 +224,42 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
     }
 }
 
+/// Whether the ACTIVE team's synced row has the helpdesk flag on — the gate
+/// for the Support rail icon + tool window (EXP-180). Rows synced before the
+/// column existed hydrate `None` → disabled.
+fn helpdesk_enabled(nav: &Entity<Navigation>, cx: &App) -> bool {
+    active_team_id(nav, cx)
+        .and_then(|id| {
+            Store::global(cx)
+                .collections()
+                .teams
+                .read(cx)
+                .get(&id)
+                .and_then(|team| team.helpdesk_enabled)
+        })
+        == Some(true)
+}
+
+/// The Support tool window's open/resolved filter (the server's
+/// `helpdesk.listThreads` filter enum).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SupportFilter {
+    Open,
+    Resolved,
+}
+
+impl SupportFilter {
+    fn as_str(self) -> &'static str {
+        match self {
+            SupportFilter::Open => "open",
+            SupportFilter::Resolved => "resolved",
+        }
+    }
+}
+
+/// The fetch key of one Support list: `(team_id, filter)`.
+type SupportKey = (String, SupportFilter);
+
 /// The window's active-board accent color (rail selection tint, falls back
 /// to the theme primary when the board has no color).
 fn board_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
@@ -264,6 +304,8 @@ impl RailView {
             // The Reviews dot is a live read over issues ⨝ boards.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // The Support icon gates on the team row's helpdesk_enabled flag.
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -397,6 +439,19 @@ impl Render for RailView {
         let has_reviews = active_team_id(&self.nav, cx)
             .map(|id| !queries::review_issues(cx, &id).is_empty())
             .unwrap_or(false);
+        // Support tool (EXP-180): rendered ONLY while the active team's
+        // synced row carries helpdesk_enabled = true.
+        let support_icon = helpdesk_enabled(&self.nav, cx).then(|| {
+            self.rail_tool_icon(
+                "rail-support",
+                Icon::from(ExpIcon::MessageSquare),
+                ToolWindow::Support,
+                "Support",
+                false,
+                accent,
+                cx,
+            )
+        });
         v_flex()
             .w(px(RAIL_W))
             .flex_shrink_0()
@@ -463,6 +518,7 @@ impl Render for RailView {
                 accent,
                 cx,
             ))
+            .children(support_icon)
             .child(self.divider(cx))
             // Repo tool windows.
             .child(self.rail_tool_icon(
@@ -554,6 +610,19 @@ pub struct SidebarPanel {
     open_pulls_key: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     open_pulls_seq: u64,
+    /// The Support tool window's open/resolved filter (EXP-180).
+    support_filter: SupportFilter,
+    /// Fetched `helpdesk.listThreads` result, tagged with its
+    /// `(team_id, filter)` key so another team's/filter's rows never render.
+    support_threads: Option<(SupportKey, Vec<api::helpdesk::SupportThreadSummary>)>,
+    /// The key the current fetch + 30s poll belong to. Cleared whenever the
+    /// Support tool window is inactive (like `open_pulls_key`), which also
+    /// ends the poll loop on its next tick.
+    support_key: Option<SupportKey>,
+    /// Bumped per list fetch — a stale response checks it before landing.
+    support_seq: u64,
+    /// Bumped per poll spawn — at most ONE Support poll loop is ever live.
+    support_poll_seq: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -632,6 +701,11 @@ impl SidebarPanel {
             open_pulls: None,
             open_pulls_key: None,
             open_pulls_seq: 0,
+            support_filter: SupportFilter::Open,
+            support_threads: None,
+            support_key: None,
+            support_seq: 0,
+            support_poll_seq: 0,
             flow,
             flow_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -1683,6 +1757,292 @@ impl SidebarPanel {
         .detach();
     }
 
+    // -- Support tool window ----------------------------------------------------
+
+    /// *Support* tool window (EXP-180): the active team's support tickets,
+    /// filtered open/resolved. Threads are server-only tRPC data — a
+    /// seq-guarded background fetch keyed on `(team_id, filter)` (the
+    /// `ensure_open_pulls` pattern) plus a 30s poll that lives only while
+    /// this tool window is active (`support_key` clears on tool switch, which
+    /// ends the loop). Rows open the thread's center tab.
+    fn render_support_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let team_id = active_team_id(&self.nav, cx);
+        let enabled = helpdesk_enabled(&self.nav, cx);
+        if enabled {
+            if let Some(id) = team_id.as_deref() {
+                self.ensure_support_threads(id, cx);
+            }
+        }
+        let filter = self.support_filter;
+
+        // Open/resolved filter buttons in the tool header (the Inbox
+        // header-button style).
+        let header = self
+            .tool_header(Icon::from(ExpIcon::MessageSquare), "Support", cx)
+            .child(
+                Button::new("support-filter-open")
+                    .ghost()
+                    .xsmall()
+                    .label("Open")
+                    .selected(filter == SupportFilter::Open)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_support_filter(SupportFilter::Open, cx);
+                    })),
+            )
+            .child(
+                Button::new("support-filter-resolved")
+                    .ghost()
+                    .xsmall()
+                    .label("Resolved")
+                    .selected(filter == SupportFilter::Resolved)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_support_filter(SupportFilter::Resolved, cx);
+                    })),
+            );
+
+        let key = team_id.map(|id| (id, filter));
+        let threads: Option<Vec<api::helpdesk::SupportThreadSummary>> = self
+            .support_threads
+            .as_ref()
+            .filter(|(tagged, _)| Some(tagged) == key.as_ref())
+            .map(|(_, threads)| threads.clone());
+
+        let body: gpui::AnyElement = if !enabled {
+            // The rail icon is gated on the flag, but the tool can stay
+            // active across a team switch — degrade instead of a dead panel.
+            self.list_note("Support is not enabled for this team.", cx)
+        } else {
+            match threads {
+                None => self.list_skeleton(cx),
+                Some(threads) if threads.is_empty() => self.list_note(
+                    match filter {
+                        SupportFilter::Open => "No open tickets.",
+                        SupportFilter::Resolved => "No resolved tickets.",
+                    },
+                    cx,
+                ),
+                Some(threads) => {
+                    let rows: Vec<gpui::AnyElement> = threads
+                        .iter()
+                        .map(|thread| self.support_row(thread, cx))
+                        .collect();
+                    div()
+                        .id("support-scroll")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .child(v_flex().p_1().gap_0p5().children(rows))
+                        .into_any_element()
+                }
+            }
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One Support row: title, reporter + relative time, an unread dot while
+    /// the reporter spoke last. Click opens the thread screen.
+    fn support_row(
+        &self,
+        thread: &api::helpdesk::SupportThreadSummary,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        // The unread dot's indigo — the blue accent token (token-locked, not
+        // loose hex).
+        let unread_dot = theme::tokens::BLUE.to_hsla();
+
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::SupportThread { thread_id }) if thread_id == thread.id
+        );
+        let unread = thread.unread;
+        let reporter: SharedString = thread
+            .reporter_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| thread.reporter_email.clone())
+            .unwrap_or_else(|| "Reporter".to_string())
+            .into();
+        let time: SharedString = thread
+            .updated_at
+            .as_deref()
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        let nav_id = thread.id.clone();
+        let nav_title = thread.title.clone();
+
+        v_flex()
+            .id(SharedString::from(format!("support-{}", thread.id)))
+            .w_full()
+            .px_2()
+            .py_1p5()
+            .gap_0p5()
+            .rounded(radius)
+            .when(selected, |this| this.bg(accent.opacity(0.6)))
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                // Seed the tab label — thread titles are tRPC-only.
+                crate::support_thread::remember_title(cx, &nav_id, &nav_title);
+                navigate(
+                    window,
+                    cx,
+                    Screen::SupportThread {
+                        thread_id: nav_id.clone(),
+                    },
+                );
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if unread { fg } else { muted })
+                            .child(SharedString::from(thread.title.clone())),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(unread_dot)),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(div().min_w_0().truncate().child(reporter))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .child(SharedString::from(format!("\u{00B7} {time}"))),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Flip the open/resolved filter — drops the fetch key so the next
+    /// render refetches (and the stale-filter rows never show: the rendered
+    /// list is key-tagged).
+    fn set_support_filter(&mut self, filter: SupportFilter, cx: &mut gpui::Context<Self>) {
+        if self.support_filter == filter {
+            return;
+        }
+        self.support_filter = filter;
+        self.support_key = None;
+        cx.notify();
+    }
+
+    /// Kick the `helpdesk.listThreads` fetch when the Support tool window is
+    /// shown or the team/filter changes, and start the 30s poll for that key
+    /// (the `ensure_open_pulls` pattern plus polling — tickets arrive
+    /// server-side with no Electric echo).
+    fn ensure_support_threads(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        let key: SupportKey = (team_id.to_string(), self.support_filter);
+        if self.support_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.support_key = Some(key.clone());
+        // Rows from another key are dropped immediately; a re-open on the
+        // same key keeps rendering the previous result while refreshing.
+        if self
+            .support_threads
+            .as_ref()
+            .is_some_and(|(tagged, _)| *tagged != key)
+        {
+            self.support_threads = None;
+        }
+        self.fetch_support_threads(cx);
+        self.spawn_support_poll(key, cx);
+    }
+
+    /// One seq-guarded list fetch for the CURRENT `support_key`.
+    fn fetch_support_threads(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(key) = self.support_key.clone() else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.support_seq += 1;
+        let seq = self.support_seq;
+        cx.spawn(async move |this, cx| {
+            let (team_id, filter) = key.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::helpdesk::helpdesk_list_threads(&trpc, &team_id, filter.as_str())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.support_seq != seq || this.support_key.as_ref() != Some(&key) {
+                    return;
+                }
+                match result {
+                    Ok(threads) => {
+                        this.support_threads = Some((key, threads));
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        // Keep whatever rendered; the next poll retries.
+                        log::warn!("[ui] helpdesk.listThreads failed: {err}");
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The 30s Support poll: entity-weak, superseded by `support_poll_seq`
+    /// (at most one loop live), and self-terminating once `support_key` no
+    /// longer matches — i.e. the tool window was left or re-keyed.
+    fn spawn_support_poll(&mut self, key: SupportKey, cx: &mut gpui::Context<Self>) {
+        self.support_poll_seq += 1;
+        let generation = self.support_poll_seq;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(30))
+                    .await;
+                let keep_going = this.update(cx, |this, cx| {
+                    if this.support_poll_seq != generation
+                        || this.support_key.as_ref() != Some(&key)
+                    {
+                        return false;
+                    }
+                    this.fetch_support_threads(cx);
+                    true
+                });
+                if !matches!(keep_going, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     // -- Files tool window ----------------------------------------------------
 
     /// *Files* tool window: the trunk file tree at full panel height.
@@ -1778,6 +2138,11 @@ impl Render for SidebarPanel {
         if tool != ToolWindow::Reviews {
             self.open_pulls_key = None;
         }
+        // Leaving the Support tool drops its fetch key — the next open
+        // refetches, and the 30s poll loop dies on its next tick.
+        if tool != ToolWindow::Support {
+            self.support_key = None;
+        }
         v_flex()
             .size_full()
             .min_w_0()
@@ -1791,6 +2156,7 @@ impl Render for SidebarPanel {
                 ToolWindow::MyIssues => self.render_my_issues_tool(cx),
                 ToolWindow::AllIssues => self.render_all_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
+                ToolWindow::Support => self.render_support_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

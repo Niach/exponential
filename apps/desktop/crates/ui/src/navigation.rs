@@ -53,6 +53,9 @@ pub enum Screen {
     /// Read-only trunk file viewer (masterplan v4 §4.5); `path` is
     /// trunk-relative.
     FileViewer { path: String },
+    /// One support ticket's conversation (EXP-180 — server-only tRPC data,
+    /// opened from the Support tool window's thread list).
+    SupportThread { thread_id: String },
 }
 
 impl Screen {
@@ -85,6 +88,11 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::SourceControl => "Source Control".into(),
         Screen::Settings => "Settings".into(),
         Screen::Account => "Account".into(),
+        // Thread titles are tRPC-only (never synced) — the support surfaces
+        // remember them in a process global; unknown ids degrade generically.
+        Screen::SupportThread { thread_id } => crate::support_thread::title_of(cx, thread_id)
+            .map(gpui::SharedString::from)
+            .unwrap_or_else(|| "Support ticket".into()),
     }
 }
 

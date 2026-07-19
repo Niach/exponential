@@ -64,6 +64,7 @@ mod sidebar;
 mod source_control;
 mod start_coding_dialog;
 pub mod steer_wiring;
+mod support_thread;
 mod terminal_dock;
 mod timeline;
 mod top_bar;

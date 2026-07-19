@@ -35,6 +35,11 @@ pub struct Team {
     pub slug: Option<String>,
     #[serde(default)]
     pub icon_url: Option<String>,
+    /// EXP-180 helpdesk gate: `Some(true)` unlocks the team's Support inbox
+    /// (standalone support tickets, every member handles them). `None` on
+    /// rows synced before the column existed — treated as disabled.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub helpdesk_enabled: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -452,6 +457,36 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(sparse.icon, None);
+    }
+
+    #[test]
+    fn team_helpdesk_enabled_hydrates_tolerantly() {
+        // SQLite TEXT store form ("t"/"f") — the same tolerant path as
+        // Board::is_protected.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-1",
+            "name": "Acme",
+            "helpdesk_enabled": "t"
+        }))
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, Some(true));
+
+        // Bare wire bool works too.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-2",
+            "name": "Beta",
+            "helpdesk_enabled": false
+        }))
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, Some(false));
+
+        // Pre-column rows degrade to None (disabled), never a dropped row.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-3",
+            "name": "Legacy"
+        }))
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, None);
     }
 
     #[test]

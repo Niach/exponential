@@ -58,6 +58,7 @@ pub mod accounts;
 pub mod coding_sessions;
 pub mod comments;
 pub mod error;
+pub mod helpdesk;
 pub mod issues;
 pub mod labels;
 pub mod login;

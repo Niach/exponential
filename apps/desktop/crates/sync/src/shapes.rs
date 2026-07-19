@@ -91,8 +91,18 @@ pub const SHAPES: [ShapeSpec; 14] = [
         // Teams are always private — no is_public/public_write_policy.
         // A pre-fix install keeps those as orphaned local TEXT columns
         // (heal_missing_columns is additive-only); the allowlist drops the
-        // keys on upsert.
-        columns: &["id", "name", "slug", "icon_url", "created_at", "updated_at"],
+        // keys on upsert. `helpdesk_enabled` (EXP-180) gates the Support
+        // inbox — heal_missing_columns ALTERs it onto existing store tables
+        // and stamps a refetch so old rows get real values, not NULLs.
+        columns: &[
+            "id",
+            "name",
+            "slug",
+            "icon_url",
+            "helpdesk_enabled",
+            "created_at",
+            "updated_at",
+        ],
         pk: PkKind::Id,
     },
     ShapeSpec {
