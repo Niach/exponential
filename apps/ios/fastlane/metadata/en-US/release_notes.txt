@@ -1,4 +1,4 @@
-• Workspaces and projects are now teams and boards — simpler names, same power
-• New Support inbox: helpdesk tickets from your feedback widget, right in the app
-• Notifications now route support replies to the right team
-• Assorted fixes and polish across issue detail and sync
+• Create or join a team on first launch — no more auto-created workspace
+• Support gets an unread badge in the tab bar
+• Clearer account labels and an honest empty state on filtered boards
+• Assorted fixes and polish
