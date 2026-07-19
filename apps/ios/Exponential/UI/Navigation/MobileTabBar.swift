@@ -20,6 +20,7 @@ struct MobileTabBar: View {
     let unreadCount: Int
     let agentsRunning: Bool
     let showsSupport: Bool
+    let supportUnread: Bool
     let showsCompose: Bool
     let onIssues: () -> Void
     let onSearch: () -> Void
@@ -63,6 +64,8 @@ struct MobileTabBar: View {
                         glyph: .system("lifepreserver"),
                         label: "Support",
                         active: supportActive,
+                        badge: supportUnread,
+                        badgeColor: Accent.indigo,
                         action: onSupport
                     )
                     .accessibilityIdentifier("tab-support")

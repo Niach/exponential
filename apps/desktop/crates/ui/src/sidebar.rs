@@ -334,6 +334,8 @@ impl RailView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // The Support icon gates on the team row's helpdesk_enabled flag.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            // The Support dot is a live read over unread support_reply rows.
+            cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -468,14 +470,18 @@ impl Render for RailView {
             .map(|id| !queries::review_issues(cx, &id).is_empty())
             .unwrap_or(false);
         // Support tool (EXP-180): rendered ONLY while the active team's
-        // synced row carries helpdesk_enabled = true.
+        // synced row carries helpdesk_enabled = true. The badge lights on
+        // unread helpdesk activity in that team (EXP-182).
         let support_icon = helpdesk_enabled(&self.nav, cx).then(|| {
+            let support_unread = active_team_id(&self.nav, cx)
+                .map(|id| queries::support_unread(cx, &id))
+                .unwrap_or(false);
             self.rail_tool_icon(
                 "rail-support",
                 Icon::from(ExpIcon::MessageSquare),
                 ToolWindow::Support,
                 "Support",
-                false,
+                support_unread,
                 accent,
                 cx,
             )

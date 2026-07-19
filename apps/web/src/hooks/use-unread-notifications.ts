@@ -10,3 +10,20 @@ export function useUnreadNotificationCount(): number {
   )
   return (notifs ?? []).filter((n) => !n.readAt).length
 }
+
+// Unread helpdesk count for one team's Support entry: issue-less
+// support_reply rows carry a synced team_id (the inbox's per-team Support
+// groups use the same rule). Same auth caveat as above.
+export function useUnreadSupportCount(teamId: string | undefined): number {
+  const { data: notifs } = useLiveQuery((query) =>
+    query.from({ n: notificationCollection })
+  )
+  if (!teamId) return 0
+  return (notifs ?? []).filter(
+    (n) =>
+      n.type === `support_reply` &&
+      !n.issueId &&
+      n.teamId === teamId &&
+      !n.readAt
+  ).length
+}

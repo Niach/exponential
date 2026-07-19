@@ -69,6 +69,7 @@ fun BottomNavBar(
     unreadCount: Int,
     agentsRunning: Boolean,
     showsSupport: Boolean,
+    supportUnread: Boolean,
     showsCompose: Boolean,
     onIssues: () -> Unit,
     onSearch: () -> Unit,
@@ -121,6 +122,7 @@ fun BottomNavBar(
                     contentDescription = "Support",
                     active = supportActive,
                     width = tabWidth,
+                    showDot = supportUnread,
                     onClick = onSupport,
                 )
             }

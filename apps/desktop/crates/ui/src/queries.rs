@@ -333,6 +333,24 @@ pub fn inbox(cx: &App) -> InboxData {
     }
 }
 
+/// Unread helpdesk activity in one team (EXP-182): issue-less `support_reply`
+/// rows carry a synced team_id — the same rule the Support inbox groups use.
+/// Lights the rail's Support badge.
+pub fn support_unread(cx: &App, team_id: &str) -> bool {
+    Store::global(cx)
+        .collections()
+        .notifications
+        .read(cx)
+        .iter()
+        .any(|notification| {
+            notification.kind.as_deref()
+                == Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
+                && notification.issue_id.is_none()
+                && notification.team_id.as_deref() == Some(team_id)
+                && notification.read_at.is_none()
+        })
+}
+
 /// The pure grouping core of [`inbox`]. `resolve_issue` returns the synced
 /// issue (only while its board is synced too); `resolve_team` returns a
 /// synced team's name — `None` collapses the row into the generic Support
