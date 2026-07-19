@@ -117,7 +117,7 @@ impl TerminalManager {
     }
 
     /// The "+" affordance (§6.13): a plain `Shell` tab running the user's
-    /// `$SHELL -l` in `cwd` (workspace/worktree root when there is repo
+    /// `$SHELL -l` in `cwd` (team/worktree root when there is repo
     /// context — Phase 5) or `$HOME`.
     pub fn open_shell(
         &mut self,

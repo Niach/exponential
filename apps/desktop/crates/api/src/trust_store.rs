@@ -4,15 +4,15 @@
 //! processes: the ONE place server data is executed. The mandatory
 //! compensating control is client-side — before a launch, the run bar
 //! compares [`crate::run_configs::command_set_hash`] over the *full fetched
-//! set* against the hash this device last trusted for the project. Any
+//! set* against the hash this device last trusted for the board. Any
 //! mismatch (add / edit / a config from another author / a fresh device)
 //! blocks the launch behind the Trust & Run dialog; trusting records the new
 //! hash here. **Never auto-run untrusted.**
 //!
 //! Storage: a tiny rusqlite DB in the per-account dir
 //! (`{data_dir}/accounts/{account_id}/run_trust.sqlite` — §7.3.5 "a small
-//! rusqlite table in the per-account store"), keyed `(device_id, project_id)`.
-//! The same DB carries the run bar's last-selected run config per project
+//! rusqlite table in the per-account store"), keyed `(device_id, board_id)`.
+//! The same DB carries the run bar's last-selected run config per board
 //! (§7.5 dropdown persistence) — UI convenience, not part of the trust
 //! boundary.
 //!
@@ -62,7 +62,7 @@ pub struct TrustStore {
 
 impl TrustStore {
     /// Canonical location: `{data_dir}/accounts/{account_id}/run_trust.sqlite`
-    /// — next to that account's `sync.sqlite` (§5.4 layout).
+    /// — next to that account's `sync-v2.sqlite` (§5.4 layout).
     pub fn default_path(data_dir: &Path, account_id: &str) -> PathBuf {
         data_dir
             .join("accounts")
@@ -76,16 +76,17 @@ impl TrustStore {
             fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
+        migrate_legacy_board_columns(&conn)?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS run_config_trust (
                 device_id    TEXT NOT NULL,
-                project_id   TEXT NOT NULL,
+                board_id   TEXT NOT NULL,
                 trusted_hash TEXT NOT NULL,
                 updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-                PRIMARY KEY (device_id, project_id)
+                PRIMARY KEY (device_id, board_id)
             );
             CREATE TABLE IF NOT EXISTS run_config_selection (
-                project_id    TEXT PRIMARY KEY,
+                board_id    TEXT PRIMARY KEY,
                 run_config_id TEXT NOT NULL,
                 updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );",
@@ -93,18 +94,18 @@ impl TrustStore {
         Ok(Self { conn })
     }
 
-    /// The hash this device last trusted for `project_id`, if any.
+    /// The hash this device last trusted for `board_id`, if any.
     pub fn trusted_hash(
         &self,
         device_id: &str,
-        project_id: &str,
+        board_id: &str,
     ) -> Result<Option<String>, TrustStoreError> {
         let hash = self
             .conn
             .query_row(
                 "SELECT trusted_hash FROM run_config_trust
-                 WHERE device_id = ?1 AND project_id = ?2",
-                params![device_id, project_id],
+                 WHERE device_id = ?1 AND board_id = ?2",
+                params![device_id, board_id],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
@@ -113,67 +114,89 @@ impl TrustStore {
 
     /// §7.3.5 gate: is `hash` (the CURRENT fetched command-set hash) exactly
     /// what this device last trusted? Any drift — including a never-trusted
-    /// project — is `false`.
+    /// board — is `false`.
     pub fn is_trusted(
         &self,
         device_id: &str,
-        project_id: &str,
+        board_id: &str,
         hash: &str,
     ) -> Result<bool, TrustStoreError> {
-        Ok(self.trusted_hash(device_id, project_id)?.as_deref() == Some(hash))
+        Ok(self.trusted_hash(device_id, board_id)?.as_deref() == Some(hash))
     }
 
     /// Record the accepted hash (the Trust & Run dialog's confirm action).
-    /// Overwrites any previous trust for the project on this device.
+    /// Overwrites any previous trust for the board on this device.
     pub fn trust(
         &self,
         device_id: &str,
-        project_id: &str,
+        board_id: &str,
         hash: &str,
     ) -> Result<(), TrustStoreError> {
         self.conn.execute(
-            "INSERT INTO run_config_trust (device_id, project_id, trusted_hash)
+            "INSERT INTO run_config_trust (device_id, board_id, trusted_hash)
              VALUES (?1, ?2, ?3)
-             ON CONFLICT (device_id, project_id)
+             ON CONFLICT (device_id, board_id)
              DO UPDATE SET trusted_hash = excluded.trusted_hash,
                            updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')",
-            params![device_id, project_id, hash],
+            params![device_id, board_id, hash],
         )?;
         Ok(())
     }
 
-    /// Last-selected run config for the project (§7.5 dropdown persistence).
+    /// Last-selected run config for the board (§7.5 dropdown persistence).
     pub fn selected_run_config(
         &self,
-        project_id: &str,
+        board_id: &str,
     ) -> Result<Option<String>, TrustStoreError> {
         let id = self
             .conn
             .query_row(
-                "SELECT run_config_id FROM run_config_selection WHERE project_id = ?1",
-                params![project_id],
+                "SELECT run_config_id FROM run_config_selection WHERE board_id = ?1",
+                params![board_id],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
         Ok(id)
     }
 
-    /// Persist the dropdown selection for the project.
+    /// Persist the dropdown selection for the board.
     pub fn set_selected_run_config(
         &self,
-        project_id: &str,
+        board_id: &str,
         run_config_id: &str,
     ) -> Result<(), TrustStoreError> {
         self.conn.execute(
-            "INSERT INTO run_config_selection (project_id, run_config_id)
+            "INSERT INTO run_config_selection (board_id, run_config_id)
              VALUES (?1, ?2)
-             ON CONFLICT (project_id)
+             ON CONFLICT (board_id)
              DO UPDATE SET run_config_id = excluded.run_config_id,
                            updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')",
-            params![project_id, run_config_id],
+            params![board_id, run_config_id],
         )?;
         Ok(())
     }
+}
+
+/// EXP-180 rename migration: pre-rename trust DBs carry `project_id` columns
+/// (the legacy name for `board_id`). Rename them in place — trust records are
+/// keyed by server board ids, which the rename did NOT change, so existing
+/// trust and dropdown selections survive verbatim. Runs before the
+/// `CREATE TABLE IF NOT EXISTS` in [`TrustStore::open`]; a fresh DB (no
+/// tables yet) is a no-op.
+fn migrate_legacy_board_columns(conn: &Connection) -> Result<(), TrustStoreError> {
+    for table in ["run_config_trust", "run_config_selection"] {
+        let has_legacy = conn
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'project_id'"
+            ))?
+            .exists([])?;
+        if has_legacy {
+            conn.execute_batch(&format!(
+                "ALTER TABLE \"{table}\" RENAME COLUMN \"project_id\" TO \"board_id\""
+            ))?;
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -268,18 +291,18 @@ mod tests {
 
         store.trust("dev-1", "proj-1", "hash-b").unwrap();
         assert!(store.is_trusted("dev-1", "proj-1", "hash-b").unwrap());
-        // The old hash no longer passes (single-slot per (device, project)).
+        // The old hash no longer passes (single-slot per (device, board)).
         assert!(!store.is_trusted("dev-1", "proj-1", "hash-a").unwrap());
     }
 
     #[test]
-    fn trust_is_scoped_per_device_and_project() {
+    fn trust_is_scoped_per_device_and_board() {
         let dir = TempDir::new("scope");
         let store = TrustStore::open(&dir.0.join("run_trust.sqlite")).unwrap();
         store.trust("dev-1", "proj-1", "hash-a").unwrap();
-        // Another device on the same project: untrusted.
+        // Another device on the same board: untrusted.
         assert!(!store.is_trusted("dev-2", "proj-1", "hash-a").unwrap());
-        // Same device, another project: untrusted.
+        // Same device, another board: untrusted.
         assert!(!store.is_trusted("dev-1", "proj-2", "hash-a").unwrap());
     }
 
@@ -296,8 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn selection_persists_per_project() {
-        // §7.5: last-selected run config, per project, across restarts.
+    fn selection_persists_per_board() {
+        // §7.5: last-selected run config, per board, across restarts.
         let dir = TempDir::new("selection");
         let path = dir.0.join("run_trust.sqlite");
         {

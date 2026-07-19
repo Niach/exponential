@@ -38,7 +38,7 @@ class DeleteByKeyPlannerTest {
     fun plansSinglePkDelete() {
         val plan = planDeleteByKey(
             pkColumns = listOf("id"),
-            key = "\"public\".\"projects\"/\"p-1\"",
+            key = "\"public\".\"boards\"/\"p-1\"",
         )
         assertEquals("\"id\" = ?", plan!!.whereClause)
         assertEquals(listOf("p-1"), plan.args)

@@ -1,12 +1,12 @@
 import { createContext, useContext, useMemo } from "react"
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
+import { useTeamUsers } from "@/hooks/use-team-data"
 
-// Workspace-scoped `@email` mention resolution, mounted once in the workspace
+// Team-scoped `@email` mention resolution, mounted once in the team
 // layout (beside IssueRefProvider). Powers the name-pill rendering and the
-// @-autocomplete in the TipTap markdown editors — built on useWorkspaceUsers,
-// which intersects the workspace member rows with the synced users shape, so
+// @-autocomplete in the TipTap markdown editors — built on useTeamUsers,
+// which intersects the team member rows with the synced users shape, so
 // on public boards (where co-member identities are anonymized and their user
 // rows never sync) only members the viewer may actually see are offered or
 // rendered as pills. Bot users (isAgent) are excluded at the source.
@@ -25,13 +25,13 @@ export function useMentions(): MentionContextValue | null {
 }
 
 export function MentionProvider({
-  workspaceId,
+  teamId,
   children,
 }: {
-  workspaceId: string | undefined
+  teamId: string | undefined
   children: React.ReactNode
 }) {
-  const { users } = useWorkspaceUsers(workspaceId)
+  const { users } = useTeamUsers(teamId)
 
   const sorted = useMemo(
     () => [...users].sort((a, b) => a.name.localeCompare(b.name)),

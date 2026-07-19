@@ -3,8 +3,8 @@ import { contract } from "@exp/domain-contract"
 import {
   issueStatusValues,
   issuePriorityValues,
-  workspaceRoleValues,
-  projectIconValues,
+  teamRoleValues,
+  boardIconValues,
   commentKindValues,
   notificationTypeValues,
   prStateValues,
@@ -29,16 +29,16 @@ describe(`domain-contract parity`, () => {
     expect([...issuePriorityValues]).toEqual([...contract.issuePriority.values])
   })
 
-  it(`workspace role values match the contract`, () => {
-    expect([...workspaceRoleValues]).toEqual([...contract.workspaceRole.values])
+  it(`team role values match the contract`, () => {
+    expect([...teamRoleValues]).toEqual([...contract.teamRole.values])
   })
 
-  it(`project icon values match the contract`, () => {
-    expect([...projectIconValues]).toEqual([...contract.projectIcon.values])
+  it(`board icon values match the contract`, () => {
+    expect([...boardIconValues]).toEqual([...contract.boardIcon.values])
   })
 
-  it(`project icon values match the contract`, () => {
-    expect([...projectIconValues]).toEqual([...contract.projectIcon.values])
+  it(`board icon values match the contract`, () => {
+    expect([...boardIconValues]).toEqual([...contract.boardIcon.values])
   })
 
   it(`comment kind values match the contract`, () => {

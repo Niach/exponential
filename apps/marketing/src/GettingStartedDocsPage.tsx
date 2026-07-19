@@ -10,7 +10,7 @@ import { LINKS } from "./lib/links"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `sign-up`, num: `01`, label: `Sign up & your team` },
-  { id: `first-project`, num: `02`, label: `Your first project` },
+  { id: `first-board`, num: `02`, label: `Your first board` },
   { id: `connect-github`, num: `03`, label: `Connect GitHub` },
   { id: `invite`, num: `04`, label: `Invite your team` },
   { id: `plans`, num: `05`, label: `Plans` },
@@ -26,7 +26,7 @@ const NEXT_CARDS: { path: string; label: string; desc: string }[] = [
   {
     path: `/docs/feedback/`,
     label: `Feedback & helpdesk`,
-    desc: `Open a public board and answer reporters by email.`,
+    desc: `Collect reports with the widget and answer reporters by email.`,
   },
   {
     path: `/docs/widget/`,
@@ -50,7 +50,7 @@ export function GettingStartedDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Getting started</h1>
             <p>
-              From sign-up to your first project, connected repo, and invited
+              From sign-up to your first board, connected repo, and invited
               teammates — about five minutes.
             </p>
             <div className="docs-hero-cta">
@@ -76,11 +76,10 @@ export function GettingStartedDocsPage() {
               automatically, so you land ready to work.
             </p>
             <p>
-              Everything in Exponential lives inside a team: projects, issues,
+              Everything in Exponential lives inside a team: boards, issues,
               labels, members, connected repositories. Teams are private and
-              invite-only — the only thing that can ever be public is a{` `}
-              <a href="/docs/feedback/">feedback board</a> you deliberately
-              open up.
+              invite-only — the outside world reaches you only through the{` `}
+              <a href="/docs/widget/">embeddable feedback widget</a>.
             </p>
             <DocsCallout kind="note" title="Self-hosting?">
               A self-hosted instance chooses its own sign-in methods —
@@ -90,48 +89,35 @@ export function GettingStartedDocsPage() {
             </DocsCallout>
           </DocsSection>
 
-          {/* ── 02 Your first project ── */}
-          <DocsSection id="first-project" num="02" label="Your first project">
-            <h2>Create your first project</h2>
+          {/* ── 02 Your first board ── */}
+          <DocsSection id="first-board" num="02" label="Your first board">
+            <h2>Create your first board</h2>
             <p>
               On your first visit a short wizard walks you through creating a
-              project. Two choices matter:
+              board. Two choices matter:
             </p>
             <h3>Name and prefix</h3>
             <p>
               The <strong>prefix</strong> is a short uppercase code that
-              numbers every issue in the project — prefix <code>EXP</code>{` `}
+              numbers every issue on the board — prefix <code>EXP</code>{` `}
               gives you <code>EXP-1</code>, <code>EXP-2</code>, and so on.
               Those identifiers follow the issue everywhere: branch names (
               <code>exp/EXP-42</code>), PR titles, and{` `}
               <code>#EXP-42</code> references in comments.
             </p>
-            <h3>Project templates</h3>
-            <p>Projects come in three flavors, and the choice sets up what the project can do:</p>
-            <ul>
-              <li>
-                <strong>Dev</strong> — backed by a GitHub repository. Unlocks
-                coding sessions, branches, and pull requests. The wizard asks
-                you to pick the repo during creation.
-              </li>
-              <li>
-                <strong>Tasks</strong> — plain issue tracking, no repository.
-                Great for ops, content, or anything that isn&apos;t code. You
-                can attach a repository later if that changes.
-              </li>
-              <li>
-                <strong>Feedback</strong> — a board built for user reports:
-                it can be made publicly readable, pairs with the{` `}
-                <a href="/docs/widget/">embeddable widget</a>, and can run the
-                {` `}
-                <a href="/docs/feedback/">email helpdesk</a>. A repository is
-                optional.
-              </li>
-            </ul>
-            <DocsCallout kind="tip" title="Coding gates on the repo, not the type">
-              Any project with a connected repository can run coding sessions
-              — a feedback board backed by your app&apos;s repo lets Claude
-              fix user-reported bugs directly.
+            <h3>Repository — optional</h3>
+            <p>
+              A board is just a board: issues, statuses, labels, comments —
+              great for code, ops, content, or user feedback alike. Connect a
+              {` `}
+              <strong>GitHub repository</strong> (during creation or any time
+              later) and the board gains the coding loop: coding sessions,
+              branches, and pull requests.
+            </p>
+            <DocsCallout kind="tip" title="Coding gates on the repo">
+              Any board with a connected repository can run coding sessions —
+              a feedback board backed by your app&apos;s repo lets Claude fix
+              user-reported bugs directly.
             </DocsCallout>
           </DocsSection>
 
@@ -149,7 +135,7 @@ export function GettingStartedDocsPage() {
               <li>
                 Open <strong>Team settings → Repositories</strong> (or hit
                 {` `}
-                <strong>Connect GitHub</strong> inside the project-creation
+                <strong>Connect GitHub</strong> inside the board-creation
                 flow — same thing).
               </li>
               <li>
@@ -165,7 +151,7 @@ export function GettingStartedDocsPage() {
               </li>
             </ol>
             <p>
-              A project backed by a repository gets the full coding loop:
+              A board backed by a repository gets the full coding loop:
               {` `}
               <strong>Start coding</strong> on any issue, automatic{` `}
               <code>exp/&lt;IDENTIFIER&gt;</code> branches, server-opened pull
@@ -187,7 +173,7 @@ export function GettingStartedDocsPage() {
             <p>
               Roles are deliberately simple: <strong>owner</strong> and{` `}
               <strong>member</strong>. Owners manage the team itself —
-              settings, members, repositories, widgets, billing, and project
+              settings, members, repositories, widgets, billing, and board
               deletion. Everything else is for everyone:{` `}
               <strong>every member moderates</strong>, meaning any member can
               edit issues, triage feedback, and manage comments. There is no
@@ -207,12 +193,14 @@ export function GettingStartedDocsPage() {
             <ul>
               <li>
                 <strong>Coding needs no plan.</strong> Claude runs on your
-                machine, on your own Claude subscription — unlimited projects,
+                machine, on your own Claude subscription — unlimited boards,
                 repos, and coding sessions on every tier, including Free.
               </li>
               <li>
-                Public feedback boards are free on every tier; the embeddable
-                widget is where Pro starts.
+                Every tier includes the{` `}
+                <a href="/docs/widget/">feedback widget</a> — Free has one
+                widget, Pro has three plus the{` `}
+                <a href="/docs/feedback/">helpdesk</a>, Business is unlimited.
               </li>
               <li>
                 <strong>Self-hosting is free and unlimited</strong> — set{` `}

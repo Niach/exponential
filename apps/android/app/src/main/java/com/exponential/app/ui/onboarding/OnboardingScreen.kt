@@ -44,7 +44,7 @@ import com.exponential.app.ui.theme.glassCard
 
 // First-run onboarding, following the shared iOS/Android spec:
 //   1. Welcome — app name + one-line value prop + "Get started".
-//   2. Create your first project — project name + required repository picker
+//   2. Create your first board — board name + required repository picker
 //      (with inline GitHub connect when nothing is installed yet).
 //   3. Done — drops into the app.
 // One primary action per step; completing the create marks onboarding done
@@ -55,7 +55,7 @@ fun OnboardingScreen(
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
     val accountId by viewModel.accountId.collectAsStateWithLifecycle()
-    val workspaceId by viewModel.workspaceId.collectAsStateWithLifecycle()
+    val teamId by viewModel.teamId.collectAsStateWithLifecycle()
     val preparing by viewModel.preparing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val done by viewModel.done.collectAsStateWithLifecycle()
@@ -87,14 +87,14 @@ fun OnboardingScreen(
             ) { current ->
                 when (current) {
                     0 -> WelcomeStep(onContinue = { step = 1 })
-                    1 -> CreateProjectStep(
+                    1 -> CreateBoardStep(
                         accountId = accountId,
-                        workspaceId = workspaceId,
+                        teamId = teamId,
                         preparing = preparing,
                         error = error,
                         onRetry = { viewModel.prepare() },
-                        onCreated = { projectId ->
-                            viewModel.onProjectCreated(projectId)
+                        onCreated = { boardId ->
+                            viewModel.onBoardCreated(boardId)
                             step = 2
                         },
                     )
@@ -147,12 +147,12 @@ private fun WelcomeStep(onContinue: () -> Unit) {
     }
 }
 
-// Step 2 — Create your first project: name + optional repository (with inline
+// Step 2 — Create your first board: name + optional repository (with inline
 // GitHub connect inside the picker when no installation exists yet).
 @Composable
-private fun CreateProjectStep(
+private fun CreateBoardStep(
     accountId: String?,
-    workspaceId: String?,
+    teamId: String?,
     preparing: Boolean,
     error: String?,
     onRetry: () -> Unit,
@@ -163,14 +163,14 @@ private fun CreateProjectStep(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Create your first project",
+            "Create your first board",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Name your project — connecting a GitHub repository is optional.",
+            "Name your board — connecting a GitHub repository is optional.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
@@ -178,7 +178,7 @@ private fun CreateProjectStep(
         Spacer(Modifier.height(28.dp))
 
         when {
-            preparing || accountId == null || workspaceId == null -> {
+            preparing || accountId == null || teamId == null -> {
                 if (error != null) {
                     Text(
                         error,
@@ -204,9 +204,9 @@ private fun CreateProjectStep(
                 }
             }
             else -> {
-                CreateProjectForm(
+                CreateBoardForm(
                     accountId = accountId,
-                    workspaceId = workspaceId,
+                    teamId = teamId,
                     onCreated = onCreated,
                     minimal = true,
                 )
@@ -242,7 +242,7 @@ private fun DoneStep(onFinish: () -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Your project is ready.",
+            "Your board is ready.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,

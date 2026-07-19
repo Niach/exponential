@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label"
 // Self-service account deletion (store policy: users must be able to delete
 // their account without emailing support; the native apps expose the same
 // users.deleteAccount mutation). Type-your-email confirm mirrors the
-// workspace-delete danger zone.
+// team-delete danger zone.
 export function DeleteAccountSection() {
   const { data: session } = useSession()
   const email = session?.user?.email ?? ``

@@ -2,18 +2,18 @@ package com.exponential.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.UpdateGate
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.defaultWorkspaceId
+import com.exponential.app.domain.defaultTeamId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -45,37 +45,37 @@ class AppViewModel @Inject constructor(
     private val syncManager: SyncManager,
     private val pushTokenManager: PushTokenManager,
     private val databaseHolder: DatabaseHolder,
-    private val workspaceSelection: WorkspaceSelection,
+    private val teamSelection: TeamSelection,
     private val updateGate: UpdateGate,
 ) : ViewModel() {
 
     init {
-        // Workspace selection is a global StateFlow; when the active account
+        // Team selection is a global StateFlow; when the active account
         // changes (switch, or login re-keying a pending id to a per-user id) the
-        // old selected workspace id belongs to a different DB. Clear it so the
+        // old selected team id belongs to a different DB. Clear it so the
         // new account resolves its own default (drop(1) skips the initial value).
         viewModelScope.launch {
             // activeAccountId is a StateFlow (already conflated/distinct); drop(1)
             // skips the initial value so we only clear on an actual switch.
             auth.activeAccountId
                 .drop(1)
-                .collect { workspaceSelection.clearSelection() }
+                .collect { teamSelection.clearSelection() }
         }
-        // EXP-166/EXP-168: default-workspace bootstrap. selectedId starts null
-        // (and re-nulls on account switch / workspace deletion) while Agents +
+        // EXP-166/EXP-168: default-team bootstrap. selectedId starts null
+        // (and re-nulls on account switch / team deletion) while Agents +
         // Reviews gate on it — so resolve a default HERE (the app shell always
         // runs) instead of relying on the Issues tab having mounted. Priority:
-        // the workspace of the last-opened project (what the Issues root
-        // shows), else the first synced workspace (iOS AppNavigator parity).
+        // the team of the last-opened board (what the Issues root
+        // shows), else the first synced team (iOS AppNavigator parity).
         // Writes only while the selection is null, so explicit switches
-        // (Settings → Workspaces) and the onboarding/create-project selects are
+        // (Settings → Teams) and the onboarding/create-board selects are
         // never overridden.
         @OptIn(ExperimentalCoroutinesApi::class)
         viewModelScope.launch {
             combine(
                 auth.activeAccountId,
-                workspaceSelection.selectedId,
-                workspaceSelection.lastProjectVersion, // re-resolve after switcher picks
+                teamSelection.selectedId,
+                teamSelection.lastBoardVersion, // re-resolve after switcher picks
             ) { accountId, selected, _ -> accountId to selected }
                 .flatMapLatest { (accountId, selected) ->
                     if (accountId == null || selected != null) {
@@ -84,16 +84,16 @@ class AppViewModel @Inject constructor(
                         // The db derives from the SAME accountId emission —
                         // combining accountDatabaseFlow separately could pair a
                         // stale db with a newer account mid-switch and select a
-                        // workspace from the previous account's database.
+                        // team from the previous account's database.
                         val db = databaseHolder.database(forAccountId = accountId)
                         combine(
-                            db.workspaceDao().observeAll(),
-                            db.projectDao().observeAll(),
-                        ) { workspaces, projects ->
-                            accountId to defaultWorkspaceId(
-                                workspaces,
-                                projects,
-                                workspaceSelection.lastProject(accountId),
+                            db.teamDao().observeAll(),
+                            db.boardDao().observeAll(),
+                        ) { teams, boards ->
+                            accountId to defaultTeamId(
+                                teams,
+                                boards,
+                                teamSelection.lastBoard(accountId),
                             )
                         }
                     }
@@ -104,32 +104,32 @@ class AppViewModel @Inject constructor(
                     // resolve computed for an account that is no longer active
                     // must never write.
                     if (defaultId != null && auth.activeAccountId.value == accountId) {
-                        workspaceSelection.selectIfNull(defaultId)
+                        teamSelection.selectIfNull(defaultId)
                     }
                 }
         }
-        // Stale-selection guard (EXP-43 hardening): a deleted workspace leaves
+        // Stale-selection guard (EXP-43 hardening): a deleted team leaves
         // the global selection pointing at a row that no longer exists in Room
         // (Electric removes it), which future consumers of selectedId would
         // trip over. Clear it once the id is confirmed gone. The delay absorbs
         // legitimate transients — e.g. the cross-server Settings tap selects
-        // the target workspace BEFORE its account switch lands, so the id is
+        // the target team BEFORE its account switch lands, so the id is
         // briefly absent from the still-active DB; collectLatest cancels the
         // pending clear as soon as the id resolves (or db/selection change).
         @OptIn(ExperimentalCoroutinesApi::class)
         viewModelScope.launch {
             combine(
                 accountDatabaseFlow(auth, databaseHolder),
-                workspaceSelection.selectedId,
+                teamSelection.selectedId,
             ) { db, id -> db to id }
                 .flatMapLatest { (db, id) ->
                     if (db == null || id == null) flowOf(false)
-                    else db.workspaceDao().observeById(id).map { it == null }
+                    else db.teamDao().observeById(id).map { it == null }
                 }
                 .collectLatest { stale ->
                     if (!stale) return@collectLatest
                     delay(2_000)
-                    workspaceSelection.clearSelection()
+                    teamSelection.clearSelection()
                 }
         }
     }
@@ -180,34 +180,34 @@ class AppViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // The Issues tab root's current project: last-used on the active account
-    // (validated against the live Room table, so deleted/archived projects fall
-    // through), else the first project of the first workspace, else none. The
-    // lastProjectVersion counter re-runs the resolve after every last-used
+    // The Issues tab root's current board: last-used on the active account
+    // (validated against the live Room table, so deleted/archived boards fall
+    // through), else the first board of the first team, else none. The
+    // lastBoardVersion counter re-runs the resolve after every last-used
     // write — that's what swaps the root list in place after a switcher pick.
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val currentProject: StateFlow<ProjectEntity?> = combine(
+    private val currentBoard: StateFlow<BoardEntity?> = combine(
         accountDatabaseFlow(auth, databaseHolder),
         auth.activeAccountId,
-        workspaceSelection.lastProjectVersion,
+        teamSelection.lastBoardVersion,
     ) { db, accountId, _ -> db to accountId }
         .flatMapLatest { (db, accountId) ->
             if (db == null || accountId == null) flowOf(null)
             else combine(
-                db.projectDao().observeAll(),
-                db.workspaceDao().observeAll(),
-            ) { projects, workspaces ->
-                val lastUsed = workspaceSelection.lastProject(accountId)
-                projects.firstOrNull { it.id == lastUsed }
-                    ?: workspaces.firstNotNullOfOrNull { ws ->
-                        projects.firstOrNull { it.workspaceId == ws.id }
+                db.boardDao().observeAll(),
+                db.teamDao().observeAll(),
+            ) { boards, teams ->
+                val lastUsed = teamSelection.lastBoard(accountId)
+                boards.firstOrNull { it.id == lastUsed }
+                    ?: teams.firstNotNullOfOrNull { ws ->
+                        boards.firstOrNull { it.teamId == ws.id }
                     }
-                    ?: projects.firstOrNull()
+                    ?: boards.firstOrNull()
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val currentProjectId: StateFlow<String?> = currentProject
+    val currentBoardId: StateFlow<String?> = currentBoard
         .map { it?.id }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 

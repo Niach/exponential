@@ -9,7 +9,7 @@ import type { PullFile } from "@/lib/integrations/github-pr"
 const APP_ID = process.env.GITHUB_APP_ID
 const APP_SLUG = process.env.GITHUB_APP_SLUG
 const PRIVATE_KEY_B64 = process.env.GITHUB_APP_PRIVATE_KEY
-// The App's built-in OAuth credentials — powers the workspace claim flow (a
+// The App's built-in OAuth credentials — powers the team claim flow (a
 // TRANSIENT user token used once to enumerate /user/installations, never
 // stored). Optional: unset → clients fall back to the install-page round-trip.
 const OAUTH_CLIENT_ID = process.env.GITHUB_APP_CLIENT_ID
@@ -23,7 +23,7 @@ export function githubOAuthConfigured(): boolean {
   return githubAppConfigured() && Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET)
 }
 
-// The OAuth authorize hop for the workspace claim flow. Unlike the install
+// The OAuth authorize hop for the team claim flow. Unlike the install
 // page, this is a single lightweight consent screen (instant auto-redirect on
 // re-authorization) — GitHub Apps take no scopes here; the token's reach is
 // fixed by the App's permissions. `state` is the same signed single-use token
@@ -148,7 +148,7 @@ const TOKEN_SERVE_MARGIN_MS = 10 * 60_000
 
 // Mint an installation access token. When `repo` ("owner/name") is given the
 // mint body pins `repositories: [<bare name>]` so the token reaches EXACTLY
-// that repo — the invariant behind repositories.installationToken (a workspace
+// that repo — the invariant behind repositories.installationToken (a team
 // member must never receive a token covering the rest of the installation;
 // see the 2026-07-09 installation-id-leak incident). GitHub's `repositories`
 // field takes bare repo names — the owner is implied by the installation.
@@ -193,7 +193,7 @@ async function installationToken(
 }
 
 // A minted token plus the installation it came from — callers that gate on the
-// installation (workspace link checks) or heal a drifted stored id need both.
+// installation (team link checks) or heal a drifted stored id need both.
 // `expiresAt` is GitHub's REAL expiry (epoch ms) for the possibly-cache-served
 // token — never a synthetic now+TTL (EXP-73: the desktop schedules its ambient
 // git-credential refresh from this value).
@@ -218,7 +218,7 @@ export interface RepoInstallationToken {
 // even when the App still covers the repo through a known installation — e.g.
 // the App is installed on several accounts (org + user), or the repo's owner
 // login differs from the account the visible install is attributed to. Observed
-// in prod: workspace settings shows the repo connected, yet the desktop token
+// in prod: team settings shows the repo connected, yet the desktop token
 // mint 412s. When the live lookup misses we mint against the stored
 // installation id and VERIFY the token can actually reach the repo. A repo
 // genuinely dropped from the installation's selection now usually fails at the

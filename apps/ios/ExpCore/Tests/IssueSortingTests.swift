@@ -22,7 +22,7 @@ final class IssueSortingTests: XCTestCase {
     ) -> IssueEntity {
         IssueEntity(
             id: id,
-            projectId: "p1",
+            boardId: "p1",
             number: number,
             identifier: identifier,
             title: id,
@@ -53,7 +53,7 @@ final class IssueSortingTests: XCTestCase {
     }
 
     // Non-terminal: an overdue low-priority issue beats a non-overdue urgent
-    // one (web project-board.test.ts parity), and due-today is NOT overdue.
+    // one (web board-view.test.ts parity), and due-today is NOT overdue.
     func testOverdueBoostBeatsPriority() {
         let overdueLow = makeIssue(id: "overdue-low", number: 1, priority: .low, dueDate: "2026-07-01")
         let urgentNoDue = makeIssue(id: "urgent-no-due", number: 2, priority: .urgent)

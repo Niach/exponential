@@ -9,16 +9,16 @@ const PNG_BUFFER = Buffer.from(
   `base64`
 )
 
-async function createProject(page: Page, app: AppFixture) {
-  await page.getByLabel(`Create project`).click()
+async function createBoard(page: Page, app: AppFixture) {
+  await page.getByLabel(`Create board`).click()
 
   const dialog = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `Create project` }),
+    has: page.getByRole(`heading`, { name: `Create board` }),
   })
 
-  await dialog.getByLabel(`Name`).fill(app.projectName)
-  await expect(dialog.getByLabel(`Prefix`)).toHaveValue(app.projectPrefix)
-  await dialog.getByRole(`button`, { name: `Create project` }).click()
+  await dialog.getByLabel(`Name`).fill(app.boardName)
+  await expect(dialog.getByLabel(`Prefix`)).toHaveValue(app.boardPrefix)
+  await dialog.getByRole(`button`, { name: `Create board` }).click()
   await expect(dialog).toBeHidden()
 }
 
@@ -67,10 +67,10 @@ test(`creates and edits an issue through the shared issue editor`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createProject(page, app)
+  await createBoard(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()
@@ -208,10 +208,10 @@ test(`uploads create-time images, shows them in the footer rail, and removes the
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createProject(page, app)
+  await createBoard(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()
@@ -294,10 +294,10 @@ test(`removes uploaded images from the inline hover control`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createProject(page, app)
+  await createBoard(page, app)
 
   await expect(page).toHaveURL(
-    new RegExp(`/t/[^/]+/projects/${app.projectSlug}/?$`)
+    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
   )
 
   await page.getByRole(`button`, { name: `New Issue` }).click()

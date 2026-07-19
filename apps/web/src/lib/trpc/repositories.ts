@@ -3,11 +3,11 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, projects, repositories } from "@/db/schema"
+import { issues, boards, repositories } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
 import {
   fetchBranchDiff,
   githubAppConfigured,
@@ -25,7 +25,7 @@ import {
 import {
   assertCanManageRepos,
   assertRepoInstallationAccess,
-  isInstallationLinkedToWorkspace,
+  isInstallationLinkedToTeam,
 } from "@/lib/trpc/integrations"
 
 // assertCanManageRepos moved to integrations.ts (both routers need it and the
@@ -48,11 +48,11 @@ export function isForeignKeyViolation(err: unknown): boolean {
   return code === `23503` || causeCode === `23503`
 }
 
-// "repository backs N projects" — the CONFLICT message when a delete is blocked
-// by a project still pointing at the repo. A trashed project keeps its repo FK
+// "repository backs N boards" — the CONFLICT message when a delete is blocked
+// by a board still pointing at the repo. A trashed board keeps its repo FK
 // (restrict) but is hidden from the synced "in use by" chips, so name that case.
 export function repoInUseMessage(count: number): string {
-  return `Cannot remove — this repository backs ${count} project${count === 1 ? `` : `s`}. Retarget or delete those projects first (a project in the trash may still use it).`
+  return `Cannot remove — this repository backs ${count} board${count === 1 ? `` : `s`}. Retarget or delete those boards first (a board in the trash may still use it).`
 }
 
 const fullNameSchema = z
@@ -64,21 +64,21 @@ const fullNameSchema = z
 // Repo-backed capabilities (list/forIssue/branchDiff reads, JIT token minting)
 // reach into the backing GitHub repo. Member-gated: since v7 every membership
 // is an explicit invite (the self-service public join is gone), so the old
-// moderator-only clamp for self-joined public-workspace members is obsolete —
+// moderator-only clamp for self-joined public-team members is obsolete —
 // anonymous callers never reach these procedures at all.
-async function assertRepoCapability(userId: string, workspaceId: string) {
-  await assertWorkspaceMember(userId, workspaceId)
+async function assertRepoCapability(userId: string, teamId: string) {
+  await assertTeamMember(userId, teamId)
 }
 
 type Db = typeof db
 type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 
 // The exact `repositories.add` validation + upsert, reusable inside another
-// transaction (projects.create's inline connect path). Verifies the repo
-// resolves to a GitHub App installation LINKED to the target workspace — the
+// transaction (boards.create's inline connect path). Verifies the repo
+// resolves to a GitHub App installation LINKED to the target team — the
 // App JWT can reach every installation of the App, so this check (not mere
 // installed-ness) is what stops an owner binding an unrelated account's
-// private repo to their workspace. Upserts + un-archives, returns the
+// private repo to their team. Upserts + un-archives, returns the
 // repository id. Owner/admin + plan-cap checks are the caller's responsibility
 // (done before opening the tx). The persisted installation id is the
 // authoritative one resolved from GitHub, never the client-supplied claim.
@@ -86,14 +86,14 @@ export async function connectRepositoryInTx(
   tx: Tx,
   input: {
     userId: string
-    workspaceId: string
+    teamId: string
     fullName: string
     defaultBranch?: string
     private?: boolean
   }
 ): Promise<string> {
   const installationId = await assertRepoInstallationAccess(
-    input.workspaceId,
+    input.teamId,
     input.fullName
   )
 
@@ -122,7 +122,7 @@ export async function connectRepositoryInTx(
   const [inserted] = await tx
     .insert(repositories)
     .values({
-      workspaceId: input.workspaceId,
+      teamId: input.teamId,
       fullName: input.fullName,
       defaultBranch,
       private: input.private ?? false,
@@ -130,7 +130,7 @@ export async function connectRepositoryInTx(
       inaccessibleAt: null,
     })
     .onConflictDoNothing({
-      target: [repositories.workspaceId, repositories.fullName],
+      target: [repositories.teamId, repositories.fullName],
     })
     .returning({ id: repositories.id })
   if (inserted) return inserted.id
@@ -143,7 +143,7 @@ export async function connectRepositoryInTx(
     .set({ archivedAt: null, installationId, inaccessibleAt: null })
     .where(
       and(
-        eq(repositories.workspaceId, input.workspaceId),
+        eq(repositories.teamId, input.teamId),
         eq(repositories.fullName, input.fullName)
       )
     )
@@ -217,10 +217,10 @@ export async function healRepoDefaultBranches<
   )
 }
 
-// Project → repo resolution (v4): a project is backed by exactly one repo via
-// `projects.repositoryId`. Returns null only for dangling data (archived repo).
+// Board → repo resolution (v4): a board is backed by exactly one repo via
+// `boards.repositoryId`. Returns null only for dangling data (archived repo).
 // Shared by repositories.forIssue and steer.startSession's precondition.
-export async function resolveProjectRepository(projectId: string) {
+export async function resolveBoardRepository(boardId: string) {
   const { db } = await import(`@/db/connection`)
   const [row] = await db
     .select({
@@ -229,9 +229,9 @@ export async function resolveProjectRepository(projectId: string) {
       defaultBranch: repositories.defaultBranch,
       installationId: repositories.installationId,
     })
-    .from(projects)
-    .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
-    .where(and(eq(projects.id, projectId), isNull(repositories.archivedAt)))
+    .from(boards)
+    .innerJoin(repositories, eq(repositories.id, boards.repositoryId))
+    .where(and(eq(boards.id, boardId), isNull(repositories.archivedAt)))
     .limit(1)
   return row ?? null
 }
@@ -241,7 +241,7 @@ async function loadRepository(repositoryId: string) {
   const [repo] = await db
     .select({
       id: repositories.id,
-      workspaceId: repositories.workspaceId,
+      teamId: repositories.teamId,
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
       installationId: repositories.installationId,
@@ -257,7 +257,7 @@ async function loadRepository(repositoryId: string) {
 }
 
 // The Reviews queue's "everything else" source: open PRs listed live from
-// GitHub for every workspace repo. Short in-process cache so tab switches and
+// GitHub for every team repo. Short in-process cache so tab switches and
 // re-mounts don't hammer the GitHub API; busted by mergePull.
 const OPEN_PULLS_TTL_MS = 60_000
 interface CachedOpenPulls {
@@ -268,11 +268,11 @@ const openPullsCache = new Map<string, CachedOpenPulls>()
 
 // Resolve the App installation token for a repo row, honoring the same
 // link-gate as installationToken: a token is only used when the installation
-// serving the repo is still claimed by the repo's workspace. Returns null when
+// serving the repo is still claimed by the repo's team. Returns null when
 // no gated token is available (callers may still read public repos
 // unauthenticated / via GITHUB_TOKEN).
 async function resolveGatedRepoToken(repo: {
-  workspaceId: string
+  teamId: string
   fullName: string
   installationId: number | null
 }): Promise<string | null> {
@@ -282,8 +282,8 @@ async function resolveGatedRepoToken(repo: {
   })
   if (!resolved) return null
   if (
-    !(await isInstallationLinkedToWorkspace(
-      repo.workspaceId,
+    !(await isInstallationLinkedToTeam(
+      repo.teamId,
       resolved.installationId
     ))
   ) {
@@ -293,20 +293,20 @@ async function resolveGatedRepoToken(repo: {
 }
 
 export const repositoriesRouter = router({
-  // Member-readable (moderator-only on public workspaces): the workspace's
-  // repos + the projects each one backs (for the settings "in use by" chips
+  // Member-readable (moderator-only on public teams): the team's
+  // repos + the boards each one backs (for the settings "in use by" chips
   // and mobile pickers).
   list: authedProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+    .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertRepoCapability(ctx.session.user.id, input.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, input.teamId)
 
       const rawRepos = await ctx.db
         .select()
         .from(repositories)
         .where(
           and(
-            eq(repositories.workspaceId, input.workspaceId),
+            eq(repositories.teamId, input.teamId),
             isNull(repositories.archivedAt)
           )
         )
@@ -329,41 +329,41 @@ export const repositoriesRouter = router({
           .then(() => {})
       )
 
-      // Projects that point at these repos, computed from projects.repositoryId.
-      const projectRows = await ctx.db
+      // Boards that point at these repos, computed from boards.repositoryId.
+      const boardRows = await ctx.db
         .select({
-          id: projects.id,
-          name: projects.name,
-          slug: projects.slug,
-          repositoryId: projects.repositoryId,
+          id: boards.id,
+          name: boards.name,
+          slug: boards.slug,
+          repositoryId: boards.repositoryId,
         })
-        .from(projects)
+        .from(boards)
         .where(
           and(
-            eq(projects.workspaceId, input.workspaceId),
-            isNull(projects.archivedAt)
+            eq(boards.teamId, input.teamId),
+            isNull(boards.archivedAt)
           )
         )
 
       return repos.map((repo) => ({
         ...repo,
-        projects: projectRows
+        boards: boardRows
           .filter((p) => p.repositoryId === repo.id)
           .map((p) => ({ id: p.id, name: p.name, slug: p.slug })),
       }))
     }),
 
-  // Member-readable: every open pull request across the workspace's repos
+  // Member-readable: every open pull request across the team's repos
   // that is NOT already linked to an issue (those rows render from the synced
   // issues shape). Listed live from GitHub so PRs opened outside the issue
   // flow — PRs on other branches, manual PRs, external contributors —
   // still land in the Reviews queue.
   openPulls: authedProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+    .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertRepoCapability(ctx.session.user.id, input.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, input.teamId)
 
-      const cached = openPullsCache.get(input.workspaceId)
+      const cached = openPullsCache.get(input.teamId)
       if (cached && cached.expiresAt > Date.now()) {
         return { repos: cached.repos }
       }
@@ -372,13 +372,13 @@ export const repositoriesRouter = router({
         .select({
           id: repositories.id,
           fullName: repositories.fullName,
-          workspaceId: repositories.workspaceId,
+          teamId: repositories.teamId,
           installationId: repositories.installationId,
         })
         .from(repositories)
         .where(
           and(
-            eq(repositories.workspaceId, input.workspaceId),
+            eq(repositories.teamId, input.teamId),
             isNull(repositories.archivedAt)
           )
         )
@@ -389,10 +389,10 @@ export const repositoriesRouter = router({
       const linkedRows = await ctx.db
         .select({ prUrl: issues.prUrl })
         .from(issues)
-        .innerJoin(projects, eq(projects.id, issues.projectId))
+        .innerJoin(boards, eq(boards.id, issues.boardId))
         .where(
           and(
-            eq(projects.workspaceId, input.workspaceId),
+            eq(boards.teamId, input.teamId),
             isNotNull(issues.prUrl)
           )
         )
@@ -418,7 +418,7 @@ export const repositoriesRouter = router({
         })
       )
 
-      openPullsCache.set(input.workspaceId, {
+      openPullsCache.set(input.teamId, {
         expiresAt: Date.now() + OPEN_PULLS_TTL_MS,
         repos: results,
       })
@@ -427,7 +427,7 @@ export const repositoriesRouter = router({
 
   // Member-gated squash-merge for a pull request WITHOUT an issue link (the
   // issue-linked path is issues.mergePr, which also syncs the issue row).
-  // Same trust model as installationToken: the workspace's ownership of the
+  // Same trust model as installationToken: the team's ownership of the
   // repo row plus the installation link-gate authorizes the merge.
   mergePull: authedProcedure
     .input(
@@ -438,7 +438,7 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       const repo = await loadRepository(input.repositoryId)
-      await assertRepoCapability(ctx.session.user.id, repo.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, repo.teamId)
       if (!githubAppConfigured()) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -449,7 +449,7 @@ export const repositoriesRouter = router({
       if (!token) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (workspace settings → Repositories), then retry.`,
+          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
         })
       }
 
@@ -487,7 +487,7 @@ export const repositoriesRouter = router({
         throw err
       }
 
-      openPullsCache.delete(repo.workspaceId)
+      openPullsCache.delete(repo.teamId)
       return { merged: true }
     }),
 
@@ -497,22 +497,22 @@ export const repositoriesRouter = router({
   add: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         fullName: fullNameSchema,
         defaultBranch: z.string().min(1).max(255).optional(),
         private: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
+      await assertCanManageRepos(ctx.session.user.id, input.teamId)
 
       // The install-check + upsert + un-archive sequence is connectRepositoryInTx
-      // (shared with projects.create's inline connect) — call it, then load the
+      // (shared with boards.create's inline connect) — call it, then load the
       // full row to hand back.
       const repository = await ctx.db.transaction(async (tx) => {
         const repositoryId = await connectRepositoryInTx(tx, {
           userId: ctx.session.user.id,
-          workspaceId: input.workspaceId,
+          teamId: input.teamId,
           fullName: input.fullName,
           defaultBranch: input.defaultBranch,
           private: input.private,
@@ -527,13 +527,13 @@ export const repositoriesRouter = router({
       return { repository }
     }),
 
-  // Owner/admin: hard-delete. Blocked (CONFLICT) while any project still points
-  // at the repo — the `projects.repository_id` FK is `restrict`.
+  // Owner/admin: hard-delete. Blocked (CONFLICT) while any board still points
+  // at the repo — the `boards.repository_id` FK is `restrict`.
   remove: authedProcedure
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      await assertCanManageRepos(ctx.session.user.id, repo.workspaceId)
+      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
       try {
         await ctx.db
           .delete(repositories)
@@ -541,9 +541,9 @@ export const repositoriesRouter = router({
       } catch (err) {
         if (isForeignKeyViolation(err)) {
           const backing = await ctx.db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(eq(projects.repositoryId, input.repositoryId))
+            .select({ id: boards.id })
+            .from(boards)
+            .where(eq(boards.repositoryId, input.repositoryId))
           throw new TRPCError({
             code: `CONFLICT`,
             message: repoInUseMessage(backing.length),
@@ -554,14 +554,14 @@ export const repositoriesRouter = router({
       return { ok: true as const }
     }),
 
-  // The launcher's clone-target resolution: issue → project → repositoryId.
-  // Member-readable (moderator-only on public workspaces).
+  // The launcher's clone-target resolution: issue → board → repositoryId.
+  // Member-readable (moderator-only on public teams).
   forIssue: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertRepoCapability(ctx.session.user.id, issueCtx.workspaceId)
-      return resolveProjectRepository(issueCtx.projectId)
+      const issueCtx = await getIssueTeamContext(input.issueId)
+      await assertRepoCapability(ctx.session.user.id, issueCtx.teamId)
+      return resolveBoardRepository(issueCtx.boardId)
     }),
 
   // Member-gated middle tier of remote Changes visibility (§4.8, L18): the
@@ -571,8 +571,8 @@ export const repositoriesRouter = router({
   branchDiff: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertRepoCapability(ctx.session.user.id, issueCtx.workspaceId)
+      const issueCtx = await getIssueTeamContext(input.issueId)
+      await assertRepoCapability(ctx.session.user.id, issueCtx.teamId)
 
       const [issue] = await ctx.db
         .select({ identifier: issues.identifier })
@@ -581,7 +581,7 @@ export const repositoriesRouter = router({
         .limit(1)
       if (!issue?.identifier) return null
 
-      const repo = await resolveProjectRepository(issueCtx.projectId)
+      const repo = await resolveBoardRepository(issueCtx.boardId)
       if (!repo) return null
 
       const branch = issueBranchName(issue.identifier)
@@ -596,19 +596,19 @@ export const repositoriesRouter = router({
         fallbackInstallationId: repo.installationId,
       })
       // Link-gate (mirrors issues.prFiles): the installation serving this repo
-      // must still be claimed by the issue's workspace — a deliberately severed
+      // must still be claimed by the issue's team — a deliberately severed
       // GitHub connection must not keep exposing private-repo branch diffs. An
       // unresolved installation degrades to an unauthenticated public-repo read.
       if (
         resolved &&
-        !(await isInstallationLinkedToWorkspace(
-          issueCtx.workspaceId,
+        !(await isInstallationLinkedToTeam(
+          issueCtx.teamId,
           resolved.installationId
         ))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
       return fetchBranchDiff({
@@ -627,17 +627,17 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      // Team coding: any member of the repo's workspace may mint a JIT token
+      // Team coding: any member of the repo's team may mint a JIT token
       // (assertRepoCapability = membership, moderator-clamped on PUBLIC
-      // workspaces only — so on the public feedback board it's owner/moderator
-      // exclusively, while in a normal private workspace every teammate passes).
+      // teams only — so on the public feedback board it's owner/moderator
+      // exclusively, while in a normal private team every teammate passes).
       // Per-installer attribution is intentionally NOT required here: the repo
-      // is only present in this workspace because a member legitimately
+      // is only present in this team because a member legitimately
       // connected it, and connectRepositoryInTx already enforced
-      // assertRepoInstallationAccess at connect time. The workspace's ownership
+      // assertRepoInstallationAccess at connect time. The team's ownership
       // of the repo row is the authorization; requiring the caller to also be
       // the original installer would break coding for every other teammate.
-      await assertRepoCapability(ctx.session.user.id, repo.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, repo.teamId)
       if (!githubAppConfigured()) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -664,21 +664,21 @@ export const repositoriesRouter = router({
           )
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (workspace settings → Repositories), then retry.`,
+          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
         })
       }
       // Link-gate: the installation serving this repo must still be claimed by
-      // the repo's workspace — a workspace must not keep minting through a
+      // the repo's team — a team must not keep minting through a
       // GitHub account it never connected (or disconnected).
       if (
-        !(await isInstallationLinkedToWorkspace(
-          repo.workspaceId,
+        !(await isInstallationLinkedToTeam(
+          repo.teamId,
           resolved.installationId
         ))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
       const token = resolved.token

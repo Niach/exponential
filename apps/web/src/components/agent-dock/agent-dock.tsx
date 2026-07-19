@@ -3,7 +3,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import type { CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
 import { AgentSessionView } from "@/components/agent-session"
 import { cn } from "@/lib/utils"
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of every
-// running session in the workspace, with at most one expanded live viewer. It's
+// running session in the team, with at most one expanded live viewer. It's
 // the SOLE mount point for AgentSessionView; issue detail and the Agents page
 // only call openDock(). Renders nothing when there's nothing to show.
 
@@ -25,17 +25,17 @@ function RunningDot() {
 }
 
 export function AgentDock({
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
   currentUserId,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
   currentUserId: string
 }) {
   const dock = useAgentDock()
-  const { running } = useAgentsData(workspaceId)
-  const projects = useWorkspaceProjects(workspaceId)
+  const { running } = useAgentsData(teamId)
+  const boards = useTeamBoards(teamId)
 
   const expandedId = dock?.expandedSessionId ?? null
 
@@ -81,11 +81,11 @@ export function AgentDock({
     const issue = expandedSession.issueId
       ? ((expandedIssueRows ?? [])[0] as Issue | undefined)
       : undefined
-    const project = issue
-      ? projects.find((p) => p.id === issue.projectId)
+    const board = issue
+      ? boards.find((p) => p.id === issue.boardId)
       : undefined
-    return { session: expandedSession, issue, project, user: undefined }
-  }, [expandedSession, runningById, expandedIssueRows, projects])
+    return { session: expandedSession, issue, board, user: undefined }
+  }, [expandedSession, runningById, expandedIssueRows, boards])
 
   // The expanded row vanished entirely (hard-deleted) — auto-collapse.
   useEffect(() => {
@@ -109,7 +109,7 @@ export function AgentDock({
             key={expandedRow.session.id}
             session={expandedRow.session}
             currentUserId={currentUserId}
-            title={<SessionTitle row={expandedRow} workspaceSlug={workspaceSlug} />}
+            title={<SessionTitle row={expandedRow} teamSlug={teamSlug} />}
             onCollapse={() => dock?.collapseDock()}
           />
         </div>
@@ -134,19 +134,19 @@ export function AgentDock({
 
 function SessionTitle({
   row,
-  workspaceSlug,
+  teamSlug,
 }: {
   row: AgentSessionRow
-  workspaceSlug: string
+  teamSlug: string
 }) {
-  const { session, issue, project } = row
-  if (issue && project) {
+  const { session, issue, board } = row
+  if (issue && board) {
     return (
       <Link
-        to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
         params={{
-          workspaceSlug,
-          projectSlug: project.slug,
+          teamSlug,
+          boardSlug: board.slug,
           issueIdentifier: issue.identifier,
         }}
         className="font-mono hover:underline"

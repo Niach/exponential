@@ -23,28 +23,28 @@ struct ReviewEntry: Identifiable {
     var identifiers: [String] { issues.compactMap { $0.identifier } }
 }
 
-/// One project's review entries — Reviews groups by project like the other
-/// cross-project lists group by status.
+/// One board's review entries — Reviews groups by board like the other
+/// cross-board lists group by status.
 struct ReviewGroup: Identifiable {
-    let project: ProjectEntity
+    let board: BoardEntity
     let entries: [ReviewEntry]
-    var id: String { project.id }
+    var id: String { board.id }
 }
 
-/// "Reviews" (EXP-131): every issue in the ACTIVE workspace with an open PR,
+/// "Reviews" (EXP-131): every issue in the ACTIVE team with an open PR,
 /// collapsed to one entry per distinct PR (a batch PR appears once, not N
-/// times), grouped by project. Mirrors `MyIssuesViewModel`'s GRDB observation
-/// pattern — two independent, cancellable loops over issues + projects.
+/// times), grouped by board. Mirrors `MyIssuesViewModel`'s GRDB observation
+/// pattern — two independent, cancellable loops over issues + boards.
 @MainActor @Observable
 final class ReviewsViewModel {
     var issues: [IssueEntity] = []
-    var projects: [ProjectEntity] = []
+    var boards: [BoardEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
 
     private var issueTask: Task<Void, Never>?
-    private var projectTask: Task<Void, Never>?
+    private var boardTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -69,15 +69,15 @@ final class ReviewsViewModel {
             } catch {}
         }
 
-        // Projects resolve each entry's project (name/section) and scope the
-        // list to the active workspace (issues carry no workspace_id).
-        let projectObservation = ValueObservation.tracking { db in
-            try ProjectEntity.fetchAll(db)
+        // Boards resolve each entry's board (name/section) and scope the
+        // list to the active team (issues carry no team_id).
+        let boardObservation = ValueObservation.tracking { db in
+            try BoardEntity.fetchAll(db)
         }
-        projectTask = Task { [weak self] in
+        boardTask = Task { [weak self] in
             do {
-                for try await projects in projectObservation.values(in: pool) {
-                    self?.projects = projects
+                for try await boards in boardObservation.values(in: pool) {
+                    self?.boards = boards
                 }
             } catch {}
         }
@@ -86,19 +86,19 @@ final class ReviewsViewModel {
     func stopObserving() {
         issueTask?.cancel()
         issueTask = nil
-        projectTask?.cancel()
-        projectTask = nil
+        boardTask?.cancel()
+        boardTask = nil
     }
 
-    /// Review entries grouped by project, scoped to `workspaceId`. Entries
-    /// within a project are newest-first; project sections follow the sidebar's
-    /// `sortOrder`. Empty when no workspace is active.
-    func groups(workspaceId: String?) -> [ReviewGroup] {
-        guard let workspaceId else { return [] }
+    /// Review entries grouped by board, scoped to `teamId`. Entries
+    /// within a board are newest-first; board sections follow the sidebar's
+    /// `sortOrder`. Empty when no team is active.
+    func groups(teamId: String?) -> [ReviewGroup] {
+        guard let teamId else { return [] }
 
-        let workspaceProjects = projects.filter { $0.workspaceId == workspaceId }
-        let projectById = Dictionary(uniqueKeysWithValues: workspaceProjects.map { ($0.id, $0) })
-        let candidates = issues.filter { projectById[$0.projectId] != nil }
+        let teamBoards = boards.filter { $0.teamId == teamId }
+        let boardById = Dictionary(uniqueKeysWithValues: teamBoards.map { ($0.id, $0) })
+        let candidates = issues.filter { boardById[$0.boardId] != nil }
 
         // Collapse issues sharing a prUrl into one entry (fall back to the issue
         // id when prUrl is absent). Preserve first-seen order for determinism.
@@ -117,20 +117,20 @@ final class ReviewsViewModel {
             return ReviewEntry(id: key, issues: sorted)
         }
 
-        // Group entries by their representative's project.
-        var byProject: [String: [ReviewEntry]] = [:]
+        // Group entries by their representative's board.
+        var byBoard: [String: [ReviewEntry]] = [:]
         for entry in entries {
-            byProject[entry.representative.projectId, default: []].append(entry)
+            byBoard[entry.representative.boardId, default: []].append(entry)
         }
 
-        return workspaceProjects
+        return teamBoards
             .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
-            .compactMap { project in
-                guard let projectEntries = byProject[project.id], !projectEntries.isEmpty else { return nil }
-                let ordered = projectEntries.sorted {
+            .compactMap { board in
+                guard let boardEntries = byBoard[board.id], !boardEntries.isEmpty else { return nil }
+                let ordered = boardEntries.sorted {
                     Self.newerFirst($0.representative, $1.representative)
                 }
-                return ReviewGroup(project: project, entries: ordered)
+                return ReviewGroup(board: board, entries: ordered)
             }
     }
 

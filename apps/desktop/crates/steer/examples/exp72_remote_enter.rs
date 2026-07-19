@@ -112,7 +112,7 @@ struct HarnessTickets {
 impl PublisherTickets for HarnessTickets {
     fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
         let claims = format!(
-            r#"{{"sub":"desk-user","ws":"ws-72","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
+            r#"{{"sub":"desk-user","team":"team-72","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
         );
         let ticket = mint_ticket(&claims);
         Ok(Some(MintedTicket {
@@ -179,7 +179,7 @@ fn main() {
     // (apps/android AgentSessionViewModel.sendMessage — no client-side delay).
     let viewer_rt = tokio::runtime::Runtime::new().unwrap();
     let viewer_ticket = mint_ticket(&format!(
-        r#"{{"sub":"phone-user","ws":"ws-72","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
+        r#"{{"sub":"phone-user","team":"team-72","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
     ));
     let url = format!("ws://127.0.0.1:{port}/ws?ticket={viewer_ticket}");
     let _viewer = viewer_rt.spawn(async move {

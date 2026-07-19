@@ -1,4 +1,4 @@
-//! Project-board grouping — mirror of `apps/web/src/lib/project-board.ts`
+//! Board-view grouping — mirror of `apps/web/src/lib/board-view.ts`
 //! (masterplan-v3 §4.1/§4.6). Pure functions over [`Issue`] rows; the `ui`
 //! crate's `queries.rs` feeds them collection snapshots.
 
@@ -230,7 +230,7 @@ mod tests {
     fn issue_n(id: &str, number: i64, status: &str, priority: &str, due: Option<&str>) -> Issue {
         serde_json::from_value(json!({
             "id": id,
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": number,
             "identifier": format!("EXP-{id}"),
             "title": id,
@@ -250,7 +250,7 @@ mod tests {
     ) -> Issue {
         serde_json::from_value(json!({
             "id": id,
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": format!("EXP-{id}"),
             "title": id,

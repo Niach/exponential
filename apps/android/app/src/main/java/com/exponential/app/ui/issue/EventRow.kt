@@ -64,13 +64,13 @@ internal fun eventVerb(type: String): String = when (type) {
     "label_removed" -> "removed a label"
     "pr_opened" -> "opened a pull request"
     "pr_merged" -> "merged the pull request"
-    "project_moved" -> "moved this to another project"
+    "board_moved" -> "moved this to another board"
     else -> type.replace('_', ' ')
 }
 
 // A richer phrase for the events whose payload carries detail (EXP-169 —
 // mirrors iOS EventPhrases.swift). Missing payloads or unsynced lookup rows
-// degrade to the bare verb; project_moved (EXP-57) is self-contained. The
+// degrade to the bare verb; board_moved (EXP-57) is self-contained. The
 // user/label maps are deliberately non-defaulted: a call site that forgets
 // them must fail to compile, not silently render pseudonyms and bare verbs.
 internal fun eventPhrase(
@@ -78,7 +78,7 @@ internal fun eventPhrase(
     usersById: Map<String, UserEntity>,
     labelsById: Map<String, LabelEntity>,
 ): String {
-    // One parse per phrase — status_changed/project_moved read two keys.
+    // One parse per phrase — status_changed/board_moved read two keys.
     val payload = parsedPayload(event.payload)
     fun field(key: String): String? =
         (payload?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
@@ -107,11 +107,11 @@ internal fun eventPhrase(
             val verb = if (event.type == "pr_opened") "opened" else "merged"
             field("prNumber")?.let { "$verb PR #$it" } ?: eventVerb(event.type)
         }
-        "project_moved" -> {
+        "board_moved" -> {
             val from = field("fromIdentifier")
             val to = field("toIdentifier")
             if (from != null && to != null) {
-                "moved this to another project ($from → $to)"
+                "moved this to another board ($from → $to)"
             } else {
                 eventVerb(event.type)
             }

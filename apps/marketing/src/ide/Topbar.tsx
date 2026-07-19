@@ -1,4 +1,4 @@
-/* ─── 38px top bar: project pill · run widget · git cluster ─── */
+/* ─── 38px top bar: board pill · run widget · git cluster ─── */
 import { PROJECT } from "./data"
 import { useIde } from "./state"
 import { IcCheck, IcChevDown, IcChevsUpDown, IcCode, IcPlay } from "./icons"
@@ -8,8 +8,7 @@ export function Topbar() {
   return (
     <div className="ide-topbar">
       <button className="ide-proj" type="button">
-        {/* Project-type glyph, tinted with the project color — dev boards
-            get code brackets (tasks = kanban, feedback = megaphone). */}
+        {/* Board glyph, tinted with the board color. */}
         <IcCode size={14} style={{ color: PROJECT.color }} />
         <span className="ide-proj-name">{PROJECT.name}</span>
         <IcChevsUpDown size={12} className="ide-c-muted" />

@@ -32,11 +32,11 @@ export function supportTicketTitle(message: string): string {
 // — see lib/helpdesk/token.ts), so it is STABLE for the thread's whole life —
 // every email carries the same link — and nothing secret is stored on the
 // row. Callers are responsible for the Pro gate (assertCanUseHelpdesk) and
-// for checking workspaces.helpdesk_enabled.
+// for checking teams.helpdesk_enabled.
 export async function createSupportThreadInTx(
   tx: Tx,
   args: {
-    workspaceId: string
+    teamId: string
     title: string
     reporterEmail: string
     reporterName?: string | null
@@ -46,7 +46,7 @@ export async function createSupportThreadInTx(
   const [thread] = await tx
     .insert(supportThreads)
     .values({
-      workspaceId: args.workspaceId,
+      teamId: args.teamId,
       title: args.title,
       reporterEmail: args.reporterEmail,
       reporterName: args.reporterName ?? null,

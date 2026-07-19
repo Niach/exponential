@@ -7,7 +7,7 @@ import com.exponential.app.data.api.SearchIssueHit
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,19 +29,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 
-// Cross-project search (the Search tab), hybrid local + server:
+// Cross-board search (the Search tab), hybrid local + server:
 //   - Fast path: a pure client-side substring match over identifier + title
-//     across every project of the active account (local Room data, instant).
+//     across every board of the active account (local Room data, instant).
 //   - Augmentation: the server-side full-text `issues.search` (title +
 //     description + comment text) fires on the same debounced query, one call
-//     per workspace of the account, and appends whatever the local filter
+//     per team of the account, and appends whatever the local filter
 //     missed. Server errors degrade silently to local-only — typing is never
 //     blocked on the network.
 // The empty-query state shows a search hint (assigned issues live on the
 // "My Work" tab since EXP-58).
 
-/** Results under one project header, most recently updated project first. */
-data class SearchResultGroup(val project: ProjectEntity, val issues: List<IssueEntity>)
+/** Results under one board header, most recently updated board first. */
+data class SearchResultGroup(val board: BoardEntity, val issues: List<IssueEntity>)
 
 data class SearchState(
     // The debounced query the current groups were computed for; blank means
@@ -73,7 +73,7 @@ class SearchViewModel @Inject constructor(
     private val debouncedQuery = _query.debounce(250).distinctUntilChanged()
 
     private val issuesFlow = dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-    private val projectsFlow = dbFlow.scopedQuery(emptyList<ProjectEntity>()) { it.projectDao().observeAll() }
+    private val boardsFlow = dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
 
     /**
      * A server response pinned to the query it answered, so a slow response
@@ -81,28 +81,28 @@ class SearchViewModel @Inject constructor(
      */
     private data class ServerSearch(val query: String = "", val hits: List<SearchIssueHit> = emptyList())
 
-    // Server-backed "search everything". There is no single active workspace —
+    // Server-backed "search everything". There is no single active team —
     // this tab spans the whole account — so fan out one `issues.search` per
-    // distinct workspace id of the synced projects (typically one or two) and
+    // distinct team id of the synced boards (typically one or two) and
     // flatten. `transformLatest` cancels the in-flight round trip whenever the
-    // debounced query (or account/workspace set) changes; per-call failures
+    // debounced query (or account/team set) changes; per-call failures
     // collapse to "no extra hits".
     private val serverSearch: Flow<ServerSearch> = combine(
         auth.activeAccountId,
-        projectsFlow.map { projects -> projects.map { it.workspaceId }.distinct().sorted() }.distinctUntilChanged(),
+        boardsFlow.map { boards -> boards.map { it.teamId }.distinct().sorted() }.distinctUntilChanged(),
         debouncedQuery,
-    ) { accountId, workspaceIds, query -> Triple(accountId, workspaceIds, query.trim()) }
+    ) { accountId, teamIds, query -> Triple(accountId, teamIds, query.trim()) }
         .distinctUntilChanged()
-        .transformLatest { (accountId, workspaceIds, query) ->
+        .transformLatest { (accountId, teamIds, query) ->
             // Clear stale hits for the new query immediately (local-only view
             // renders while the round trip runs).
             emit(ServerSearch(query))
-            if (accountId == null || query.isEmpty() || workspaceIds.isEmpty()) return@transformLatest
+            if (accountId == null || query.isEmpty() || teamIds.isEmpty()) return@transformLatest
             val hits = coroutineScope {
-                workspaceIds.map { workspaceId ->
+                teamIds.map { teamId ->
                     async {
                         try {
-                            issuesApi.search(accountId, workspaceId, query)
+                            issuesApi.search(accountId, teamId, query)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -118,19 +118,19 @@ class SearchViewModel @Inject constructor(
 
     val state: StateFlow<SearchState> = combine(
         issuesFlow,
-        projectsFlow,
+        boardsFlow,
         debouncedQuery,
         serverSearch,
-    ) { issues, projects, query, server ->
+    ) { issues, boards, query, server ->
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             SearchState(query = "")
         } else {
-            val projectsById = projects.associateBy { it.id }
-            // Live projects only (the DAO already filters archived projects);
+            val boardsById = boards.associateBy { it.id }
+            // Live boards only (the DAO already filters archived boards);
             // archived issues are excluded here — observeAll includes them.
             val localMatches = issues.asSequence()
-                .filter { it.archivedAt == null && it.projectId in projectsById }
+                .filter { it.archivedAt == null && it.boardId in boardsById }
                 .filter {
                     it.title.contains(trimmed, ignoreCase = true) ||
                         it.identifier.contains(trimmed, ignoreCase = true)
@@ -153,10 +153,10 @@ class SearchViewModel @Inject constructor(
                     .mapNotNull { hit ->
                         val local = issuesById[hit.id]
                         when {
-                            local != null -> local.takeIf { it.archivedAt == null && it.projectId in projectsById }
-                            hit.projectId in projectsById -> placeholderIssue(hit)
-                            // No local project to group the row under (sync
-                            // lag / archived project) — drop it.
+                            local != null -> local.takeIf { it.archivedAt == null && it.boardId in boardsById }
+                            hit.boardId in boardsById -> placeholderIssue(hit)
+                            // No local board to group the row under (sync
+                            // lag / archived board) — drop it.
                             else -> null
                         }
                     }
@@ -166,15 +166,15 @@ class SearchViewModel @Inject constructor(
                 localMatches
             }
 
-            // Group by project, most recently updated match first.
+            // Group by board, most recently updated match first.
             val groups = LinkedHashMap<String, MutableList<IssueEntity>>()
             for (issue in matches) {
-                groups.getOrPut(issue.projectId) { mutableListOf() }.add(issue)
+                groups.getOrPut(issue.boardId) { mutableListOf() }.add(issue)
             }
             SearchState(
                 query = trimmed,
-                groups = groups.map { (projectId, list) ->
-                    SearchResultGroup(projectsById.getValue(projectId), list)
+                groups = groups.map { (boardId, list) ->
+                    SearchResultGroup(boardsById.getValue(boardId), list)
                 },
             )
         }
@@ -188,7 +188,7 @@ class SearchViewModel @Inject constructor(
  */
 private fun placeholderIssue(hit: SearchIssueHit): IssueEntity = IssueEntity(
     id = hit.id,
-    projectId = hit.projectId,
+    boardId = hit.boardId,
     number = hit.identifier.substringAfterLast('-').toIntOrNull() ?: 0,
     identifier = hit.identifier,
     title = hit.title,

@@ -9,7 +9,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issueStatusOrder
@@ -27,14 +27,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// "My Issues" (masterplan §5a): a fixed, built-in cross-project view of
+// "My Issues" (masterplan §5a): a fixed, built-in cross-board view of
 // everything assigned to the signed-in user on the active account, grouped by
-// status like the project board. No new column, no new shape, no filter
+// status like the board board. No new column, no new shape, no filter
 // machinery — pure client work over the already-synced issues shape.
 
 data class MyIssuesState(
     val groups: List<IssueGroup> = emptyList(),
-    val projectsById: Map<String, ProjectEntity> = emptyMap(),
+    val boardsById: Map<String, BoardEntity> = emptyMap(),
     val loaded: Boolean = false,
 )
 
@@ -56,11 +56,11 @@ class MyIssuesViewModel @Inject constructor(
                 } else {
                     combine(
                         db.issueDao().observeByAssignee(userId),
-                        db.projectDao().observeAll(),
+                        db.boardDao().observeAll(),
                         db.labelDao().observeAll(),
                         db.issueLabelDao().observeAllJoins(),
-                    ) { issues, projects, labels, joins ->
-                        buildState(issues, projects, labels, joins)
+                    ) { issues, boards, labels, joins ->
+                        buildState(issues, boards, labels, joins)
                     }
                 }
             }
@@ -68,18 +68,18 @@ class MyIssuesViewModel @Inject constructor(
 
     private fun buildState(
         issues: List<IssueEntity>,
-        projects: List<ProjectEntity>,
+        boards: List<BoardEntity>,
         labels: List<LabelEntity>,
         joins: List<IssueLabelEntity>,
     ): MyIssuesState {
-        val projectsById = projects.associateBy { it.id }
+        val boardsById = boards.associateBy { it.id }
         val labelsById = labels.associateBy { it.id }
         val joinsByIssue = joins.groupBy { it.issueId }
 
-        // Only issues in live (non-archived) projects; the DAO already
+        // Only issues in live (non-archived) boards; the DAO already
         // filtered archived issues and scoped to assignee = me.
         val decorated = issues
-            .filter { it.projectId in projectsById }
+            .filter { it.boardId in boardsById }
             .map { issue ->
                 IssueWithLabels(
                     issue = issue,
@@ -89,7 +89,7 @@ class MyIssuesViewModel @Inject constructor(
                 )
             }
 
-        // Canonical in-group order (EXP-38) — shared with the project board and
+        // Canonical in-group order (EXP-38) — shared with the board board and
         // the other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
         val groups = issueStatusOrder.map { status ->
             IssueGroup(
@@ -101,7 +101,7 @@ class MyIssuesViewModel @Inject constructor(
             )
         }.filter { it.issues.isNotEmpty() }
 
-        return MyIssuesState(groups = groups, projectsById = projectsById, loaded = true)
+        return MyIssuesState(groups = groups, boardsById = boardsById, loaded = true)
     }
 
     fun updateIssueStatus(issueId: String, status: IssueStatus) {

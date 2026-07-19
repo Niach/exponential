@@ -156,7 +156,7 @@ function fetchSteerConfigOnce(): Promise<SteerConfig> {
   return steerConfigPromise
 }
 
-// Exported for the workspace Agents page, which gates its Watch controls on
+// Exported for the team Agents page, which gates its Watch controls on
 // the same relay availability signal.
 export function useSteerConfig(): SteerConfig | null {
   const [config, setConfig] = useState<SteerConfig | null>(null)
@@ -833,7 +833,7 @@ export function AgentSessionView({
             </div>
           ) : live && perm === `view` ? (
             <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-              Watching — only workspace owners or the session owner can steer.
+              Watching — only team owners or the session owner can steer.
             </div>
           ) : null}
       </div>

@@ -2,7 +2,7 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// "My Work" (EXP-58): Inbox and My Issues merged into one project-independent
+/// "My Work" (EXP-58): Inbox and My Issues merged into one board-independent
 /// bottom-bar destination — the web UI's inbox + my-issues pairing — behind a
 /// glass-pill segmented control. The Inbox segment carries the unread count
 /// and hosts Mark all read; the segment choice survives relaunch via

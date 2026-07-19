@@ -25,10 +25,10 @@ use crate::hydrate::{
     tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
 };
 
-/// `workspaces` shape row. Workspaces are always private — the shape carries
+/// `teams` shape row. Teams are always private — the shape carries
 /// no `is_public`/`public_write_policy`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Workspace {
+pub struct Team {
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -41,11 +41,11 @@ pub struct Workspace {
     pub updated_at: Option<String>,
 }
 
-/// `projects` shape row.
+/// `boards` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Project {
+pub struct Board {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub name: String,
     #[serde(default)]
     pub slug: Option<String>,
@@ -53,17 +53,17 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
-    /// create time. `None` on pre-icon projects — consumers fall back to an
+    /// Curated icon name (`crate::contract::BOARD_ICON_VALUES`) chosen at
+    /// create time. `None` on pre-icon boards — consumers fall back to an
     /// attribute-derived glyph.
     #[serde(default)]
     pub icon: Option<String>,
-    /// `projects.repository_id` (v4 §3.1, nullable) — the one repository this
-    /// project clones/branches against, or `None` for a repo-less project.
+    /// `boards.repository_id` (v4 §3.1, nullable) — the one repository this
+    /// board clones/branches against, or `None` for a repo-less board.
     /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
-    /// Trash contract: protected projects (the bootstrap dogfood board) are
+    /// Trash contract: protected boards (the bootstrap dogfood board) are
     /// non-deletable/non-archivable/non-retypable — the server refuses, and
     /// clients disable the affordances from this flag. `None` on legacy rows.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
@@ -82,7 +82,7 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Issue {
     pub id: String,
-    pub project_id: String,
+    pub board_id: String,
     #[serde(deserialize_with = "tolerant_i64")]
     pub number: i64,
     pub identifier: String,
@@ -131,7 +131,7 @@ fn default_priority() -> IssuePriority {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Label {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub name: String,
     #[serde(default)]
     pub color: Option<String>,
@@ -149,7 +149,7 @@ pub struct IssueLabel {
     pub issue_id: String,
     pub label_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
 }
@@ -188,11 +188,11 @@ pub fn member_fallback_label(user_id: &str) -> String {
     format!("Member {}", tail.to_uppercase())
 }
 
-/// `workspace_members` shape row.
+/// `team_members` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct WorkspaceMember {
+pub struct TeamMember {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub user_id: String,
     #[serde(default)]
     pub role: Option<String>,
@@ -202,14 +202,14 @@ pub struct WorkspaceMember {
     pub updated_at: Option<String>,
 }
 
-/// `workspace_invites` shape row (requireAuth shape, §5.9). The server's
+/// `team_invites` shape row (requireAuth shape, §5.9). The server's
 /// columns allowlist excludes the bearer `token` from the shape (REV-4/14) —
 /// the invite link is built once from the create mutation's response, never
 /// from synced rows.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct WorkspaceInvite {
+pub struct TeamInvite {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     #[serde(default)]
     pub invited_by_id: Option<String>,
     #[serde(default)]
@@ -230,7 +230,7 @@ pub struct Comment {
     pub id: String,
     pub issue_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub author_id: Option<String>,
     /// GFM markdown (the cross-client interchange contract).
@@ -249,7 +249,7 @@ pub struct Comment {
 pub struct Attachment {
     pub id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
@@ -308,7 +308,7 @@ pub struct IssueEvent {
     pub id: String,
     pub issue_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub actor_user_id: Option<String>,
     #[serde(default, rename = "type")]
@@ -335,7 +335,7 @@ pub struct IssueSubscriber {
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
@@ -348,14 +348,14 @@ pub struct IssueSubscriber {
 
 /// `coding_sessions` shape row (the cross-client "coding now" badge).
 /// `issue_id` is NULL on batch-scoped (multi-issue) session rows — those
-/// carry only `workspace_id` (enforced by the tRPC writer).
+/// carry only `team_id` (enforced by the tRPC writer).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct CodingSession {
     pub id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
@@ -392,7 +392,7 @@ mod tests {
         // float for `sort_order`, TEXT forms elsewhere.
         let issue: Issue = serde_json::from_value(json!({
             "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": "EXP-1",
             "title": "First issue",
@@ -416,7 +416,7 @@ mod tests {
     fn issue_with_unknown_enum_value_is_kept_not_dropped() {
         let issue: Issue = serde_json::from_value(json!({
             "id": "i-1",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": "7",
             "identifier": "EXP-7",
             "title": "Future status",
@@ -429,14 +429,14 @@ mod tests {
     }
 
     #[test]
-    fn project_icon_hydrates_and_stray_public_columns_are_ignored() {
+    fn board_icon_hydrates_and_stray_public_columns_are_ignored() {
         // The glyph comes from `icon`; the dropped public-board columns
         // (`is_public`/`public_show_*`, like the older `type`) no longer
         // arrive — a stray one from an older server or a pre-drop local table
         // is simply ignored (row structs carry no deny_unknown_fields).
-        let project: Project = serde_json::from_value(json!({
+        let board: Board = serde_json::from_value(json!({
             "id": "p-1",
-            "workspace_id": "w-1",
+            "team_id": "w-1",
             "name": "Exponential",
             "icon": "megaphone",
             "is_public": "t",
@@ -444,11 +444,11 @@ mod tests {
             "public_show_activity": null
         }))
         .unwrap();
-        assert_eq!(project.icon.as_deref(), Some("megaphone"));
+        assert_eq!(board.icon.as_deref(), Some("megaphone"));
 
         // A row missing `icon` degrades to None (attribute-derived fallback).
-        let sparse: Project = serde_json::from_value(json!({
-            "id": "p-3", "workspace_id": "w-1", "name": "Sparse"
+        let sparse: Board = serde_json::from_value(json!({
+            "id": "p-3", "team_id": "w-1", "name": "Sparse"
         }))
         .unwrap();
         assert_eq!(sparse.icon, None);

@@ -78,9 +78,9 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.SharePrefill
-import com.exponential.app.ui.share.ShareProjectPickerSheet
-import com.exponential.app.ui.share.ShareProjectSelector
-import com.exponential.app.ui.share.WorkspaceProjects
+import com.exponential.app.ui.share.ShareBoardPickerSheet
+import com.exponential.app.ui.share.ShareBoardSelector
+import com.exponential.app.ui.share.TeamBoards
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
@@ -99,40 +99,40 @@ fun CreateIssueScreen(
     onBack: () -> Unit,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
-    // Share mode (system "Share into Exponential"): the screen has no project
+    // Share mode (system "Share into Exponential"): the screen has no board
     // route arg, so it renders a "Share to" destination selector at the TOP of
-    // the form (EXP-60) and re-points the ViewModel to the picked project.
-    // [shareGroups] are the account's workspaces→projects,
-    // [shareRecentProjectId] the last-used default.
+    // the form (EXP-60) and re-points the ViewModel to the picked board.
+    // [shareGroups] are the account's teams→boards,
+    // [shareRecentBoardId] the last-used default.
     shareMode: Boolean = false,
-    shareGroups: List<WorkspaceProjects> = emptyList(),
-    shareRecentProjectId: String? = null,
+    shareGroups: List<TeamBoards> = emptyList(),
+    shareRecentBoardId: String? = null,
     // True while the share picker VM is still loading [shareGroups] — gates
-    // the "no projects" empty state so it can't flash before the list arrives.
+    // the "no boards" empty state so it can't flash before the list arrives.
     shareGroupsLoading: Boolean = false,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
-    // EXP-50: solo workspaces (one human member) hide the assignee picker and
+    // EXP-50: solo teams (one human member) hide the assignee picker and
     // default the new issue to that member.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
-    val isSoloWorkspace = soloMemberId != null
+    val isSoloTeam = soloMemberId != null
 
-    // In share mode the ViewModel starts with no project; track the chosen one
-    // locally and re-point the VM to it (setProject re-scopes labels/members/
+    // In share mode the ViewModel starts with no board; track the chosen one
+    // locally and re-point the VM to it (setBoard re-scopes labels/members/
     // permissions and the create target).
-    var selectedProjectId by remember { mutableStateOf<String?>(null) }
-    // Seed the default once the project list arrives: last-used if it still
-    // exists, else the first project.
-    LaunchedEffect(shareGroups, shareRecentProjectId) {
-        if (!shareMode || selectedProjectId != null) return@LaunchedEffect
-        val allIds = shareGroups.flatMap { g -> g.projects.map { it.id } }
-        val default = shareRecentProjectId?.takeIf { it in allIds } ?: allIds.firstOrNull()
+    var selectedBoardId by remember { mutableStateOf<String?>(null) }
+    // Seed the default once the board list arrives: last-used if it still
+    // exists, else the first board.
+    LaunchedEffect(shareGroups, shareRecentBoardId) {
+        if (!shareMode || selectedBoardId != null) return@LaunchedEffect
+        val allIds = shareGroups.flatMap { g -> g.boards.map { it.id } }
+        val default = shareRecentBoardId?.takeIf { it in allIds } ?: allIds.firstOrNull()
         if (default != null) {
-            selectedProjectId = default
-            viewModel.setProject(default)
+            selectedBoardId = default
+            viewModel.setBoard(default)
         }
     }
 
@@ -153,14 +153,14 @@ fun CreateIssueScreen(
     var dueTimePickerOpen by remember { mutableStateOf(false) }
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var labelSheetOpen by remember { mutableStateOf(false) }
-    var projectSheetOpen by remember { mutableStateOf(false) }
+    var boardSheetOpen by remember { mutableStateOf(false) }
 
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
     val users = state.users
-    // In a solo workspace the picker is hidden, so seed (and keep) the assignee
-    // pinned to the lone member — including after a share-mode project switch
-    // re-scopes to another solo workspace.
+    // In a solo team the picker is hidden, so seed (and keep) the assignee
+    // pinned to the lone member — including after a share-mode board switch
+    // re-scopes to another solo team.
     LaunchedEffect(soloMemberId) {
         if (soloMemberId != null) assigneeId = soloMemberId
     }
@@ -173,7 +173,7 @@ fun CreateIssueScreen(
     val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() || pendingImages.isNotEmpty()
 
     // The share prefill is NOT consumed on entry: it lives in an app-singleton
-    // (WorkspaceSelection.pendingShare), so backing out and re-entering re-fills
+    // (TeamSelection.pendingShare), so backing out and re-entering re-fills
     // the form. It's consumed exactly once — on a successful create (below) or
     // an explicit discard.
     fun close(discarding: Boolean) {
@@ -193,8 +193,8 @@ fun CreateIssueScreen(
         if (!isCreating) confirmDiscard = true
     }
 
-    // In share mode a project must be chosen before the create can target it.
-    val canSubmit = title.isNotBlank() && !isCreating && (!shareMode || selectedProjectId != null)
+    // In share mode a board must be chosen before the create can target it.
+    val canSubmit = title.isNotBlank() && !isCreating && (!shareMode || selectedBoardId != null)
 
     val scope = rememberCoroutineScope()
     fun submit() {
@@ -233,8 +233,8 @@ fun CreateIssueScreen(
     }
 
     // #issue-ref autocomplete in the description editor (masterplan §5e):
-    // same-workspace candidates, newest first, from the target project's
-    // workspace. onOpen is a no-op — the editor shows the plain token while
+    // same-team candidates, newest first, from the target board's
+    // team. onOpen is a no-op — the editor shows the plain token while
     // editing (pills are read-mode only), so a tap can never happen here.
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val issueRefHandler = remember(issueRefCandidates) {
@@ -276,16 +276,16 @@ fun CreateIssueScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Destination first (EXP-60): in share mode the target project
+                // Destination first (EXP-60): in share mode the target board
                 // leads the form — a compact "Share to" card that opens the
-                // grouped picker sheet. Picking a project re-scopes the
+                // grouped picker sheet. Picking a board re-scopes the
                 // ViewModel (labels/permissions) and the create target.
                 if (shareMode) {
-                    ShareProjectSelector(
+                    ShareBoardSelector(
                         groups = shareGroups,
-                        selectedProjectId = selectedProjectId,
+                        selectedBoardId = selectedBoardId,
                         loading = shareGroupsLoading,
-                        onClick = { projectSheetOpen = true },
+                        onClick = { boardSheetOpen = true },
                     )
                 }
 
@@ -339,8 +339,8 @@ fun CreateIssueScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(priority.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    // EXP-50: hidden in a solo workspace (no one else to assign to).
-                    if (!isSoloWorkspace) {
+                    // EXP-50: hidden in a solo team (no one else to assign to).
+                    if (!isSoloTeam) {
                         MetaDivider()
                         MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
                             Icon(Icons.Filled.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
@@ -391,7 +391,7 @@ fun CreateIssueScreen(
                 }
 
                 // Labels (masterplan §3 client parity: every client supports
-                // labels at create). All workspace labels as colored-dot toggle
+                // labels at create). All team labels as colored-dot toggle
                 // chips + a "+ Label" chip opening the shared picker sheet —
                 // the same pattern as the post-create IssueMetadataEditor,
                 // toggling a local selection instead of issueLabels mutations.
@@ -470,17 +470,17 @@ fun CreateIssueScreen(
     }
     }
 
-    if (projectSheetOpen && shareMode) {
-        ShareProjectPickerSheet(
+    if (boardSheetOpen && shareMode) {
+        ShareBoardPickerSheet(
             groups = shareGroups,
-            selectedProjectId = selectedProjectId,
+            selectedBoardId = selectedBoardId,
             onSelect = { id ->
-                if (id != selectedProjectId) {
-                    selectedProjectId = id
-                    viewModel.setProject(id)
+                if (id != selectedBoardId) {
+                    selectedBoardId = id
+                    viewModel.setBoard(id)
                 }
             },
-            onDismiss = { projectSheetOpen = false },
+            onDismiss = { boardSheetOpen = false },
         )
     }
 
@@ -553,7 +553,7 @@ fun CreateIssueScreen(
 
     if (labelSheetOpen) {
         LabelPickerSheet(
-            workspaceLabels = state.labels,
+            teamLabels = state.labels,
             selectedLabelIds = selectedLabelIds,
             onToggle = { id, selected ->
                 selectedLabelIds = if (selected) selectedLabelIds - id else selectedLabelIds + id

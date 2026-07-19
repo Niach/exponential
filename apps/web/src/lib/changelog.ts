@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-teams-boards-helpdesk`,
+    date: `2026-07-19`,
+    title: `Boards, a simpler helpdesk, and a private-by-default product`,
+    summary: `Projects are now boards, the helpdesk moved to one team-level inbox, and public boards are gone.`,
+    body: `- **Projects are now boards** — same power, clearer name, everywhere: web, mobile, and the IDE.
+- **Public boards are gone** — nothing in a team is readable from outside anymore. The feedback widget is the one way outsiders reach you, and it's now included on every plan (1 widget on Free, 3 on Pro).
+- **One helpdesk per team** — flip a single switch under Settings → Feedback widget (Pro+) and every member shares the Support inbox. Tickets are standalone conversations with an email reply loop, and any ticket can be escalated into an issue on a board with one click.
+- **Simpler board creation** — no more board types. A board is a board; connect a repository when you want to code on it.`,
+  },
+  {
     id: `2026-07-whats-new-card`,
     date: `2026-07-17`,
     title: `A changelog, mobile coding, and support inboxes`,

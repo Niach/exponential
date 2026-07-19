@@ -19,10 +19,10 @@ final class AppDependencies: @unchecked Sendable {
     let authApi: AuthApi
     let issuesApi: IssuesApi
     let labelsApi: LabelsApi
-    let workspacesApi: WorkspacesApi
-    let projectsApi: ProjectsApi
-    let workspaceMembersApi: WorkspaceMembersApi
-    let workspaceInvitesApi: WorkspaceInvitesApi
+    let teamsApi: TeamsApi
+    let boardsApi: BoardsApi
+    let teamMembersApi: TeamMembersApi
+    let teamInvitesApi: TeamInvitesApi
     let pushTokensApi: PushTokensApi
     let integrationsApi: IntegrationsApi
     let issueImagesApi: IssueImagesApi
@@ -32,7 +32,7 @@ final class AppDependencies: @unchecked Sendable {
     let subscriptionsApi: SubscriptionsApi
     let onboardingApi: OnboardingApi
     // Server-only repositories registry (not a synced shape) — read + link
-    // management in workspace settings (masterplan §7a).
+    // management in team settings (masterplan §7a).
     let repositoriesApi: RepositoriesApi
     // Remote start + live steer viewer (relay-backed; graceful-off when the
     // instance has no relay configured).
@@ -110,10 +110,10 @@ final class AppDependencies: @unchecked Sendable {
         self.authApi = AuthApi(httpClient: httpClient, auth: auth)
         self.issuesApi = IssuesApi(trpc: trpc)
         self.labelsApi = LabelsApi(trpc: trpc)
-        self.workspacesApi = WorkspacesApi(trpc: trpc)
-        self.projectsApi = ProjectsApi(trpc: trpc)
-        self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
-        self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
+        self.teamsApi = TeamsApi(trpc: trpc)
+        self.boardsApi = BoardsApi(trpc: trpc)
+        self.teamMembersApi = TeamMembersApi(trpc: trpc)
+        self.teamInvitesApi = TeamInvitesApi(trpc: trpc)
         self.pushTokensApi = PushTokensApi(trpc: trpc)
         self.integrationsApi = IntegrationsApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)

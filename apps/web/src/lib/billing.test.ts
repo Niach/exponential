@@ -44,9 +44,9 @@ import {
   resolveEffectiveTier,
   assertSeatAvailable,
   assertWidgetCreatable,
-  getWorkspacePlan,
+  getTeamPlan,
   getUserPlan,
-  getWorkspaceUsage,
+  getTeamUsage,
   assertCanInviteMember,
   assertCanCreateWidget,
   assertCanUseHelpdesk,
@@ -97,7 +97,7 @@ describe(`getPlanLimits — the §3.2 target table`, () => {
   })
 })
 
-describe(`planFromSubscription — workspace-bound resolution`, () => {
+describe(`planFromSubscription — team-bound resolution`, () => {
   it(`null subscription → free defaults`, () => {
     expect(planFromSubscription(null)).toEqual({
       plan: `free`,
@@ -226,17 +226,17 @@ describe(`resolveEffectiveTier — comp floor (effective = max by rank)`, () => 
   })
 })
 
-describe(`getWorkspacePlan — workspace-bound lookup (no owner fan-out)`, () => {
-  // Promise.all order inside getWorkspacePlan: subscription select first,
-  // then the workspaces.comp_tier select.
+describe(`getTeamPlan — team-bound lookup (no owner fan-out)`, () => {
+  // Promise.all order inside getTeamPlan: subscription select first,
+  // then the teams.comp_tier select.
   function seedPlan(sub: unknown[], compTier: string | null) {
     selectResults.push(sub)
     selectResults.push([{ compTier }])
   }
 
-  it(`returns free when the workspace has no active subscription`, async () => {
+  it(`returns free when the team has no active subscription`, async () => {
     seedPlan([], null) // sub lookup: none, no comp
-    expect(await getWorkspacePlan(WS)).toEqual({
+    expect(await getTeamPlan(WS)).toEqual({
       plan: `free`,
       limits: getPlanLimits(`free`),
     })
@@ -244,14 +244,14 @@ describe(`getWorkspacePlan — workspace-bound lookup (no owner fan-out)`, () =>
 
   it(`resolves the plan + seats from the bound subscription row`, async () => {
     seedPlan([{ productId: PRO_ID, seats: 12 }], null)
-    const { plan, limits } = await getWorkspacePlan(WS)
+    const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`pro`)
     expect(limits.seats).toBe(12)
   })
 
-  it(`comp tier lifts a free workspace — limits follow the comped tier`, async () => {
+  it(`comp tier lifts a free team — limits follow the comped tier`, async () => {
     seedPlan([], `business`)
-    const { plan, limits } = await getWorkspacePlan(WS)
+    const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`business`)
     expect(limits.storageMb).toBe(51200)
     expect(limits.widgetConfigs).toBe(Infinity)
@@ -261,41 +261,41 @@ describe(`getWorkspacePlan — workspace-bound lookup (no owner fan-out)`, () =>
 
   it(`comp below the subscription tier changes nothing`, async () => {
     seedPlan([{ productId: BUSINESS_ID, seats: 8 }], `pro`)
-    const { plan, limits } = await getWorkspacePlan(WS)
+    const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`business`)
     expect(limits.seats).toBe(8)
   })
 
   it(`comp equal to the subscription tier keeps purchased seat gating`, async () => {
     seedPlan([{ productId: PRO_ID, seats: 4 }], `pro`)
-    const { plan, limits } = await getWorkspacePlan(WS)
+    const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`pro`)
     expect(limits.seats).toBe(4)
   })
 
   it(`comp above the subscription tier wins and lifts limits`, async () => {
     seedPlan([{ productId: PRO_ID, seats: 4 }], `unlimited`)
-    const { plan, limits } = await getWorkspacePlan(WS)
+    const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`unlimited`)
     expect(limits).toEqual(getPlanLimits(`unlimited`))
   })
 
   it(`garbage comp_tier values are ignored`, async () => {
     seedPlan([], `platinum`)
-    expect((await getWorkspacePlan(WS)).plan).toBe(`free`)
+    expect((await getTeamPlan(WS)).plan).toBe(`free`)
   })
 
-  it(`missing workspace row degrades to the creem tier alone`, async () => {
+  it(`missing team row degrades to the creem tier alone`, async () => {
     selectResults.push([]) // sub: none
-    selectResults.push([]) // workspace row: gone
-    expect((await getWorkspacePlan(WS)).plan).toBe(`free`)
+    selectResults.push([]) // team row: gone
+    expect((await getTeamPlan(WS)).plan).toBe(`free`)
   })
 
   it(`self-hosted short-circuits to unlimited without touching the db`, async () => {
     cloud.value = false
     // no selectResults pushed — a db hit would resolve to [] and misbehave,
     // proving the short-circuit fires first.
-    expect(await getWorkspacePlan(WS)).toEqual({
+    expect(await getTeamPlan(WS)).toEqual({
       plan: `unlimited`,
       limits: getPlanLimits(`unlimited`),
     })
@@ -317,28 +317,28 @@ describe(`getUserPlan — best purchased tier for the abuse guard`, () => {
   })
 })
 
-describe(`getWorkspaceUsage — agent-excluded member count`, () => {
+describe(`getTeamUsage — agent-excluded member count`, () => {
   it(`counts members, storage MB, and widget configs`, async () => {
-    // Order matches getWorkspaceUsage's Promise.all: members, storage, widgets.
+    // Order matches getTeamUsage's Promise.all: members, storage, widgets.
     selectResults.push([{ count: 1 }]) // members (already agent-excluded by SQL)
     selectResults.push([{ totalBytes: `${5 * 1024 * 1024}` }]) // 5 MB
     selectResults.push([{ count: 2 }]) // widget configs
-    const usage = await getWorkspaceUsage(WS)
+    const usage = await getTeamUsage(WS)
     expect(usage).toEqual({ members: 1, storageMb: 5, widgetConfigs: 2 })
   })
 })
 
-describe(`assertCanInviteMember — seat gate wired to workspace usage`, () => {
+describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
   async function seed(
     sub: unknown[],
     members: number,
     compTier: string | null = null
   ) {
-    // Promise.all([getWorkspacePlan, getWorkspaceUsage]) → sub select first,
+    // Promise.all([getTeamPlan, getTeamUsage]) → sub select first,
     // then the comp-tier select, then usage's three selects (members,
     // storage, widgets).
-    selectResults.push(sub) // getWorkspacePlan sub lookup
-    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
+    selectResults.push(sub) // getTeamPlan sub lookup
+    selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: members }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage
     selectResults.push([{ count: 0 }]) // usage widgets
@@ -349,7 +349,7 @@ describe(`assertCanInviteMember — seat gate wired to workspace usage`, () => {
     await expect(assertCanInviteMember(WS)).rejects.toThrow(TRPCError)
   })
 
-  it(`a comped workspace is never seat-gated (no purchased quantity)`, async () => {
+  it(`a comped team is never seat-gated (no purchased quantity)`, async () => {
     await seed([], 25, `pro`)
     await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
   })
@@ -376,29 +376,29 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
     widgets: number,
     compTier: string | null = null
   ) {
-    selectResults.push(sub) // getWorkspacePlan sub lookup
-    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
+    selectResults.push(sub) // getTeamPlan sub lookup
+    selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage
     selectResults.push([{ count: widgets }]) // usage widgets
   }
 
-  it(`free workspace can create its first widget (EXP-180)`, async () => {
+  it(`free team can create its first widget (EXP-180)`, async () => {
     await seed([], 0)
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
   })
 
-  it(`free workspace blocked at its 1-config cap`, async () => {
+  it(`free team blocked at its 1-config cap`, async () => {
     await seed([], 1)
     await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
 
-  it(`pro workspace can create a second widget (3-config cap)`, async () => {
+  it(`pro team can create a second widget (3-config cap)`, async () => {
     await seed([{ productId: PRO_ID, seats: 3 }], 1)
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
   })
 
-  it(`pro workspace blocked at its 3-config cap`, async () => {
+  it(`pro team blocked at its 3-config cap`, async () => {
     await seed([{ productId: PRO_ID, seats: 3 }], 3)
     await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
@@ -411,8 +411,8 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
 
 describe(`assertCanUseHelpdesk — server-side Pro gate`, () => {
   function seedPlan(sub: unknown[], compTier: string | null = null) {
-    selectResults.push(sub) // getWorkspacePlan sub lookup
-    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
+    selectResults.push(sub) // getTeamPlan sub lookup
+    selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
   }
 
   it(`pure gate: free throws the plan-limit error, paid tiers pass`, () => {
@@ -425,12 +425,12 @@ describe(`assertCanUseHelpdesk — server-side Pro gate`, () => {
     expect(() => assertHelpdeskUsable(`unlimited`)).not.toThrow()
   })
 
-  it(`free workspace cannot use the helpdesk`, async () => {
+  it(`free team cannot use the helpdesk`, async () => {
     seedPlan([])
     await expect(assertCanUseHelpdesk(WS)).rejects.toThrow(/Pro and Business/)
   })
 
-  it(`pro workspace can`, async () => {
+  it(`pro team can`, async () => {
     seedPlan([{ productId: PRO_ID, seats: 3 }])
     await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
   })
@@ -446,20 +446,20 @@ describe(`assertCanUseHelpdesk — server-side Pro gate`, () => {
   })
 })
 
-describe(`assertWithinStorageLimit — per-workspace storage budget`, () => {
+describe(`assertWithinStorageLimit — per-team storage budget`, () => {
   async function seed(
     sub: unknown[],
     usedMb: number,
     compTier: string | null = null
   ) {
-    selectResults.push(sub) // getWorkspacePlan sub lookup
-    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
+    selectResults.push(sub) // getTeamPlan sub lookup
+    selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `${usedMb * 1024 * 1024}` }]) // storage
     selectResults.push([{ count: 0 }]) // widgets
   }
 
-  it(`free workspace blocked once an upload would exceed 250 MB`, async () => {
+  it(`free team blocked once an upload would exceed 250 MB`, async () => {
     await seed([], 250)
     await expect(assertWithinStorageLimit(WS, 1)).rejects.toThrow(TRPCError)
   })
@@ -469,7 +469,7 @@ describe(`assertWithinStorageLimit — per-workspace storage budget`, () => {
     await expect(assertWithinStorageLimit(WS, 1024)).resolves.toBeUndefined()
   })
 
-  it(`free workspace allows an upload that fits`, async () => {
+  it(`free team allows an upload that fits`, async () => {
     await seed([], 10)
     await expect(assertWithinStorageLimit(WS, 1024)).resolves.toBeUndefined()
   })

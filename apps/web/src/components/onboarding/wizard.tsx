@@ -1,9 +1,9 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { FolderKanban, Github, Sparkles, X } from "lucide-react"
-import type { ProjectIcon } from "@exp/db-schema/domain"
+import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
-import { useCreateProject } from "@/hooks/use-create-project"
+import { useCreateBoard } from "@/hooks/use-create-board"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -20,25 +20,25 @@ import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
-import { derivePrefix } from "@/lib/project"
+import { derivePrefix } from "@/lib/board"
 
 // Onboarding: one form — name/prefix/icon/color and an optional repository.
 // A repository is never required, which is what makes onboarding possible on
 // instances without a GitHub App. Invited users never reach onboarding (they
-// land in the shared workspace).
+// land in the shared team).
 export function OnboardingWizard({
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
 }) {
   const navigate = useNavigate()
-  const { createProject } = useCreateProject()
+  const { createBoard } = useCreateBoard()
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
-  const [icon, setIcon] = useState<ProjectIcon>(`code`)
+  const [icon, setIcon] = useState<BoardIcon>(`code`)
   const [showRepo, setShowRepo] = useState(false)
   const [repo, setRepo] = useState<PickerRepo | null>(null)
   const [saving, setSaving] = useState(false)
@@ -58,8 +58,8 @@ export function OnboardingWizard({
     setSaving(true)
     setError(null)
     setLimitError(null)
-    const result = await createProject({
-      workspaceId,
+    const result = await createBoard({
+      teamId,
       name,
       prefix,
       color,
@@ -74,7 +74,7 @@ export function OnboardingWizard({
     })
     if (result.ok) {
       await trpc.onboarding.complete.mutate()
-      navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug } })
+      navigate({ to: `/t/$teamSlug`, params: { teamSlug } })
       return
     }
     if (result.error.kind === `planLimit`) {
@@ -94,19 +94,19 @@ export function OnboardingWizard({
               <FolderKanban className="size-6 text-primary" />
             </div>
             <CardTitle className="text-xl">
-              Create your first project
+              Create your first board
             </CardTitle>
             <CardDescription>
-              Projects hold your issues. Connect a GitHub repository to code on
+              Boards hold your issues. Connect a GitHub repository to code on
               them — everything can be changed later.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
               <div className="space-y-2">
-                <Label htmlFor="onb-project-name">Project name</Label>
+                <Label htmlFor="onb-board-name">Board name</Label>
                 <Input
-                  id="onb-project-name"
+                  id="onb-board-name"
                   value={name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. Backend API"
@@ -114,9 +114,9 @@ export function OnboardingWizard({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="onb-project-prefix">Prefix</Label>
+                <Label htmlFor="onb-board-prefix">Prefix</Label>
                 <Input
-                  id="onb-project-prefix"
+                  id="onb-board-prefix"
                   className="sm:w-28"
                   value={prefix}
                   // Alphanumeric only — the server floor rejects symbol
@@ -162,7 +162,7 @@ export function OnboardingWizard({
                   </Button>
                 </div>
               ) : showRepo ? (
-                <GithubRepoPicker workspaceId={workspaceId} onSelect={setRepo} />
+                <GithubRepoPicker teamId={teamId} onSelect={setRepo} />
               ) : (
                 <Button
                   type="button"
@@ -191,7 +191,7 @@ export function OnboardingWizard({
 
             <div className="flex justify-end">
               <Button onClick={() => void handleCreate()} disabled={!canCreate}>
-                {saving ? `Creating…` : `Create project`}
+                {saving ? `Creating…` : `Create board`}
               </Button>
             </div>
           </CardContent>

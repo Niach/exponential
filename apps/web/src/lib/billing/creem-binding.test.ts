@@ -21,8 +21,8 @@ vi.mock(`@/db/connection`, () => ({
 }))
 
 import {
-  extractWorkspaceBinding,
-  bindSubscriptionToWorkspace,
+  extractTeamBinding,
+  bindSubscriptionToTeam,
   bindingInputFromCheckout,
   bindingInputFromSubscription,
 } from "./creem-binding"
@@ -34,21 +34,21 @@ beforeEach(() => {
   updateCalls.length = 0
 })
 
-describe(`extractWorkspaceBinding`, () => {
-  it(`binds workspaceId + seats from metadata`, () => {
+describe(`extractTeamBinding`, () => {
+  it(`binds teamId + seats from metadata`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS, seats: 4, referenceId: `user_1` },
+        metadata: { teamId: WS, seats: 4, referenceId: `user_1` },
       })
-    ).toEqual({ creemSubscriptionId: SUB, workspaceId: WS, seats: 4 })
+    ).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 4 })
   })
 
   it(`coerces string seat metadata (Creem round-trips metadata as strings)`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS, seats: `7` },
+        metadata: { teamId: WS, seats: `7` },
       })?.seats
     ).toBe(7)
   })
@@ -57,9 +57,9 @@ describe(`extractWorkspaceBinding`, () => {
     // metadata is client-suppliable at checkout time; units is the quantity
     // Creem actually charged for. A forged metadata.seats must never win.
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS, seats: 1000 },
+        metadata: { teamId: WS, seats: 1000 },
         units: 1,
       })?.seats
     ).toBe(1)
@@ -67,9 +67,9 @@ describe(`extractWorkspaceBinding`, () => {
 
   it(`falls back to the entity units when metadata has no seats`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS },
+        metadata: { teamId: WS },
         units: 3,
       })?.seats
     ).toBe(3)
@@ -77,25 +77,25 @@ describe(`extractWorkspaceBinding`, () => {
 
   it(`defaults seats to 1 when neither metadata nor units carry a count`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS },
+        metadata: { teamId: WS },
       })?.seats
     ).toBe(1)
   })
 
   it(`is not bindable without a subscription id`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: null,
-        metadata: { workspaceId: WS, seats: 2 },
+        metadata: { teamId: WS, seats: 2 },
       })
     ).toBeNull()
   })
 
-  it(`is not bindable without a workspaceId in metadata`, () => {
+  it(`is not bindable without a teamId in metadata`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
         metadata: { seats: 2, referenceId: `user_1` },
       })
@@ -104,9 +104,9 @@ describe(`extractWorkspaceBinding`, () => {
 
   it(`ignores non-positive / non-integer seat values`, () => {
     expect(
-      extractWorkspaceBinding({
+      extractTeamBinding({
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS, seats: 0 },
+        metadata: { teamId: WS, seats: 0 },
         units: -5,
       })?.seats
     ).toBe(1)
@@ -117,12 +117,12 @@ describe(`payload mappers`, () => {
   it(`maps a flattened checkout.completed event`, () => {
     const input = bindingInputFromCheckout({
       units: 5,
-      metadata: { workspaceId: WS, seats: 5, referenceId: `user_1` },
+      metadata: { teamId: WS, seats: 5, referenceId: `user_1` },
       subscription: { id: SUB },
     })
     expect(input).toEqual({
       creemSubscriptionId: SUB,
-      metadata: { workspaceId: WS, seats: 5, referenceId: `user_1` },
+      metadata: { teamId: WS, seats: 5, referenceId: `user_1` },
       units: 5,
     })
   })
@@ -130,38 +130,38 @@ describe(`payload mappers`, () => {
   it(`maps a flattened subscription.* event (units on the first item)`, () => {
     const input = bindingInputFromSubscription({
       id: SUB,
-      metadata: { workspaceId: WS, seats: 9 },
+      metadata: { teamId: WS, seats: 9 },
       items: [{ units: 9 }],
     })
     expect(input).toEqual({
       creemSubscriptionId: SUB,
-      metadata: { workspaceId: WS, seats: 9 },
+      metadata: { teamId: WS, seats: 9 },
       units: 9,
     })
   })
 })
 
-describe(`bindSubscriptionToWorkspace`, () => {
+describe(`bindSubscriptionToTeam`, () => {
   it(`commits the binding and returns it`, async () => {
     const commit = vi.fn(async () => {})
-    const result = await bindSubscriptionToWorkspace(
+    const result = await bindSubscriptionToTeam(
       {
         creemSubscriptionId: SUB,
-        metadata: { workspaceId: WS, seats: 6 },
+        metadata: { teamId: WS, seats: 6 },
       },
       commit
     )
-    expect(result).toEqual({ creemSubscriptionId: SUB, workspaceId: WS, seats: 6 })
+    expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 6 })
     expect(commit).toHaveBeenCalledExactlyOnceWith({
       creemSubscriptionId: SUB,
-      workspaceId: WS,
+      teamId: WS,
       seats: 6,
     })
   })
 
   it(`does not commit an unbindable payload`, async () => {
     const commit = vi.fn(async () => {})
-    const result = await bindSubscriptionToWorkspace(
+    const result = await bindSubscriptionToTeam(
       { creemSubscriptionId: SUB, metadata: { seats: 2 } },
       commit
     )
@@ -169,20 +169,20 @@ describe(`bindSubscriptionToWorkspace`, () => {
     expect(commit).not.toHaveBeenCalled()
   })
 
-  // The packet's core acceptance: a webhook event carrying metadata.workspaceId
-  // + units N ends with a creem_subscriptions row bound to that workspace with
+  // The packet's core acceptance: a webhook event carrying metadata.teamId
+  // + units N ends with a creem_subscriptions row bound to that team with
   // seats=N. Exercised through the default DB commit path (db mocked above).
-  it(`writes workspaceId + seats=N to creem_subscriptions on the default path`, async () => {
+  it(`writes teamId + seats=N to creem_subscriptions on the default path`, async () => {
     const event = bindingInputFromCheckout({
       units: 8,
-      metadata: { workspaceId: WS, referenceId: `user_1` },
+      metadata: { teamId: WS, referenceId: `user_1` },
       subscription: { id: SUB },
     })
-    const result = await bindSubscriptionToWorkspace(event)
+    const result = await bindSubscriptionToTeam(event)
 
-    expect(result).toEqual({ creemSubscriptionId: SUB, workspaceId: WS, seats: 8 })
+    expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 8 })
     expect(updateCalls).toHaveLength(1)
-    expect(updateCalls[0].values).toEqual({ workspaceId: WS, seats: 8 })
+    expect(updateCalls[0].values).toEqual({ teamId: WS, seats: 8 })
     // A where-clause (keyed on creemSubscriptionId) is always applied — never a
     // table-wide update.
     expect(updateCalls[0].where).toBeDefined()

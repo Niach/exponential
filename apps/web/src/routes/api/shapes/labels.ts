@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getUserWorkspaceIds,
-} from "@/lib/workspace-membership"
+  getUserTeamIds,
+} from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 export const Route = createFileRoute(`/api/shapes/labels`)({
@@ -12,8 +12,8 @@ export const Route = createFileRoute(`/api/shapes/labels`)({
         table: `labels`,
         getWhere: async (userId) => {
           if (userId) {
-            const workspaceIds = await getUserWorkspaceIds(userId)
-            return buildWhereClause(`workspace_id`, workspaceIds)
+            const teamIds = await getUserTeamIds(userId)
+            return buildWhereClause(`team_id`, teamIds)
           }
           // Anonymous callers sync nothing (impossible-match sentinel).
           return buildWhereClause(`id`, [])

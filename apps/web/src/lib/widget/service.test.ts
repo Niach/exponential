@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // Locks EXP-53 + EXP-50 on the widget submit path: after the transaction
-// commits, every human workspace member is notified via
-// fireAndForgetNewIssueNotify (issue_created); in a solo workspace the issue
+// commits, every human team member is notified via
+// fireAndForgetNewIssueNotify (issue_created); in a solo team the issue
 // is inserted with the sole human member as assignee (subscribed as
 // `assignee`, NO assignment notification — issue_created already covers it).
 
@@ -99,7 +99,7 @@ vi.mock(`@/lib/storage`, () => ({
   uploadObject: vi.fn(async () => undefined),
   deleteObject: vi.fn(async () => undefined),
 }))
-vi.mock(`@/lib/workspace-membership`, () => ({
+vi.mock(`@/lib/team-membership`, () => ({
   getSoleHumanMemberId: h.getSoleHumanMemberId,
 }))
 vi.mock(`@/lib/integrations/subscriptions`, () => ({
@@ -123,33 +123,33 @@ import {
   effectiveWidgetModes,
   requestedWidgetModes,
   WidgetRequestError,
-  type WidgetConfigWithProject,
+  type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
 
 const config = {
   id: `cfg-1`,
-  workspaceId: `ws-1`,
-  projectId: `proj-1`,
+  teamId: `ws-1`,
+  boardId: `proj-1`,
   widgetUserId: `widget-bot`,
   publicKey: `expw_test`,
   enabled: true,
   allowedDomains: [],
   formConfig: null,
-  projectSlug: `board`,
-  projectName: `Board`,
-  projectDeletedAt: null,
-  projectArchivedAt: null,
-  workspaceSlug: `acme`,
-  workspaceHelpdeskEnabled: false,
-} as unknown as WidgetConfigWithProject
+  boardSlug: `board`,
+  boardName: `Board`,
+  boardDeletedAt: null,
+  boardArchivedAt: null,
+  teamSlug: `acme`,
+  teamHelpdeskEnabled: false,
+} as unknown as WidgetConfigWithBoard
 
-// A config whose support mode is fully live (workspace helpdesk on, plan gate
+// A config whose support mode is fully live (team helpdesk on, plan gate
 // mocked green).
 const supportConfig = {
   ...config,
   formConfig: { modes: [`feedback`, `support`] },
-  workspaceHelpdeskEnabled: true,
-} as unknown as WidgetConfigWithProject
+  teamHelpdeskEnabled: true,
+} as unknown as WidgetConfigWithBoard
 
 function submitForm(): FormData {
   const form = new FormData()
@@ -170,7 +170,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     h.fireAndForgetAssignmentNotify.mockClear()
   })
 
-  it(`solo workspace: auto-assigns the sole member, subscribes them as assignee, fires only issue_created`, async () => {
+  it(`solo team: auto-assigns the sole member, subscribes them as assignee, fires only issue_created`, async () => {
     h.getSoleHumanMemberId.mockResolvedValue(`member-1`)
 
     const result = await createWidgetSubmission({
@@ -187,7 +187,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     expect(h.ensureSubscribed).toHaveBeenCalledWith(tx, {
       issueId: result.issueId,
       userId: `member-1`,
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
       source: `assignee`,
     })
 
@@ -199,7 +199,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
   })
 
-  it(`multi-member workspace: no assignee, no assignee subscription, members still notified`, async () => {
+  it(`multi-member team: no assignee, no assignee subscription, members still notified`, async () => {
     const result = await createWidgetSubmission({
       config,
       formData: submitForm(),
@@ -233,7 +233,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   // the config fetch races the first open), so the server must enforce the
   // board owner's policy itself.
   describe(`emailRequired enforcement`, () => {
-    const requiredConfig: WidgetConfigWithProject = {
+    const requiredConfig: WidgetConfigWithBoard = {
       ...config,
       formConfig: { emailRequired: true },
     }
@@ -323,7 +323,7 @@ describe(`createWidgetSupportSubmission`, () => {
 
     expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
     expect(h.createSupportThreadInTx.mock.calls[0][1]).toMatchObject({
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
       title: `My login is broken`,
       reporterEmail: `reporter@example.com`,
     })
@@ -342,7 +342,7 @@ describe(`createWidgetSupportSubmission`, () => {
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: `reporter@example.com`,
-        projectName: `Board`,
+        boardName: `Board`,
         threadUrl: `https://app.test/support/tok-minted`,
       })
     )
@@ -368,11 +368,11 @@ describe(`createWidgetSupportSubmission`, () => {
     expect(h.inserts).toHaveLength(0)
   })
 
-  it(`rejects when the workspace helpdesk is off`, async () => {
+  it(`rejects when the team helpdesk is off`, async () => {
     const stale = {
       ...supportConfig,
-      workspaceHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithProject
+      teamHelpdeskEnabled: false,
+    } as unknown as WidgetConfigWithBoard
     await expect(
       createWidgetSupportSubmission({
         config: stale,
@@ -419,8 +419,8 @@ describe(`createWidgetSupportSubmission`, () => {
   it(`a support ticket still files while the FEEDBACK board is trashed`, async () => {
     const feedbackTrashed = {
       ...supportConfig,
-      projectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
+      boardDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithBoard
 
     await createWidgetSupportSubmission({
       config: feedbackTrashed,
@@ -443,7 +443,7 @@ describe(`createWidgetSupportSubmission`, () => {
     const supportOnly = {
       ...supportConfig,
       formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     await expect(
       createWidgetSubmission({
         config: supportOnly,
@@ -456,11 +456,11 @@ describe(`createWidgetSupportSubmission`, () => {
   it(`a board-less (support-only) widget refuses feedback POSTs`, async () => {
     const boardless = {
       ...supportConfig,
-      projectId: null,
-      projectName: null,
-      projectSlug: null,
+      boardId: null,
+      boardName: null,
+      boardSlug: null,
       formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     await expect(
       createWidgetSubmission({
         config: boardless,
@@ -477,7 +477,7 @@ describe(`createWidgetSupportSubmission`, () => {
       userAgent: null,
     })
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ projectName: boardless.name })
+      expect.objectContaining({ boardName: boardless.name })
     )
   })
 })
@@ -496,15 +496,15 @@ describe(`widget modes`, () => {
     const junk = {
       ...config,
       formConfig: { modes: [`support`, `support`, `roadmap`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     expect(requestedWidgetModes(junk)).toEqual([`support`])
   })
 
-  it(`drops support when the workspace helpdesk is off, keeping feedback`, async () => {
+  it(`drops support when the team helpdesk is off, keeping feedback`, async () => {
     const stale = {
       ...supportConfig,
-      workspaceHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithProject
+      teamHelpdeskEnabled: false,
+    } as unknown as WidgetConfigWithBoard
     expect(await effectiveWidgetModes(stale)).toEqual([`feedback`])
   })
 
@@ -513,15 +513,15 @@ describe(`widget modes`, () => {
     const supportOnly = {
       ...supportConfig,
       formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     expect(await effectiveWidgetModes(supportOnly)).toEqual([])
   })
 
   it(`a board-less widget never offers feedback`, async () => {
     const boardless = {
       ...supportConfig,
-      projectId: null,
-    } as unknown as WidgetConfigWithProject
+      boardId: null,
+    } as unknown as WidgetConfigWithBoard
     expect(await effectiveWidgetModes(boardless)).toEqual([`support`])
   })
 

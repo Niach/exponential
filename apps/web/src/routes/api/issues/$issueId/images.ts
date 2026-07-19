@@ -14,9 +14,9 @@ import {
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
 import {
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
 import { assertWithinStorageLimit } from "@/lib/billing"
 
 async function uploadIssueImage({
@@ -38,8 +38,8 @@ async function uploadIssueImage({
     })
   }
 
-  const issueContext = await getIssueWorkspaceContext(params.issueId)
-  await assertWorkspaceMember(session.user.id, issueContext.workspaceId)
+  const issueContext = await getIssueTeamContext(params.issueId)
+  await assertTeamMember(session.user.id, issueContext.teamId)
 
   const formData = await request.formData()
   const file = formData.get(`file`)
@@ -74,7 +74,7 @@ async function uploadIssueImage({
     })
   }
 
-  await assertWithinStorageLimit(issueContext.workspaceId, file.size)
+  await assertWithinStorageLimit(issueContext.teamId, file.size)
 
   // Browser file names arrive verbatim — strip control chars and clamp so the
   // stored display name is always header- and column-safe.
@@ -101,8 +101,8 @@ async function uploadIssueImage({
   try {
     await db.insert(attachments).values({
       id: attachmentId,
-      workspaceId: issueContext.workspaceId,
-      projectId: issueContext.projectId,
+      teamId: issueContext.teamId,
+      boardId: issueContext.boardId,
       issueId: params.issueId,
       uploaderId: session.user.id,
       filename,

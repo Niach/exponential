@@ -1,10 +1,10 @@
 package com.exponential.app.ui.share
 
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.data.db.WorkspaceEntity
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import androidx.lifecycle.ViewModel
@@ -16,44 +16,44 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
-data class WorkspaceProjects(val workspace: WorkspaceEntity, val projects: List<ProjectEntity>)
+data class TeamBoards(val team: TeamEntity, val boards: List<BoardEntity>)
 
 data class ShareTargetState(
-    val groups: List<WorkspaceProjects> = emptyList(),
-    val recentProjectId: String? = null,
+    val groups: List<TeamBoards> = emptyList(),
+    val recentBoardId: String? = null,
     val isLoading: Boolean = true,
 )
 
 /**
  * Data source for the single-screen share composer (`share-compose`): the
- * active account's workspaces → projects, with the most recently opened project
+ * active account's teams → boards, with the most recently opened board
  * surfaced as the default. Consumed by [com.exponential.app.ui.issue.CreateIssueScreen]
  * in share mode, which renders the "Share to" destination selector at the top
- * of the form (EXP-60), backed by [ShareProjectPickerSheet].
+ * of the form (EXP-60), backed by [ShareBoardPickerSheet].
  */
 @HiltViewModel
 class ShareTargetPickerViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
-    selection: WorkspaceSelection,
+    selection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     val state: StateFlow<ShareTargetState> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.workspaceDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         auth.activeAccountId,
-    ) { workspaces, projects, accountId ->
-        val byWorkspace = projects.groupBy { it.workspaceId }
-        val groups = workspaces.mapNotNull { ws ->
-            val ps = byWorkspace[ws.id].orEmpty()
-            if (ps.isEmpty()) null else WorkspaceProjects(ws, ps)
+    ) { teams, boards, accountId ->
+        val byTeam = boards.groupBy { it.teamId }
+        val groups = teams.mapNotNull { ws ->
+            val ps = byTeam[ws.id].orEmpty()
+            if (ps.isEmpty()) null else TeamBoards(ws, ps)
         }
         ShareTargetState(
             groups = groups,
-            recentProjectId = accountId?.let { selection.lastProject(it) },
+            recentBoardId = accountId?.let { selection.lastBoard(it) },
             isLoading = false,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())

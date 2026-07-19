@@ -17,7 +17,7 @@ class CodingSessionLivenessTest {
     private fun session(status: String, updatedAt: String) = CodingSessionEntity(
         id = "sess-1",
         issueId = "issue-1",
-        workspaceId = "ws-1",
+        teamId = "ws-1",
         userId = "user-1",
         status = status,
         startedAt = "2026-07-17T09:00:00Z",

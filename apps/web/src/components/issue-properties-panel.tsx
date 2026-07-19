@@ -7,7 +7,7 @@ import { priorities, PriorityIcon } from "@/components/issue-properties/priority
 import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
-import { ProjectPicker } from "@/components/issue-properties/project-picker"
+import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -26,7 +26,7 @@ export interface IssuePropertiesPanelProps {
   assigneeId: string | null
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   users: User[]
-  workspaceId: string
+  teamId: string
   selectedLabelIds: string[]
   onToggleLabel: (labelId: string) => void | Promise<void>
   dueDate: Date | undefined
@@ -35,14 +35,14 @@ export interface IssuePropertiesPanelProps {
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onDueTimeChange: (time: string | null) => void | Promise<void>
   onEndTimeChange: (time: string | null) => void | Promise<void>
-  projectName: string
-  projectColor: string
-  projectPrefix: string
-  // Move-to-project control (EXP-57). Optional: when projectId +
-  // onProjectChange are provided the read-only project chip becomes a picker
+  boardName: string
+  boardColor: string
+  boardPrefix: string
+  // Move-to-board control (EXP-57). Optional: when boardId +
+  // onBoardChange are provided the read-only board chip becomes a picker
   // (detail view); surfaces without a move affordance simply omit them.
-  projectId?: string
-  onProjectChange?: (projectId: string) => void | Promise<void>
+  boardId?: string
+  onBoardChange?: (boardId: string) => void | Promise<void>
   disabled?: boolean
   restrictModeration?: boolean
 }
@@ -131,14 +131,14 @@ function DueDateControl({
   )
 }
 
-function ProjectChip({
-  projectColor,
-  projectPrefix,
-  projectName,
+function BoardChip({
+  boardColor,
+  boardPrefix,
+  boardName,
   layout,
 }: Pick<
   IssuePropertiesPanelProps,
-  `projectColor` | `projectPrefix` | `projectName` | `layout`
+  `boardColor` | `boardPrefix` | `boardName` | `layout`
 >) {
   return (
     <div
@@ -150,9 +150,9 @@ function ProjectChip({
     >
       <div
         className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: projectColor }}
+        style={{ backgroundColor: boardColor }}
       />
-      {layout === `sidebar` ? projectName : projectPrefix}
+      {layout === `sidebar` ? boardName : boardPrefix}
     </div>
   )
 }
@@ -167,7 +167,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     assigneeId,
     onAssigneeChange,
     users,
-    workspaceId,
+    teamId,
     selectedLabelIds,
     onToggleLabel,
     disabled,
@@ -176,10 +176,10 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
 
   const moderationDisabled = disabled || restrictModeration
 
-  // Solo workspace (exactly one human member): hide the assignee control
+  // Solo team (exactly one human member): hide the assignee control
   // entirely — nobody else to assign to. `users` is the bot-excluded member
   // list; length 0 means still loading (never a genuine empty), so multi-member
-  // workspaces never briefly read as solo.
+  // teams never briefly read as solo.
   const isSolo = users.length === 1
 
   const statusControl = (
@@ -244,7 +244,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const labelControl = (
     <LabelPicker
       disabled={disabled}
-      workspaceId={workspaceId}
+      teamId={teamId}
       selectedLabelIds={selectedLabelIds}
       onToggle={onToggleLabel}
     />
@@ -263,19 +263,19 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     />
   )
 
-  const projectChip =
-    props.projectId && props.onProjectChange ? (
-      <ProjectPicker
+  const boardChip =
+    props.boardId && props.onBoardChange ? (
+      <BoardPicker
         disabled={moderationDisabled}
-        workspaceId={workspaceId}
-        selectedProjectId={props.projectId}
-        onSelect={props.onProjectChange}
+        teamId={teamId}
+        selectedBoardId={props.boardId}
+        onSelect={props.onBoardChange}
       />
     ) : (
-      <ProjectChip
-        projectColor={props.projectColor}
-        projectPrefix={props.projectPrefix}
-        projectName={props.projectName}
+      <BoardChip
+        boardColor={props.boardColor}
+        boardPrefix={props.boardPrefix}
+        boardName={props.boardName}
         layout={layout}
       />
     )
@@ -290,7 +290,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         )}
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
         <PropertyGroup label="Due date">{dueDateControl}</PropertyGroup>
-        <PropertyGroup label="Project">{projectChip}</PropertyGroup>
+        <PropertyGroup label="Board">{boardChip}</PropertyGroup>
       </aside>
     )
   }
@@ -303,7 +303,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {!isSolo && assigneeControl}
       {labelControl}
       {dueDateControl}
-      {projectChip}
+      {boardChip}
     </div>
   )
 }

@@ -6,8 +6,8 @@ import {
 
 const NONE: GettingStartedSignals = {
   githubInstalled: false,
-  hasProject: false,
-  hasRepoProject: false,
+  hasBoard: false,
+  hasRepoBoard: false,
   hasCodingSession: false,
   helpdeskEnabled: false,
   hasWidget: false,
@@ -27,11 +27,11 @@ function stateOf(
 }
 
 describe(`deriveEntryStates`, () => {
-  it(`emits the single static order github → project → coding → widget → helpdesk → mcp`, () => {
+  it(`emits the single static order github → board → coding → widget → helpdesk → mcp`, () => {
     const { entries } = deriveEntryStates(NONE, OWNER)
     expect(entries.map((entry) => entry.key)).toEqual([
       `github`,
-      `project`,
+      `board`,
       `coding`,
       `widget`,
       `helpdesk`,
@@ -39,7 +39,7 @@ describe(`deriveEntryStates`, () => {
     ])
   })
 
-  it(`starts with everything undone: coding locked on github, widget locked on project`, () => {
+  it(`starts with everything undone: coding locked on github, widget locked on board`, () => {
     const { done, total } = deriveEntryStates(NONE, OWNER)
     expect(done).toBe(0)
     expect(total).toBe(6)
@@ -51,7 +51,7 @@ describe(`deriveEntryStates`, () => {
     expect(stateOf(NONE, `widget`)).toEqual({
       key: `widget`,
       state: `locked`,
-      lockedBy: `project`,
+      lockedBy: `board`,
     })
     // Helpdesk has no prereq — available from the start.
     expect(stateOf(NONE, `helpdesk`)).toEqual({
@@ -60,21 +60,21 @@ describe(`deriveEntryStates`, () => {
     })
   })
 
-  it(`coding stays locked on the project step once github is connected but no project has a repo`, () => {
-    const signals = { ...NONE, githubInstalled: true, hasProject: true }
+  it(`coding stays locked on the board step once github is connected but no board has a repo`, () => {
+    const signals = { ...NONE, githubInstalled: true, hasBoard: true }
     expect(stateOf(signals, `coding`)).toEqual({
       key: `coding`,
       state: `locked`,
-      lockedBy: `project`,
+      lockedBy: `board`,
     })
   })
 
-  it(`coding unlocks with a repo-backed project`, () => {
+  it(`coding unlocks with a repo-backed board`, () => {
     const signals = {
       ...NONE,
       githubInstalled: true,
-      hasProject: true,
-      hasRepoProject: true,
+      hasBoard: true,
+      hasRepoBoard: true,
     }
     expect(stateOf(signals, `coding`)).toEqual({
       key: `coding`,
@@ -82,8 +82,8 @@ describe(`deriveEntryStates`, () => {
     })
   })
 
-  it(`widget unlocks once any project exists`, () => {
-    const signals = { ...NONE, hasProject: true }
+  it(`widget unlocks once any board exists`, () => {
+    const signals = { ...NONE, hasBoard: true }
     expect(stateOf(signals, `widget`)).toEqual({
       key: `widget`,
       state: `available`,
@@ -91,7 +91,7 @@ describe(`deriveEntryStates`, () => {
   })
 
   it(`done propagates over locks — an existing signal beats a missing prereq`, () => {
-    // A coding session synced from before (e.g. the repo project was trashed)
+    // A coding session synced from before (e.g. the repo board was trashed)
     // must still render the green check, never a lock.
     const signals = { ...NONE, hasCodingSession: true, hasWidget: true }
     expect(stateOf(signals, `coding`)).toEqual({ key: `coding`, state: `done` })
@@ -102,12 +102,12 @@ describe(`deriveEntryStates`, () => {
     const signals = {
       ...NONE,
       githubInstalled: true,
-      hasProject: true,
+      hasBoard: true,
       helpdeskEnabled: true,
       mcpConnected: true,
     }
     expect(stateOf(signals, `github`)?.state).toBe(`done`)
-    expect(stateOf(signals, `project`)?.state).toBe(`done`)
+    expect(stateOf(signals, `board`)?.state).toBe(`done`)
     expect(stateOf(signals, `helpdesk`)?.state).toBe(`done`)
     expect(stateOf(signals, `mcp`)?.state).toBe(`done`)
   })
@@ -117,7 +117,7 @@ describe(`deriveEntryStates`, () => {
     expect(total).toBe(4)
     expect(entries.map((entry) => entry.key)).toEqual([
       `github`,
-      `project`,
+      `board`,
       `coding`,
       `mcp`,
     ])
@@ -127,8 +127,8 @@ describe(`deriveEntryStates`, () => {
     const signals = {
       ...NONE,
       githubInstalled: true,
-      hasProject: true,
-      hasRepoProject: true,
+      hasBoard: true,
+      hasRepoBoard: true,
       hasCodingSession: true,
       helpdeskEnabled: true,
       mcpConnected: true,

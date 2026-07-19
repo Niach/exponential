@@ -2,7 +2,7 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Search tab: cross-project issue search over the active account's local
+/// The Search tab: cross-board issue search over the active account's local
 /// data, augmented by a debounced server full-text search (description +
 /// comments). The glass field mirrors the inline search that used to live in
 /// the issue list. Pure search (EXP-58): the empty-query state is a hint —
@@ -98,7 +98,7 @@ struct SearchView: View {
             Image(systemName: "magnifyingglass")
                 .font(.title2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("Search issues across all projects")
+            Text("Search issues across all boards")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text("Titles match instantly; descriptions and comments search the server.")
@@ -139,14 +139,14 @@ struct SearchView: View {
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
                 } header: {
-                    projectHeader(group.project, count: group.issues.count)
+                    boardHeader(group.board, count: group.issues.count)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
             }
         }
         .listStyle(.plain)
-        // Same compact-list treatment as the project IssueListView (EXP-80):
+        // Same compact-list treatment as the board IssueListView (EXP-80):
         // zero the List's own content margins, kill the implicit 44pt row
         // floor, and flow sections without the inter-section band, so search
         // results match the issue list's row rhythm.
@@ -161,13 +161,13 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private func projectHeader(_ project: ProjectEntity, count: Int) -> some View {
+    private func boardHeader(_ board: BoardEntity, count: Int) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(Color(hex: project.color ?? "#888888") ?? .gray)
+                .fill(Color(hex: board.color ?? "#888888") ?? .gray)
                 .frame(width: 8, height: 8)
 
-            Text(project.name)
+            Text(board.name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 

@@ -9,8 +9,8 @@ import contractJson from "../contract.json" with { type: "json" }
 export interface DomainContract {
   issueStatus: { values: readonly string[]; displayOrder: readonly string[] }
   issuePriority: { values: readonly string[]; displayOrder: readonly string[] }
-  workspaceRole: { values: readonly string[] }
-  projectIcon: { values: readonly string[] }
+  teamRole: { values: readonly string[] }
+  boardIcon: { values: readonly string[] }
   commentKind: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }

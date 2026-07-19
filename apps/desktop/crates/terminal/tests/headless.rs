@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use terminal::{CaptureSink, RawSink, SpawnSpec, Terminal};
 
 // Generous: these tests spawn real children (`bash`, `vim`) and a full
-// `cargo test --workspace` runs them alongside every other binary — under
+// `cargo test --team` runs them alongside every other binary — under
 // that load a 15s deadline has flaked while standalone runs finish in <1s.
 const LONG: Duration = Duration::from_secs(60);
 

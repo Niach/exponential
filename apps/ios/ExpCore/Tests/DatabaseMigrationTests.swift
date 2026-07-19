@@ -2,15 +2,17 @@ import GRDB
 import XCTest
 @testable import ExpCore
 
-// Regression gate for the iOS sync blackout (masterplan §9.1, EXP-12).
+// Migration gate for the local sync cache (born as the regression gate for the
+// iOS sync blackout — masterplan §9.1, EXP-12: a throwing migrator means
+// `db.pool()` throws and sync never starts, with the failure only visible in
+// os.Logger).
 //
-// The blackout root cause: the v1 `projects` create already declares
-// `repository_id`, while the additive `v3_project_repository_id` migration also
-// ran `ALTER TABLE projects ADD COLUMN repository_id`. On a FRESH `-v4` install
-// (v1 then v3) that second add throws SQLite "duplicate column name", the whole
-// migrator aborts, `db.pool()` throws, and sync never starts — with the failure
-// only visible in os.Logger. These tests build fixture DBs at each historical
-// schema version and prove `makeMigrator().migrate` runs green from every one.
+// EXP-180 (the great rename): the `-v5` file suffix wiped every previous local
+// snapshot, so the migration list is collapsed back to a single `v1_initial`
+// that creates the renamed tables (teams/boards/team_members/team_invites,
+// team_id/board_id columns) directly. There is deliberately NO upgrade path —
+// these tests pin the fresh-install schema and the migration count so a
+// reintroduced incremental migration is a conscious decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
     private var tempDir: URL!
 
@@ -37,194 +39,12 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.read { db in try DatabaseManager.makeMigrator().appliedIdentifiers(db) }
     }
 
-    // THE regression: a brand-new `-v4` DB must migrate all the way green.
-    // Before the fix this threw "duplicate column name: repository_id".
+    // A brand-new `-v5` DB must migrate green, and the collapsed migrator is
+    // exactly ONE migration — the v2…v11 incrementals died with the `-v4` file.
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 11)
-        XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
-    }
-
-    // A device that stopped at v1 (pre-refetch-state, pre-repository_id) must
-    // upgrade cleanly: v2 adds the offset flags, v3 adds repository_id.
-    func testUpgradeFromV1OnlyMigratesGreen() throws {
-        let pool = try makePool("from-v1")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v1_initial")
-        // A v1 fixture must NOT yet carry the later columns...
-        XCTAssertFalse(try columnNames(pool, "electric_offsets").contains("needs_refetch"))
-        // ...but the v1 create already declares repository_id (that overlap is
-        // exactly what the guarded v3 ALTER has to tolerate).
-        XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 11)
-        let offsetCols = try columnNames(pool, "electric_offsets")
-        XCTAssertTrue(offsetCols.contains("needs_refetch"))
-        XCTAssertTrue(offsetCols.contains("is_live"))
-    }
-
-    // A device that stopped at v1+v2 (existing `-v4` install pre-repository_id)
-    // must run only v3 — the historically real upgrade path.
-    func testUpgradeFromV1PlusV2MigratesGreen() throws {
-        let pool = try makePool("from-v2")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v2_offset_refetch_state")
-        XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 11)
-        XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
-    }
-
-    // v6 (REV-4/14): a device whose workspace_invites table still declares the
-    // legacy NOT NULL `token` (the shape no longer syncs the bearer token) must
-    // get the table rebuilt nullable and its shape offset reset to refetch.
-    func testLegacyNotNullInviteTokenRebuilds() throws {
-        let pool = try makePool("invite-token")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v2_offset_refetch_state")
-        try pool.write { db in
-            // Hand-build the pre-v6 state: NOT NULL token + a live offset row.
-            try db.drop(table: "workspace_invites")
-            try db.create(table: "workspace_invites") { t in
-                t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull().indexed()
-                t.column("role", .text).notNull()
-                t.column("token", .text).notNull().indexed()
-                t.column("expires_at", .text).notNull()
-                t.column("accepted_at", .text)
-                t.column("created_at", .text).notNull()
-                t.column("updated_at", .text).notNull()
-            }
-            try db.execute(sql: """
-                INSERT INTO "electric_offsets"
-                    ("shape", "handle", "offset", "needs_refetch", "is_live")
-                VALUES ('workspace-invites', 'h', '0_0', 0, 1)
-                """)
-        }
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 11)
-        let tokenColumn = try pool.read { db in
-            try db.columns(in: "workspace_invites").first { $0.name == "token" }
-        }
-        XCTAssertNotNil(tokenColumn)
-        XCTAssertFalse(tokenColumn?.isNotNull ?? true)
-        // The rebuild must force a refetch of the (now empty) invites shape.
-        let offset = try pool.read { db in
-            try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT "handle", "needs_refetch" FROM "electric_offsets"
-                    WHERE "shape" = 'workspace-invites'
-                    """
-            )
-        }
-        let handle: String? = offset?["handle"]
-        let needsRefetch: Bool? = offset?["needs_refetch"]
-        XCTAssertEqual(handle, "")
-        XCTAssertEqual(needsRefetch, true)
-    }
-
-    // EXP-106: a device that ran the original v7 (releases table + release_id
-    // on issues / coding_sessions) must have all of it dropped by v8, while the
-    // coding_sessions rows survive with their release_id-less columns intact.
-    // The current v7 body no longer creates those artifacts, so hand-build the
-    // pre-v8 state (the invite-token test's playbook) before running v8.
-    func testV8DropsReleaseArtifacts() throws {
-        let pool = try makePool("drop-releases")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v7_releases")
-        try pool.write { db in
-            try db.create(table: "releases") { t in
-                t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull()
-                t.column("name", .text).notNull()
-                t.column("created_at", .text).notNull()
-                t.column("updated_at", .text).notNull()
-            }
-            try db.alter(table: "issues") { t in t.add(column: "release_id", .text) }
-            try db.alter(table: "coding_sessions") { t in t.add(column: "release_id", .text) }
-            try db.execute(sql: """
-                INSERT INTO "coding_sessions"
-                    ("id", "workspace_id", "user_id", "status", "started_at",
-                     "created_at", "updated_at")
-                VALUES ('s1', 'w1', 'u1', 'running', '2026-01-01', '2026-01-01', '2026-01-01')
-                """)
-        }
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertFalse(try pool.read { db in try db.tableExists("releases") })
-        XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
-        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
-        // The dropped column is in-place surgery — the row must survive.
-        let surviving = try pool.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM coding_sessions")
-        }
-        XCTAssertEqual(surviving, 1)
-    }
-
-    // EXP-107: a device that ran the original v1 create (with the recurrence
-    // columns) must have both dropped by v10, while its issue rows survive. The
-    // current v1 body no longer creates those columns, so hand-add them to the
-    // issues table (the release-drop test's playbook) before running v10.
-    func testV10DropsRecurrenceColumns() throws {
-        let pool = try makePool("drop-recurrence")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v9_project_is_public_icon")
-        try pool.write { db in
-            try db.alter(table: "issues") { t in t.add(column: "recurrence_interval", .integer) }
-            try db.alter(table: "issues") { t in t.add(column: "recurrence_unit", .text) }
-            try db.execute(sql: """
-                INSERT INTO "issues"
-                    ("id", "project_id", "creator_id", "title", "created_at", "updated_at")
-                VALUES ('i1', 'p1', 'u1', 'keep me', '2026-01-01', '2026-01-01')
-                """)
-        }
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
-        XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
-        // The dropped columns are in-place surgery — the row must survive.
-        let surviving = try pool.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM issues")
-        }
-        XCTAssertEqual(surviving, 1)
-    }
-
-    // EXP-180: public feedback boards are deleted. A device at v10 still
-    // carries `is_public` / `public_show_comments` / `public_show_activity`
-    // (and the inert legacy `type`) via the historical v4/v9 ALTERs — v11 must
-    // drop all four while the project rows survive.
-    func testV11DropsPublicColumns() throws {
-        let pool = try makePool("drop-public")
-        let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v10_drop_recurrence")
-        // The pre-v11 state really has the doomed columns (v4/v9 added them).
-        let before = try columnNames(pool, "projects")
-        for column in ["is_public", "public_show_comments", "public_show_activity", "type"] {
-            XCTAssertTrue(before.contains(column), "pre-v11 fixture missing \(column)")
-        }
-        try pool.write { db in
-            try db.execute(sql: """
-                INSERT INTO "projects"
-                    ("id", "workspace_id", "name", "slug", "prefix", "created_at", "updated_at")
-                VALUES ('p1', 'w1', 'Keep', 'keep', 'K', '2026-01-01', '2026-01-01')
-                """)
-        }
-
-        XCTAssertNoThrow(try migrator.migrate(pool))
-        let after = try columnNames(pool, "projects")
-        for column in ["is_public", "public_show_comments", "public_show_activity", "type"] {
-            XCTAssertFalse(after.contains(column), "v11 left \(column) behind")
-        }
-        // The dropped columns are in-place surgery — the row must survive.
-        let surviving = try pool.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM projects")
-        }
-        XCTAssertEqual(surviving, 1)
+        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial"])
     }
 
     // Idempotency: running the full migrator twice on the same file is a no-op,
@@ -233,27 +53,53 @@ final class DatabaseMigrationTests: XCTestCase {
         let pool = try makePool("twice")
         try DatabaseManager.runMigrations(on: pool)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial"])
     }
 
     // The end-state schema must expose the tables + key columns sync writes to,
-    // so a green migration can't silently produce the wrong shape.
+    // so a green migration can't silently produce the wrong shape. This pins
+    // the EXP-180 rename: teams/boards/team_members/team_invites exist, the
+    // workspace/project-era names do NOT.
     func testMigratedSchemaHasSyncTables() throws {
         let pool = try makePool("schema")
         try DatabaseManager.runMigrations(on: pool)
-        for table in ["workspaces", "projects", "issues", "issue_labels",
-                      "coding_sessions", "electric_offsets"] {
+        for table in ["teams", "boards", "issues", "labels", "issue_labels",
+                      "users", "team_members", "team_invites", "comments",
+                      "attachments", "notifications", "issue_subscribers",
+                      "issue_events", "coding_sessions", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
+        // The renamed-away tables must be gone on a fresh install.
+        for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases"] {
+            let exists = try pool.read { db in try db.tableExists(table) }
+            XCTAssertFalse(exists, "legacy table \(table) must not exist")
+        }
+
+        // electric_offsets carries the 409-refetch persistence + live gating
+        // flags directly in the collapsed create.
+        let offsetCols = try columnNames(pool, "electric_offsets")
+        XCTAssertTrue(offsetCols.contains("needs_refetch"))
+        XCTAssertTrue(offsetCols.contains("is_live"))
+
+        // Renamed FK columns: board_id/team_id everywhere the wire has them.
+        XCTAssertTrue(try columnNames(pool, "issues").contains("board_id"))
+        XCTAssertFalse(try columnNames(pool, "issues").contains("project_id"))
+        for table in ["boards", "labels", "issue_labels", "team_members", "team_invites",
+                      "comments", "attachments", "issue_subscribers", "issue_events",
+                      "coding_sessions"] {
+            let cols = try columnNames(pool, table)
+            XCTAssertTrue(cols.contains("team_id"), "\(table) missing team_id")
+            XCTAssertFalse(cols.contains("workspace_id"), "\(table) still has workspace_id")
+        }
+        XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("board_id"))
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("project_id"))
+
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
-        // EXP-106: the releases feature is deleted — a fresh install must have
-        // no `releases` table and no `release_id` on issues / coding_sessions.
-        XCTAssertFalse(try pool.read { db in try db.tableExists("releases") })
+        // The deleted releases/recurrence features never existed in this schema.
         XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
-        // EXP-107: the recurrence feature is deleted — a fresh install must have
-        // neither recurrence column on issues.
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
         // coding_sessions.issue_id stays nullable (issueless batch sessions).
@@ -262,26 +108,34 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(sessionIssueId)
         XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
-        // EXP-180: the public-board columns (and the legacy `type` relic) are
-        // gone from every path — v1 no longer creates them and v11 drops
-        // whatever the historical v4/v9 ALTERs added.
-        let projectCols = try columnNames(pool, "projects")
-        XCTAssertFalse(projectCols.contains("type"))
-        XCTAssertFalse(projectCols.contains("public_show_comments"))
-        XCTAssertFalse(projectCols.contains("public_show_activity"))
-        XCTAssertFalse(projectCols.contains("is_public"))
-        // EXP-90: public_show_coding is gone from fresh installs.
-        XCTAssertFalse(projectCols.contains("public_show_coding"))
-        // v5 protection flag.
-        XCTAssertTrue(projectCols.contains("is_protected"))
-        // v9 curated icon (project-type collapse).
-        XCTAssertTrue(projectCols.contains("icon"))
-        // v6: the invite bearer token is no longer synced (server allowlist),
-        // so the local column must be nullable on every path.
+
+        // The public-board columns (and the legacy `type` relic) are gone;
+        // helpdesk_enabled is deliberately NOT stored yet (a later stage adds
+        // it — the tolerant apply path drops the unknown wire column).
+        let boardCols = try columnNames(pool, "boards")
+        XCTAssertFalse(boardCols.contains("type"))
+        XCTAssertFalse(boardCols.contains("public_show_comments"))
+        XCTAssertFalse(boardCols.contains("public_show_activity"))
+        XCTAssertFalse(boardCols.contains("is_public"))
+        XCTAssertFalse(boardCols.contains("public_show_coding"))
+        XCTAssertTrue(boardCols.contains("is_protected"))
+        XCTAssertTrue(boardCols.contains("icon"))
+        XCTAssertFalse(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+
+        // The invite bearer token is not synced (server allowlist), so the
+        // local column must be nullable.
         let inviteToken = try pool.read { db in
-            try db.columns(in: "workspace_invites").first { $0.name == "token" }
+            try db.columns(in: "team_invites").first { $0.name == "token" }
         }
         XCTAssertNotNil(inviteToken)
         XCTAssertFalse(inviteToken?.isNotNull ?? true)
+    }
+
+    // The `-v5` canonical file name + the legacy-file purge list are the wipe
+    // mechanism for the rename — pin the suffix so a stray edit can't silently
+    // strand every device on the old snapshot.
+    func testFileURLUsesV5Suffix() throws {
+        let url = try DatabaseManager.fileURL(for: "acct")
+        XCTAssertEqual(url.lastPathComponent, "exponential-acct-v5.sqlite")
     }
 }

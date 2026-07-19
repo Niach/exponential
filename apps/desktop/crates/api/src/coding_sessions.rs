@@ -32,7 +32,7 @@ pub struct CodingSession {
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
@@ -62,7 +62,7 @@ struct StartInput<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartBatchInput<'a> {
-    workspace_id: &'a str,
+    team_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
 }
@@ -75,12 +75,12 @@ struct SessionIdInput<'a> {
 /// The row's original start scope, riding every heartbeat (EXP-105): a ping
 /// that finds the row swept (laptop suspend outlived the server's staleness
 /// window) re-creates it server-side under the SAME id, restoring the badge
-/// and steerability. Exactly one of `issue_id`/`workspace_id` is set —
+/// and steerability. Exactly one of `issue_id`/`team_id` is set —
 /// `start`'s own invariant.
 #[derive(Clone, Debug)]
 pub struct HeartbeatScope {
     pub issue_id: Option<String>,
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     pub device_label: Option<String>,
 }
 
@@ -91,7 +91,7 @@ struct HeartbeatInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     issue_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_id: Option<&'a str>,
+    team_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
 }
@@ -120,18 +120,18 @@ pub fn start(
 }
 
 /// `codingSessions.start` for a BATCH-scoped (multi-issue) session: the
-/// server accepts exactly one of `issueId`/`workspaceId` and inserts a row
-/// with `issue_id`/`project_id` NULL and the given `workspace_id`. Same 412
+/// server accepts exactly one of `issueId`/`teamId` and inserts a row
+/// with `issue_id`/`board_id` NULL and the given `team_id`. Same 412
 /// semantics as [`start`].
 pub fn start_batch(
     trpc: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
     device_label: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartBatchInput {
-            workspace_id,
+            team_id,
             device_label,
         },
     )?;
@@ -162,7 +162,7 @@ pub fn heartbeat(
         &HeartbeatInput {
             id,
             issue_id: scope.and_then(|scope| scope.issue_id.as_deref()),
-            workspace_id: scope.and_then(|scope| scope.workspace_id.as_deref()),
+            team_id: scope.and_then(|scope| scope.team_id.as_deref()),
             device_label: scope.and_then(|scope| scope.device_label.as_deref()),
         },
     )?;
@@ -182,7 +182,7 @@ mod tests {
     }
 
     const SESSION_BODY: &str = r#"{"result":{"data":{"session":{
-        "id":"sess-1","issueId":"issue-1","workspaceId":"ws-1","userId":"user-1",
+        "id":"sess-1","issueId":"issue-1","teamId":"ws-1","userId":"user-1",
         "deviceLabel":"testbox","status":"running",
         "startedAt":"2026-07-03T10:00:00.000Z","endedAt":null,
         "createdAt":"2026-07-03T10:00:00.000Z","updatedAt":"2026-07-03T10:00:00.000Z"}}}}"#;
@@ -209,20 +209,20 @@ mod tests {
     }
 
     #[test]
-    fn start_batch_posts_workspace_id_and_decodes_the_issueless_row() {
+    fn start_batch_posts_team_id_and_decodes_the_issueless_row() {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"session":{
-                "id":"sess-b","issueId":null,"workspaceId":"ws-1",
+                "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
         let session = start_batch(&client(&base), "ws-1", Some("testbox")).unwrap();
         assert_eq!(session.id, "sess-b");
-        assert_eq!(session.workspace_id.as_deref(), Some("ws-1"));
+        assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
-        assert!(request.ends_with(r#"{"workspaceId":"ws-1","deviceLabel":"testbox"}"#));
+        assert!(request.ends_with(r#"{"teamId":"ws-1","deviceLabel":"testbox"}"#));
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
         let scope = HeartbeatScope {
             issue_id: Some("issue-1".to_string()),
-            workspace_id: None,
+            team_id: None,
             device_label: Some("testbox".to_string()),
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
@@ -265,16 +265,16 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_posts_batch_scope_workspace_id() {
+    fn heartbeat_posts_batch_scope_team_id() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
         let scope = HeartbeatScope {
             issue_id: None,
-            workspace_id: Some("ws-1".to_string()),
+            team_id: Some("ws-1".to_string()),
             device_label: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"id":"sess-1","workspaceId":"ws-1"}"#));
+        assert!(request.ends_with(r#"{"id":"sess-1","teamId":"ws-1"}"#));
     }
 
     #[test]

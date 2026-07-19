@@ -1,7 +1,7 @@
 // Steer relay tickets — the ONLY credential the relay ever sees.
 //
 // The web app mints a short-lived ticket (steer.mintTicket, after checking the
-// caller's workspace permission); the relay verifies signature + expiry and
+// caller's team permission); the relay verifies signature + expiry and
 // trusts the claims. Compact HS256 format (NOT a full JWT — no header, no alg
 // negotiation): `base64url(JSON claims) + "." + base64url(HMAC-SHA256)`.
 // Shared by apps/web (sign) and apps/steer-relay (verify) so the format can't

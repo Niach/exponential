@@ -15,7 +15,7 @@ class UsersApi @Inject constructor(private val trpc: TrpcClient) {
     /**
      * Permanently delete the signed-in user's account on this server (store
      * policy: account deletion must be initiable in-app). The server cascades
-     * sessions, memberships, authored content, and solo workspaces; callers
+     * sessions, memberships, authored content, and solo teams; callers
      * must follow up with local sign-out + cache wipe.
      */
     suspend fun deleteAccount(accountId: String) {

@@ -8,13 +8,13 @@ import {
   issues,
   supportMessages,
   supportThreads,
-  workspaces,
+  teams,
 } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  getProjectWorkspaceId,
+  assertTeamMember,
+  getBoardTeamId,
   getSoleHumanMemberId,
-} from "@/lib/workspace-membership"
+} from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { sendSupportReplyEmail } from "@/lib/email"
 import { mintSupportToken } from "@/lib/helpdesk/token"
@@ -32,7 +32,7 @@ const messageBodySchema = z
   .min(1)
   .max(MAX_SUPPORT_MESSAGE_CHARS)
 
-// Load a thread and gate on membership of its workspace. Every member handles
+// Load a thread and gate on membership of its team. Every member handles
 // support (permissions collapsed to membership-only) — no owner gating
 // anywhere in this router.
 async function loadThreadForMember(userId: string, threadId: string) {
@@ -44,7 +44,7 @@ async function loadThreadForMember(userId: string, threadId: string) {
   if (!thread) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Thread not found` })
   }
-  await assertWorkspaceMember(userId, thread.workspaceId)
+  await assertTeamMember(userId, thread.teamId)
   return thread
 }
 
@@ -58,7 +58,7 @@ async function loadLinkedIssue(linkedIssueId: string | null) {
       identifier: issues.identifier,
       title: issues.title,
       status: issues.status,
-      projectId: issues.projectId,
+      boardId: issues.boardId,
     })
     .from(issues)
     .where(eq(issues.id, linkedIssueId))
@@ -67,23 +67,23 @@ async function loadLinkedIssue(linkedIssueId: string | null) {
 }
 
 export const helpdeskRouter = router({
-  // The inbox list: one row per ticket in the workspace, filtered
+  // The inbox list: one row per ticket in the team, filtered
   // open/resolved by the thread's own status, newest activity first.
   // `unread` = the reporter spoke last — there is no per-member read state.
   listThreads: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         filter: z.enum([`open`, `resolved`]).default(`open`),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertTeamMember(ctx.session.user.id, input.teamId)
 
       const rows = await ctx.db
         .select({
           id: supportThreads.id,
-          workspaceId: supportThreads.workspaceId,
+          teamId: supportThreads.teamId,
           title: supportThreads.title,
           status: supportThreads.status,
           linkedIssueId: supportThreads.linkedIssueId,
@@ -96,7 +96,7 @@ export const helpdeskRouter = router({
         .from(supportThreads)
         .where(
           and(
-            eq(supportThreads.workspaceId, input.workspaceId),
+            eq(supportThreads.teamId, input.teamId),
             eq(
               supportThreads.status,
               input.filter === `resolved` ? `resolved` : `open`
@@ -168,10 +168,10 @@ export const helpdeskRouter = router({
         return inserted
       })
 
-      const [workspaceRow] = await ctx.db
-        .select({ name: workspaces.name })
-        .from(workspaces)
-        .where(eq(workspaces.id, thread.workspaceId))
+      const [teamRow] = await ctx.db
+        .select({ name: teams.name })
+        .from(teams)
+        .where(eq(teams.id, thread.teamId))
         .limit(1)
 
       // Email outside the transaction; a failed send never loses the message.
@@ -180,7 +180,7 @@ export const helpdeskRouter = router({
       try {
         const result = await sendSupportReplyEmail({
           to: thread.reporterEmail,
-          projectName: workspaceRow?.name ?? `the team`,
+          boardName: teamRow?.name ?? `the team`,
           replyText: input.body,
           threadUrl: supportThreadUrl(mintSupportToken(thread.id)),
         })
@@ -265,14 +265,14 @@ export const helpdeskRouter = router({
       return { ok: true as const }
     }),
 
-  // Escalate: file an ordinary issue on a board of this workspace and link it
+  // Escalate: file an ordinary issue on a board of this team and link it
   // to the ticket. The issue is a normal tracker citizen from then on (its
   // status never mirrors the thread's). One escalation per ticket.
   escalate: authedProcedure
     .input(
       z.object({
         threadId: z.string().uuid(),
-        projectId: z.string().uuid(),
+        boardId: z.string().uuid(),
         title: z.string().trim().min(1).max(500).optional(),
       })
     )
@@ -287,11 +287,11 @@ export const helpdeskRouter = router({
           message: `This ticket already has a linked issue`,
         })
       }
-      const project = await getProjectWorkspaceId(input.projectId)
-      if (project.workspaceId !== thread.workspaceId) {
+      const board = await getBoardTeamId(input.boardId)
+      if (board.teamId !== thread.teamId) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Board must belong to the ticket's workspace`,
+          message: `Board must belong to the ticket's team`,
         })
       }
 
@@ -315,16 +315,16 @@ export const helpdeskRouter = router({
         .join(`\n`)
         .trim()
 
-      // EXP-50 parity with issues.create: solo workspaces default-assign
+      // EXP-50 parity with issues.create: solo teams default-assign
       // their only human member.
-      const assigneeId = await getSoleHumanMemberId(thread.workspaceId)
+      const assigneeId = await getSoleHumanMemberId(thread.teamId)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
           .insert(issues)
           .values({
-            projectId: input.projectId,
+            boardId: input.boardId,
             title: input.title ?? thread.title,
             status: `backlog`,
             priority: `none`,
@@ -340,7 +340,7 @@ export const helpdeskRouter = router({
         await ensureSubscribed(tx, {
           issueId: issue.id,
           userId: ctx.session.user.id,
-          workspaceId: thread.workspaceId,
+          teamId: thread.teamId,
           source: `creator`,
         })
         await tx

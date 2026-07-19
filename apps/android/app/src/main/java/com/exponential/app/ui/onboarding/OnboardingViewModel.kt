@@ -2,10 +2,10 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.OnboardingApi
-import com.exponential.app.data.api.WorkspacesApi
+import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,32 +15,32 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// First-run flow (shared iOS/Android spec): welcome → create-first-project (name
+// First-run flow (shared iOS/Android spec): welcome → create-first-board (name
 // + required repository, with inline GitHub connect) → done. On load it resolves
-// the user's default workspace (`workspaces.ensureDefault`) so the create form has
-// a workspaceId. A successful create marks onboarding complete server-side and
-// remembers the project as last-used so the Issues tab opens on it; the local
+// the user's default team (`teams.ensureDefault`) so the create form has
+// a teamId. A successful create marks onboarding complete server-side and
+// remembers the board as last-used so the Issues tab opens on it; the local
 // flag lands in finish() — the done step's single action — which drops into the
 // app.
 //
 // The server also backfills onboardingCompletedAt on session reads for users who
-// already have a project in a non-public workspace (lib/auth/onboarding.ts), so a
+// already have a board in a non-public team (lib/auth/onboarding.ts), so a
 // returning account self-heals via reconcile() before this screen would show.
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val authApi: AuthApi,
     private val onboardingApi: OnboardingApi,
-    private val workspacesApi: WorkspacesApi,
+    private val teamsApi: TeamsApi,
     private val holder: DatabaseHolder,
-    private val selection: WorkspaceSelection,
+    private val selection: TeamSelection,
 ) : ViewModel() {
 
     val instanceUrl: StateFlow<String?> = auth.instanceUrl
     val accountId: StateFlow<String?> = auth.activeAccountId
 
-    private val _workspaceId = MutableStateFlow<String?>(null)
-    val workspaceId: StateFlow<String?> = _workspaceId.asStateFlow()
+    private val _teamId = MutableStateFlow<String?>(null)
+    val teamId: StateFlow<String?> = _teamId.asStateFlow()
 
     private val _preparing = MutableStateFlow(true)
     val preparing: StateFlow<Boolean> = _preparing.asStateFlow()
@@ -69,7 +69,7 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** Resolve (or create) the default workspace so the create form has a target. */
+    /** Resolve (or create) the default team so the create form has a target. */
     fun prepare() {
         viewModelScope.launch {
             _preparing.value = true
@@ -80,31 +80,31 @@ class OnboardingViewModel @Inject constructor(
                 return@launch
             }
             runCatching {
-                val workspace = workspacesApi.ensureDefault(accountId)
-                holder.database(forAccountId = accountId).workspaceDao().upsert(workspace)
-                if (selection.selectedId.value == null) selection.select(workspace.id)
-                workspace.id
-            }.onSuccess { _workspaceId.value = it }
+                val team = teamsApi.ensureDefault(accountId)
+                holder.database(forAccountId = accountId).teamDao().upsert(team)
+                if (selection.selectedId.value == null) selection.select(team.id)
+                team.id
+            }.onSuccess { _teamId.value = it }
                 .onFailure { _error.value = it.message ?: "Failed to prepare team" }
             _preparing.value = false
         }
     }
 
     /**
-     * After the project is created: persist completion server-side and remember
-     * the project as last-used. The LOCAL flag is deliberately deferred to
+     * After the board is created: persist completion server-side and remember
+     * the board as last-used. The LOCAL flag is deliberately deferred to
      * [finish] (the done step's button): flipping it changes the authenticated
      * nav graph's startDestination, which resets the back stack straight to home
      * and would skip the done step. If the app dies on the done step the next
      * launch self-heals — the server flag is already set, so reconcile()'s
      * session read reports completedAt and exits the wizard.
      */
-    fun onProjectCreated(projectId: String) {
+    fun onBoardCreated(boardId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
             if (accountId != null) {
                 runCatching { onboardingApi.complete(accountId) }
-                selection.rememberLastProject(accountId, projectId)
+                selection.rememberLastBoard(accountId, boardId)
             }
         }
     }

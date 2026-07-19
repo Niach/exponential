@@ -28,7 +28,7 @@ use crate::undock;
 pub(crate) struct UndockedTerminalWindow {
     manager: Entity<TerminalManager>,
     tab_id: TabId,
-    /// The workspace window whose dock owns the tab (reattach target).
+    /// The shell window whose dock owns the tab (reattach target).
     origin: AnyWindowHandle,
     focus_handle: FocusHandle,
     /// Last title pushed to the OS window (OSC titles sync live).

@@ -214,7 +214,7 @@ impl DisabledReason {
     pub fn message(&self) -> String {
         match self {
             DisabledReason::NoRepositoryLinked => {
-                "Link a repository to this project in workspace settings.".to_string()
+                "Link a repository to this board in team settings.".to_string()
             }
             DisabledReason::GithubAppMissing { message, .. } => message.clone(),
             DisabledReason::DoctorFailed(check) => check
@@ -277,7 +277,7 @@ pub struct PreparedLaunch {
     /// file + helper config live in the clone's shared `.git`, so refreshing
     /// the clone covers every worktree).
     pub clone: PathBuf,
-    /// The workspace `repositories` row id — re-mints the installation token
+    /// The team `repositories` row id — re-mints the installation token
     /// mid-session (EXP-56 P9).
     pub repository_id: String,
     /// The real git branch (keeps its `/`), e.g. `exp/EXP-42` — or the
@@ -469,7 +469,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
-            &batch_req.workspace_id,
+            &batch_req.team_id,
             Some(&batch_req.device_label),
         ),
     };
@@ -525,12 +525,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
             issue_id: Some(issue_req.issue_id.clone()),
-            workspace_id: None,
+            team_id: None,
             device_label: Some(issue_req.device_label.clone()),
         },
         PrepareRequest::Batch(batch_req) => coding_sessions::HeartbeatScope {
             issue_id: None,
-            workspace_id: Some(batch_req.workspace_id.clone()),
+            team_id: Some(batch_req.team_id.clone()),
             device_label: Some(batch_req.device_label.clone()),
         },
     };
@@ -712,7 +712,7 @@ mod tests {
     fn batch_request() -> BatchLaunchRequest {
         BatchLaunchRequest {
             batch_id: "a1b2c3d4".to_string(),
-            workspace_id: "ws-1".to_string(),
+            team_id: "ws-1".to_string(),
             repo: RepoGroup {
                 repository_id: "repo-1".to_string(),
                 full_name: "acme/web".to_string(),
@@ -778,7 +778,7 @@ mod tests {
                 // §7.1: the exact helper copy for the disabled button.
                 assert_eq!(
                     reason.message(),
-                    "Link a repository to this project in workspace settings."
+                    "Link a repository to this board in team settings."
                 );
             }
             other => panic!("expected NoRepositoryLinked, got {other:?}"),
@@ -791,7 +791,7 @@ mod tests {
         let dir = temp_dir("app-missing");
         let base = canned_server(vec![
             (200, FOR_ISSUE_OK.to_string()),
-            (412, r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in workspace settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
+            (412, r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in team settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
         ]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("wt"),
@@ -812,7 +812,7 @@ mod tests {
         let dir = temp_dir("denied");
         let base = canned_server(vec![
             (200, FOR_ISSUE_OK.to_string()),
-            (403, r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
+            (403, r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
         ]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("wt"),
@@ -1144,7 +1144,7 @@ mod tests {
         fs::create_dir_all(&worktree).unwrap();
         let base = canned_server(vec![(
             403,
-            r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
+            r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
         )]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree,

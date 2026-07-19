@@ -52,7 +52,7 @@ class InstanceUrlInterceptor(private val auth: AuthRepository) : Interceptor {
     }
 
     // The Bearer token of the account that owns this instance, so
-    // private-workspace attachments authenticate. Match by instance URL
+    // private-team attachments authenticate. Match by instance URL
     // prefix rather than assuming the active account.
     private fun resolveToken(absoluteUrl: String): String? =
         auth.accounts.value

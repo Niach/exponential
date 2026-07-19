@@ -3,7 +3,7 @@
    universe in ../ide/data (dogfood: Exponential building Exponential). */
 import { PROJECT } from "../ide/data"
 
-/* ─── Sidebar projects — colored type icons, one public feedback board ─── */
+/* ─── Sidebar boards — colored icons ─── */
 
 export type DemoProjectIcon = `code` | `kanban` | `megaphone`
 
@@ -12,13 +12,12 @@ export type DemoProject = {
   slug: string
   color: string
   icon: DemoProjectIcon
-  isPublic?: boolean
 }
 
 export const WEB_PROJECTS: DemoProject[] = [
   { name: PROJECT.name, slug: `exponential`, color: PROJECT.color, icon: `code` },
   { name: `Mobile Apps`, slug: `mobile-apps`, color: `#f97316`, icon: `kanban` },
-  { name: `Feedback`, slug: `feedback`, color: `#22c55e`, icon: `megaphone`, isPublic: true },
+  { name: `Feedback`, slug: `feedback`, color: `#22c55e`, icon: `megaphone` },
 ]
 
 /* The demo user (matches the assignee fixture DS in ide/data). */

@@ -11,11 +11,11 @@ import {
   selectIssueSubscriberSchema,
   selectLabelSchema,
   selectNotificationSchema,
-  selectProjectSchema,
+  selectBoardSchema,
   selectUserSchema,
-  selectWorkspaceInviteSchema,
-  selectWorkspaceMemberSchema,
-  selectWorkspaceSchema,
+  selectTeamInviteSchema,
+  selectTeamMemberSchema,
+  selectTeamSchema,
 } from "@/db/schema"
 
 const baseUrl =
@@ -34,41 +34,41 @@ function getShapeUrl(path: string) {
   return new URL(path, baseUrl).toString()
 }
 
-export const workspaceCollection = createCollection(
+export const teamCollection = createCollection(
   electricCollectionOptions({
-    id: `workspaces`,
+    id: `teams`,
     shapeOptions: {
-      url: getShapeUrl(`/api/shapes/workspaces`),
+      url: getShapeUrl(`/api/shapes/teams`),
       parser: shapeParser,
       columnMapper,
     },
-    schema: selectWorkspaceSchema,
+    schema: selectTeamSchema,
     getKey: (item) => item.id,
   })
 )
 
-export const workspaceMemberCollection = createCollection(
+export const teamMemberCollection = createCollection(
   electricCollectionOptions({
-    id: `workspace_members`,
+    id: `team_members`,
     shapeOptions: {
-      url: getShapeUrl(`/api/shapes/workspace-members`),
+      url: getShapeUrl(`/api/shapes/team-members`),
       parser: shapeParser,
       columnMapper,
     },
-    schema: selectWorkspaceMemberSchema,
+    schema: selectTeamMemberSchema,
     getKey: (item) => item.id,
   })
 )
 
-export const projectCollection = createCollection(
+export const boardCollection = createCollection(
   electricCollectionOptions({
-    id: `projects`,
+    id: `boards`,
     shapeOptions: {
-      url: getShapeUrl(`/api/shapes/projects`),
+      url: getShapeUrl(`/api/shapes/boards`),
       parser: shapeParser,
       columnMapper,
     },
-    schema: selectProjectSchema,
+    schema: selectBoardSchema,
     getKey: (item) => item.id,
   })
 )
@@ -111,15 +111,15 @@ export const issueLabelCollection = createCollection(
   })
 )
 
-export const workspaceInviteCollection = createCollection(
+export const teamInviteCollection = createCollection(
   electricCollectionOptions({
-    id: `workspace_invites`,
+    id: `team_invites`,
     shapeOptions: {
-      url: getShapeUrl(`/api/shapes/workspace-invites`),
+      url: getShapeUrl(`/api/shapes/team-invites`),
       parser: shapeParser,
       columnMapper,
     },
-    schema: selectWorkspaceInviteSchema,
+    schema: selectTeamInviteSchema,
     getKey: (item) => item.id,
   })
 )
@@ -180,7 +180,7 @@ export const notificationCollection = createCollection(
   })
 )
 
-// Activity-log timeline events, workspace-scoped.
+// Activity-log timeline events, team-scoped.
 export const issueEventCollection = createCollection(
   electricCollectionOptions({
     id: `issue_events`,
@@ -208,7 +208,7 @@ export const issueSubscriberCollection = createCollection(
   })
 )
 
-// Live "coding now" sessions, workspace-scoped. Synced so every coordination
+// Live "coding now" sessions, team-scoped. Synced so every coordination
 // client can render the coding-session badge + Watch/Steer button straight from
 // sync (one row per interactive desktop session).
 export const codingSessionCollection = createCollection(

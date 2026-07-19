@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { LifeBuoy, Loader2, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { PoweredByFooter } from "@/components/workspace/powered-by-footer"
+import { PoweredByFooter } from "@/components/team/powered-by-footer"
 import { relativeTime } from "@/components/comment-rows/format"
 
 // The reporter's magic-link conversation page (EXP-128). No login — the
@@ -29,8 +29,8 @@ interface ThreadMessage {
 
 interface ThreadData {
   subject: string
-  projectName: string | null
-  workspaceName: string | null
+  boardName: string | null
+  teamName: string | null
   closed: boolean
   reporterName: string | null
   messages: ThreadMessage[]
@@ -149,7 +149,7 @@ function SupportConversationPage() {
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold">{thread.subject}</h1>
             <p className="truncate text-xs text-muted-foreground">
-              {thread.projectName ?? thread.workspaceName ?? `Support`} support
+              {thread.boardName ?? thread.teamName ?? `Support`} support
             </p>
           </div>
         </div>

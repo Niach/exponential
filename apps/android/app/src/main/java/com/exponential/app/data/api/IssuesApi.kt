@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 
 @Serializable
 data class CreateIssueInput(
-    @SerialName("projectId") val projectId: String,
+    @SerialName("boardId") val boardId: String,
     val title: String,
     val status: String? = null,
     val priority: String? = null,
@@ -22,7 +22,7 @@ data class CreateIssueInput(
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
     @SerialName("endTime") val endTime: String? = null,
-    // Workspace label ids assigned at create (issues.create inserts the
+    // Team label ids assigned at create (issues.create inserts the
     // issue_labels joins in the same transaction). Null = none.
     @SerialName("labelIds") val labelIds: List<String>? = null,
 )
@@ -51,15 +51,15 @@ data class DeleteIssueInput(val id: String)
 data class ClosePrInput(@SerialName("issueId") val issueId: String)
 
 /**
- * `issues.move` (EXP-57): same-workspace project move. The server renumbers
- * the issue in the target project (EXP-42 → ABC-17) and re-points the
- * denormalized children; the response's extra keys (txId, projectSlug) are
+ * `issues.move` (EXP-57): same-team board move. The server renumbers
+ * the issue in the target board (EXP-42 → ABC-17) and re-points the
+ * denormalized children; the response's extra keys (txId, boardSlug) are
  * ignored by the shared Json.
  */
 @Serializable
 data class MoveIssueInput(
     val id: String,
-    @SerialName("projectId") val projectId: String,
+    @SerialName("boardId") val boardId: String,
 )
 
 @Serializable
@@ -67,7 +67,7 @@ data class IssueResult(val issue: IssueEntity)
 
 @Serializable
 data class SearchIssuesInput(
-    @SerialName("workspaceId") val workspaceId: String,
+    @SerialName("teamId") val teamId: String,
     val query: String,
     // Server default 20, max 50. Null omits the field (shared Json has
     // explicitNulls=false) so the server default applies.
@@ -80,7 +80,7 @@ data class SearchIssueHit(
     val id: String,
     val identifier: String,
     val title: String,
-    @SerialName("projectId") val projectId: String,
+    @SerialName("boardId") val boardId: String,
     val status: String,
     val priority: String,
 )
@@ -107,14 +107,14 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         ).issue
 
     /**
-     * Move an issue to another project in the SAME workspace (EXP-57). The
-     * returned entity already carries the new projectId + identifier.
+     * Move an issue to another board in the SAME team (EXP-57). The
+     * returned entity already carries the new boardId + identifier.
      */
-    suspend fun move(accountId: String, issueId: String, projectId: String): IssueEntity =
+    suspend fun move(accountId: String, issueId: String, boardId: String): IssueEntity =
         trpc.mutation(
             accountId,
             path = "issues.move",
-            input = MoveIssueInput(id = issueId, projectId = projectId),
+            input = MoveIssueInput(id = issueId, boardId = boardId),
             inputSerializer = MoveIssueInput.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
@@ -158,21 +158,21 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
-     * Server-side full-text search over a workspace's issues — matches title,
+     * Server-side full-text search over a team's issues — matches title,
      * description, AND comment text (things the local Room substring filter
-     * can't see). Requires membership of [workspaceId]; results come back
+     * can't see). Requires membership of [teamId]; results come back
      * relevance-ordered.
      */
     suspend fun search(
         accountId: String,
-        workspaceId: String,
+        teamId: String,
         query: String,
         limit: Int? = null,
     ): List<SearchIssueHit> =
         trpc.query(
             accountId,
             path = "issues.search",
-            input = SearchIssuesInput(workspaceId = workspaceId, query = query, limit = limit),
+            input = SearchIssuesInput(teamId = teamId, query = query, limit = limit),
             inputSerializer = SearchIssuesInput.serializer(),
             outputSerializer = ListSerializer(SearchIssueHit.serializer()),
         )

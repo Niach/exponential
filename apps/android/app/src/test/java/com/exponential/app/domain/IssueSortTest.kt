@@ -28,7 +28,7 @@ class IssueSortTest {
         updatedAt: String = "2026-01-01 00:00:00+00",
     ) = IssueEntity(
         id = id,
-        projectId = "p1",
+        boardId = "p1",
         number = number,
         identifier = "EXP-$number",
         title = id,

@@ -1,23 +1,23 @@
 //! Per-window screen routing (masterplan-v3 §4.2 — "sidebar selection →
 //! center content swap"; the desktop analog of the web's TanStack routes
-//! under `routes/w/$workspaceSlug/`).
+//! under `routes/t/$teamSlug/`).
 //!
-//! Model: every workspace window owns one [`Navigation`] entity — the active
-//! workspace + the current [`Screen`] + a back stack. Views observe it
+//! Model: every shell window owns one [`Navigation`] entity — the active
+//! team + the current [`Screen`] + a back stack. Views observe it
 //! (`cx.observe`) and re-render on change; the `screens::ScreensPanel` in the
 //! center dock swaps its content on the current screen.
 //!
 //! The entities live in a window-keyed registry global so BOTH construction
-//! paths reach the same instance: the `Workspace` shell creates it, and
+//! paths reach the same instance: the `Shell` shell creates it, and
 //! panels rebuilt by the §3.3 `register_panel` cold-restore path (which only
-//! get `(window, cx)`) look it up by `WindowId`. The `Workspace` removes the
+//! get `(window, cx)`) look it up by `WindowId`. The `Shell` removes the
 //! entry on window release.
 //!
 //! Chrome affordances dispatch typed actions (`crate::actions` — §3.6);
 //! [`init`] registers **App-global** handlers that resolve the active window
 //! and call [`navigate`]. Global handlers are load-bearing here: menu items
 //! render in the `Root` overlay layer, so an element-tree `.on_action` on the
-//! workspace div would never see actions dispatched from an open menu.
+//! team div would never see actions dispatched from an open menu.
 //! In-tree click handlers that already hold `(window, cx)` (issue rows,
 //! sidebar items) may call [`navigate`] directly.
 
@@ -29,8 +29,8 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenProject, OpenSettings,
-    OpenSourceControl, SwitchBranch, SwitchWorkspace, SyncNow,
+    GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    OpenSourceControl, SwitchBranch, SwitchTeam, SyncNow,
 };
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -43,12 +43,12 @@ use crate::actions::{
 pub enum Screen {
     /// Full-page issue detail (`routes/.../issues/$issueIdentifier`).
     IssueDetail { issue_id: String },
-    /// `routes/w/$ws/settings/`.
+    /// `routes/t/$ws/settings/`.
     Settings,
     /// `routes/_authenticated/account/*` (integrations + notifications).
     Account,
     /// Trunk Source Control screen (masterplan v4 §4.4). Trunk-only — no
-    /// project/issue scope (the active workspace's trunk clone).
+    /// board/issue scope (the active team's trunk clone).
     SourceControl,
     /// Read-only trunk file viewer (masterplan v4 §4.5); `path` is
     /// trunk-relative.
@@ -89,17 +89,17 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
 }
 
 /// Per-window navigation state. Mutate through [`navigate`] /
-/// [`switch_workspace`] / [`go_back`] so observers fire consistently.
+/// [`switch_team`] / [`go_back`] so observers fire consistently.
 pub struct Navigation {
-    /// Selected workspace; `None` = "first synced workspace" (resolved at
+    /// Selected team; `None` = "first synced team" (resolved at
     /// query time — a fresh install has no selection until sync lands).
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     screen: Option<Screen>,
     back_stack: Vec<Screen>,
-    /// The explicitly selected project (the top-bar picker) — the primary
-    /// scope for [`active_project_id`] so the picker / files / git / run
+    /// The explicitly selected board (the top-bar picker) — the primary
+    /// scope for [`active_board_id`] so the picker / files / git / run
     /// surfaces stay populated on every screen.
-    last_project_id: Option<String>,
+    last_board_id: Option<String>,
     /// The screen the last [`replace_screen`] displaced (EXP-48 prev/next):
     /// a pending marker the screens panel consumes to swap that tab's
     /// identity in place instead of opening a new tab. Cleared by every
@@ -111,16 +111,16 @@ impl Navigation {
     fn new() -> Self {
         Self {
             // DEV-ONLY (§11.4 headless verification, same family as
-            // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a workspace and/or
+            // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
             // pre-route the first screen so gate screenshots can reach
             // surfaces without synthetic input. Unset in normal runs.
-            workspace_id: std::env::var("EXP_DEV_WORKSPACE").ok(),
+            team_id: std::env::var("EXP_DEV_TEAM").ok(),
             screen: std::env::var("EXP_DEV_SCREEN")
                 .ok()
                 .as_deref()
                 .and_then(parse_dev_screen),
             back_stack: Vec::new(),
-            last_project_id: None,
+            last_board_id: None,
             replaced_screen: None,
         }
     }
@@ -159,9 +159,9 @@ struct NavRegistry {
 impl Global for NavRegistry {}
 
 /// The window's navigation entity, created on first access. A fresh window
-/// starts on the LAST workspace **and project** this install had active
+/// starts on the LAST team **and board** this install had active
 /// (persisted in `settings.json`, EXP-116); ids that no longer sync fall back
-/// via `active_workspace_id` / `active_project_id` at query time.
+/// via `active_team_id` / `active_board_id` at query time.
 pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
     let window_id = window.window_handle().window_id();
     if let Some(existing) = cx
@@ -171,15 +171,15 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
         return existing;
     }
     let nav = cx.new(|_| Navigation::new());
-    if nav.read(cx).workspace_id.is_none() {
-        // The EXP_DEV_WORKSPACE override (Navigation::new) wins over the
+    if nav.read(cx).team_id.is_none() {
+        // The EXP_DEV_TEAM override (Navigation::new) wins over the
         // persisted pair — dev runs must land where they were pointed.
-        let last_workspace = load_settings_string(cx, LAST_WORKSPACE_KEY);
-        let last_project = load_settings_string(cx, LAST_PROJECT_KEY);
-        if last_workspace.is_some() || last_project.is_some() {
+        let last_team = load_settings_string(cx, LAST_TEAM_KEY);
+        let last_board = load_settings_string(cx, LAST_BOARD_KEY);
+        if last_team.is_some() || last_board.is_some() {
             nav.update(cx, |nav, _| {
-                nav.workspace_id = last_workspace;
-                nav.last_project_id = last_project;
+                nav.team_id = last_team;
+                nav.last_board_id = last_board;
             });
         }
     }
@@ -197,8 +197,8 @@ pub(crate) fn nav_for_window_id(window_id: WindowId, cx: &App) -> Option<Entity<
 }
 
 /// Seed a fresh window's navigation from a source window (EXP-65 undock):
-/// copy the workspace/project scope and pin the given screen so every
-/// scope-resolving surface (`active_project_id` → git bar, `+` shell cwd,
+/// copy the team/board scope and pin the given screen so every
+/// scope-resolving surface (`active_board_id` → git bar, `+` shell cwd,
 /// Source Control file scope) sees the same context the tab had when it was
 /// undocked. No-op scope copy when the source nav is already gone.
 pub(crate) fn seed_window_scope(
@@ -209,20 +209,20 @@ pub(crate) fn seed_window_scope(
 ) {
     let scope = nav_for_window_id(source, cx).map(|nav| {
         let nav = nav.read(cx);
-        (nav.workspace_id.clone(), nav.last_project_id.clone())
+        (nav.team_id.clone(), nav.last_board_id.clone())
     });
     let nav = nav_for_window(window, cx);
     nav.update(cx, |nav, cx| {
-        if let Some((workspace_id, last_project_id)) = scope {
-            nav.workspace_id = workspace_id;
-            nav.last_project_id = last_project_id;
+        if let Some((team_id, last_board_id)) = scope {
+            nav.team_id = team_id;
+            nav.last_board_id = last_board_id;
         }
         nav.screen = Some(screen);
         cx.notify();
     });
 }
 
-/// Drop a closed window's entry (called from the `Workspace` release hook —
+/// Drop a closed window's entry (called from the `Shell` release hook —
 /// entities die with the window; the registry must not leak handles).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
     if let Some(registry) = cx.try_global::<NavRegistry>() {
@@ -301,24 +301,24 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
     });
 }
 
-/// Select the window's active project (the top-bar picker) — re-scopes the
+/// Select the window's active board (the top-bar picker) — re-scopes the
 /// Files / Source Control / run / shell surfaces. Persisted alongside the
-/// workspace so the next launch reopens on the same project (EXP-116).
-pub fn set_active_project(window: &Window, cx: &mut App, project_id: String) {
+/// team so the next launch reopens on the same board (EXP-116).
+pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
     let changed = nav.update(cx, |nav, cx| {
-        if nav.last_project_id.as_deref() == Some(project_id.as_str()) {
+        if nav.last_board_id.as_deref() == Some(board_id.as_str()) {
             return false;
         }
-        nav.last_project_id = Some(project_id.clone());
+        nav.last_board_id = Some(board_id.clone());
         cx.notify();
         true
     });
     if changed {
-        let workspace_id = nav.read(cx).workspace_id.clone();
-        persist_nav_state(cx, workspace_id, Some(project_id));
+        let team_id = nav.read(cx).team_id.clone();
+        persist_nav_state(cx, team_id, Some(board_id));
     }
 }
 
@@ -336,40 +336,40 @@ pub fn go_back(window: &Window, cx: &mut App) {
     });
 }
 
-/// Switch the window's active workspace. Resets the screen + back stack —
-/// screens are workspace-scoped (a board of workspace A is meaningless in B);
-/// the default-screen resolution then picks the new workspace's first board.
-pub fn switch_workspace(window: &Window, cx: &mut App, workspace_id: String) {
+/// Switch the window's active team. Resets the screen + back stack —
+/// screens are team-scoped (a board of team A is meaningless in B);
+/// the default-screen resolution then picks the new team's first board.
+pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
     let changed = nav.update(cx, |nav, cx| {
-        if nav.workspace_id.as_deref() == Some(workspace_id.as_str()) {
+        if nav.team_id.as_deref() == Some(team_id.as_str()) {
             return false;
         }
-        nav.workspace_id = Some(workspace_id.clone());
+        nav.team_id = Some(team_id.clone());
         nav.screen = None;
         nav.back_stack.clear();
-        nav.last_project_id = None;
+        nav.last_board_id = None;
         nav.replaced_screen = None;
         cx.notify();
         true
     });
     if changed {
-        // Clearing the project key keeps the file consistent with the
-        // in-memory reset above — a restart must not resurrect a project
-        // from the workspace this window just left.
-        persist_nav_state(cx, Some(workspace_id), None);
+        // Clearing the board key keeps the file consistent with the
+        // in-memory reset above — a restart must not resurrect a board
+        // from the team this window just left.
+        persist_nav_state(cx, Some(team_id), None);
     }
 }
 
 // -----------------------------------------------------------------------
-// Last-workspace/-project persistence (`settings.json`, merge-preserving
+// Last-team/-board persistence (`settings.json`, merge-preserving
 // like the `deviceId` key — other subsystems' keys survive)
 // -----------------------------------------------------------------------
 
-const LAST_WORKSPACE_KEY: &str = "lastWorkspaceId";
-const LAST_PROJECT_KEY: &str = "lastProjectId";
+const LAST_TEAM_KEY: &str = "lastTeamId";
+const LAST_BOARD_KEY: &str = "lastBoardId";
 
 fn settings_json_path(cx: &App) -> Option<std::path::PathBuf> {
     cx.try_global::<crate::session::AuthContext>()
@@ -387,15 +387,15 @@ fn load_settings_string(cx: &App, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Remember the window's workspace/project selection for the next launch
-/// (best-effort, off-thread). ONE writer for BOTH keys: the `OpenProject`
-/// cross-workspace path mutates workspace then project back-to-back, and two
+/// Remember the window's team/board selection for the next launch
+/// (best-effort, off-thread). ONE writer for BOTH keys: the `OpenBoard`
+/// cross-team path mutates team then board back-to-back, and two
 /// independent read-modify-write tasks against the shared `settings.json`
 /// could land in either order — the sequence stamp (checked under the write
 /// lock) lets a superseded snapshot skip instead of clobbering the newest.
-/// `workspace_id: None` leaves the workspace key untouched;
-/// `project_id: None` REMOVES the project key (workspace switch reset).
-fn persist_nav_state(cx: &mut App, workspace_id: Option<String>, project_id: Option<String>) {
+/// `team_id: None` leaves the team key untouched;
+/// `board_id: None` REMOVES the board key (team switch reset).
+fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<String>) {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -417,21 +417,21 @@ fn persist_nav_state(cx: &mut App, workspace_id: Option<String>, project_id: Opt
                 .filter(serde_json::Value::is_object)
                 .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
             if let Some(object) = root.as_object_mut() {
-                if let Some(workspace_id) = workspace_id {
+                if let Some(team_id) = team_id {
                     object.insert(
-                        LAST_WORKSPACE_KEY.to_string(),
-                        serde_json::Value::String(workspace_id),
+                        LAST_TEAM_KEY.to_string(),
+                        serde_json::Value::String(team_id),
                     );
                 }
-                match project_id {
-                    Some(project_id) => {
+                match board_id {
+                    Some(board_id) => {
                         object.insert(
-                            LAST_PROJECT_KEY.to_string(),
-                            serde_json::Value::String(project_id),
+                            LAST_BOARD_KEY.to_string(),
+                            serde_json::Value::String(board_id),
                         );
                     }
                     None => {
-                        object.remove(LAST_PROJECT_KEY);
+                        object.remove(LAST_BOARD_KEY);
                     }
                 }
             }
@@ -452,7 +452,7 @@ fn persist_nav_state(cx: &mut App, workspace_id: Option<String>, project_id: Opt
 }
 
 /// Read-only registry lookup (used by mutators so a dispatch on a window
-/// whose workspace never initialized nav — e.g. the login surface — is a
+/// whose team never initialized nav — e.g. the login surface — is a
 /// clean no-op instead of creating orphan state).
 fn nav_for_window_readonly(window: &Window, cx: &App) -> Option<Entity<Navigation>> {
     let window_id = window.window_handle().window_id();
@@ -544,30 +544,30 @@ pub fn init(cx: &mut App) {
             git_bar.update(cx, |bar, cx| bar.refresh(cx));
         });
     });
-    // The picker selects a project (scope) and brings up its issue list —
+    // The picker selects a board (scope) and brings up its issue list —
     // there is no board screen; the All Issues tool window IS the board.
-    cx.on_action(|action: &OpenProject, cx| {
-        let project_id = action.project_id.clone();
+    cx.on_action(|action: &OpenBoard, cx| {
+        let board_id = action.board_id.clone();
         on_active_window(cx, move |window, cx| {
-            // EXP-69 merged picker: a project picked from ANOTHER workspace
-            // switches the window's workspace first (same reset semantics as
+            // EXP-69 merged picker: a board picked from ANOTHER team
+            // switches the window's team first (same reset semantics as
             // the old footer switcher — screen + back stack cleared), then
-            // scopes to the picked project. One action, one gesture.
+            // scopes to the picked board. One action, one gesture.
             let nav = nav_for_window(window, cx);
-            let project_workspace = Store::global(cx)
+            let board_team = Store::global(cx)
                 .collections()
-                .projects
+                .boards
                 .read(cx)
-                .get(&project_id)
-                .map(|project| project.workspace_id.clone());
-            if let Some(project_workspace) = project_workspace {
-                if active_workspace_id(&nav, cx).as_deref()
-                    != Some(project_workspace.as_str())
+                .get(&board_id)
+                .map(|board| board.team_id.clone());
+            if let Some(board_team) = board_team {
+                if active_team_id(&nav, cx).as_deref()
+                    != Some(board_team.as_str())
                 {
-                    switch_workspace(window, cx, project_workspace);
+                    switch_team(window, cx, board_team);
                 }
             }
-            set_active_project(window, cx, project_id);
+            set_active_board(window, cx, board_id);
             crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::AllIssues);
         });
     });
@@ -575,10 +575,10 @@ pub fn init(cx: &mut App) {
         let issue_id = action.issue_id.clone();
         navigate_active(cx, Screen::IssueDetail { issue_id });
     });
-    cx.on_action(|action: &SwitchWorkspace, cx| {
-        let workspace_id = action.workspace_id.clone();
+    cx.on_action(|action: &SwitchTeam, cx| {
+        let team_id = action.team_id.clone();
         on_active_window(cx, move |window, cx| {
-            switch_workspace(window, cx, workspace_id);
+            switch_team(window, cx, team_id);
         });
     });
     cx.on_action(|_: &GoBack, cx| {
@@ -614,60 +614,60 @@ pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     nav.read(cx).screen.clone()
 }
 
-/// Whether the workspaces + projects shapes have seen their first
+/// Whether the teams + boards shapes have seen their first
 /// `up-to-date` — the gate between "skeleton" and real empty states.
 pub fn shapes_ready(cx: &App) -> bool {
     let collections = Store::global(cx).collections();
-    collections.projects.read(cx).is_ready() && collections.workspaces.read(cx).is_ready()
+    collections.boards.read(cx).is_ready() && collections.teams.read(cx).is_ready()
 }
 
-/// The window's active PROJECT — the scope every repo-backed surface (files
-/// tree, git chrome, run configs, source control, `+` shell cwd, project
+/// The window's active BOARD — the scope every repo-backed surface (files
+/// tree, git chrome, run configs, source control, `+` shell cwd, board
 /// picker, All Issues list) resolves through. Resolution order: the
-/// explicitly picked project (while it still exists in the active
-/// workspace), then the active issue tab's project (its synced row), then
-/// the workspace's first project.
-pub fn active_project_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+/// explicitly picked board (while it still exists in the active
+/// team), then the active issue tab's board (its synced row), then
+/// the team's first board.
+pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
     let collections = Store::global(cx).collections();
-    let workspace_id = active_workspace_id(nav, cx)?;
-    if let Some(picked) = nav.read(cx).last_project_id.clone() {
+    let team_id = active_team_id(nav, cx)?;
+    if let Some(picked) = nav.read(cx).last_board_id.clone() {
         let still_here = collections
-            .projects
+            .boards
             .read(cx)
             .get(&picked)
-            .is_some_and(|project| project.workspace_id == workspace_id);
+            .is_some_and(|board| board.team_id == team_id);
         if still_here {
             return Some(picked);
         }
     }
     if let Some(Screen::IssueDetail { issue_id }) = resolved_screen(nav, cx) {
-        if let Some(project_id) = collections
+        if let Some(board_id) = collections
             .issues
             .read(cx)
             .get(&issue_id)
-            .map(|issue| issue.project_id.clone())
+            .map(|issue| issue.board_id.clone())
         {
-            return Some(project_id);
+            return Some(board_id);
         }
     }
     collections
-        .projects_in_workspace(&workspace_id, cx)
+        .boards_in_team(&team_id, cx)
         .first()
-        .map(|project| project.id.clone())
+        .map(|board| board.id.clone())
 }
 
-/// The active workspace id: the explicit selection when it still exists,
-/// else the first synced workspace (name-sorted, web picker order).
-pub fn active_workspace_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+/// The active team id: the explicit selection when it still exists,
+/// else the first synced team (name-sorted, web picker order).
+pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
     let collections = Store::global(cx).collections();
-    let selected = nav.read(cx).workspace_id.clone();
+    let selected = nav.read(cx).team_id.clone();
     if let Some(id) = selected {
-        if collections.workspaces.read(cx).get(&id).is_some() {
+        if collections.teams.read(cx).get(&id).is_some() {
             return Some(id);
         }
     }
     collections
-        .workspaces_sorted(cx)
+        .teams_sorted(cx)
         .first()
-        .map(|workspace| workspace.id.clone())
+        .map(|team| team.id.clone())
 }

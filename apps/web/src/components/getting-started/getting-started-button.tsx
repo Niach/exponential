@@ -13,17 +13,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
-import type { Workspace } from "@/db/schema"
+import type { Team } from "@/db/schema"
 
 // Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
 // the inline block on the empty board disappears once issues exist (or is
 // dismissed), so this keeps the setup guidance reachable.
 export function GettingStartedButton({
-  workspaceSlug,
-  workspace,
+  teamSlug,
+  team,
 }: {
-  workspaceSlug: string
-  workspace: Workspace | null | undefined
+  teamSlug: string
+  team: Team | null | undefined
 }) {
   const [open, setOpen] = useState(false)
 
@@ -54,13 +54,13 @@ export function GettingStartedButton({
             </SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-6">
-            {/* The checklist needs the workspace row (signals + permissions
+            {/* The checklist needs the team row (signals + permissions
                 derive from it) — while it syncs, the sheet chrome alone is
                 fine. */}
-            {workspace && (
+            {team && (
               <GettingStartedCards
-                workspace={workspace}
-                workspaceSlug={workspaceSlug}
+                team={team}
+                teamSlug={teamSlug}
                 layout="stack"
               />
             )}

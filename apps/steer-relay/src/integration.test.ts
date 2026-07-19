@@ -209,7 +209,7 @@ describe(`steer relay end-to-end`, () => {
       JSON.stringify({ t: `activity`, event: { kind: `diff`, diff: `+ line` } })
     )
 
-    // A workspace member joins the activity channel on an ordinary viewer
+    // A team member joins the activity channel on an ordinary viewer
     // ticket: replay (log, then latest diff), then presence — no resize, no
     // binary ring.
     const member = await connect(
@@ -404,13 +404,13 @@ describe(`steer relay end-to-end`, () => {
     })
     expect(bothSubjects.status).toBe(400)
 
-    const noWorkspace = await postStart({
+    const noTeam = await postStart({
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`],
       repo,
     })
-    expect(noWorkspace.status).toBe(400)
+    expect(noTeam.status).toBe(400)
 
     const noRepo = await postStart({
       userId: `owner-2`,

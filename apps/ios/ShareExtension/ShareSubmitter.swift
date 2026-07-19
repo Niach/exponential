@@ -9,14 +9,14 @@ struct ShareSubmitter {
     let issuesApi: IssuesApi
     let issueImagesApi: IssueImagesApi
 
-    func submit(payload: SharedPayload, accountId: String, projectId: String) async throws {
+    func submit(payload: SharedPayload, accountId: String, boardId: String) async throws {
         let base = payload.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let titleText = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let createdId = try await issuesApi.create(
             accountId: accountId,
             CreateIssueInput(
-                projectId: projectId,
+                boardId: boardId,
                 title: titleText.isEmpty ? "Shared" : titleText,
                 description: base.isEmpty ? nil : base
             )
@@ -43,6 +43,6 @@ struct ShareSubmitter {
             )
         }
 
-        SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
+        SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
     }
 }

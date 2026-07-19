@@ -9,14 +9,14 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // comment/mention transactions. Skips agent users (they have no inbox) and
 // inserts only when no (issue,user) row exists yet — so a prior MANUAL
 // unsubscribe (source='manual', unsubscribed=true) is preserved and auto-events
-// do NOT resurrect the subscription. workspace_id is also trigger-denormalized
-// from issue→project; we pass the known value to satisfy the NOT NULL insert.
+// do NOT resurrect the subscription. team_id is also trigger-denormalized
+// from issue→board; we pass the known value to satisfy the NOT NULL insert.
 export async function ensureSubscribed(
   tx: Tx,
   args: {
     issueId: string
     userId: string
-    workspaceId: string
+    teamId: string
     source: SubscriberSource
   }
 ): Promise<void> {
@@ -32,8 +32,8 @@ export async function ensureSubscribed(
   // carry the index predicate — and drizzle 0.39 silently DROPS the
   // `targetWhere` option from onConflictDoNothing (verified via .toSQL()).
   await tx.execute(sql`
-    insert into issue_subscribers (issue_id, user_id, workspace_id, source)
-    values (${args.issueId}, ${args.userId}, ${args.workspaceId}, ${args.source})
+    insert into issue_subscribers (issue_id, user_id, team_id, source)
+    values (${args.issueId}, ${args.userId}, ${args.teamId}, ${args.source})
     on conflict (issue_id, user_id) where user_id is not null do nothing
   `)
 }

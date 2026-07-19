@@ -113,7 +113,7 @@ vi.mock(`@/components/ui/context-menu`, () => ({
 function buildIssue(overrides: Partial<Issue> = {}): Issue {
   return {
     id: `issue-1`,
-    projectId: `project-1`,
+    boardId: `board-1`,
     number: 1,
     identifier: `APP-1`,
     title: `Ship custom context menu`,
@@ -178,7 +178,7 @@ const users: User[] = [
 const labels: Label[] = [
   {
     id: `label-1`,
-    workspaceId: `workspace-1`,
+    teamId: `team-1`,
     name: `Bug`,
     color: `#ef4444`,
     sortOrder: 0,
@@ -187,7 +187,7 @@ const labels: Label[] = [
   },
   {
     id: `label-2`,
-    workspaceId: `workspace-1`,
+    teamId: `team-1`,
     name: `Ops`,
     color: `#3b82f6`,
     sortOrder: 1,

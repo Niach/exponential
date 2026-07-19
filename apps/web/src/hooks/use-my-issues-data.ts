@@ -6,84 +6,84 @@ import {
   labelCollection,
 } from "@/lib/collections"
 import {
-  useWorkspaceBySlug,
-  useWorkspaceProjects,
-  useWorkspaceUsers,
-} from "@/hooks/use-workspace-data"
+  useTeamBySlug,
+  useTeamBoards,
+  useTeamUsers,
+} from "@/hooks/use-team-data"
 import type { IssueFilters } from "@/lib/filters"
 import {
   buildFilteredIssues,
   buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups,
-} from "@/lib/project-board"
-import type { Issue, IssueLabel, Label, Project } from "@/db/schema"
+} from "@/lib/board-view"
+import type { Issue, IssueLabel, Label, Board } from "@/db/schema"
 
-// Cross-project "My Issues" board data: every issue assigned to the current
-// user across all projects in the workspace, reusing the project-board
-// grouping/filter machinery (mirrors use-project-board-data, minus the single
-// project scope). Pure client work over the already-synced issues shape.
+// Cross-board "My Issues" board data: every issue assigned to the current
+// user across all boards in the team, reusing the board-view
+// grouping/filter machinery (mirrors use-board-view-data, minus the single
+// board scope). Pure client work over the already-synced issues shape.
 export function useMyIssuesData({
   filters,
   userId,
-  workspaceSlug,
+  teamSlug,
 }: {
   filters: IssueFilters
   userId: string | undefined
-  workspaceSlug: string
+  teamSlug: string
 }) {
   // Const binding so TS narrowing survives into the live-query closure.
   const assignee = userId
-  const workspace = useWorkspaceBySlug(workspaceSlug)
-  const projects = useWorkspaceProjects(workspace?.id)
-  const projectIds = useMemo(
-    () => projects.map((project) => project.id),
-    [projects]
+  const team = useTeamBySlug(teamSlug)
+  const boards = useTeamBoards(team?.id)
+  const boardIds = useMemo(
+    () => boards.map((board) => board.id),
+    [boards]
   )
-  const projectMap = useMemo(
-    () => new Map<string, Project>(projects.map((p) => [p.id, p])),
-    [projects]
+  const boardMap = useMemo(
+    () => new Map<string, Board>(boards.map((p) => [p.id, p])),
+    [boards]
   )
 
   const { data: issues, isReady: issuesReady } = useLiveQuery(
     (query) =>
-      assignee && projectIds.length > 0
+      assignee && boardIds.length > 0
         ? query
             .from({ issues: issueCollection })
             .where(({ issues }) =>
               and(
-                inArray(issues.projectId, projectIds),
+                inArray(issues.boardId, boardIds),
                 eq(issues.assigneeId, assignee)
               )
             )
             .orderBy(({ issues }) => issues.createdAt)
         : undefined,
-    [assignee, projectIds.join(`,`)]
+    [assignee, boardIds.join(`,`)]
   )
 
   const { data: labels } = useLiveQuery(
     (query) =>
-      workspace
+      team
         ? query
             .from({ labels: labelCollection })
-            .where(({ labels }) => eq(labels.workspaceId, workspace.id))
+            .where(({ labels }) => eq(labels.teamId, team.id))
         : undefined,
-    [workspace?.id]
+    [team?.id]
   )
 
   const { data: issueLabels } = useLiveQuery(
     (query) =>
-      workspace
+      team
         ? query
             .from({ issueLabels: issueLabelCollection })
             .where(({ issueLabels }) =>
-              eq(issueLabels.workspaceId, workspace.id)
+              eq(issueLabels.teamId, team.id)
             )
         : undefined,
-    [workspace?.id]
+    [team?.id]
   )
 
-  const { userMap, users } = useWorkspaceUsers(workspace?.id)
+  const { userMap, users } = useTeamUsers(team?.id)
 
   const issueList = (issues ?? []) as Issue[]
   const labelList = (labels ?? []) as Label[]
@@ -100,17 +100,17 @@ export function useMyIssuesData({
 
     return {
       issueLabelMap,
-      // The issues query is skipped until the session user + projects are
-      // known; a workspace with no projects can never deliver a snapshot, so
+      // The issues query is skipped until the session user + boards are
+      // known; a team with no boards can never deliver a snapshot, so
       // treat it as ready-empty instead of loading forever.
-      issuesReady: issuesReady || projectMap.size === 0,
+      issuesReady: issuesReady || boardMap.size === 0,
       labelList,
-      projectMap,
+      boardMap,
       totalIssueCount: issueList.length,
       users,
       userMap,
       visibleGroups: buildVisibleIssueGroups(filteredIssues, filters.statuses),
-      workspace,
+      team,
     }
   }, [
     filters,
@@ -118,9 +118,9 @@ export function useMyIssuesData({
     issueList,
     issuesReady,
     labelList,
-    projectMap,
+    boardMap,
     userMap,
     users,
-    workspace,
+    team,
   ])
 }

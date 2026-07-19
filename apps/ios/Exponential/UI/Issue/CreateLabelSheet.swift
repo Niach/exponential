@@ -14,7 +14,7 @@ let suggestedLabelColors = [
 
 /// Minimal name + color form. Shared by the issue detail editor (create +
 /// assign to the issue in one step) and the create-issue sheet (create the
-/// workspace label, then add it to the local draft selection) — the caller's
+/// team label, then add it to the local draft selection) — the caller's
 /// `onCreate` closure decides what happens with the new name + color.
 struct CreateLabelSheet: View {
     let onCreate: (String, String) -> Void

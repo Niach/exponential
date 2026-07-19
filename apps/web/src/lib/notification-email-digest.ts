@@ -13,9 +13,9 @@ import {
   emailDeliveries,
   issues,
   notifications,
-  projects,
+  boards,
   users,
-  workspaces,
+  teams,
 } from "@/db/schema"
 import {
   emailEnabled,
@@ -71,14 +71,14 @@ export async function runEmailDigestSweep(
       emailVerified: users.emailVerified,
       isAgent: users.isAgent,
       issueIdentifier: issues.identifier,
-      workspaceSlug: workspaces.slug,
-      projectSlug: projects.slug,
+      teamSlug: teams.slug,
+      boardSlug: boards.slug,
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.userId))
     .leftJoin(issues, eq(issues.id, notifications.issueId))
-    .leftJoin(projects, eq(projects.id, issues.projectId))
-    .leftJoin(workspaces, eq(workspaces.id, projects.workspaceId))
+    .leftJoin(boards, eq(boards.id, issues.boardId))
+    .leftJoin(teams, eq(teams.id, boards.teamId))
     .where(
       and(
         isNull(notifications.readAt),
@@ -198,10 +198,10 @@ export async function runEmailDigestSweep(
             title: item.title,
             body: item.body,
             url:
-              item.workspaceSlug && item.projectSlug && item.issueIdentifier
+              item.teamSlug && item.boardSlug && item.issueIdentifier
                 ? `${base}${buildIssueDeepLinkPath({
-                    workspaceSlug: item.workspaceSlug,
-                    projectSlug: item.projectSlug,
+                    teamSlug: item.teamSlug,
+                    boardSlug: item.boardSlug,
                     identifier: item.issueIdentifier,
                   })}`
                 : null,

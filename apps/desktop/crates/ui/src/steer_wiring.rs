@@ -15,7 +15,7 @@
 //!    device-presence socket; [`stop_control_channel`] (from
 //!    `session::sign_out_active`) tears it down. A relay `start_session` frame
 //!    lands on the socket → the inbox → [`handle_remote_start`] → the §7
-//!    launcher on a workspace window (the SAME `coding_flow` path the button
+//!    launcher on a shell window (the SAME `coding_flow` path the button
 //!    uses, `LaunchOrigin::Relay`).
 //!
 //! 2. **Publisher — attaches on coding-session launch.**
@@ -197,7 +197,7 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
     }
 }
 
-/// Relay `start_session` → the §7 launcher on a workspace window. The SAME
+/// Relay `start_session` → the §7 launcher on a shell window. The SAME
 /// sequence the Start-coding dialog runs (`coding::prepare` →
 /// `spawn_into_window`), only the [`LaunchOrigin`] differs (§7.1: there is no
 /// second, divergent remote-start implementation). Dispatches on the frame's
@@ -208,9 +208,9 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
         steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(issue_id, &start, cx),
         steer::RemoteStartSubject::Batch {
             issue_ids,
-            workspace_id,
+            team_id,
             repo,
-        } => remote_batch_start(issue_ids, workspace_id, repo, &start, cx),
+        } => remote_batch_start(issue_ids, team_id, repo, &start, cx),
     }
 }
 
@@ -228,10 +228,10 @@ fn relay_origin(cx: &App) -> LaunchOrigin {
     }
 }
 
-/// The first workspace window (one with a terminal dock). A relay start can't
-/// host a coding tab on a non-workspace window (login), so `None` means no
+/// The first shell window (one with a terminal dock). A relay start can't
+/// host a coding tab on a non-shell window (login), so `None` means no
 /// window is open to run in — the caller logs and drops the start.
-fn find_workspace_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
+fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     cx.windows().into_iter().find(|handle| {
         handle
             .update(cx, |_, window, cx| {
@@ -281,8 +281,8 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     };
 
-    let Some(target) = find_workspace_window(cx) else {
-        log::warn!("steer: remote start for {issue_id} — no workspace window open");
+    let Some(target) = find_team_window(cx) else {
+        log::warn!("steer: remote start for {issue_id} — no shell window open");
         return;
     };
 
@@ -318,7 +318,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
 /// the frame), then `PrepareRequest::Batch` → `spawn_into_window`.
 fn remote_batch_start(
     issue_ids: Vec<String>,
-    workspace_id: String,
+    team_id: String,
     repo: steer::StartRepoGroup,
     start: &steer::RemoteStart,
     cx: &mut App,
@@ -328,25 +328,25 @@ fn remote_batch_start(
     // guard against.
 
     // Resolve the checked issues from sync. Unknown ids are skipped; a
-    // resolved issue whose project is outside the claimed workspace aborts the
+    // resolved issue whose board is outside the claimed team aborts the
     // WHOLE batch — a remote client must never steer this desktop into coding
-    // issues from another workspace than the one it claimed.
+    // issues from another team than the one it claimed.
     let issues: Vec<BatchIssueSpec> = {
         let store = Store::global(cx);
         let issues_coll = store.collections().issues.read(cx);
-        let projects_coll = store.collections().projects.read(cx);
+        let boards_coll = store.collections().boards.read(cx);
         let mut specs = Vec::new();
         for issue_id in &issue_ids {
             let Some(issue) = issues_coll.get(issue_id) else {
                 log::warn!("steer: remote batch start — unknown issue {issue_id}, skipped");
                 continue;
             };
-            let issue_ws = projects_coll
-                .get(&issue.project_id)
-                .map(|project| project.workspace_id.as_str());
-            if issue_ws != Some(workspace_id.as_str()) {
+            let issue_ws = boards_coll
+                .get(&issue.board_id)
+                .map(|board| board.team_id.as_str());
+            if issue_ws != Some(team_id.as_str()) {
                 log::warn!(
-                    "steer: remote batch start aborted — issue {} is not in workspace {workspace_id}",
+                    "steer: remote batch start aborted — issue {} is not in team {team_id}",
                     issue.identifier
                 );
                 return;
@@ -382,7 +382,7 @@ fn remote_batch_start(
     let batch_id = coding::new_batch_id();
     let request = BatchLaunchRequest {
         batch_id: batch_id.clone(),
-        workspace_id,
+        team_id,
         repo: RepoGroup {
             repository_id: repo.repository_id,
             full_name: repo.full_name,
@@ -398,8 +398,8 @@ fn remote_batch_start(
         log::warn!("steer: remote batch start ignored — not signed in / not synced");
         return;
     };
-    let Some(target) = find_workspace_window(cx) else {
-        log::warn!("steer: remote batch start — no workspace window open");
+    let Some(target) = find_team_window(cx) else {
+        log::warn!("steer: remote batch start — no shell window open");
         return;
     };
 
@@ -577,7 +577,7 @@ pub fn attach_publisher(
         }));
 
     // §P7: start the activity emitter — the desktop emits scrubbed activity
-    // events over the publisher socket for authenticated workspace members on
+    // events over the publisher socket for authenticated team members on
     // the relay's activity channel (the anonymous public audience was removed
     // in EXP-90). The emitter tails the Claude transcript + worktree diffs
     // and redacts before sending. Best-effort: a relay-disabled instance just

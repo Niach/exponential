@@ -2,15 +2,15 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-private struct WorkspaceNavTarget: Hashable {
+private struct TeamNavTarget: Hashable {
     let accountId: String
-    let workspaceId: String
+    let teamId: String
 }
 
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var deps
-    @State private var workspaceLoader: MultiAccountWorkspaceLoader?
-    @State private var pendingWorkspace: WorkspaceNavTarget?
+    @State private var teamLoader: MultiAccountTeamLoader?
+    @State private var pendingTeam: TeamNavTarget?
     @State private var showAddServer = false
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
@@ -23,7 +23,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     serversSection
-                    workspacesSection
+                    teamsSection
                     generalSection
                 }
                 .padding(.horizontal, 16)
@@ -33,17 +33,17 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .navigationDestination(item: $pendingWorkspace) { target in
-            WorkspaceSettingsView(workspaceId: target.workspaceId)
+        .navigationDestination(item: $pendingTeam) { target in
+            TeamSettingsView(teamId: target.teamId)
                 .environment(\.accountId, target.accountId)
         }
         .onAppear {
-            if workspaceLoader == nil {
-                workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth, db: deps.db)
+            if teamLoader == nil {
+                teamLoader = MultiAccountTeamLoader(auth: deps.auth, db: deps.db)
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
-            workspaceLoader?.refresh()
+            teamLoader?.refresh()
         }
         .fullScreenCover(isPresented: $showAddServer) {
             InstanceView(showCancel: true) {
@@ -133,9 +133,9 @@ struct SettingsView: View {
         .glassRow()
     }
 
-    private var workspacesSection: some View {
+    private var teamsSection: some View {
         sectionStack(title: "Teams") {
-            let groups = workspaceLoader?.groups ?? []
+            let groups = teamLoader?.groups ?? []
             if groups.isEmpty {
                 Text("No teams synced yet.")
                     .font(.caption)
@@ -144,7 +144,7 @@ struct SettingsView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { group in
-                        workspaceGroupBlock(group)
+                        teamGroupBlock(group)
                     }
                 }
             }
@@ -152,7 +152,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func workspaceGroupBlock(_ group: ServerWorkspaceGroup) -> some View {
+    private func teamGroupBlock(_ group: ServerTeamGroup) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(group.hostname)
                 .font(.caption.weight(.medium))
@@ -160,13 +160,13 @@ struct SettingsView: View {
                 .padding(.horizontal, 4)
 
             VStack(spacing: 6) {
-                ForEach(group.workspaces) { workspace in
+                ForEach(group.teams) { team in
                     Button {
-                        handleWorkspaceTap(accountId: group.accountId, workspaceId: workspace.id)
+                        handleTeamTap(accountId: group.accountId, teamId: team.id)
                     } label: {
                         HStack(spacing: 12) {
-                            WorkspaceAvatar(workspace: workspace, size: 22)
-                            Text(workspace.name)
+                            TeamAvatar(team: team, size: 22)
+                            Text(team.name)
                                 .font(.body)
                                 .foregroundStyle(.white)
                             Spacer()
@@ -184,8 +184,8 @@ struct SettingsView: View {
         }
     }
 
-    private func handleWorkspaceTap(accountId: String, workspaceId: String) {
-        pendingWorkspace = WorkspaceNavTarget(accountId: accountId, workspaceId: workspaceId)
+    private func handleTeamTap(accountId: String, teamId: String) {
+        pendingTeam = TeamNavTarget(accountId: accountId, teamId: teamId)
     }
 
     private var generalSection: some View {

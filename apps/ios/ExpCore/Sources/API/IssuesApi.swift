@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Input/Output types
 
 public struct CreateIssueInput: Encodable, Sendable {
-    public let projectId: String
+    public let boardId: String
     public let title: String
     public var status: String?
     public var priority: String?
@@ -15,7 +15,7 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var labelIds: [String]?
 
     public init(
-        projectId: String,
+        boardId: String,
         title: String,
         status: String? = nil,
         priority: String? = nil,
@@ -26,7 +26,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         endTime: String? = nil,
         labelIds: [String]? = nil
     ) {
-        self.projectId = projectId
+        self.boardId = boardId
         self.title = title
         self.status = status
         self.priority = priority
@@ -146,17 +146,17 @@ public struct MergePrInput: Encodable, Sendable {
     }
 }
 
-/// Input for `issues.move` (EXP-57): move an issue to another project in the
-/// SAME workspace. The server renumbers the issue in the target project
+/// Input for `issues.move` (EXP-57): move an issue to another board in the
+/// SAME team. The server renumbers the issue in the target board
 /// (Linear-style, EXP-42 → ABC-17) — the issue keeps its id but changes
-/// `projectId`/`number`/`identifier`, which Electric echoes back into GRDB.
+/// `boardId`/`number`/`identifier`, which Electric echoes back into GRDB.
 public struct MoveIssueInput: Encodable, Sendable {
     public let id: String
-    public let projectId: String
+    public let boardId: String
 
-    public init(id: String, projectId: String) {
+    public init(id: String, boardId: String) {
         self.id = id
-        self.projectId = projectId
+        self.boardId = boardId
     }
 }
 
@@ -202,13 +202,13 @@ public struct PrFilesResult: Decodable, Sendable {
 // MARK: - Server search (issues.search)
 
 public struct SearchIssuesInput: Encodable, Sendable {
-    public let workspaceId: String
+    public let teamId: String
     public let query: String
     /// Server default 20, max 50. Omitted from the JSON when nil.
     public var limit: Int?
 
-    public init(workspaceId: String, query: String, limit: Int? = nil) {
-        self.workspaceId = workspaceId
+    public init(teamId: String, query: String, limit: Int? = nil) {
+        self.teamId = teamId
         self.query = query
         self.limit = limit
     }
@@ -221,15 +221,15 @@ public struct SearchIssueHit: Decodable, Sendable, Identifiable {
     public let id: String
     public let identifier: String
     public let title: String
-    public let projectId: String
+    public let boardId: String
     public let status: String
     public let priority: String
 
-    public init(id: String, identifier: String, title: String, projectId: String, status: String, priority: String) {
+    public init(id: String, identifier: String, title: String, boardId: String, status: String, priority: String) {
         self.id = id
         self.identifier = identifier
         self.title = title
-        self.projectId = projectId
+        self.boardId = boardId
         self.status = status
         self.priority = priority
     }
@@ -271,15 +271,15 @@ public final class IssuesApi: Sendable {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.mergePr", input: MergePrInput(issueId: issueId))
     }
 
-    /// Move the issue to another project in the same workspace (EXP-57). The
+    /// Move the issue to another board in the same team (EXP-57). The
     /// response also carries the fresh identity (`issue` + target slug); only
     /// the standard `{issue: {id}}` envelope is decoded — clients pick up the
-    /// new identifier/projectId from Electric sync like every other mutation.
-    public func move(accountId: String, id: String, projectId: String) async throws {
+    /// new identifier/boardId from Electric sync like every other mutation.
+    public func move(accountId: String, id: String, boardId: String) async throws {
         let _: IssueResult = try await trpc.mutation(
             accountId: accountId,
             path: "issues.move",
-            input: MoveIssueInput(id: id, projectId: projectId)
+            input: MoveIssueInput(id: id, boardId: boardId)
         )
     }
 
@@ -291,14 +291,14 @@ public final class IssuesApi: Sendable {
     }
 
     /// Server-side full-text search (title + description + comment text) over
-    /// one workspace, relevance-ordered. `issues.search` is a `.query`, so this
+    /// one team, relevance-ordered. `issues.search` is a `.query`, so this
     /// uses the same GET-with-input helper as `prFiles`. Requires the caller to
-    /// be a member of `workspaceId`.
-    public func search(accountId: String, workspaceId: String, query: String, limit: Int? = nil) async throws -> [SearchIssueHit] {
+    /// be a member of `teamId`.
+    public func search(accountId: String, teamId: String, query: String, limit: Int? = nil) async throws -> [SearchIssueHit] {
         try await trpc.query(
             accountId: accountId,
             path: "issues.search",
-            input: SearchIssuesInput(workspaceId: workspaceId, query: query, limit: limit)
+            input: SearchIssuesInput(teamId: teamId, query: query, limit: limit)
         )
     }
 }

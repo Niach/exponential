@@ -11,7 +11,7 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
-import { ensurePersonalWorkspace } from "@/lib/auth/personal-workspace"
+import { ensurePersonalTeam } from "@/lib/auth/personal-team"
 import {
   emailEnabled,
   sendPasswordResetEmail,
@@ -23,7 +23,7 @@ import {
   resolveOnboardingCompletedAt,
 } from "./onboarding"
 import {
-  bindSubscriptionToWorkspace,
+  bindSubscriptionToTeam,
   bindingInputFromCheckout,
   bindingInputFromSubscription,
 } from "@/lib/billing/creem-binding"
@@ -209,7 +209,7 @@ export const auth = betterAuth({
         input: false,
       },
       // When the user dismissed the "Getting started" cards on the empty
-      // project board (users.dismissGettingStarted, EXP-88). Surfaced
+      // board (users.dismissGettingStarted, EXP-88). Surfaced
       // read-only on the session; never client-settable.
       gettingStartedDismissedAt: {
         type: `date`,
@@ -305,21 +305,21 @@ export const auth = betterAuth({
               err
             )
           }
-          // Every real account gets its personal workspace at signup so any
+          // Every real account gets its personal team at signup so any
           // client (web, mobile, desktop) sees a consistent state. Synthetic
           // agent users are inserted directly via Drizzle and never hit this
           // hook; the guard is defense-in-depth. Failures never block signup —
-          // workspaces.ensureDefault self-heals later.
+          // teams.ensureDefault self-heals later.
           try {
             if (!(user as { isAgent?: boolean }).isAgent) {
-              await ensurePersonalWorkspace({
+              await ensurePersonalTeam({
                 userId: user.id,
                 userName: user.name ?? null,
               })
             }
           } catch (err) {
             console.error(
-              `[auth] ensurePersonalWorkspace failed for ${user.email}:`,
+              `[auth] ensurePersonalTeam failed for ${user.email}:`,
               err
             )
           }
@@ -418,7 +418,7 @@ export const auth = betterAuth({
       // proactively).
       oidcConfig: {
         loginPage: `/auth/login`,
-        // Scope-selection consent screen (workspace/project multi-select →
+        // Scope-selection consent screen (team/board multi-select →
         // mcp_grants). The /api/auth/$ route forces prompt=consent on every
         // mcp/authorize request so no client skips it.
         consentPage: `/auth/consent`,
@@ -459,18 +459,18 @@ export const auth = betterAuth({
             testMode: process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
             defaultSuccessUrl: `/settings/billing`,
             persistSubscriptions: true,
-            // Bind the persisted subscription row to its workspace + seat count
+            // Bind the persisted subscription row to its team + seat count
             // from checkout metadata. The plugin's own persistence runs first
             // (creating the row keyed by creemSubscriptionId), then invokes this
             // callback with the flattened checkout entity, so the row exists by
             // the time we bind. See lib/billing/creem-binding.ts.
             onCheckoutCompleted: async (event) => {
-              const bound = await bindSubscriptionToWorkspace(
+              const bound = await bindSubscriptionToTeam(
                 bindingInputFromCheckout(event)
               )
               if (bound) {
                 process.stderr.write(
-                  `[creem] bound subscription ${bound.creemSubscriptionId} → workspace ${bound.workspaceId} (${bound.seats} seats)\n`
+                  `[creem] bound subscription ${bound.creemSubscriptionId} → team ${bound.teamId} (${bound.seats} seats)\n`
                 )
               }
             },
@@ -478,10 +478,10 @@ export const auth = betterAuth({
               process.stderr.write(
                 `[creem] access granted: ${event.customer.email}, reason: ${event.reason}\n`
               )
-              // Idempotent re-bind: heals the workspace/seats binding on the
+              // Idempotent re-bind: heals the team/seats binding on the
               // subscription lifecycle events (active/trialing/paid), covering
               // the rare case where subscription.* lands before checkout.completed.
-              await bindSubscriptionToWorkspace(
+              await bindSubscriptionToTeam(
                 bindingInputFromSubscription(event)
               )
             },
@@ -489,7 +489,7 @@ export const auth = betterAuth({
             // Creem dashboard) arrive as subscription.update with the new
             // item units — re-bind so our `seats` column tracks them.
             onSubscriptionUpdate: async (event) => {
-              await bindSubscriptionToWorkspace(
+              await bindSubscriptionToTeam(
                 bindingInputFromSubscription(event)
               )
             },
@@ -504,7 +504,7 @@ export const auth = betterAuth({
     // Unified onboarding gate: every client (web, iOS, Android) decides
     // "show the first-run wizard?" from this session's onboardingCompletedAt,
     // so the rule lives server-side in resolveOnboardingCompletedAt — users
-    // who already have a real project get the flag backfilled on read.
+    // who already have a real board get the flag backfilled on read.
     customSession(async ({ user, session }) => {
       // These flags out-live the 5-min session cookie cache via a fresh
       // resolve on read (see their resolvers for the one-way semantics).

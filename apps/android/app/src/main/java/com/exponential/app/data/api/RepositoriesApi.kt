@@ -7,47 +7,47 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
 
-// Mirrors apps/web/src/lib/trpc/repositories.ts + projects.ts. Repositories are
+// Mirrors apps/web/src/lib/trpc/repositories.ts + boards.ts. Repositories are
 // server-only (NOT an Electric shape) — read on demand over tRPC for the
-// workspace-settings registry and the create-project / retarget pickers.
+// team-settings registry and the create-board / retarget pickers.
 // Connecting NEW repos (the GitHub-App install flow) stays web-only; Android
 // links out to the web settings for that (masterplan v4 §6).
 
 /**
- * A project that points at a repo, computed from `projects.repository_id`
+ * A board that points at a repo, computed from `boards.repository_id`
  * (masterplan v4 §3.2 — `repositories.list` no longer returns join rows).
  * Powers the settings "used by" chips and the picker "in use" hints.
  */
 @Serializable
-data class RepoProjectRef(
+data class RepoBoardRef(
     val id: String,
     val name: String,
     val slug: String,
 )
 
 /**
- * One connected repo in the workspace registry (`repositories.list` row).
+ * One connected repo in the team registry (`repositories.list` row).
  * `private` is a Kotlin keyword so it's mapped via @SerialName.
  */
 @Serializable
-data class WorkspaceRepo(
+data class TeamRepo(
     val id: String,
     val fullName: String,
     val defaultBranch: String = "main",
     @SerialName("private") val isPrivate: Boolean = false,
-    // v4: the projects backed by this repo (many for a monorepo).
-    val projects: List<RepoProjectRef> = emptyList(),
+    // v4: the boards backed by this repo (many for a monorepo).
+    val boards: List<RepoBoardRef> = emptyList(),
 )
 
 @Serializable
-private data class RepoWorkspaceIdInput(val workspaceId: String)
+private data class RepoTeamIdInput(val teamId: String)
 
 @Serializable
 private data class RepositoryIdInput(val repositoryId: String)
 
 @Serializable
 private data class SetRepositoryInput(
-    val projectId: String,
+    val boardId: String,
     val repositoryId: String,
 )
 
@@ -57,20 +57,20 @@ private data class BranchDiffInput(@SerialName("issueId") val issueId: String)
 @Singleton
 class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    /** Member-readable: the workspace's repos with their backing projects. */
-    suspend fun list(accountId: String, workspaceId: String): List<WorkspaceRepo> =
+    /** Member-readable: the team's repos with their backing boards. */
+    suspend fun list(accountId: String, teamId: String): List<TeamRepo> =
         trpc.query(
             accountId,
             path = "repositories.list",
-            input = RepoWorkspaceIdInput(workspaceId),
-            inputSerializer = RepoWorkspaceIdInput.serializer(),
-            outputSerializer = ListSerializer(WorkspaceRepo.serializer()),
+            input = RepoTeamIdInput(teamId),
+            inputSerializer = RepoTeamIdInput.serializer(),
+            outputSerializer = ListSerializer(TeamRepo.serializer()),
         )
 
     /**
      * Owner-only (server-enforced): remove a repo. Blocked (CONFLICT — "repository
-     * backs N projects") while any project still points at it, via the
-     * `projects.repository_id` FK `restrict`.
+     * backs N boards") while any board still points at it, via the
+     * `boards.repository_id` FK `restrict`.
      */
     suspend fun remove(accountId: String, repositoryId: String) =
         trpc.mutationUnit(
@@ -81,14 +81,14 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * Owner/admin: retarget a project's backing repo (masterplan v4 §3.2 —
-     * `projects.setRepository`, replacing the deleted link/unlink/setPrimary).
+     * Owner/admin: retarget a board's backing repo (masterplan v4 §3.2 —
+     * `boards.setRepository`, replacing the deleted link/unlink/setPrimary).
      */
-    suspend fun setRepository(accountId: String, projectId: String, repositoryId: String) =
+    suspend fun setRepository(accountId: String, boardId: String, repositoryId: String) =
         trpc.mutationUnit(
             accountId,
-            path = "projects.setRepository",
-            input = SetRepositoryInput(projectId, repositoryId),
+            path = "boards.setRepository",
+            input = SetRepositoryInput(boardId, repositoryId),
             inputSerializer = SetRepositoryInput.serializer(),
         )
 

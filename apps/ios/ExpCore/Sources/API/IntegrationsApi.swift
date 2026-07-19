@@ -4,7 +4,7 @@ import Foundation
 /// `integrations.github.status` output). `installUrl` can be nil even when
 /// configured (server without `GITHUB_APP_SLUG`). `connectUrl` is the
 /// mobile-friendly OAuth authorize URL that claims a GitHub account for a
-/// workspace (single consent screen); nil when unavailable — callers prefer
+/// team (single consent screen); nil when unavailable — callers prefer
 /// `connectUrl ?? installUrl` for the connect hop.
 public struct GithubStatusResult: Decodable, Sendable {
     public let configured: Bool
@@ -42,7 +42,7 @@ public struct GithubStatusResult: Decodable, Sendable {
     }
 }
 
-/// One GitHub App installation linked to the workspace (mirrors the web
+/// One GitHub App installation linked to the team (mirrors the web
 /// `installationSummary` + grant flags). `needsReauth` marks an installation
 /// whose per-user repo grants were never captured (linked before the grant
 /// model existed) — it yields zero repos until a member re-runs the OAuth
@@ -74,7 +74,7 @@ public struct GithubReposResult: Decodable, Sendable {
     public let installed: Bool
     public let installUrl: String?
     /// Mobile-friendly OAuth authorize URL that claims a GitHub account for the
-    /// workspace (single consent screen, no configure page); nil when
+    /// team (single consent screen, no configure page); nil when
     /// unavailable. Prefer `connectUrl ?? installUrl` for the connect hop.
     public let connectUrl: String?
     public let repos: [GithubPickerRepo]
@@ -107,17 +107,17 @@ public final class IntegrationsApi: Sendable {
     }
 
     /// GitHub App install state, for the account integrations card. Pass
-    /// `workspaceId` to scope the result to that workspace's linked GitHub
+    /// `teamId` to scope the result to that team's linked GitHub
     /// accounts; omit it to fall back to the server's deprecated
     /// union-across-memberships shim.
-    public func githubStatus(accountId: String, workspaceId: String) async throws -> GithubStatusResult {
+    public func githubStatus(accountId: String, teamId: String) async throws -> GithubStatusResult {
         struct Input: Encodable {
-            let workspaceId: String
+            let teamId: String
         }
         return try await trpc.query(
             accountId: accountId,
             path: "integrations.github.status",
-            input: Input(workspaceId: workspaceId)
+            input: Input(teamId: teamId)
         )
     }
 
@@ -125,21 +125,21 @@ public final class IntegrationsApi: Sendable {
     /// `platform: "mobile"` marks the caller so the server returns an install
     /// URL whose post-install page renders phone-sized and deep-links back into
     /// the app via `exponential://github-connected` (instead of stranding the user in
-    /// the browser). Pass `workspaceId` to scope the result to that workspace's
+    /// the browser). Pass `teamId` to scope the result to that team's
     /// linked GitHub accounts; omit it to fall back to the server's deprecated
     /// union-across-memberships shim. `refresh` bypasses the server's per-user
     /// repo cache — pass it when re-querying right after an install so new repos
     /// show immediately.
-    public func githubRepos(accountId: String, workspaceId: String, refresh: Bool = false) async throws -> GithubReposResult {
+    public func githubRepos(accountId: String, teamId: String, refresh: Bool = false) async throws -> GithubReposResult {
         struct Input: Encodable {
             let platform: String
-            let workspaceId: String
+            let teamId: String
             let refresh: Bool?
         }
         return try await trpc.query(
             accountId: accountId,
             path: "integrations.github.repos",
-            input: Input(platform: "mobile", workspaceId: workspaceId, refresh: refresh ? true : nil)
+            input: Input(platform: "mobile", teamId: teamId, refresh: refresh ? true : nil)
         )
     }
 }

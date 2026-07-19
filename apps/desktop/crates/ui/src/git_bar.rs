@@ -6,11 +6,11 @@
 //! action (`↓N` fast-forwards, `↑N` pushes, `↓N ↑M` rebase+pushes, Publish
 //! for an unpublished branch; clean+in-sync renders nothing). Always
 //! trunk-only: everything derives from the
-//! active project's trunk clone on disk ([`coding::TrunkState`], re-read
+//! active board's trunk clone on disk ([`coding::TrunkState`], re-read
 //! after every op), so the chrome survives restarts and out-of-band fixes.
 //!
 //! Scope follows the window's navigation, exactly like the run widget: a
-//! project board or an issue detail resolves to that project's primary repo;
+//! board view or an issue detail resolves to that board's primary repo;
 //! other screens render nothing. On first resolve the bar kicks the
 //! lifecycle — auto-clone when `<clone>/.git` is missing (progress streams
 //! into the chip), else a freshness sync (fetch + ff-only catch-up) — then
@@ -67,7 +67,7 @@ use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
 
-/// The trunk repo a resolved project points at. All owned/`Send` so the whole
+/// The trunk repo a resolved board points at. All owned/`Send` so the whole
 /// struct can ride onto the background executor for a git op.
 #[derive(Clone)]
 struct RepoInfo {
@@ -97,7 +97,7 @@ struct RepoInfo {
 enum SyncMode {
     /// Auto-clone the missing trunk (streams `git clone --progress` %).
     Clone,
-    /// Freshness `git fetch origin` (project-open + "Up to date" click).
+    /// Freshness `git fetch origin` (board-open + "Up to date" click).
     Fetch,
     /// Background pass: fetch → ff-only when clean & behind-only, else skip.
     AutoSync,
@@ -143,11 +143,11 @@ pub struct GitBar {
     /// The shared per-window repo resolver — one `repositories.list` fetch
     /// for the whole window instead of a per-bar call.
     repo_resolver: Entity<RepoResolver>,
-    /// The project scope the loaded state below belongs to (`None` off a
-    /// project screen → the bar renders nothing).
-    project_id: Option<String>,
+    /// The board scope the loaded state below belongs to (`None` off a
+    /// board screen → the bar renders nothing).
+    board_id: Option<String>,
     load: Load,
-    /// The resolved trunk repo (`None` = no repo linked to the project).
+    /// The resolved trunk repo (`None` = no repo linked to the board).
     repo: Option<RepoInfo>,
     /// Repo-resolution problem (no repo linked / `repositories.list` failed) —
     /// a muted note in place of the chips.
@@ -189,11 +189,11 @@ impl GitBar {
         let repo_resolver = repo_resolver_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            // Scope follows navigation (board / issue-detail → project).
+            // Scope follows navigation (board / issue-detail → board).
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The issue→project join reads synced rows.
+            // The issue→board join reads synced rows.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // Window focus is an auto-sync trigger (debounced).
@@ -206,7 +206,7 @@ impl GitBar {
         Self {
             nav,
             repo_resolver,
-            project_id: None,
+            board_id: None,
             load: Load::Idle,
             repo: None,
             repo_error: None,
@@ -229,11 +229,11 @@ impl GitBar {
         self.sync_seq
     }
 
-    /// The scope: the window's active project (screen scope with the
+    /// The scope: the window's active board (screen scope with the
     /// last-board fallback) — populated on EVERY screen so the sidebar's
     /// Source Control tool window and the rail's conflict badge stay live.
-    fn scope_project_id(&self, cx: &App) -> Option<String> {
-        navigation::active_project_id(&self.nav, cx)
+    fn scope_board_id(&self, cx: &App) -> Option<String> {
+        navigation::active_board_id(&self.nav, cx)
     }
 
     /// Whether the trunk sits in conflict mode — the sidebar rail paints an
@@ -254,7 +254,7 @@ impl GitBar {
     }
 
     /// The resolved trunk clone root on disk (`None` while unresolved or on
-    /// a repo-less project) — the sidebar flow view's git-op target.
+    /// a repo-less board) — the sidebar flow view's git-op target.
     pub(crate) fn clone_dir(&self) -> Option<PathBuf> {
         self.repo
             .as_ref()
@@ -354,7 +354,7 @@ impl GitBar {
 
     /// Branches whose session worktrees are safe to prune (EXP-76 disk
     /// hygiene, piggybacked on the auto-sync pass): synced issues of THIS
-    /// repo's projects whose PR has merged, minus any issue with a running
+    /// repo's boards whose PR has merged, minus any issue with a running
     /// coding session (synced — covers every device) and minus worktrees
     /// hosting a live terminal tab in this window. The prune itself
     /// ([`git_worktree::prune_merged_worktrees`]) additionally refuses any
@@ -368,13 +368,13 @@ impl GitBar {
             return Vec::new();
         }
         let collections = Store::global(cx).collections().clone();
-        let projects = collections.projects.read(cx);
-        let repo_projects: Vec<&str> = projects
+        let boards = collections.boards.read(cx);
+        let repo_boards: Vec<&str> = boards
             .iter()
-            .filter(|project| {
-                project.repository_id.as_deref() == Some(repo.repository_id.as_str())
+            .filter(|board| {
+                board.repository_id.as_deref() == Some(repo.repository_id.as_str())
             })
-            .map(|project| project.id.as_str())
+            .map(|board| board.id.as_str())
             .collect();
         let sessions = collections.coding_sessions.read(cx);
         // Heartbeat-stale rows count as absent (EXP-153) — a phantom row must
@@ -388,7 +388,7 @@ impl GitBar {
         let issues = collections.issues.read(cx);
         let mut branches: Vec<String> = issues
             .iter()
-            .filter(|issue| repo_projects.contains(&issue.project_id.as_str()))
+            .filter(|issue| repo_boards.contains(&issue.board_id.as_str()))
             .filter(|issue| issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED))
             .filter(|issue| !running_issues.contains(&issue.id.as_str()))
             .filter_map(|issue| issue.branch.clone())
@@ -584,20 +584,20 @@ impl GitBar {
     }
 
     /// Render-time load gate: a scope change resets, `Idle` kicks one
-    /// background resolve of the project's trunk repo + its on-disk state,
+    /// background resolve of the board's trunk repo + its on-disk state,
     /// then the lifecycle (auto-clone / freshness fetch) and the per-scope
     /// auto-sync timer loop. `pub(crate)` so the sidebar rail can keep the
     /// auto-clone lifecycle + conflict badge live even while the Source
     /// Control tool window is closed.
     pub(crate) fn ensure_loaded(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
-        // workspace, shared by all five trunk/IDE surfaces).
+        // team, shared by all five trunk/IDE surfaces).
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let scope = self.scope_project_id(cx);
-        if scope != self.project_id {
-            self.project_id = scope;
+        let scope = self.scope_board_id(cx);
+        if scope != self.board_id {
+            self.board_id = scope;
             self.load = Load::Idle;
             self.repo = None;
             self.repo_error = None;
@@ -615,17 +615,17 @@ impl GitBar {
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
         // Read the shared resolution rather than firing our own network call.
-        let meta = match self.repo_resolver.read(cx).lookup_project(&project_id) {
+        let meta = match self.repo_resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Loading => return, // the resolver observer re-renders us
             RepoLookup::Found(repo) => repo,
             RepoLookup::NotFound => {
                 self.load = Load::Ready;
                 self.repo = None;
-                self.repo_error = Some("No repository linked to this project.".into());
+                self.repo_error = Some("No repository linked to this board.".into());
                 return;
             }
             RepoLookup::Error(message) => {
@@ -667,7 +667,7 @@ impl GitBar {
         .detach();
 
         cx.spawn(async move |this, cx| {
-            let project = project_id.clone();
+            let board = board_id.clone();
             let resolved = cx
                 .background_executor()
                 .spawn(async move {
@@ -699,7 +699,7 @@ impl GitBar {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation
-                    || this.project_id.as_deref() != Some(project.as_str())
+                    || this.board_id.as_deref() != Some(board.as_str())
                 {
                     return; // superseded by a scope change
                 }
@@ -714,7 +714,7 @@ impl GitBar {
                 this.repo = Some(repo);
                 this.repo_error = None;
                 // Auto-clone a missing trunk, else a freshness sync on
-                // project open (fetch + ff when cleanly behind-only — the
+                // board open (fetch + ff when cleanly behind-only — the
                 // bar must never open onto a stale ↓N it could resolve).
                 this.start_sync(
                     if clone_exists {
@@ -1140,10 +1140,10 @@ impl Render for GitBar {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(window, cx);
 
-        // Trunk chrome only on a project scope (mirrors the Run section's
-        // self-hide) — the sidebar's project panel collapses to nothing on
+        // Trunk chrome only on a board scope (mirrors the Run section's
+        // self-hide) — the sidebar's board panel collapses to nothing on
         // other screens.
-        if self.project_id.is_none() {
+        if self.board_id.is_none() {
             return div().into_any_element();
         }
 

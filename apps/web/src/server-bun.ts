@@ -29,10 +29,10 @@ import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
-import { startProjectTrashScheduler } from "@/lib/project-trash"
+import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 
-// Fire-and-forget: seed the public workspace and promote initial admins.
+// Fire-and-forget: seed the public team and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
 // server-bun.ts keeps the entire boostrap module (and its drizzle/pg deps)
 // out of the client bundle.
@@ -50,10 +50,10 @@ bootstrapSelfHosted()
 // story.
 startEmailDigestScheduler()
 
-// Project trash: periodic sweep that hard-deletes projects trashed longer than
+// Board trash: periodic sweep that hard-deletes boards trashed longer than
 // the 48h retention window and reclaims their attachment blobs. In-process
 // guard only; the row delete is the atomic multi-instance claim.
-startProjectTrashScheduler()
+startBoardTrashScheduler()
 
 // Coding sessions: periodic sweep that force-ends rows still `running` past
 // the staleness window — a crashed desktop never fires its exit hook, and the
@@ -157,27 +157,6 @@ function withSupportPageHeaders(req: Request, response: Response): Response {
   return response
 }
 
-// Workspaces → teams rename: the app lives under /t/, but /w/ links live in
-// the wild forever (old emails, bookmarks, chat messages). Permanent-redirect
-// them server-side so crawlers consolidate onto /t/ and unfurlers follow.
-// ONLY the page namespace is touched — /w/ has no API siblings, but the guard
-// stays surgical anyway. The client-side `routes/w/$.tsx` splat covers dev
-// (the nitro-alpha bridge never reaches this file) and SPA-internal entries.
-function legacyWorkspaceRedirect(req: Request): Response | null {
-  if (req.method !== `GET` && req.method !== `HEAD`) return null
-  const url = new URL(req.url)
-  if (url.pathname !== `/w` && !url.pathname.startsWith(`/w/`)) return null
-  const rest = url.pathname.slice(`/w`.length)
-  // Not Response.redirect(): its headers are immutable and the security-header
-  // wrapper still decorates this response. Relative location (RFC 9110) —
-  // behind Traefik TLS termination url.origin is http://, and an absolute
-  // http:// target would permanently cache a protocol downgrade.
-  return new Response(null, {
-    status: 301,
-    headers: { location: `/t${rest}${url.search}` },
-  })
-}
-
 // h3 (inside the nitro chunk) can hand back its lazy NodeResponse wrapper —
 // it masquerades as a Response via Symbol.hasInstance/prototype games, but
 // Bun.serve requires the real native class and otherwise logs "Expected a
@@ -194,14 +173,13 @@ function ensureNativeResponse(res: Response): Response {
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
   withNoindexHeader(
     withSecurityHeaders(
-      legacyWorkspaceRedirect(req) ??
-        withSupportPageHeaders(
+      withSupportPageHeaders(
+        req,
+        withWidgetAssetHeaders(
           req,
-          withWidgetAssetHeaders(
-            req,
-            ensureNativeResponse(await nitroApp.fetch(req))
-          )
+          ensureNativeResponse(await nitroApp.fetch(req))
         )
+      )
     )
   )
 const ws = hasWebSocket
@@ -222,14 +200,13 @@ if (hasWebSocket && ws) {
     }
     return withNoindexHeader(
       withSecurityHeaders(
-        legacyWorkspaceRedirect(req) ??
-          withSupportPageHeaders(
+        withSupportPageHeaders(
+          req,
+          withWidgetAssetHeaders(
             req,
-            withWidgetAssetHeaders(
-              req,
-              ensureNativeResponse(await nitroApp.fetch(req))
-            )
+            ensureNativeResponse(await nitroApp.fetch(req))
           )
+        )
       )
     )
   }

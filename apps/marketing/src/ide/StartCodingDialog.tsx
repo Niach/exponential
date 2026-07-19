@@ -122,7 +122,7 @@ export function StartCodingDialog() {
     setUltracode(isBatch)
   }, [isBatch])
 
-  /* The project's OPEN issues (done/cancelled/duplicate hidden); pre-seeded
+  /* The board's OPEN issues (done/cancelled/duplicate hidden); pre-seeded
      ids stay visible regardless of status or search — the pick wins. */
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()

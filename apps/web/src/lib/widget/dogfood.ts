@@ -1,5 +1,5 @@
 // Server-only lookup of the cloud dogfood widget key (the `Exponential App`
-// config bootstrap-cloud creates on the public feedback workspace).
+// config bootstrap-cloud creates on the public feedback team).
 //
 // This module is reached ONLY via a dynamic import inside the
 // getRuntimeConfig serverFn handler. Keep it a small leaf with static
@@ -9,16 +9,16 @@
 // and crashed every request in the production bundle.
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { widgetConfigs, workspaces } from "@/db/schema"
+import { widgetConfigs, teams } from "@/db/schema"
 
 export async function findDogfoodWidgetKey(): Promise<string | null> {
   const [row] = await db
     .select({ publicKey: widgetConfigs.publicKey })
     .from(widgetConfigs)
-    .innerJoin(workspaces, eq(widgetConfigs.workspaceId, workspaces.id))
+    .innerJoin(teams, eq(widgetConfigs.teamId, teams.id))
     .where(
       and(
-        eq(workspaces.slug, `feedback`),
+        eq(teams.slug, `feedback`),
         eq(widgetConfigs.name, `Exponential App`),
         eq(widgetConfigs.enabled, true)
       )

@@ -12,8 +12,8 @@ type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 export type ConnectedRepo = RepoList[number]
 
 // The connected-repo list + optional "Connect another repo…" inline-connect
-// expansion, shared by the create-project dialog and the workspace "Change
-// repository" dialog. Owns loading the workspace's connected repos (registry)
+// expansion, shared by the create-board dialog and the team "Change
+// repository" dialog. Owns loading the team's connected repos (registry)
 // and re-detecting on window focus so a repo installed through the picker's
 // popup shows up when the user returns.
 //
@@ -24,7 +24,7 @@ export type ConnectedRepo = RepoList[number]
 // select/connect (immediate mutate vs. deferred selection) and any chosen-row
 // display outside the registry list (via `appendedRow`).
 export function ConnectedRepoPicker({
-  workspaceId,
+  teamId,
   value,
   onSelectRegistry,
   onConnectNew,
@@ -32,7 +32,7 @@ export function ConnectedRepoPicker({
   appendedRow,
   disabled,
 }: {
-  workspaceId: string
+  teamId: string
   // Selected registry repo id (highlight + check), or null.
   value: string | null
   onSelectRegistry: (repo: ConnectedRepo) => void
@@ -52,7 +52,7 @@ export function ConnectedRepoPicker({
     let active = true
     const load = async () => {
       try {
-        const list = await trpc.repositories.list.query({ workspaceId })
+        const list = await trpc.repositories.list.query({ teamId })
         if (active) setRepos(list)
       } catch {
         if (active) setRepos([])
@@ -65,7 +65,7 @@ export function ConnectedRepoPicker({
       active = false
       window.removeEventListener(`focus`, onFocus)
     }
-  }, [workspaceId])
+  }, [teamId])
 
   const handlePickerSelect = (repo: PickerRepo) => {
     onConnectNew?.(repo)
@@ -87,7 +87,7 @@ export function ConnectedRepoPicker({
     if (onConnectNew)
       return (
         <GithubRepoPicker
-          workspaceId={workspaceId}
+          teamId={teamId}
           onSelect={handlePickerSelect}
           installEmptyState={installEmptyState}
         />
@@ -126,7 +126,7 @@ export function ConnectedRepoPicker({
       {onConnectNew &&
         (pickerOpen ? (
           <GithubRepoPicker
-            workspaceId={workspaceId}
+            teamId={teamId}
             onSelect={handlePickerSelect}
             installEmptyState={installEmptyState}
           />

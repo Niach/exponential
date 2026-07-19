@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { supportMessages, supportThreads, workspaces } from "@/db/schema"
+import { supportMessages, supportThreads, teams } from "@/db/schema"
 import { jsonResponse } from "@/lib/widget/cors"
 import { clientIpFromRequest } from "@/lib/widget/rate-limit"
 import {
@@ -44,9 +44,9 @@ async function handleThreadRead(request: Request): Promise<Response> {
   }
 
   const [context] = await db
-    .select({ workspaceName: workspaces.name })
-    .from(workspaces)
-    .where(eq(workspaces.id, thread.workspaceId))
+    .select({ teamName: teams.name })
+    .from(teams)
+    .where(eq(teams.id, thread.teamId))
     .limit(1)
 
   const messages = await db
@@ -75,8 +75,8 @@ async function handleThreadRead(request: Request): Promise<Response> {
 
   return jsonResponse(200, {
     subject: thread.title,
-    projectName: null,
-    workspaceName: context?.workspaceName ?? null,
+    boardName: null,
+    teamName: context?.teamName ?? null,
     closed: thread.status === `resolved`,
     reporterName: thread.reporterName,
     messages: messages

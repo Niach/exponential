@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { issueCollection } from "@/lib/collections"
 import {
-  useWorkspaceProjects,
-  useWorkspaceUsers,
-} from "@/hooks/use-workspace-data"
+  useTeamBoards,
+  useTeamUsers,
+} from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import type { Issue, Project, Workspace } from "@/db/schema"
+import type { Issue, Board, Team } from "@/db/schema"
 
 // One open PR. A batch coding run links several issues to the same prUrl —
 // they all ride ONE entry (EXP-131, never one row per issue); merging/closing
@@ -22,7 +22,7 @@ export interface ReviewEntry {
 }
 
 export interface ReviewGroup {
-  project: Project
+  board: Board
   entries: ReviewEntry[]
 }
 
@@ -32,35 +32,35 @@ export interface ExternalPullGroup {
   pulls: OpenPull[]
 }
 
-// Cross-project review queue: every issue in the workspace with an open pull
-// request, grouped by project (project sortOrder, issues newest-first). Pure
+// Cross-board review queue: every issue in the team with an open pull
+// request, grouped by board (board sortOrder, issues newest-first). Pure
 // client work over the already-synced issues shape — prState arrives on every
 // issue row, and the collections' snakeCamelMapper makes the camelCase filter
 // match the Postgres pr_state column.
-export function useReviewsData(workspace: Workspace | null | undefined) {
-  const projects = useWorkspaceProjects(workspace?.id)
-  const workspaceId = workspace?.id
-  const projectIds = useMemo(
-    () => projects.map((project) => project.id),
-    [projects]
+export function useReviewsData(team: Team | null | undefined) {
+  const boards = useTeamBoards(team?.id)
+  const teamId = team?.id
+  const boardIds = useMemo(
+    () => boards.map((board) => board.id),
+    [boards]
   )
 
   const { data: issues, isReady } = useLiveQuery(
     (query) =>
-      projectIds.length > 0
+      boardIds.length > 0
         ? query
             .from({ issues: issueCollection })
             .where(({ issues }) =>
               and(
-                inArray(issues.projectId, projectIds),
+                inArray(issues.boardId, boardIds),
                 eq(issues.prState, `open`)
               )
             )
         : undefined,
-    [projectIds.join(`,`)]
+    [boardIds.join(`,`)]
   )
 
-  const { userMap } = useWorkspaceUsers(workspace?.id)
+  const { userMap } = useTeamUsers(team?.id)
 
   // Open PRs with no issue link, fetched live from GitHub through the server
   // (they have no synced row to live-query). Failures degrade to an empty
@@ -68,11 +68,11 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
   const [externalGroups, setExternalGroups] = useState<ExternalPullGroup[]>([])
   const [externalLoading, setExternalLoading] = useState(false)
   useEffect(() => {
-    if (!workspaceId) return
+    if (!teamId) return
     let cancelled = false
     setExternalLoading(true)
     trpc.repositories.openPulls
-      .query({ workspaceId })
+      .query({ teamId })
       .then((result) => {
         if (cancelled) return
         setExternalGroups(result.repos.filter((repo) => repo.pulls.length > 0))
@@ -86,7 +86,7 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
     return () => {
       cancelled = true
     }
-  }, [workspaceId])
+  }, [teamId])
 
   // External PRs have no Electric echo — a successful merge removes the row
   // locally.
@@ -130,34 +130,34 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
       }
     }
 
-    const byProject = new Map<string, ReviewEntry[]>()
+    const byBoard = new Map<string, ReviewEntry[]>()
     for (const entry of entriesByKey.values()) {
       entry.issues.sort(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
       entry.issue = entry.issues[0]
-      // A batch PR's issues may span projects sharing one repo — the entry
-      // lives under the representative (newest) issue's project.
-      const bucket = byProject.get(entry.issue.projectId)
+      // A batch PR's issues may span boards sharing one repo — the entry
+      // lives under the representative (newest) issue's board.
+      const bucket = byBoard.get(entry.issue.boardId)
       if (bucket) {
         bucket.push(entry)
       } else {
-        byProject.set(entry.issue.projectId, [entry])
+        byBoard.set(entry.issue.boardId, [entry])
       }
     }
 
     const groups: ReviewGroup[] = []
-    // `projects` is already ordered by sortOrder.
-    for (const project of projects) {
-      const bucket = byProject.get(project.id)
+    // `boards` is already ordered by sortOrder.
+    for (const board of boards) {
+      const bucket = byBoard.get(board.id)
       if (!bucket) continue
       bucket.sort(
         (a, b) =>
           new Date(b.issue.createdAt).getTime() -
           new Date(a.issue.createdAt).getTime()
       )
-      groups.push({ project, entries: bucket })
+      groups.push({ board, entries: bucket })
     }
 
     const externalCount = externalGroups.reduce(
@@ -169,11 +169,11 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
       groups,
       externalGroups,
       count: entriesByKey.size + externalCount,
-      // A workspace with no projects skips the query and can never deliver a
+      // A team with no boards skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without
       // waiting on GitHub.
-      isLoading: !isReady && projects.length > 0,
+      isLoading: !isReady && boards.length > 0,
       externalLoading,
       userMap,
       removeExternalPull,
@@ -181,7 +181,7 @@ export function useReviewsData(workspace: Workspace | null | undefined) {
   }, [
     issues,
     isReady,
-    projects,
+    boards,
     userMap,
     externalGroups,
     externalLoading,

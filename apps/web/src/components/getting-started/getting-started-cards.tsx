@@ -36,8 +36,8 @@ import {
 } from "@/components/getting-started/getting-started-model"
 import { McpSetupTabs } from "@/components/getting-started/mcp-setup-tabs"
 import { WidgetLauncherPreview } from "@/components/widget-launcher-preview"
-import { CreateProjectDialog } from "@/components/create-project-dialog"
-import type { Workspace } from "@/db/schema"
+import { CreateBoardDialog } from "@/components/create-board-dialog"
+import type { Team } from "@/db/schema"
 
 // The in-app "what to do next" checklist (EXP-88, rebuilt dynamic in
 // EXP-141): six entries with live completion state, lock/prereq hints, and
@@ -45,14 +45,14 @@ import type { Workspace } from "@/db/schema"
 // the pure state rules live in getting-started-model.ts.
 
 export interface GettingStartedCardsProps {
-  workspace: Workspace
-  workspaceSlug: string
+  team: Team
+  teamSlug: string
   layout?: `grid` | `stack`
 }
 
 const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   github: Github,
-  project: FolderKanban,
+  board: FolderKanban,
   coding: TerminalSquare,
   widget: MessageSquarePlus,
   helpdesk: LifeBuoy,
@@ -61,7 +61,7 @@ const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
 
 const ENTRY_TITLES: Record<EntryKey, string> = {
   github: `Connect a GitHub repo`,
-  project: `Create a project`,
+  board: `Create a board`,
   coding: `Start coding with Claude`,
   widget: `Set up the feedback widget`,
   helpdesk: `Enable the helpdesk`,
@@ -69,25 +69,25 @@ const ENTRY_TITLES: Record<EntryKey, string> = {
 }
 
 const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
-  github: `Link a GitHub account to your team so projects can attach repositories — pull requests and coding sessions flow back into their issues.`,
-  project: `Projects hold your issues. Connect a repository to code on a project; without one it works as a plain board.`,
+  github: `Link a GitHub account to your team so boards can attach repositories — pull requests and coding sessions flow back into their issues.`,
+  board: `Boards hold your issues. Connect a repository to code on a board; without one it works as a plain board.`,
   coding: `The desktop app is a full git IDE and the one client that runs coding sessions: "Start coding" on any issue hands it to Claude on your machine — it plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and the claude CLI on your PATH.`,
   widget: `Embed a feedback button on any website — visitors report bugs with an annotated screenshot, and each lands here as an issue with reporter email and page context.`,
   helpdesk: `Flip the switch in Settings → Feedback widget and every member shares the Support inbox — support tickets from the widget land there, with replies emailed to the reporter.`,
-  mcp: `This instance exposes an MCP server at /api/mcp. Connect Claude, ChatGPT, Cursor, or any MCP client to work with issues, projects, and comments from your tools.`,
+  mcp: `This instance exposes an MCP server at /api/mcp. Connect Claude, ChatGPT, Cursor, or any MCP client to work with issues, boards, and comments from your tools.`,
 }
 
 // One-line hints for locked entries, keyed by entry + the step that unlocks
 // it (lockedBy from the model).
 function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
   if (entry === `coding` && lockedBy === `github`) {
-    return `Connect a GitHub repo first — coding sessions need a repo-backed project.`
+    return `Connect a GitHub repo first — coding sessions need a repo-backed board.`
   }
-  if (entry === `coding` && lockedBy === `project`) {
-    return `Create a project with a repository first.`
+  if (entry === `coding` && lockedBy === `board`) {
+    return `Create a board with a repository first.`
   }
   if (entry === `widget`) {
-    return `Create a project first — widget feedback lands there as issues.`
+    return `Create a board first — widget feedback lands there as issues.`
   }
   return `Complete "${ENTRY_TITLES[lockedBy]}" first.`
 }
@@ -137,12 +137,12 @@ function GettingStartedCard({
 }
 
 export function GettingStartedCards({
-  workspace,
-  workspaceSlug,
+  team,
+  teamSlug,
   layout = `grid`,
 }: GettingStartedCardsProps) {
   const { loading, signals, permissions } =
-    useGettingStartedProgress(workspace)
+    useGettingStartedProgress(team)
 
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -161,8 +161,8 @@ export function GettingStartedCards({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link
-            to="/t/$workspaceSlug/settings/repositories"
-            params={{ workspaceSlug }}
+            to="/t/$teamSlug/settings/repositories"
+            params={{ teamSlug }}
           >
             <Github className="mr-1.5 size-4" />
             Connect GitHub
@@ -175,10 +175,10 @@ export function GettingStartedCards({
       </p>
     ),
 
-    project: (
+    board: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => setCreateOpen(true)}>
-          Create a project
+          Create a board
         </Button>
       </div>
     ),
@@ -210,8 +210,8 @@ export function GettingStartedCards({
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" asChild>
             <Link
-              to="/t/$workspaceSlug/settings/widget"
-              params={{ workspaceSlug }}
+              to="/t/$teamSlug/settings/widget"
+              params={{ teamSlug }}
             >
               Set up in team settings
             </Link>
@@ -224,8 +224,8 @@ export function GettingStartedCards({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link
-            to="/t/$workspaceSlug/settings/widget"
-            params={{ workspaceSlug }}
+            to="/t/$teamSlug/settings/widget"
+            params={{ teamSlug }}
           >
             <LifeBuoy className="mr-1.5 size-4" />
             Enable in team settings
@@ -287,10 +287,10 @@ export function GettingStartedCards({
         ))}
       </div>
 
-      <CreateProjectDialog
+      <CreateBoardDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        workspace={workspace}
+        team={team}
       />
     </div>
   )

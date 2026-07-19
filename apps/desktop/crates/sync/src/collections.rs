@@ -19,7 +19,7 @@
 //!
 //! The [`Store`] also owns the §5 **session state machine**:
 //! `SignedOut → SigningIn → Synced / AuthExpired`. `AuthExpired` is the
-//! hard-401 gate: a dead token ROUTES TO LOGIN — the workspace renders
+//! hard-401 gate: a dead token ROUTES TO LOGIN — the shell renders
 //! the login surface, never an empty board. Manager start/stop is wired to
 //! the same transitions ([`Store::connect`] / [`Store::sign_out`] /
 //! the drain's `Unauthorized` handling).
@@ -38,7 +38,7 @@ use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
     Attachment, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber, Label,
-    Notification, Project, User, Workspace, WorkspaceInvite, WorkspaceMember,
+    Notification, Board, User, Team, TeamInvite, TeamMember,
 };
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ impl SessionPhase {
 /// multi-window shared-state proof — every sidebar renders it, so opening
 /// window 2 visibly updates window 1).
 pub struct SharedState {
-    /// Number of workspace windows currently open across the app.
+    /// Number of shell windows currently open across the app.
     pub windows_open: usize,
     /// The §5 session state machine.
     pub session: SessionPhase,
@@ -137,13 +137,13 @@ macro_rules! id_shape_row {
     };
 }
 
-id_shape_row!(Workspace, "workspaces");
-id_shape_row!(Project, "projects");
+id_shape_row!(Team, "teams");
+id_shape_row!(Board, "boards");
 id_shape_row!(Issue, "issues");
 id_shape_row!(Label, "labels");
 id_shape_row!(User, "users");
-id_shape_row!(WorkspaceMember, "workspace_members");
-id_shape_row!(WorkspaceInvite, "workspace_invites");
+id_shape_row!(TeamMember, "team_members");
+id_shape_row!(TeamInvite, "team_invites");
 id_shape_row!(Comment, "comments");
 id_shape_row!(Attachment, "attachments");
 id_shape_row!(Notification, "notifications");
@@ -272,14 +272,14 @@ pub struct ShapeStatus {
 /// The 15 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
-    pub workspaces: Entity<Collection<Workspace>>,
-    pub projects: Entity<Collection<Project>>,
+    pub teams: Entity<Collection<Team>>,
+    pub boards: Entity<Collection<Board>>,
     pub issues: Entity<Collection<Issue>>,
     pub labels: Entity<Collection<Label>>,
     pub issue_labels: Entity<Collection<IssueLabel>>,
     pub users: Entity<Collection<User>>,
-    pub workspace_members: Entity<Collection<WorkspaceMember>>,
-    pub workspace_invites: Entity<Collection<WorkspaceInvite>>,
+    pub team_members: Entity<Collection<TeamMember>>,
+    pub team_invites: Entity<Collection<TeamInvite>>,
     pub comments: Entity<Collection<Comment>>,
     pub attachments: Entity<Collection<Attachment>>,
     pub notifications: Entity<Collection<Notification>>,
@@ -293,9 +293,9 @@ pub struct Collections {
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
-        let $entity = &$collections.workspaces;
+        let $entity = &$collections.teams;
         $body;
-        let $entity = &$collections.projects;
+        let $entity = &$collections.boards;
         $body;
         let $entity = &$collections.issues;
         $body;
@@ -305,9 +305,9 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.users;
         $body;
-        let $entity = &$collections.workspace_members;
+        let $entity = &$collections.team_members;
         $body;
-        let $entity = &$collections.workspace_invites;
+        let $entity = &$collections.team_invites;
         $body;
         let $entity = &$collections.comments;
         $body;
@@ -327,14 +327,14 @@ macro_rules! for_each_collection {
 impl Collections {
     fn new(cx: &mut App) -> Self {
         Self {
-            workspaces: cx.new(|_| Collection::new()),
-            projects: cx.new(|_| Collection::new()),
+            teams: cx.new(|_| Collection::new()),
+            boards: cx.new(|_| Collection::new()),
             issues: cx.new(|_| Collection::new()),
             labels: cx.new(|_| Collection::new()),
             issue_labels: cx.new(|_| Collection::new()),
             users: cx.new(|_| Collection::new()),
-            workspace_members: cx.new(|_| Collection::new()),
-            workspace_invites: cx.new(|_| Collection::new()),
+            team_members: cx.new(|_| Collection::new()),
+            team_invites: cx.new(|_| Collection::new()),
             comments: cx.new(|_| Collection::new()),
             attachments: cx.new(|_| Collection::new()),
             notifications: cx.new(|_| Collection::new()),
@@ -355,17 +355,17 @@ impl Collections {
         cx: &mut AsyncApp,
     ) {
         match shape {
-            "workspaces" => apply_to(&self.workspaces, keys, full_replace, sqlite, cx),
-            "projects" => apply_to(&self.projects, keys, full_replace, sqlite, cx),
+            "teams" => apply_to(&self.teams, keys, full_replace, sqlite, cx),
+            "boards" => apply_to(&self.boards, keys, full_replace, sqlite, cx),
             "issues" => apply_to(&self.issues, keys, full_replace, sqlite, cx),
             "labels" => apply_to(&self.labels, keys, full_replace, sqlite, cx),
             "issue_labels" => apply_to(&self.issue_labels, keys, full_replace, sqlite, cx),
             "users" => apply_to(&self.users, keys, full_replace, sqlite, cx),
-            "workspace_members" => {
-                apply_to(&self.workspace_members, keys, full_replace, sqlite, cx)
+            "team_members" => {
+                apply_to(&self.team_members, keys, full_replace, sqlite, cx)
             }
-            "workspace_invites" => {
-                apply_to(&self.workspace_invites, keys, full_replace, sqlite, cx)
+            "team_invites" => {
+                apply_to(&self.team_invites, keys, full_replace, sqlite, cx)
             }
             "comments" => apply_to(&self.comments, keys, full_replace, sqlite, cx),
             "attachments" => apply_to(&self.attachments, keys, full_replace, sqlite, cx),
@@ -413,25 +413,25 @@ impl Collections {
 }
 
 impl Collections {
-    // -- workspace-scoped query helpers (§5.8: derived queries are plain Rust
+    // -- team-scoped query helpers (§5.8: derived queries are plain Rust
     // over the in-memory collections; §4.1 moves the full set into
     // `ui/src/queries.rs` with the Phase-3 screens) ---------------------------
 
-    /// All workspaces, name-sorted (the sidebar picker's read).
-    pub fn workspaces_sorted(&self, cx: &App) -> Vec<Workspace> {
-        let mut out: Vec<Workspace> = self.workspaces.read(cx).iter().cloned().collect();
+    /// All teams, name-sorted (the sidebar picker's read).
+    pub fn teams_sorted(&self, cx: &App) -> Vec<Team> {
+        let mut out: Vec<Team> = self.teams.read(cx).iter().cloned().collect();
         out.sort_by_key(|a| a.name.to_lowercase());
         out
     }
 
-    /// A workspace's projects, sort-order-then-name sorted, archived hidden
+    /// A team's boards, sort-order-then-name sorted, archived hidden
     /// (web sidebar parity).
-    pub fn projects_in_workspace(&self, workspace_id: &str, cx: &App) -> Vec<Project> {
-        let mut out: Vec<Project> = self
-            .projects
+    pub fn boards_in_team(&self, team_id: &str, cx: &App) -> Vec<Board> {
+        let mut out: Vec<Board> = self
+            .boards
             .read(cx)
             .iter()
-            .filter(|p| p.workspace_id == workspace_id && p.archived_at.is_none())
+            .filter(|p| p.team_id == team_id && p.archived_at.is_none())
             .cloned()
             .collect();
         out.sort_by(|a, b| {
@@ -443,34 +443,34 @@ impl Collections {
         out
     }
 
-    /// A project's issues, sort-order-then-identifier sorted, archived hidden
+    /// A board's issues, sort-order-then-identifier sorted, archived hidden
     /// (the board's base query; status grouping/filters sit on top).
-    pub fn issues_in_project(&self, project_id: &str, cx: &App) -> Vec<Issue> {
+    pub fn issues_in_board(&self, board_id: &str, cx: &App) -> Vec<Issue> {
         let mut out: Vec<Issue> = self
             .issues
             .read(cx)
             .iter()
-            .filter(|i| i.project_id == project_id && i.archived_at.is_none())
+            .filter(|i| i.board_id == board_id && i.archived_at.is_none())
             .cloned()
             .collect();
         sort_issues(&mut out);
         out
     }
 
-    /// Every non-archived issue in a workspace (joins through the projects
+    /// Every non-archived issue in a team (joins through the boards
     /// collection — referential integrity is a query-time concern, §5.4).
-    pub fn issues_in_workspace(&self, workspace_id: &str, cx: &App) -> Vec<Issue> {
-        let projects = self.projects.read(cx);
-        let project_ids: std::collections::HashSet<&str> = projects
+    pub fn issues_in_team(&self, team_id: &str, cx: &App) -> Vec<Issue> {
+        let boards = self.boards.read(cx);
+        let board_ids: std::collections::HashSet<&str> = boards
             .iter()
-            .filter(|p| p.workspace_id == workspace_id)
+            .filter(|p| p.team_id == team_id)
             .map(|p| p.id.as_str())
             .collect();
         let mut out: Vec<Issue> = self
             .issues
             .read(cx)
             .iter()
-            .filter(|i| project_ids.contains(i.project_id.as_str()) && i.archived_at.is_none())
+            .filter(|i| board_ids.contains(i.board_id.as_str()) && i.archived_at.is_none())
             .cloned()
             .collect();
         sort_issues(&mut out);
@@ -809,14 +809,14 @@ mod tests {
         // The 15 ShapeRow impls cover the registry exactly (a 16th shape
         // without a typed row would silently never reach the UI).
         let bound = [
-            Workspace::spec().name,
-            Project::spec().name,
+            Team::spec().name,
+            Board::spec().name,
             Issue::spec().name,
             Label::spec().name,
             IssueLabel::spec().name,
             User::spec().name,
-            WorkspaceMember::spec().name,
-            WorkspaceInvite::spec().name,
+            TeamMember::spec().name,
+            TeamInvite::spec().name,
             Comment::spec().name,
             Attachment::spec().name,
             Notification::spec().name,
@@ -835,7 +835,7 @@ mod tests {
     fn row_keys_match_the_wire_key_forms() {
         let issue: Issue = serde_json::from_value(json!({
             "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",
@@ -860,12 +860,12 @@ mod tests {
     fn decode_rows_drops_bad_rows_and_keeps_good_ones() {
         let maps = vec![
             obj(json!({
-                "id": "i-1", "project_id": "p-1", "number": "1",
+                "id": "i-1", "board_id": "p-1", "number": "1",
                 "identifier": "EXP-1", "title": "ok", "status": "todo",
                 "priority": "none"
             })),
             // Missing required identifier/title → dropped, not fatal (§5.5).
-            obj(json!({ "id": "i-2", "project_id": "p-1", "number": "2" })),
+            obj(json!({ "id": "i-2", "board_id": "p-1", "number": "2" })),
         ];
         let rows = decode_rows::<Issue>(maps);
         assert_eq!(rows.len(), 1);
@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(collection.revision(), 0);
 
         let issue: Issue = serde_json::from_value(json!({
-            "id": "i-1", "project_id": "p-1", "number": 1,
+            "id": "i-1", "board_id": "p-1", "number": 1,
             "identifier": "EXP-1", "title": "t", "status": "todo",
             "priority": "none"
         }))

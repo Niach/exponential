@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Canonical label/project color palette — identical to the web app's
+/// Canonical label/board color palette — identical to the web app's
 /// `apps/web/src/lib/label-colors.ts` so all clients pick from the same set.
 public let LABEL_COLORS: [String] = [
     "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
@@ -9,11 +9,11 @@ public let LABEL_COLORS: [String] = [
     "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
 ]
 
-/// Default color the server applies to new labels/projects when none is chosen.
+/// Default color the server applies to new labels/boards when none is chosen.
 public let DEFAULT_LABEL_COLOR = "#6366f1"
 
 /// A tap-to-select swatch grid bound to a hex string. Used by the iOS
-/// label/project color pickers (the `WorkspaceLabelsSection` palette).
+/// label/board color pickers (the `TeamLabelsSection` palette).
 public struct ColorSwatchGrid: View {
     @Binding var selection: String
     let colors: [String]

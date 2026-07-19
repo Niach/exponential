@@ -33,7 +33,7 @@ import com.exponential.app.ui.theme.glassButton
 
 /**
  * The personal tab ("My Work", EXP-58): Inbox and My Issues merged into one
- * project-independent surface — the same pairing the web UI keeps at the top
+ * board-independent surface — the same pairing the web UI keeps at the top
  * of its sidebar (Inbox + My Issues), folded into a single bottom-bar
  * destination behind a segmented control. This replaces both the old routed
  * Inbox screen and the My Issues list that used to hide inside the Search

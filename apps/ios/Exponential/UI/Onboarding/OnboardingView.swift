@@ -4,19 +4,19 @@ import SwiftUI
 
 /// First-run wizard (shared mobile onboarding spec, EXP-8): a clean linear flow —
 /// Step 1 welcome (app name + one-line value prop + "Get started"), Step 2
-/// create-first-project (name + REQUIRED repository with inline GitHub connect),
+/// create-first-board (name + REQUIRED repository with inline GitHub connect),
 /// Step 3 done → drops into the app. `onboarding.complete` (and the local
 /// `needsOnboarding` flag) is flipped on the final step so the nav gate in
 /// AppNavigator stops showing this screen. The server also backfills
-/// onboardingCompletedAt on session reads for users who already have a project
-/// in a non-public workspace (lib/auth/onboarding.ts), so a stale account
+/// onboardingCompletedAt on session reads for users who already have a board
+/// in a non-public team (lib/auth/onboarding.ts), so a stale account
 /// self-heals via reconcileWithServer before the user ever creates anything.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
 
     @State private var page = 0
-    @State private var workspaceId: String?
-    @State private var workspaceError: String?
+    @State private var teamId: String?
+    @State private var teamError: String?
     // Deliberately sticky once set: flipping needsOnboarding swaps this view out.
     @State private var finishing = false
 
@@ -28,7 +28,7 @@ struct OnboardingView: View {
                 VStack(spacing: 0) {
                     switch page {
                     case 0: welcomePage
-                    case 1: projectPage
+                    case 1: boardPage
                     default: donePage
                     }
                 }
@@ -66,18 +66,18 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 2: Create your first project
+    // MARK: - Step 2: Create your first board
 
-    private var projectPage: some View {
+    private var boardPage: some View {
         VStack(spacing: 0) {
-            Text("Create your first project")
+            Text("Create your first board")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 8)
 
-            Text("Create a project to start tracking issues — connect a GitHub repo to code on it.")
+            Text("Create a board to start tracking issues — connect a GitHub repo to code on it.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)
@@ -85,23 +85,23 @@ struct OnboardingView: View {
             Spacer().frame(height: 24)
 
             Group {
-                if let workspaceId {
-                    CreateProjectForm(
+                if let teamId {
+                    CreateBoardForm(
                         accountId: deps.auth.activeAccountId ?? "",
-                        workspaceId: workspaceId,
+                        teamId: teamId,
                         minimal: true,
                         onCreated: { _ in page = 2 }
                     )
                     .padding(24)
                     .glassCard()
-                } else if let workspaceError {
+                } else if let teamError {
                     VStack(spacing: 12) {
-                        Text(workspaceError)
+                        Text(teamError)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .multilineTextAlignment(.center)
                         primaryButton("Try again", enabled: true) {
-                            Task { await prepareWorkspace() }
+                            Task { await prepareTeam() }
                         }
                     }
                     .padding(24)
@@ -117,7 +117,7 @@ struct OnboardingView: View {
                 }
             }
         }
-        .task { await prepareWorkspace() }
+        .task { await prepareTeam() }
     }
 
     // MARK: - Step 3: Done
@@ -139,7 +139,7 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 12)
 
-            Text("Your first project is ready.")
+            Text("Your first board is ready.")
                 .font(.body)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)
@@ -172,7 +172,7 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     /// The server backfills onboardingCompletedAt on session reads for users
-    /// who already have a project in a non-public workspace (the unified rule
+    /// who already have a board in a non-public team (the unified rule
     /// in lib/auth/onboarding.ts). Re-read the session on appear so an account
     /// whose flag was still null at login self-heals here instead of showing
     /// this screen again.
@@ -184,16 +184,16 @@ struct OnboardingView: View {
         deps.auth.markOnboardingCompleted(completedAt)
     }
 
-    /// Resolve (creating if needed) the default workspace the first project
+    /// Resolve (creating if needed) the default team the first board
     /// lands in — invited users never reach onboarding, so this is always the
-    /// user's own auto-created workspace.
-    private func prepareWorkspace() async {
-        guard workspaceId == nil, let accountId = deps.auth.activeAccountId else { return }
-        workspaceError = nil
+    /// user's own auto-created team.
+    private func prepareTeam() async {
+        guard teamId == nil, let accountId = deps.auth.activeAccountId else { return }
+        teamError = nil
         do {
-            workspaceId = try await deps.workspacesApi.ensureDefault(accountId: accountId).id
+            teamId = try await deps.teamsApi.ensureDefault(accountId: accountId).id
         } catch {
-            workspaceError = error.trpcUserMessage
+            teamError = error.trpcUserMessage
         }
     }
 

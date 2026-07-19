@@ -106,7 +106,7 @@ describe(`ticket claim composition`, () => {
       )
     ).toEqual({
       sub: `user-1`,
-      ws: ``,
+      team: ``,
       role: `control`,
       perm: `steer`,
       deviceLabel: `My MacBook`,
@@ -123,20 +123,20 @@ describe(`ticket claim composition`, () => {
     expect(claims).not.toHaveProperty(`deviceLabel`)
   })
 
-  it(`publisher: workspace-scoped, session-bound, steer perm`, () => {
+  it(`publisher: team-scoped, session-bound, steer perm`, () => {
     expect(
       buildSteerTicketClaims(
         {
           kind: `publisher`,
           userId: `user-1`,
-          workspaceId: `ws-1`,
+          teamId: `ws-1`,
           sessionId: `session-1`,
         },
         NOW
       )
     ).toEqual({
       sub: `user-1`,
-      ws: `ws-1`,
+      team: `ws-1`,
       sessionId: `session-1`,
       role: `publisher`,
       perm: `steer`,
@@ -145,12 +145,12 @@ describe(`ticket claim composition`, () => {
     })
   })
 
-  it(`viewer: workspace owner may steer, plain member only views`, () => {
+  it(`viewer: team owner may steer, plain member only views`, () => {
     const owner = buildSteerTicketClaims(
       {
         kind: `viewer`,
         userId: `user-1`,
-        workspaceId: `ws-1`,
+        teamId: `ws-1`,
         sessionId: `session-1`,
         role: `owner`,
         name: `Dana`,
@@ -159,7 +159,7 @@ describe(`ticket claim composition`, () => {
     )
     expect(owner).toEqual({
       sub: `user-1`,
-      ws: `ws-1`,
+      team: `ws-1`,
       sessionId: `session-1`,
       name: `Dana`,
       role: `viewer`,
@@ -172,7 +172,7 @@ describe(`ticket claim composition`, () => {
       {
         kind: `viewer`,
         userId: `user-2`,
-        workspaceId: `ws-1`,
+        teamId: `ws-1`,
         sessionId: `session-1`,
         role: `member`,
         name: `member@example.com`,
@@ -188,7 +188,7 @@ describe(`ticket claim composition`, () => {
       {
         kind: `viewer`,
         userId: `user-2`,
-        workspaceId: `ws-1`,
+        teamId: `ws-1`,
         sessionId: `session-1`,
         role: `member`,
         isSessionOwner: true,
@@ -203,7 +203,7 @@ describe(`ticket claim composition`, () => {
   it(`maps roles to perms (owner|member only — there is no admin role)`, () => {
     expect(viewerPermFor(`owner`)).toBe(`steer`)
     expect(viewerPermFor(`member`)).toBe(`view`)
-    // Session ownership grants steer independent of workspace role.
+    // Session ownership grants steer independent of team role.
     expect(viewerPermFor(`member`, true)).toBe(`steer`)
     expect(viewerPermFor(`member`, false)).toBe(`view`)
     expect(viewerPermFor(`owner`, false)).toBe(`steer`)
@@ -223,7 +223,7 @@ describe(`mintSteerTicket`, () => {
       {
         kind: `viewer`,
         userId: `user-1`,
-        workspaceId: `ws-1`,
+        teamId: `ws-1`,
         sessionId: `session-1`,
         role: `owner`,
         name: `Dana`,
@@ -240,7 +240,7 @@ describe(`mintSteerTicket`, () => {
     if (!verdict.ok) throw new Error(`expected a valid ticket`)
     expect(verdict.claims).toMatchObject({
       sub: `user-1`,
-      ws: `ws-1`,
+      team: `ws-1`,
       sessionId: `session-1`,
       role: `viewer`,
       perm: `steer`,
@@ -345,7 +345,7 @@ describe(`relay admin HTTP`, () => {
     expect(`planMode` in body).toBe(false)
   })
 
-  it(`serializes a batch subject verbatim: issueIds/workspaceId/repo, no issueId/installationId`, async () => {
+  it(`serializes a batch subject verbatim: issueIds/teamId/repo, no issueId/installationId`, async () => {
     const fetchImpl = vi
       .fn<RelayFetch>()
       .mockResolvedValue(fakeResponse(200, { ok: true }))
@@ -356,7 +356,7 @@ describe(`relay admin HTTP`, () => {
         userId: `user-1`,
         deviceId: `dev-1`,
         issueIds: [`issue-1`, `issue-2`],
-        workspaceId: `ws-1`,
+        teamId: `ws-1`,
         repo: {
           repositoryId: `repo-1`,
           fullName: `acme/api`,
@@ -373,7 +373,7 @@ describe(`relay admin HTTP`, () => {
       userId: `user-1`,
       deviceId: `dev-1`,
       issueIds: [`issue-1`, `issue-2`],
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
       repo: {
         repositoryId: `repo-1`,
         fullName: `acme/api`,

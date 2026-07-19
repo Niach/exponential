@@ -4,7 +4,7 @@ import Foundation
 // (NOT an Electric shape) — read on demand for the native "Start coding"
 // launcher: resolve the issue's repo, then mint a short-lived push token.
 
-/// The repo backing an issue's project (v4: the project's `repositoryId`).
+/// The repo backing an issue's board (v4: the board's `repositoryId`).
 public struct RepoForIssue: Decodable, Sendable {
     public let repositoryId: String
     public let fullName: String
@@ -45,9 +45,9 @@ public struct InstallationToken: Decodable, Sendable {
     }
 }
 
-/// A project backed by a repo (v4 `repositories.list().projects[]`). Powers the
+/// A board backed by a repo (v4 `repositories.list().boards[]`). Powers the
 /// settings "used by" chips and mobile repo pickers.
-public struct RepoProjectSummary: Decodable, Sendable, Equatable, Identifiable {
+public struct RepoBoardSummary: Decodable, Sendable, Equatable, Identifiable {
     public let id: String
     public let name: String
     public let slug: String
@@ -62,17 +62,17 @@ public struct RepoProjectSummary: Decodable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey { case id, name, slug }
 }
 
-/// One connected repo in the workspace registry (`repositories.list` row).
+/// One connected repo in the team registry (`repositories.list` row).
 /// Decoded defensively — the server spreads the full DB row; we read only the
 /// fields the settings surface needs. `private` is a Swift keyword, mapped to
-/// `isPrivate`. `projects` are the projects this repo backs (v4 — no more
-/// per-project links / primary star).
-public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
+/// `isPrivate`. `boards` are the boards this repo backs (v4 — no more
+/// per-board links / primary star).
+public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     public let id: String
     public let fullName: String
     public let defaultBranch: String
     public let isPrivate: Bool
-    public let projects: [RepoProjectSummary]
+    public let boards: [RepoBoardSummary]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -80,18 +80,18 @@ public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
         fullName = try c.decode(String.self, forKey: .fullName)
         defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
-        projects = (try? c.decode([RepoProjectSummary].self, forKey: .projects)) ?? []
+        boards = (try? c.decode([RepoBoardSummary].self, forKey: .boards)) ?? []
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, fullName, defaultBranch, projects
+        case id, fullName, defaultBranch, boards
         case isPrivate = "private"
     }
 }
 
 private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
-private struct RepoWorkspaceIdInput: Encodable { let workspaceId: String }
+private struct RepoTeamIdInput: Encodable { let teamId: String }
 
 public final class RepositoriesApi: Sendable {
     private let trpc: TrpcClient
@@ -100,7 +100,7 @@ public final class RepositoriesApi: Sendable {
         self.trpc = trpc
     }
 
-    /// Resolve the repo backing an issue's project (v4: the project's
+    /// Resolve the repo backing an issue's board (v4: the board's
     /// `repositoryId`). `repositories.forIssue` is a `.query`, so this uses the
     /// input-bearing GET helper. `nil` only for dangling data (a valid issue
     /// always has a backing repo).
@@ -122,20 +122,20 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    // MARK: - Workspace registry (settings surface, masterplan §6)
+    // MARK: - Team registry (settings surface, masterplan §6)
 
-    /// Member-readable: the workspace's repos, each with the projects it backs
-    /// (v4 `projects[]` computed from `projects.repositoryId`).
-    public func list(accountId: String, workspaceId: String) async throws -> [WorkspaceRepo] {
+    /// Member-readable: the team's repos, each with the boards it backs
+    /// (v4 `boards[]` computed from `boards.repositoryId`).
+    public func list(accountId: String, teamId: String) async throws -> [TeamRepo] {
         try await trpc.query(
             accountId: accountId,
             path: "repositories.list",
-            input: RepoWorkspaceIdInput(workspaceId: workspaceId)
+            input: RepoTeamIdInput(teamId: teamId)
         )
     }
 
     /// Owner-only (server-enforced): remove a repo. Blocked (CONFLICT) while any
-    /// project still points at it — the caller surfaces the server message.
+    /// board still points at it — the caller surfaces the server message.
     public func remove(accountId: String, repositoryId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,

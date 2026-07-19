@@ -2,21 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
 // Dual-subject coding sessions: `start` takes EXACTLY ONE of
-// issueId/workspaceId (zod refine). The issue path denormalizes
-// workspaceId/projectId from the issue's context; the batch path asserts
-// membership against the given workspace and inserts with workspaceId only —
-// issueId/projectId must stay absent so the row never leaks through the
-// anonymous project-scoped shape clause. The router runs against ctx.db (no
+// issueId/teamId (zod refine). The issue path denormalizes
+// teamId/boardId from the issue's context; the batch path asserts
+// membership against the given team and inserts with teamId only —
+// issueId/boardId must stay absent so the row never leaks through the
+// anonymous board-scoped shape clause. The router runs against ctx.db (no
 // transaction/generateTxId), so a fake db with an insert recorder is enough.
 
 const h = vi.hoisted(() => ({
-  assertWorkspaceMember: vi.fn(
+  assertTeamMember: vi.fn(
     async (..._args: unknown[]) => ({ role: `member` }) as unknown
   ),
-  getIssueWorkspaceContext: vi.fn(async () => ({
+  getIssueTeamContext: vi.fn(async () => ({
     issueId: `issue-1`,
-    projectId: `proj-1`,
-    workspaceId: `ws-issue`,
+    boardId: `proj-1`,
+    teamId: `ws-issue`,
   })),
 }))
 
@@ -25,16 +25,16 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, () => ({
-  assertWorkspaceMember: h.assertWorkspaceMember,
-  getIssueWorkspaceContext: h.getIssueWorkspaceContext,
+vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: h.assertTeamMember,
+  getIssueTeamContext: h.getIssueTeamContext,
 }))
 
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions } from "@/db/schema"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
-const WORKSPACE_ID = `22222222-2222-4222-8222-222222222222`
+const TEAM_ID = `22222222-2222-4222-8222-222222222222`
 const SESSION_ID = `33333333-3333-4333-8333-333333333333`
 
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
@@ -65,29 +65,29 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 
 beforeEach(() => {
   inserts.length = 0
-  h.assertWorkspaceMember.mockClear()
-  h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
-  h.getIssueWorkspaceContext.mockClear()
-  h.getIssueWorkspaceContext.mockResolvedValue({
+  h.assertTeamMember.mockClear()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
+  h.getIssueTeamContext.mockClear()
+  h.getIssueTeamContext.mockResolvedValue({
     issueId: `issue-1`,
-    projectId: `proj-1`,
-    workspaceId: `ws-issue`,
+    boardId: `proj-1`,
+    teamId: `ws-issue`,
   })
 })
 
 describe(`codingSessions.start — exactly-one-subject refine`, () => {
-  it(`rejects BOTH issueId and workspaceId as input validation`, async () => {
+  it(`rejects BOTH issueId and teamId as input validation`, async () => {
     const error = await rejectionOf(
-      caller.start({ issueId: ISSUE_ID, workspaceId: WORKSPACE_ID })
+      caller.start({ issueId: ISSUE_ID, teamId: TEAM_ID })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/workspaceId is required`
+      `Exactly one of issueId/teamId is required`
     )
     expect(inserts).toHaveLength(0)
-    expect(h.getIssueWorkspaceContext).not.toHaveBeenCalled()
-    expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
+    expect(h.getIssueTeamContext).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
   })
 
   it(`rejects NEITHER id as input validation`, async () => {
@@ -95,28 +95,28 @@ describe(`codingSessions.start — exactly-one-subject refine`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/workspaceId is required`
+      `Exactly one of issueId/teamId is required`
     )
     expect(inserts).toHaveLength(0)
-    expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
   })
 })
 
 describe(`codingSessions.start — issue path`, () => {
-  it(`inserts with issueId + denormalized workspaceId/projectId after asserting membership`, async () => {
+  it(`inserts with issueId + denormalized teamId/boardId after asserting membership`, async () => {
     const result = await caller.start({
       issueId: ISSUE_ID,
       deviceLabel: `MacBook`,
     })
 
-    expect(h.getIssueWorkspaceContext).toHaveBeenCalledWith(ISSUE_ID)
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, `ws-issue`)
+    expect(h.getIssueTeamContext).toHaveBeenCalledWith(ISSUE_ID)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, `ws-issue`)
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.table).toBe(codingSessions)
     expect(inserts[0]!.values).toEqual({
       issueId: ISSUE_ID,
-      workspaceId: `ws-issue`,
-      projectId: `proj-1`,
+      teamId: `ws-issue`,
+      boardId: `proj-1`,
       userId: `actor`,
       deviceLabel: `MacBook`,
       status: `running`,
@@ -124,8 +124,8 @@ describe(`codingSessions.start — issue path`, () => {
     expect(result.session).toMatchObject({ id: SESSION_ID, issueId: ISSUE_ID })
   })
 
-  it(`refuses a non-member of the issue's workspace before inserting`, async () => {
-    h.assertWorkspaceMember.mockRejectedValueOnce(
+  it(`refuses a non-member of the issue's team before inserting`, async () => {
+    h.assertTeamMember.mockRejectedValueOnce(
       new TRPCError({ code: `FORBIDDEN` })
     )
 
@@ -137,41 +137,41 @@ describe(`codingSessions.start — issue path`, () => {
 })
 
 describe(`codingSessions.start — batch path`, () => {
-  it(`inserts with the workspaceId and NO issueId/projectId`, async () => {
+  it(`inserts with the teamId and NO issueId/boardId`, async () => {
     const result = await caller.start({
-      workspaceId: WORKSPACE_ID,
+      teamId: TEAM_ID,
       deviceLabel: `MacBook`,
     })
 
-    // Membership is asserted against the given workspace.
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WORKSPACE_ID)
-    expect(h.getIssueWorkspaceContext).not.toHaveBeenCalled()
+    // Membership is asserted against the given team.
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(h.getIssueTeamContext).not.toHaveBeenCalled()
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.table).toBe(codingSessions)
     expect(inserts[0]!.values).toEqual({
-      workspaceId: WORKSPACE_ID,
+      teamId: TEAM_ID,
       userId: `actor`,
       deviceLabel: `MacBook`,
       status: `running`,
     })
-    // A batch run spans projects: issue_id/project_id must be ABSENT so the
-    // populate triggers no-op and the anonymous project-scoped shape clause
+    // A batch run spans boards: issue_id/board_id must be ABSENT so the
+    // populate triggers no-op and the anonymous board-scoped shape clause
     // can never match the row.
     expect(`issueId` in inserts[0]!.values).toBe(false)
-    expect(`projectId` in inserts[0]!.values).toBe(false)
+    expect(`boardId` in inserts[0]!.values).toBe(false)
     expect(result.session).toMatchObject({
       id: SESSION_ID,
-      workspaceId: WORKSPACE_ID,
+      teamId: TEAM_ID,
     })
   })
 
-  it(`refuses a non-member of the workspace before inserting`, async () => {
-    h.assertWorkspaceMember.mockRejectedValueOnce(
+  it(`refuses a non-member of the team before inserting`, async () => {
+    h.assertTeamMember.mockRejectedValueOnce(
       new TRPCError({ code: `FORBIDDEN` })
     )
 
     const error = await rejectionOf(
-      caller.start({ workspaceId: WORKSPACE_ID })
+      caller.start({ teamId: TEAM_ID })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
@@ -179,7 +179,7 @@ describe(`codingSessions.start — batch path`, () => {
   })
 
   it(`nulls an omitted deviceLabel`, async () => {
-    await caller.start({ workspaceId: WORKSPACE_ID })
+    await caller.start({ teamId: TEAM_ID })
 
     expect(inserts[0]!.values.deviceLabel).toBeNull()
   })

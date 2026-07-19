@@ -33,10 +33,10 @@ public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Senda
     }
 }
 
-// MARK: - Workspace
+// MARK: - Team
 
-public struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workspaces"
+public struct TeamEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "teams"
 
     public let id: String
     public let name: String
@@ -61,7 +61,7 @@ public struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Iden
         self.updatedAt = updatedAt
     }
 
-    // The workspace shape no longer carries the long-dropped legacy
+    // The team shape no longer carries the long-dropped legacy
     // `is_public` / `public_write_policy` columns. This decoder simply ignores
     // any such legacy keys Electric might still deliver during a shape
     // rotation (unknown keys are dropped by Codable).
@@ -73,13 +73,13 @@ public struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Iden
     }
 }
 
-// MARK: - Project
+// MARK: - Board
 
-public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "projects"
+public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "boards"
 
     public let id: String
-    public let workspaceId: String
+    public let teamId: String
     public let name: String
     public let slug: String
     public let prefix: String
@@ -87,18 +87,18 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let sortOrder: Double?
     public let archivedAt: String?
     public let githubRepo: String?
-    // v4: the repo backing this project (server-only `repositories` registry
-    // row). Synced ride-along on the projects shape — the uuid resolves to a
+    // v4: the repo backing this board (server-only `repositories` registry
+    // row). Synced ride-along on the boards shape — the uuid resolves to a
     // fullName/defaultBranch via the repositories tRPC API (cached per
-    // workspace). Nullable — repos are optional on every project; coding
+    // team). Nullable — repos are optional on every board; coding
     // affordances gate on presence.
     public let repositoryId: String?
-    // Curated glyph name (DomainContract.projectIconValues) — nil means fall
+    // Curated glyph name (DomainContract.boardIconValues) — nil means fall
     // back to a derived icon. Rendered to an SF Symbol client-side.
     public let icon: String?
-    // Server-managed protection flag: a protected project (the bootstrap
+    // Server-managed protection flag: a protected board (the bootstrap
     // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
-    // the projects shape; clients hide the destructive affordances for it.
+    // the boards shape; clients hide the destructive affordances for it.
     public let isProtected: Bool
     // Display-only mirror of the preview run targets + feedback routing target
     // (jsonb in Postgres). Stored as the raw JSON text; never executed.
@@ -108,7 +108,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     public init(
         id: String,
-        workspaceId: String,
+        teamId: String,
         name: String,
         slug: String,
         prefix: String,
@@ -124,7 +124,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         updatedAt: String
     ) {
         self.id = id
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.name = name
         self.slug = slug
         self.prefix = prefix
@@ -142,7 +142,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     enum CodingKeys: String, CodingKey {
         case id, name, slug, prefix, color, icon
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
         case githubRepo = "github_repo"
@@ -161,11 +161,11 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
 // JSON strings (Postgres text — "true"/"false"/"t"/"f"/"1"/"0" for bools,
 // "2"/"3.5" for sort_order) but as native scalars from tRPC/fixtures, so they go
 // through the type-aware wire decoders.
-extension ProjectEntity: Codable {
+extension BoardEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        teamId = try c.decode(String.self, forKey: .teamId)
         name = try c.decode(String.self, forKey: .name)
         slug = try c.decode(String.self, forKey: .slug)
         prefix = try c.decode(String.self, forKey: .prefix)
@@ -188,7 +188,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public static let databaseTableName = "issues"
 
     public let id: String
-    public let projectId: String
+    public let boardId: String
     public let number: Int?
     public let identifier: String?
     public let title: String
@@ -219,7 +219,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
 
     public init(
         id: String,
-        projectId: String,
+        boardId: String,
         number: Int?,
         identifier: String?,
         title: String,
@@ -244,7 +244,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         updatedAt: String
     ) {
         self.id = id
-        self.projectId = projectId
+        self.boardId = boardId
         self.number = number
         self.identifier = identifier
         self.title = title
@@ -271,7 +271,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
 
     enum CodingKeys: String, CodingKey {
         case id, title, description, status, priority, number, identifier, branch
-        case projectId = "project_id"
+        case boardId = "board_id"
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
         case dueDate = "due_date"
@@ -296,7 +296,7 @@ extension IssueEntity: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        projectId = try container.decode(String.self, forKey: .projectId)
+        boardId = try container.decode(String.self, forKey: .boardId)
         number = try container.decodeWireInt(forKey: .number)
         identifier = try container.decodeIfPresent(String.self, forKey: .identifier)
         title = try container.decode(String.self, forKey: .title)
@@ -351,9 +351,9 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     // Nullable: NULL for a desktop batch (multi-issue) run's issueless session.
     public let issueId: String?
     // Set for issue-scoped sessions (trigger-denormalized server-side); NULL
-    // for a batch run's session (it spans projects).
-    public let projectId: String?
-    public let workspaceId: String
+    // for a batch run's session (it spans boards).
+    public let boardId: String?
+    public let teamId: String
     public let userId: String
     public let deviceLabel: String?
     public let status: String
@@ -365,8 +365,8 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     public init(
         id: String,
         issueId: String?,
-        projectId: String? = nil,
-        workspaceId: String,
+        boardId: String? = nil,
+        teamId: String,
         userId: String,
         deviceLabel: String?,
         status: String,
@@ -377,8 +377,8 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     ) {
         self.id = id
         self.issueId = issueId
-        self.projectId = projectId
-        self.workspaceId = workspaceId
+        self.boardId = boardId
+        self.teamId = teamId
         self.userId = userId
         self.deviceLabel = deviceLabel
         self.status = status
@@ -391,8 +391,8 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     enum CodingKeys: String, CodingKey {
         case id, status
         case issueId = "issue_id"
-        case projectId = "project_id"
-        case workspaceId = "workspace_id"
+        case boardId = "board_id"
+        case teamId = "team_id"
         case userId = "user_id"
         case deviceLabel = "device_label"
         case startedAt = "started_at"
@@ -408,7 +408,7 @@ public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public static let databaseTableName = "labels"
 
     public let id: String
-    public let workspaceId: String
+    public let teamId: String
     public let name: String
     public let color: String
     public let sortOrder: Double?
@@ -417,7 +417,7 @@ public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
 
     public init(
         id: String,
-        workspaceId: String,
+        teamId: String,
         name: String,
         color: String,
         sortOrder: Double?,
@@ -425,7 +425,7 @@ public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         updatedAt: String
     ) {
         self.id = id
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.name = name
         self.color = color
         self.sortOrder = sortOrder
@@ -435,7 +435,7 @@ public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
 
     enum CodingKeys: String, CodingKey {
         case id, name, color
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -450,7 +450,7 @@ extension LabelEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        teamId = try c.decode(String.self, forKey: .teamId)
         name = try c.decode(String.self, forKey: .name)
         color = try c.decode(String.self, forKey: .color)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
@@ -466,18 +466,18 @@ public struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Sen
 
     public let issueId: String
     public let labelId: String
-    public let workspaceId: String
+    public let teamId: String
 
-    public init(issueId: String, labelId: String, workspaceId: String) {
+    public init(issueId: String, labelId: String, teamId: String) {
         self.issueId = issueId
         self.labelId = labelId
-        self.workspaceId = workspaceId
+        self.teamId = teamId
     }
 
     enum CodingKeys: String, CodingKey {
         case issueId = "issue_id"
         case labelId = "label_id"
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
     }
 }
 
@@ -536,13 +536,13 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
     }
 }
 
-// MARK: - WorkspaceMember
+// MARK: - TeamMember
 
-public struct WorkspaceMemberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workspace_members"
+public struct TeamMemberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "team_members"
 
     public let id: String
-    public let workspaceId: String
+    public let teamId: String
     public let userId: String
     public let role: String
     public let createdAt: String
@@ -550,14 +550,14 @@ public struct WorkspaceMemberEntity: Codable, FetchableRecord, PersistableRecord
 
     public init(
         id: String,
-        workspaceId: String,
+        teamId: String,
         userId: String,
         role: String,
         createdAt: String,
         updatedAt: String
     ) {
         self.id = id
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.userId = userId
         self.role = role
         self.createdAt = createdAt
@@ -566,20 +566,20 @@ public struct WorkspaceMemberEntity: Codable, FetchableRecord, PersistableRecord
 
     enum CodingKeys: String, CodingKey {
         case id, role
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case userId = "user_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 }
 
-// MARK: - WorkspaceInvite
+// MARK: - TeamInvite
 
-public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workspace_invites"
+public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "team_invites"
 
     public let id: String
-    public let workspaceId: String
+    public let teamId: String
     public let role: String
     // No longer synced (server columns allowlist — the invite token is a
     // bearer secret; owners get it once from the create mutation). Kept
@@ -592,7 +592,7 @@ public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord
 
     public init(
         id: String,
-        workspaceId: String,
+        teamId: String,
         role: String,
         token: String?,
         expiresAt: String,
@@ -601,7 +601,7 @@ public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord
         updatedAt: String
     ) {
         self.id = id
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.role = role
         self.token = token
         self.expiresAt = expiresAt
@@ -612,7 +612,7 @@ public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord
 
     enum CodingKeys: String, CodingKey {
         case id, role, token
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case expiresAt = "expires_at"
         case acceptedAt = "accepted_at"
         case createdAt = "created_at"
@@ -641,7 +641,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     public let id: String
     public let issueId: String
-    public let workspaceId: String
+    public let teamId: String
     public let authorId: String
     // JSON body — Electric delivers as object (e.g. {"text": "..."}). Stored
     // as the stringified JSON; UI decodes lazily via getCommentBodyText().
@@ -656,7 +656,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public init(
         id: String,
         issueId: String,
-        workspaceId: String,
+        teamId: String,
         authorId: String,
         body: String?,
         kind: String,
@@ -666,7 +666,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     ) {
         self.id = id
         self.issueId = issueId
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.authorId = authorId
         self.body = body
         self.kind = kind
@@ -678,7 +678,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     enum CodingKeys: String, CodingKey {
         case id, body, kind
         case issueId = "issue_id"
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case authorId = "author_id"
         case editedAt = "edited_at"
         case createdAt = "created_at"
@@ -691,7 +691,7 @@ extension CommentEntity: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         issueId = try container.decode(String.self, forKey: .issueId)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        teamId = try container.decode(String.self, forKey: .teamId)
         authorId = try container.decode(String.self, forKey: .authorId)
         kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? "regular"
         editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
@@ -720,7 +720,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
     public static let databaseTableName = "attachments"
 
     public let id: String
-    public let workspaceId: String
+    public let teamId: String
     public let issueId: String
     public let commentId: String?
     public let uploaderId: String
@@ -736,7 +736,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
 
     public init(
         id: String,
-        workspaceId: String,
+        teamId: String,
         issueId: String,
         commentId: String?,
         uploaderId: String,
@@ -751,7 +751,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         updatedAt: String
     ) {
         self.id = id
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.issueId = issueId
         self.commentId = commentId
         self.uploaderId = uploaderId
@@ -768,7 +768,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
 
     enum CodingKeys: String, CodingKey {
         case id, filename, url, width, height
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case issueId = "issue_id"
         case commentId = "comment_id"
         case uploaderId = "uploader_id"
@@ -789,7 +789,7 @@ extension AttachmentEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        teamId = try c.decode(String.self, forKey: .teamId)
         issueId = try c.decode(String.self, forKey: .issueId)
         commentId = try c.decodeIfPresent(String.self, forKey: .commentId)
         uploaderId = try c.decode(String.self, forKey: .uploaderId)
@@ -869,7 +869,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
     public let userId: String?
     // Set for widget_reporter rows; null for member rows.
     public let email: String?
-    public let workspaceId: String
+    public let teamId: String
     // source: creator|assignee|commenter|manual|mention|widget_reporter
     public let source: String
     public let unsubscribed: Bool
@@ -881,7 +881,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
         issueId: String,
         userId: String?,
         email: String?,
-        workspaceId: String,
+        teamId: String,
         source: String,
         unsubscribed: Bool,
         createdAt: String,
@@ -891,7 +891,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
         self.issueId = issueId
         self.userId = userId
         self.email = email
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.source = source
         self.unsubscribed = unsubscribed
         self.createdAt = createdAt
@@ -902,7 +902,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
         case id, source, unsubscribed, email
         case issueId = "issue_id"
         case userId = "user_id"
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -920,7 +920,7 @@ extension IssueSubscriberEntity {
         issueId = try container.decode(String.self, forKey: .issueId)
         userId = try container.decodeIfPresent(String.self, forKey: .userId)
         email = try container.decodeIfPresent(String.self, forKey: .email)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        teamId = try container.decode(String.self, forKey: .teamId)
         source = try container.decode(String.self, forKey: .source)
         unsubscribed = container.decodeWireBool(forKey: .unsubscribed, default: false)
         createdAt = try container.decode(String.self, forKey: .createdAt)
@@ -935,7 +935,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
 
     public let id: String
     public let issueId: String
-    public let workspaceId: String
+    public let teamId: String
     public let actorUserId: String?
     // type: status_changed|assignee_changed|label_added|label_removed|
     //       pr_opened|pr_merged
@@ -949,7 +949,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
     public init(
         id: String,
         issueId: String,
-        workspaceId: String,
+        teamId: String,
         actorUserId: String?,
         type: String,
         payload: String?,
@@ -958,7 +958,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
     ) {
         self.id = id
         self.issueId = issueId
-        self.workspaceId = workspaceId
+        self.teamId = teamId
         self.actorUserId = actorUserId
         self.type = type
         self.payload = payload
@@ -969,7 +969,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
     enum CodingKeys: String, CodingKey {
         case id, type, payload
         case issueId = "issue_id"
-        case workspaceId = "workspace_id"
+        case teamId = "team_id"
         case actorUserId = "actor_user_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -981,7 +981,7 @@ extension IssueEventEntity: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         issueId = try container.decode(String.self, forKey: .issueId)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        teamId = try container.decode(String.self, forKey: .teamId)
         actorUserId = try container.decodeIfPresent(String.self, forKey: .actorUserId)
         type = try container.decode(String.self, forKey: .type)
         createdAt = try container.decode(String.self, forKey: .createdAt)

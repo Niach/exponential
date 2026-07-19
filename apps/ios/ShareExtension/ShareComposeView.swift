@@ -31,7 +31,7 @@ struct ShareRootView: View {
 }
 
 /// Editable compose form: a "Share to" destination picker on top (EXP-60,
-/// defaulting to the most recently used project), then title, description and
+/// defaulting to the most recently used board), then title, description and
 /// image thumbnails.
 struct ShareComposeView: View {
     let deps: ShareDependencies
@@ -41,24 +41,24 @@ struct ShareComposeView: View {
 
     @State private var title: String
     @State private var descriptionText: String
-    @State private var selectedProjectId: String?
+    @State private var selectedBoardId: String?
     @State private var submitting = false
     @State private var error: String?
 
-    private let projects: [MirroredProject]
+    private let boards: [MirroredBoard]
 
     init(deps: ShareDependencies, payload: SharedPayload, onComplete: @escaping () -> Void, onCancel: @escaping () -> Void) {
         self.deps = deps
         self.payload = payload
         self.onComplete = onComplete
         self.onCancel = onCancel
-        let projects = SharedProjectMirror.readProjects()
-        self.projects = projects
+        let boards = SharedBoardMirror.readBoards()
+        self.boards = boards
         _title = State(initialValue: payload.title)
         _descriptionText = State(initialValue: payload.descriptionText)
-        let lastUsed = SharedProjectMirror.readLastUsed()?.projectId
-        _selectedProjectId = State(initialValue:
-            lastUsed.flatMap { id in projects.first { $0.projectId == id }?.projectId } ?? projects.first?.projectId
+        let lastUsed = SharedBoardMirror.readLastUsed()?.boardId
+        _selectedBoardId = State(initialValue:
+            lastUsed.flatMap { id in boards.first { $0.boardId == id }?.boardId } ?? boards.first?.boardId
         )
     }
 
@@ -90,7 +90,7 @@ struct ShareComposeView: View {
                 message: "Sign in to Exponential first, then try sharing again.",
                 onCancel: onCancel
             )
-        } else if projects.isEmpty {
+        } else if boards.isEmpty {
             ShareMessageView(
                 message: "Open Exponential and let it sync once, then try sharing again.",
                 onCancel: onCancel
@@ -100,10 +100,10 @@ struct ShareComposeView: View {
                 // Destination first (EXP-60): choosing where the share lands
                 // leads the form, matching the Android share composer.
                 Section("Share to") {
-                    Picker("Project", selection: $selectedProjectId) {
-                        ForEach(projects) { project in
-                            Text("\(project.workspaceName) / \(project.projectName)")
-                                .tag(Optional(project.projectId))
+                    Picker("Board", selection: $selectedBoardId) {
+                        ForEach(boards) { board in
+                            Text("\(board.teamName) / \(board.boardName)")
+                                .tag(Optional(board.boardId))
                         }
                     }
                 }
@@ -142,12 +142,12 @@ struct ShareComposeView: View {
     }
 
     private var canPost: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedProjectId != nil && !submitting
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedBoardId != nil && !submitting
     }
 
     private func post() {
-        guard let projectId = selectedProjectId,
-              let project = projects.first(where: { $0.projectId == projectId }) else { return }
+        guard let boardId = selectedBoardId,
+              let board = boards.first(where: { $0.boardId == boardId }) else { return }
         submitting = true
         error = nil
         var submitted = payload
@@ -156,7 +156,7 @@ struct ShareComposeView: View {
         let submitter = ShareSubmitter(issuesApi: deps.issuesApi, issueImagesApi: deps.issueImagesApi)
         Task {
             do {
-                try await submitter.submit(payload: submitted, accountId: project.accountId, projectId: projectId)
+                try await submitter.submit(payload: submitted, accountId: board.accountId, boardId: boardId)
                 onComplete()
             } catch {
                 self.error = error.localizedDescription

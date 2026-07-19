@@ -2,14 +2,14 @@ package com.exponential.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.TrpcException
-import com.exponential.app.data.api.WorkspacesApi
+import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.MultiAccountProjectRepository
-import com.exponential.app.data.db.ServerProjectGroup
+import com.exponential.app.data.db.MultiAccountBoardRepository
+import com.exponential.app.data.db.ServerBoardGroup
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,65 +22,65 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Powers the Issues tab root's project-switcher sheet (the old Projects home
-// collapsed into a bottom sheet): the cross-server workspace/project tree,
-// first-run workspace bootstrap, and the pick action that swaps the root
-// list's project in place.
+// Powers the Issues tab root's board-switcher sheet (the old Boards home
+// collapsed into a bottom sheet): the cross-server team/board tree,
+// first-run team bootstrap, and the pick action that swaps the root
+// list's board in place.
 
 data class HomeState(
-    // Server > Workspace > Project tree shown in the switcher sheet. Every
+    // Server > Team > Board tree shown in the switcher sheet. Every
     // signed-in account contributes one block.
-    val projectTree: List<ServerProjectGroup> = emptyList(),
-    // True while the first workspace bootstrap is in flight and nothing has
+    val boardTree: List<ServerBoardGroup> = emptyList(),
+    // True while the first team bootstrap is in flight and nothing has
     // synced yet — drives the root "Syncing…" state (parity with iOS).
     val isSyncing: Boolean = false,
-    // True when the ACTIVE account has at least one project. Distinct from
-    // "the tree is non-empty": the tree includes projectless workspaces (a
-    // fresh account has exactly one), and a sibling account may hold projects
+    // True when the ACTIVE account has at least one board. Distinct from
+    // "the tree is non-empty": the tree includes boardless teams (a
+    // fresh account has exactly one), and a sibling account may hold boards
     // the active one doesn't — so the root screen must gate its spinner on
-    // THIS, not on tree-non-emptiness, or a projectless active account spins
-    // forever (its current project can never resolve).
-    val activeAccountHasProject: Boolean = false,
-    // True once the ACTIVE account's projects shape has reached up-to-date at
+    // THIS, not on tree-non-emptiness, or a boardless active account spins
+    // forever (its current board can never resolve).
+    val activeAccountHasBoard: Boolean = false,
+    // True once the ACTIVE account's boards shape has reached up-to-date at
     // least once (initial snapshot done, even at zero rows). Until then a
-    // projectless-looking account is still syncing — the root shows "Syncing…"
-    // rather than prematurely flashing "Create your first project".
-    val activeAccountProjectsSynced: Boolean = false,
+    // boardless-looking account is still syncing — the root shows "Syncing…"
+    // rather than prematurely flashing "Create your first board".
+    val activeAccountBoardsSynced: Boolean = false,
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val workspacesApi: WorkspacesApi,
+    private val teamsApi: TeamsApi,
     private val holder: DatabaseHolder,
-    private val selection: WorkspaceSelection,
-    multiAccountProjects: MultiAccountProjectRepository,
+    private val selection: TeamSelection,
+    multiAccountBoards: MultiAccountBoardRepository,
 ) : ViewModel() {
 
     private val _syncing = MutableStateFlow(false)
 
-    // The active account's projects-shape "up-to-date seen" flag, re-scoped on
+    // The active account's boards-shape "up-to-date seen" flag, re-scoped on
     // account switch. Null (no offset row yet) reads as not-yet-synced.
-    private val activeProjectsSynced =
+    private val activeBoardsSynced =
         accountDatabaseFlow(auth, holder)
-            .scopedQuery<Boolean?>(null) { db -> db.electricOffsetDao().observeIsLive("projects") }
+            .scopedQuery<Boolean?>(null) { db -> db.electricOffsetDao().observeIsLive("boards") }
             .map { it == true }
 
     val state: StateFlow<HomeState> = combine(
-        multiAccountProjects.serverGroups,
+        multiAccountBoards.serverGroups,
         _syncing,
         auth.activeAccountId,
-        activeProjectsSynced,
-    ) { projectTree, syncing, activeId, projectsSynced ->
-        val activeHasProject = projectTree
+        activeBoardsSynced,
+    ) { boardTree, syncing, activeId, boardsSynced ->
+        val activeHasBoard = boardTree
             .firstOrNull { it.accountId == activeId }
-            ?.workspaceBlocks
-            ?.any { it.projects.isNotEmpty() } == true
+            ?.teamBlocks
+            ?.any { it.boards.isNotEmpty() } == true
         HomeState(
-            projectTree = projectTree,
+            boardTree = boardTree,
             isSyncing = syncing,
-            activeAccountHasProject = activeHasProject,
-            activeAccountProjectsSynced = projectsSynced,
+            activeAccountHasBoard = activeHasBoard,
+            activeAccountBoardsSynced = boardsSynced,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
@@ -92,14 +92,14 @@ class HomeViewModel @Inject constructor(
             _syncing.value = true
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
-                val workspace = workspacesApi.ensureDefault(accountId)
+                val team = teamsApi.ensureDefault(accountId)
                 // First-run heal only: the upsert gives AppViewModel's
-                // default-workspace bootstrap a row to observe before Electric's
+                // default-team bootstrap a row to observe before Electric's
                 // first snapshot. Deliberately NO selection.select here —
-                // ensureDefault returns the PERSONAL workspace by server
+                // ensureDefault returns the PERSONAL team by server
                 // contract, and selecting it scoped Agents/Reviews to a
-                // workspace without repo projects or PRs (EXP-166/EXP-168).
-                holder.database(forAccountId = accountId).workspaceDao().upsert(workspace)
+                // team without repo boards or PRs (EXP-166/EXP-168).
+                holder.database(forAccountId = accountId).teamDao().upsert(team)
                 _error.value = null
             } catch (error: Throwable) {
                 // A rejected session (expired/revoked token) can't be recovered by
@@ -113,21 +113,21 @@ class HomeViewModel @Inject constructor(
                 // Always clear the spinner — the success path, the
                 // null-accountId early `return@launch`, and the catch block
                 // all funnel through here. Without this, an account that
-                // bootstraps fine but has zero projects would be stuck on a
+                // bootstraps fine but has zero boards would be stuck on a
                 // perpetual "Syncing…" state.
                 _syncing.value = false
             }
         }
     }
 
-    /// Project pick from the switcher sheet. Makes the picked project's account
+    /// Board pick from the switcher sheet. Makes the picked board's account
     /// active (a no-op for same-server picks) and records it as last-used —
-    /// the Issues root's current-project resolution reacts to both, so the
+    /// the Issues root's current-board resolution reacts to both, so the
     /// list swaps in place with no navigation.
-    fun selectProject(accountId: String, projectId: String) {
+    fun selectBoard(accountId: String, boardId: String) {
         if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
         }
-        selection.rememberLastProject(accountId, projectId)
+        selection.rememberLastBoard(accountId, boardId)
     }
 }

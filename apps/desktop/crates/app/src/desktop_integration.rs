@@ -101,7 +101,7 @@ pub fn ensure_scheme_registered() {
     let desktop_path = apps_dir.join(desktop_file_name());
 
     // Taskbar icon association (EXP-68): the window's Wayland app_id / X11
-    // WM_CLASS is `APP_ID` (set in `windows::open_workspace_window`), so the
+    // WM_CLASS is `APP_ID` (set in `windows::open_shell_window`), so the
     // compositor matches it against THIS file two ways — the desktop-file id
     // (`<APP_ID>.desktop`) and `StartupWMClass` — and pulls `Icon=` from it.
     // Packaged runs (AppImage) list a real launcher entry; bare dev binaries

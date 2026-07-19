@@ -4,10 +4,10 @@ import { and, asc, desc, eq, ne } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { runConfigs } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  assertWorkspaceOwner,
-  getProjectWorkspaceId,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  assertTeamOwner,
+  getBoardTeamId,
+} from "@/lib/team-membership"
 import {
   MAX_ARGV_ITEMS,
   MAX_ARG_LENGTH,
@@ -20,19 +20,19 @@ import {
   sanitizeRunConfigEnv,
 } from "@/lib/run-configs"
 
-// Per-project terminal run commands. tRPC-only — NOT an Electric
+// Per-board terminal run commands. tRPC-only — NOT an Electric
 // shape: the desktops fetch on demand and gate execution behind the
 // per-device Trust & Run commandSetHash prompt (DB-stored argv run locally
 // reverses the never-execute-synced-values invariant, so the trust prompt is
 // non-negotiable and re-fires whenever the fetched config set changes).
-// Reads are member-gated; writes are workspace-owner-only.
+// Reads are member-gated; writes are team-owner-only.
 
-// The pinned wire shape: {id, projectId, name, argv, cwd, env, sortOrder,
-// createdAt, updatedAt} — workspaceId is a server-side denormalization detail
+// The pinned wire shape: {id, boardId, name, argv, cwd, env, sortOrder,
+// createdAt, updatedAt} — teamId is a server-side denormalization detail
 // and stays off the wire.
 const wireColumns = {
   id: runConfigs.id,
-  projectId: runConfigs.projectId,
+  boardId: runConfigs.boardId,
   name: runConfigs.name,
   argv: runConfigs.argv,
   cwd: runConfigs.cwd,
@@ -109,7 +109,7 @@ async function loadRunConfig(id: string) {
 function duplicateNameError(name: string): TRPCError {
   return new TRPCError({
     code: `CONFLICT`,
-    message: `A run config named "${name}" already exists in this project`,
+    message: `A run config named "${name}" already exists in this board`,
   })
 }
 
@@ -123,18 +123,18 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 export const runConfigsRouter = router({
-  // Any member of the project's workspace — the desktops list these to build
+  // Any member of the board's team — the desktops list these to build
   // the play menu (and hash the set for the trust prompt).
   list: authedProcedure
-    .input(z.object({ projectId: z.string().uuid() }))
+    .input(z.object({ boardId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const project = await getProjectWorkspaceId(input.projectId)
-      await assertWorkspaceMember(ctx.session.user.id, project.workspaceId)
+      const board = await getBoardTeamId(input.boardId)
+      await assertTeamMember(ctx.session.user.id, board.teamId)
 
       const configs = await ctx.db
         .select(wireColumns)
         .from(runConfigs)
-        .where(eq(runConfigs.projectId, input.projectId))
+        .where(eq(runConfigs.boardId, input.boardId))
         .orderBy(asc(runConfigs.sortOrder), asc(runConfigs.name))
       return { configs }
     }),
@@ -142,7 +142,7 @@ export const runConfigsRouter = router({
   create: authedProcedure
     .input(
       z.object({
-        projectId: z.string().uuid(),
+        boardId: z.string().uuid(),
         name: nameSchema,
         argv: argvSchema,
         cwd: cwdSchema.optional(),
@@ -150,14 +150,14 @@ export const runConfigsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectWorkspaceId(input.projectId)
-      await assertWorkspaceOwner(ctx.session.user.id, project.workspaceId)
+      const board = await getBoardTeamId(input.boardId)
+      await assertTeamOwner(ctx.session.user.id, board.teamId)
 
       // Append to the end of the list by default.
       const [last] = await ctx.db
         .select({ sortOrder: runConfigs.sortOrder })
         .from(runConfigs)
-        .where(eq(runConfigs.projectId, input.projectId))
+        .where(eq(runConfigs.boardId, input.boardId))
         .orderBy(desc(runConfigs.sortOrder))
         .limit(1)
       const nextSortOrder = (last?.sortOrder ?? 0) + 1
@@ -165,8 +165,8 @@ export const runConfigsRouter = router({
       const [config] = await ctx.db
         .insert(runConfigs)
         .values({
-          projectId: input.projectId,
-          workspaceId: project.workspaceId,
+          boardId: input.boardId,
+          teamId: board.teamId,
           name: input.name,
           argv: input.argv,
           cwd: normalizeCwd(input.cwd),
@@ -174,7 +174,7 @@ export const runConfigsRouter = router({
           sortOrder: nextSortOrder,
         })
         .onConflictDoNothing({
-          target: [runConfigs.projectId, runConfigs.name],
+          target: [runConfigs.boardId, runConfigs.name],
         })
         .returning(wireColumns)
 
@@ -195,9 +195,9 @@ export const runConfigsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await loadRunConfig(input.id)
-      await assertWorkspaceOwner(ctx.session.user.id, existing.workspaceId)
+      await assertTeamOwner(ctx.session.user.id, existing.teamId)
 
-      // Pre-check renames against the (projectId, name) unique so the caller
+      // Pre-check renames against the (boardId, name) unique so the caller
       // gets a readable CONFLICT instead of a raw 23505.
       if (input.name !== undefined && input.name !== existing.name) {
         const [clash] = await ctx.db
@@ -205,7 +205,7 @@ export const runConfigsRouter = router({
           .from(runConfigs)
           .where(
             and(
-              eq(runConfigs.projectId, existing.projectId),
+              eq(runConfigs.boardId, existing.boardId),
               eq(runConfigs.name, input.name),
               ne(runConfigs.id, input.id)
             )
@@ -247,7 +247,7 @@ export const runConfigsRouter = router({
           .returning(wireColumns)
       } catch (err) {
         // The rename pre-check above races concurrent writers — translate a
-        // late (projectId, name) unique violation into the same CONFLICT.
+        // late (boardId, name) unique violation into the same CONFLICT.
         if (isUniqueViolation(err)) {
           throw duplicateNameError(input.name ?? existing.name)
         }
@@ -266,7 +266,7 @@ export const runConfigsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await loadRunConfig(input.id)
-      await assertWorkspaceOwner(ctx.session.user.id, existing.workspaceId)
+      await assertTeamOwner(ctx.session.user.id, existing.teamId)
       await ctx.db.delete(runConfigs).where(eq(runConfigs.id, input.id))
       return { ok: true as const }
     }),

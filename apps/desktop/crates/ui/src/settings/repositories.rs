@@ -1,19 +1,19 @@
 //! Settings → Repositories (masterplan-v3 §4.2 + §7.9).
 //!
-//! Web parity: `components/workspace/repositories-section.tsx`. This pane
+//! Web parity: `components/team/repositories-section.tsx`. This pane
 //! shows the **live server truth** for GitHub connect state — never a local
 //! guess (the old native app falsely said "not connected"):
 //!
 //! - the GitHub-App install banner off `integrations.github.status`
 //!   (`{configured, installed, installUrl, accounts[]}`) — "Installed as
 //!   @acme" vs. the install nudge;
-//! - the workspace's connected repos + their project links off
+//! - the team's connected repos + their board links off
 //!   `repositories.list` (server-only tables — read via tRPC, never synced).
 //!
 //! The GitHub-App **install** is a browser hand-off: the buttons open the
 //! install/manage URL in the system browser through the robust opener chain
 //! (the App's install OAuth flow can't run in-process). Inline repo *connect*
-//! now happens in the create-project dialog once the App is installed — the
+//! now happens in the create-board dialog once the App is installed — the
 //! shared status/repo fetches live in [`crate::github_connect`]. This pane is
 //! the read-only connected-repo surface + the install/manage hand-off.
 
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use sync::Store;
 
 use crate::github_connect::{fetch_github_status, GithubStatus};
-use crate::navigation::{active_workspace_id, Navigation};
+use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
@@ -40,13 +40,13 @@ use super::{card, card_header, error_notice, open_url};
 // Server-only reads (typed mirrors of the web loader results)
 // ---------------------------------------------------------------------------
 
-/// `repositories.list` — one connected repo + the projects it backs (v4
-/// `projects.repositoryId`; project names now resolved server-side).
+/// `repositories.list` — one connected repo + the boards it backs (v4
+/// `boards.repositoryId`; board names now resolved server-side).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoRow {
-    /// Consumed by the Projects pane's repository picker
-    /// (`projects.setRepository`); this read-only pane doesn't render it.
+    /// Consumed by the Boards pane's repository picker
+    /// (`boards.setRepository`); this read-only pane doesn't render it.
     pub id: String,
     pub full_name: String,
     #[serde(default)]
@@ -54,27 +54,27 @@ pub(super) struct RepoRow {
     #[serde(default)]
     pub private: bool,
     #[serde(default)]
-    pub projects: Vec<RepoProjectRef>,
+    pub boards: Vec<RepoBoardRef>,
 }
 
-/// A project this repo backs (`{ id, name, slug }` from `repositories.list`).
+/// A board this repo backs (`{ id, name, slug }` from `repositories.list`).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct RepoProjectRef {
+pub(super) struct RepoBoardRef {
     pub name: String,
 }
 
-/// Shared with the Projects pane's repository picker (same server read).
+/// Shared with the Boards pane's repository picker (same server read).
 pub(super) fn fetch_repositories(
     trpc: &api::TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
 ) -> Result<Vec<RepoRow>, api::ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        workspace_id: &'a str,
+        team_id: &'a str,
     }
-    trpc.query_with_input("repositories.list", &Input { workspace_id })
+    trpc.query_with_input("repositories.list", &Input { team_id })
 }
 
 // ---------------------------------------------------------------------------
@@ -96,12 +96,12 @@ enum Load {
 pub struct RepositoriesPane {
     nav: Entity<Navigation>,
     load: Load,
-    /// The workspace the current `load` belongs to; a switch re-fetches.
-    loaded_workspace: Option<String>,
+    /// The team the current `load` belongs to; a switch re-fetches.
+    loaded_team: Option<String>,
     /// The account it was fetched as — a re-login must re-fetch (the GitHub
     /// install state is per-user).
     account_id: Option<String>,
-    /// The synced (project → repository) links the current `load` was fetched
+    /// The synced (board → repository) links the current `load` was fetched
     /// under (EXP-139) — a link change on any client re-fetches so the
     /// "used by" chips stay live.
     loaded_links: Option<Vec<(String, String)>>,
@@ -112,21 +112,21 @@ pub struct RepositoriesPane {
 
 impl RepositoriesPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
-        // The GitHub-App install state + repo list (incl. project names) come
-        // straight from the server; navigation (workspace switch) and — since
-        // the per-repo project chips mirror `projects.repository_id` — a
+        // The GitHub-App install state + repo list (incl. board names) come
+        // straight from the server; navigation (team switch) and — since
+        // the per-repo board chips mirror `boards.repository_id` — a
         // synced repo-link change drive the re-render/re-fetch (EXP-139).
-        let projects = Store::global(cx).collections().projects.clone();
+        let boards = Store::global(cx).collections().boards.clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.observe(&projects, |this: &mut Self, _, cx| {
+            cx.observe(&boards, |this: &mut Self, _, cx| {
                 this.refresh_if_links_changed(cx);
             }),
         ];
         Self {
             nav,
             load: Load::Idle,
-            loaded_workspace: None,
+            loaded_team: None,
             account_id: None,
             loaded_links: None,
             generation: 0,
@@ -134,24 +134,24 @@ impl RepositoriesPane {
         }
     }
 
-    /// Drop the cached list when a project's repo link changed under it — the
+    /// Drop the cached list when a board's repo link changed under it — the
     /// next render re-fetches (a hidden pane stays idle until reopened).
     fn refresh_if_links_changed(&mut self, cx: &mut gpui::Context<Self>) {
         if !matches!(self.load, Load::Ready(_)) {
             return;
         }
-        let Some(workspace_id) = self.loaded_workspace.clone() else {
+        let Some(team_id) = self.loaded_team.clone() else {
             return;
         };
-        if self.loaded_links.as_ref() != Some(&links_snapshot(&workspace_id, cx)) {
+        if self.loaded_links.as_ref() != Some(&links_snapshot(&team_id, cx)) {
             self.load = Load::Idle;
             cx.notify();
         }
     }
 
-    /// Kick the server fetch when the pane is first shown or the workspace /
+    /// Kick the server fetch when the pane is first shown or the team /
     /// account changed. Runs at render time so a hidden pane never fetches.
-    fn ensure_loaded(&mut self, workspace_id: &str, cx: &mut gpui::Context<Self>) {
+    fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -160,8 +160,8 @@ impl RepositoriesPane {
             self.account_id = account_id;
             self.load = Load::Idle;
         }
-        let same_workspace = self.loaded_workspace.as_deref() == Some(workspace_id);
-        if same_workspace && !matches!(self.load, Load::Idle) {
+        let same_team = self.loaded_team.as_deref() == Some(team_id);
+        if same_team && !matches!(self.load, Load::Idle) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -169,11 +169,11 @@ impl RepositoriesPane {
         };
 
         self.load = Load::Loading;
-        self.loaded_workspace = Some(workspace_id.to_string());
-        self.loaded_links = Some(links_snapshot(workspace_id, cx));
+        self.loaded_team = Some(team_id.to_string());
+        self.loaded_links = Some(links_snapshot(team_id, cx));
         self.generation += 1;
         let generation = self.generation;
-        let workspace_id = workspace_id.to_string();
+        let team_id = team_id.to_string();
 
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -181,9 +181,9 @@ impl RepositoriesPane {
                 .spawn(async move {
                     // Banner is best-effort (web: status errors are ignored);
                     // the repo list carries its own error state. Status is
-                    // scoped to the workspace's claimed installations.
-                    let status = fetch_github_status(&trpc, &workspace_id).ok();
-                    let repos = fetch_repositories(&trpc, &workspace_id)
+                    // scoped to the team's claimed installations.
+                    let status = fetch_github_status(&trpc, &team_id).ok();
+                    let repos = fetch_repositories(&trpc, &team_id)
                         .map_err(|err| err.to_string());
                     Loaded { status, repos }
                 })
@@ -210,7 +210,7 @@ impl RepositoriesPane {
 
 impl Render for RepositoriesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(
                 div()
                     .text_sm()
@@ -218,7 +218,7 @@ impl Render for RepositoriesPane {
                     .child("No team selected."),
             );
         };
-        self.ensure_loaded(&workspace_id, cx);
+        self.ensure_loaded(&team_id, cx);
 
         let repo_count = match &self.load {
             Load::Ready(loaded) => loaded.repos.as_ref().map(|repos| repos.len()).unwrap_or(0),
@@ -227,8 +227,8 @@ impl Render for RepositoriesPane {
 
         let mut body = card(cx).child(card_header(
             format!("Repositories · {repo_count}"),
-            "Connect GitHub repos so issues in this workspace can be coded on. Link a repo \
-             to a project to make it the clone target for \u{201c}Start coding\u{201d}.",
+            "Connect GitHub repos so issues in this team can be coded on. Link a repo \
+             to a board to make it the clone target for \u{201c}Start coding\u{201d}.",
             cx,
         ));
 
@@ -351,7 +351,7 @@ impl Render for RepositoriesPane {
                                      account yet — connect it here to add repositories.",
                                 ),
                             );
-                        // Connect claims the account for the workspace: prefer
+                        // Connect claims the account for the team: prefer
                         // the single-consent connect URL, fall back to the App
                         // install page.
                         let connect_url = status
@@ -430,8 +430,8 @@ impl Render for RepositoriesPane {
 }
 
 /// Web `RepoRow` (read-only v1): name + branch/private chips, then the
-/// "used by" line — one chip per project the repo backs (v4 one-repo-per-
-/// project; names resolved server-side).
+/// "used by" line — one chip per board the repo backs (v4 one-repo-per-
+/// board; names resolved server-side).
 fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
     let mut head = h_flex()
         .gap_2()
@@ -458,15 +458,15 @@ fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
     }
 
     let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
-    if repo.projects.is_empty() {
+    if repo.boards.is_empty() {
         links = links.child(
             div()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .child("No projects linked"),
+                .child("No boards linked"),
         );
     } else {
-        for project in &repo.projects {
+        for board in &repo.boards {
             links = links.child(
                 h_flex()
                     .gap_1()
@@ -477,7 +477,7 @@ fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
                     .border_1()
                     .border_color(cx.theme().border)
                     .text_xs()
-                    .child(SharedString::from(project.name.clone())),
+                    .child(SharedString::from(board.name.clone())),
             );
         }
     }

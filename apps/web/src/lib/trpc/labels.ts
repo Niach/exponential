@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { labels } from "@/db/schema"
-import { resolveWorkspaceAccess } from "@/lib/workspace-membership"
+import { resolveTeamAccess } from "@/lib/team-membership"
 
 const labelNameSchema = z.string().min(1).max(255)
 const labelColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
@@ -11,15 +11,15 @@ export const labelsRouter = router({
   create: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         name: labelNameSchema,
         color: labelColorSchema.default(`#6366f1`),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await resolveWorkspaceAccess(
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`
       )
       return await ctx.db.transaction(async (tx) => {
@@ -27,7 +27,7 @@ export const labelsRouter = router({
         const [label] = await tx
           .insert(labels)
           .values({
-            workspaceId: input.workspaceId,
+            teamId: input.teamId,
             name: input.name,
             color: input.color,
           })
@@ -40,16 +40,16 @@ export const labelsRouter = router({
   update: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         labelId: z.string().uuid(),
         name: labelNameSchema.optional(),
         color: labelColorSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await resolveWorkspaceAccess(
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`
       )
       return await ctx.db.transaction(async (tx) => {
@@ -65,7 +65,7 @@ export const labelsRouter = router({
             .where(
               and(
                 eq(labels.id, input.labelId),
-                eq(labels.workspaceId, input.workspaceId)
+                eq(labels.teamId, input.teamId)
               )
             )
         }
@@ -77,14 +77,14 @@ export const labelsRouter = router({
   delete: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         labelId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await resolveWorkspaceAccess(
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`
       )
       return await ctx.db.transaction(async (tx) => {
@@ -94,7 +94,7 @@ export const labelsRouter = router({
           .where(
             and(
               eq(labels.id, input.labelId),
-              eq(labels.workspaceId, input.workspaceId)
+              eq(labels.teamId, input.teamId)
             )
           )
 

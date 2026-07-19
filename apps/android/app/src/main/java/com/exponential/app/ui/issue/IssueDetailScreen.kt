@@ -110,9 +110,9 @@ fun IssueDetailScreen(
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
-    // EXP-50: solo workspaces (one human member) hide the assignee row.
+    // EXP-50: solo teams (one human member) hide the assignee row.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
-    // EXP-57: same-workspace projects the issue can move to.
+    // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val issue = state.issue
@@ -132,8 +132,8 @@ fun IssueDetailScreen(
     var duplicatePickerOpen by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     var movePickerOpen by remember { mutableStateOf(false) }
-    // The picked target project, pending the move confirmation (EXP-57).
-    var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.ProjectEntity?>(null) }
+    // The picked target board, pending the move confirmation (EXP-57).
+    var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.BoardEntity?>(null) }
 
     LaunchedEffect(titleSync, issue?.title) {
         issue?.title?.let { titleSync.syncRemote(it) }
@@ -168,7 +168,7 @@ fun IssueDetailScreen(
     }
 
     // Inline `#IDENTIFIER` pills + editor #-autocomplete (masterplan §5e):
-    // resolve against this workspace's synced issues; a tap navigates to the
+    // resolve against this team's synced issues; a tap navigates to the
     // referenced issue. The CompositionLocal reaches every MarkdownView below
     // (description read view + comment thread) and every embedded editor
     // (description, comment composer, comment edit).
@@ -240,13 +240,13 @@ fun IssueDetailScreen(
                                             },
                                         )
                                     }
-                                    // Move to another project in the same workspace
-                                    // (EXP-57) — hidden when this is the workspace's
-                                    // only project (web parity: 2+ projects).
+                                    // Move to another board in the same team
+                                    // (EXP-57) — hidden when this is the team's
+                                    // only board (web parity: 2+ boards).
                                     if (moveTargets.isNotEmpty()) {
                                         DropdownMenuItem(
                                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
-                                            text = { Text("Move to project") },
+                                            text = { Text("Move to board") },
                                             onClick = {
                                                 overflowOpen = false
                                                 movePickerOpen = true
@@ -452,7 +452,7 @@ fun IssueDetailScreen(
                 status = status,
                 priority = priority,
                 assignee = state.assignee,
-                workspaceLabels = state.workspaceLabels,
+                teamLabels = state.teamLabels,
                 issueLabels = state.issueLabels,
                 isModerator = isModerator,
                 hideAssignee = soloMemberId != null,
@@ -571,7 +571,7 @@ fun IssueDetailScreen(
 
     if (labelsOpen) {
         LabelPickerSheet(
-            workspaceLabels = state.workspaceLabels,
+            teamLabels = state.teamLabels,
             selectedLabelIds = state.issueLabels.map { it.id }.toSet(),
             onToggle = { id, assigned -> viewModel.toggleLabel(id, assigned) },
             onCreate = { name, color -> viewModel.createAndAssignLabel(name, color) },
@@ -607,11 +607,11 @@ fun IssueDetailScreen(
         )
     }
 
-    // Move to project (EXP-57): pick a same-workspace target, then confirm —
+    // Move to board (EXP-57): pick a same-team target, then confirm —
     // the move renumbers the issue (new identifier), so it's consequential.
     if (movePickerOpen && issue != null && isModerator) {
         IssuePickerSheet(
-            title = "Move to project",
+            title = "Move to board",
             items = moveTargets,
             selected = null,
             keyOf = { it.id },
@@ -630,13 +630,13 @@ fun IssueDetailScreen(
             text = {
                 Text(
                     "Move ${issue.identifier} to \"${pendingMoveTarget.name}\"? " +
-                        "The issue will get a new identifier in that project.",
+                        "The issue will get a new identifier in that board.",
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     moveTarget = null
-                    viewModel.moveToProject(pendingMoveTarget.id)
+                    viewModel.moveToBoard(pendingMoveTarget.id)
                 }) {
                     Text("Move")
                 }
@@ -697,7 +697,7 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
 }
 
 // The backing repository's name (owner/name), resolved via the repositories API
-// and cached in the ViewModel. A project is a repository now (masterplan v4 §6).
+// and cached in the ViewModel. A board is a repository now (masterplan v4 §6).
 @Composable
 private fun RepoChip(fullName: String) {
     Row(

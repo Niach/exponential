@@ -211,7 +211,7 @@ impl LocalReposPane {
         .detach();
     }
 
-    /// The confirm dialog for "Remove local copy" (web `projects.delete`
+    /// The confirm dialog for "Remove local copy" (web `boards.delete`
     /// pattern). Only reached when the Remove button is enabled (no running
     /// session); the pane entity handle carries the action into `on_ok`.
     fn confirm_remove(

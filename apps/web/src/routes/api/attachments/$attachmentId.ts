@@ -5,9 +5,9 @@ import { errorToResponse } from "@/lib/http-errors"
 import { getObject, toResponseBody } from "@/lib/storage"
 import { buildContentDispositionHeader } from "@/lib/storage/issue-attachments"
 import {
-  assertWorkspaceMember,
-  getAttachmentWorkspaceContext,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  getAttachmentTeamContext,
+} from "@/lib/team-membership"
 
 async function getAttachment({
   params,
@@ -23,11 +23,11 @@ async function getAttachment({
   // instead of leaking them as 500s.
   const session = await resolveSession(request)
 
-  const attachment = await getAttachmentWorkspaceContext(params.attachmentId)
+  const attachment = await getAttachmentTeamContext(params.attachmentId)
 
   // Member-only: attachment bytes are never anonymously readable.
   if (session?.user) {
-    await assertWorkspaceMember(session.user.id, attachment.workspaceId)
+    await assertTeamMember(session.user.id, attachment.teamId)
   } else {
     // 401 (not 404) to match the historic no-session behavior and avoid an
     // existence oracle.

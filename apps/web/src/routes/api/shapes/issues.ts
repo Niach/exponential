@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getReadableProjectIds,
-} from "@/lib/workspace-membership"
+  getReadableBoardIds,
+} from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 export const Route = createFileRoute(`/api/shapes/issues`)({
@@ -11,10 +11,10 @@ export const Route = createFileRoute(`/api/shapes/issues`)({
       GET: createShapeRouteHandler({
         table: `issues`,
         getWhere: async (userId) => {
-          // Members: their projects. Anonymous: nothing (empty id list yields
+          // Members: their boards. Anonymous: nothing (empty id list yields
           // the impossible-match sentinel).
-          const projectIds = await getReadableProjectIds(userId)
-          return buildWhereClause(`project_id`, projectIds)
+          const boardIds = await getReadableBoardIds(userId)
+          return buildWhereClause(`board_id`, boardIds)
         },
       }),
     },

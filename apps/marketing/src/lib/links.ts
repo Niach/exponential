@@ -34,11 +34,12 @@ export const LINKS = {
 } as const
 
 /* The real feedback widget, embedded live on the marketing site — visitors
-   experience step 1 of the loop for real. The submission lands on the public
-   feedback board. This is the cloud bootstrap's `Exponential App` config key
-   (a PUBLIC widget key by design — it ships in page snippets). Its domain
-   allowlist is exponential.at / www.exponential.at / app.exponential.at;
-   self-hosted instances don't embed it — they redirect to the cloud board. */
+   experience step 1 of the loop for real. The submission lands on the
+   Exponential team's feedback board. This is the cloud bootstrap's
+   `Exponential App` config key (a PUBLIC widget key by design — it ships in
+   page snippets). Its domain allowlist is exponential.at /
+   www.exponential.at / app.exponential.at; self-hosted instances don't embed
+   it — their feedback button links to the cloud instead. */
 export const WIDGET = {
   key: `expw_ATLHZ5hFiV5CqApwbCawPh72bPkpbHUp`,
   loader: `${APP}/widget/v1/loader.js`,

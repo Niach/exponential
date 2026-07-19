@@ -276,7 +276,7 @@ describe(`listUserInstallationRepos`, () => {
 // Installation-token minting: the security contract that a token minted for a
 // repo is confined to EXACTLY that repo (`repositories: [<bare name>]` in the
 // mint body) — repositories.installationToken hands the raw token to any
-// workspace member, so an unscoped mint would reach every repo in the
+// team member, so an unscoped mint would reach every repo in the
 // installation ("a collaborator on one repo must not discover/connect the rest
 // of the installation"). The module reads GITHUB_APP_* at load and signs a real
 // RS256 App JWT, so each case stubs the env with a throwaway RSA key and

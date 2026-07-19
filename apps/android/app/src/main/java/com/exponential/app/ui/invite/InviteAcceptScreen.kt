@@ -32,7 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.InvitePreview
-import com.exponential.app.data.api.WorkspaceInvitesApi
+import com.exponential.app.data.api.TeamInvitesApi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,13 +44,13 @@ data class InviteAcceptState(
     val loading: Boolean = true,
     val preview: InvitePreview? = null,
     val accepting: Boolean = false,
-    val acceptedWorkspaceName: String? = null,
+    val acceptedTeamName: String? = null,
     val error: String? = null,
 )
 
 @HiltViewModel
 class InviteAcceptViewModel @Inject constructor(
-    private val invitesApi: WorkspaceInvitesApi,
+    private val invitesApi: TeamInvitesApi,
     private val auth: com.exponential.app.data.auth.AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(InviteAcceptState())
@@ -74,7 +74,7 @@ class InviteAcceptViewModel @Inject constructor(
                 .onSuccess {
                     _state.value = _state.value.copy(
                         accepting = false,
-                        acceptedWorkspaceName = it.workspace.name,
+                        acceptedTeamName = it.team.name,
                     )
                 }
                 .onFailure { _state.value = _state.value.copy(accepting = false, error = it.message) }
@@ -93,8 +93,8 @@ fun InviteAcceptScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(token) { viewModel.load(token) }
-    LaunchedEffect(state.acceptedWorkspaceName) {
-        if (state.acceptedWorkspaceName != null) onAccepted()
+    LaunchedEffect(state.acceptedTeamName) {
+        if (state.acceptedTeamName != null) onAccepted()
     }
 
     Scaffold(
@@ -142,7 +142,7 @@ fun InviteAcceptScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                preview.workspaceName,
+                                preview.teamName,
                                 style = MaterialTheme.typography.headlineSmall,
                             )
                             Text(

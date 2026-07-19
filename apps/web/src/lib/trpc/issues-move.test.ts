@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 import { is, Param, SQL, StringChunk } from "drizzle-orm"
 
-// issues.move (EXP-57): same-workspace project move with Linear-style
+// issues.move (EXP-57): same-team board move with Linear-style
 // renumbering. The target's next number is allocated inside the transaction
 // exactly like the INSERT-only generate_issue_number trigger (max read +
-// issue_number_counters upsert), the issue row gets project_id + number +
-// identifier in ONE update, every trigger-denormalized child project_id is
+// issue_number_counters upsert), the issue row gets board_id + number +
+// identifier in ONE update, every trigger-denormalized child board_id is
 // re-pointed (their populate triggers are INSERT-only too), and a
-// project_moved event records the hop. PR/branch linkage is untouched.
+// board_moved event records the hop. PR/branch linkage is untouched.
 // Mirrors issues-bulk.test.ts's fake-db harness.
 
 const h = vi.hoisted(() => ({
   assertIssueAccess: vi.fn(async (..._args: unknown[]) => ({}) as unknown),
-  getProjectWorkspaceId: vi.fn(async (..._args: unknown[]) => ({}) as unknown),
+  getBoardTeamId: vi.fn(async (..._args: unknown[]) => ({}) as unknown),
   recordIssueEvent: vi.fn(),
 }))
 
@@ -22,13 +22,13 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, () => ({
-  resolveWorkspaceAccess: vi.fn(),
-  assertAssigneeInWorkspace: vi.fn(),
+vi.mock(`@/lib/team-membership`, () => ({
+  resolveTeamAccess: vi.fn(),
+  assertAssigneeInTeam: vi.fn(),
   assertIssueAccess: h.assertIssueAccess,
-  assertWorkspaceMember: vi.fn(),
-  getIssueWorkspaceContext: vi.fn(),
-  getProjectWorkspaceId: h.getProjectWorkspaceId,
+  assertTeamMember: vi.fn(),
+  getIssueTeamContext: vi.fn(),
+  getBoardTeamId: h.getBoardTeamId,
   getSoleHumanMemberId: vi.fn(),
 }))
 
@@ -178,21 +178,21 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 function seedHappyPath() {
   h.assertIssueAccess.mockResolvedValue({
     issueId: ISSUE_ID,
-    projectId: PROJ_FROM,
-    workspaceId: WS,
+    boardId: PROJ_FROM,
+    teamId: WS,
   })
-  h.getProjectWorkspaceId.mockResolvedValue({
+  h.getBoardTeamId.mockResolvedValue({
     id: PROJ_TO,
-    workspaceId: WS,
+    teamId: WS,
   })
   // txid probe → target max read → counter upsert.
   executeQueue.push([{ txid: `77` }], [{ current_max: 16 }], [{ counter: 17 }])
-  // current issue read → target project read.
-  selectQueue.push([{ identifier: `EXP-42`, projectId: PROJ_FROM }])
+  // current issue read → target board read.
+  selectQueue.push([{ identifier: `EXP-42`, boardId: PROJ_FROM }])
   selectQueue.push([{ prefix: `ABC`, slug: `abc` }])
   issueRowBase = {
     id: ISSUE_ID,
-    projectId: PROJ_FROM,
+    boardId: PROJ_FROM,
     number: 42,
     identifier: `EXP-42`,
     title: `Issue`,
@@ -211,76 +211,76 @@ beforeEach(() => {
   fakeDb.execute.mockClear()
   fakeDb.transaction.mockClear()
   h.assertIssueAccess.mockReset()
-  h.getProjectWorkspaceId.mockReset()
+  h.getBoardTeamId.mockReset()
   h.recordIssueEvent.mockClear()
 })
 
 describe(`issues.move`, () => {
-  it(`rejects moving to the issue's current project before any write`, async () => {
+  it(`rejects moving to the issue's current board before any write`, async () => {
     h.assertIssueAccess.mockResolvedValue({
       issueId: ISSUE_ID,
-      projectId: PROJ_TO,
-      workspaceId: WS,
+      boardId: PROJ_TO,
+      teamId: WS,
     })
 
     const error = await rejectionOf(
-      caller.move({ id: ISSUE_ID, projectId: PROJ_TO })
+      caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Issue is already in this project`
+      `Issue is already in this board`
     )
     expect(h.assertIssueAccess).toHaveBeenCalledWith(
       `actor`,
       ISSUE_ID,
       `write`
     )
-    expect(h.getProjectWorkspaceId).not.toHaveBeenCalled()
+    expect(h.getBoardTeamId).not.toHaveBeenCalled()
     expect(fakeDb.transaction).not.toHaveBeenCalled()
   })
 
-  it(`rejects a cross-workspace target before any write`, async () => {
+  it(`rejects a cross-team target before any write`, async () => {
     h.assertIssueAccess.mockResolvedValue({
       issueId: ISSUE_ID,
-      projectId: PROJ_FROM,
-      workspaceId: WS,
+      boardId: PROJ_FROM,
+      teamId: WS,
     })
-    h.getProjectWorkspaceId.mockResolvedValue({
+    h.getBoardTeamId.mockResolvedValue({
       id: PROJ_TO,
-      workspaceId: WS_OTHER,
+      teamId: WS_OTHER,
     })
 
     const error = await rejectionOf(
-      caller.move({ id: ISSUE_ID, projectId: PROJ_TO })
+      caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Issues can only move within their workspace`
+      `Issues can only move within their team`
     )
     expect(fakeDb.transaction).not.toHaveBeenCalled()
     expect(updates).toHaveLength(0)
   })
 
-  it(`renumbers in the target, re-points every denormalized child, and records project_moved`, async () => {
+  it(`renumbers in the target, re-points every denormalized child, and records board_moved`, async () => {
     seedHappyPath()
 
-    const result = await caller.move({ id: ISSUE_ID, projectId: PROJ_TO })
+    const result = await caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
 
     // ONE transaction; txid probe + max read + counter upsert on execute.
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
     expect(fakeDb.execute).toHaveBeenCalledTimes(3)
-    // The max read scopes to the target project; the counter upsert binds the
-    // target project and the read max (trigger-parity allocation).
+    // The max read scopes to the target board; the counter upsert binds the
+    // target board and the read max (trigger-parity allocation).
     expect(collectParams(executeCalls[1])).toEqual([PROJ_TO])
     expect(collectParams(executeCalls[2])).toEqual([PROJ_TO, 16, 16])
 
-    // The issue row gets project + number + identifier in one update.
+    // The issue row gets board + number + identifier in one update.
     const issueUpdate = updates.find((u) => u.table === issues)
     expect(issueUpdate).toBeDefined()
     expect(issueUpdate!.set).toEqual({
-      projectId: PROJ_TO,
+      boardId: PROJ_TO,
       number: 17,
       identifier: `ABC-17`,
     })
@@ -298,7 +298,7 @@ describe(`issues.move`, () => {
     ]) {
       const childUpdate = updates.find((u) => u.table === table)
       expect(childUpdate).toBeDefined()
-      expect(childUpdate!.set).toEqual({ projectId: PROJ_TO })
+      expect(childUpdate!.set).toEqual({ boardId: PROJ_TO })
       expect(collectParams(childUpdate!.where)).toEqual([ISSUE_ID])
     }
     expect(updates).toHaveLength(8)
@@ -309,12 +309,12 @@ describe(`issues.move`, () => {
       fakeDb,
       expect.objectContaining({
         issueId: ISSUE_ID,
-        workspaceId: WS,
+        teamId: WS,
         actorUserId: `actor`,
-        type: `project_moved`,
+        type: `board_moved`,
         payload: {
-          fromProjectId: PROJ_FROM,
-          toProjectId: PROJ_TO,
+          fromBoardId: PROJ_FROM,
+          toBoardId: PROJ_TO,
           fromIdentifier: `EXP-42`,
           toIdentifier: `ABC-17`,
         },
@@ -323,10 +323,10 @@ describe(`issues.move`, () => {
 
     // Returns the fresh identity for client navigation; PR linkage survives.
     expect(result.txId).toBe(77)
-    expect(result.projectSlug).toBe(`abc`)
+    expect(result.boardSlug).toBe(`abc`)
     expect(result.issue.identifier).toBe(`ABC-17`)
     expect(result.issue.number).toBe(17)
-    expect(result.issue.projectId).toBe(PROJ_TO)
+    expect(result.issue.boardId).toBe(PROJ_TO)
     expect(result.issue).toMatchObject({
       prUrl: `https://github.com/o/r/pull/9`,
       branch: `exp/EXP-42`,
@@ -340,7 +340,7 @@ describe(`issues.move`, () => {
     selectQueue.push([])
 
     const error = await rejectionOf(
-      caller.move({ id: ISSUE_ID, projectId: PROJ_TO })
+      caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`NOT_FOUND`)

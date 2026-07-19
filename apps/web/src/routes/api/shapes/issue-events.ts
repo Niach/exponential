@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getUserProjectIds,
-} from "@/lib/workspace-membership"
+  getUserBoardIds,
+} from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Activity-log timeline events. Members: project-scoped (project_id is
-// denormalized from issue→project by a trigger and never null here) so a
-// trashed project's events drop out of sync for the 48h trash window along
-// with the project itself. Anonymous callers sync nothing.
+// Activity-log timeline events. Members: board-scoped (board_id is
+// denormalized from issue→board by a trigger and never null here) so a
+// trashed board's events drop out of sync for the 48h trash window along
+// with the board itself. Anonymous callers sync nothing.
 export const Route = createFileRoute(`/api/shapes/issue-events`)({
   server: {
     handlers: {
@@ -16,10 +16,10 @@ export const Route = createFileRoute(`/api/shapes/issue-events`)({
         table: `issue_events`,
         getWhere: async (userId) => {
           if (userId) {
-            const projectIds = await getUserProjectIds(userId)
-            return buildWhereClause(`project_id`, projectIds)
+            const boardIds = await getUserBoardIds(userId)
+            return buildWhereClause(`board_id`, boardIds)
           }
-          return buildWhereClause(`project_id`, [])
+          return buildWhereClause(`board_id`, [])
         },
       }),
     },

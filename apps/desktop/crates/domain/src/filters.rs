@@ -122,7 +122,7 @@ mod tests {
     fn issue(status: &str, priority: &str) -> Issue {
         serde_json::from_value(json!({
             "id": "i-1",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",

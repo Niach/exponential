@@ -2,15 +2,15 @@ import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { creem_subscriptions } from "@/db/schema"
 
-// Per-seat subscription→workspace binding (masterplan v5 §3.3, L19/L20).
+// Per-seat subscription→team binding (masterplan v5 §3.3, L19/L20).
 //
 // The `@creem_io/better-auth` plugin natively supports both a seat quantity
 // (`units`) and arbitrary checkout `metadata`, and echoes that metadata back on
 // every webhook event (`checkout.completed`, `subscription.*`). We pass
-// `metadata.workspaceId` + `metadata.seats` (and `units: seats`) at checkout
+// `metadata.teamId` + `metadata.seats` (and `units: seats`) at checkout
 // time; the plugin persists the base `creem_subscriptions` row (referenceId →
 // user, productId, status, period, creemSubscriptionId) but NEVER writes our
-// `workspaceId`/`seats` columns. This module reads the metadata off the webhook
+// `teamId`/`seats` columns. This module reads the metadata off the webhook
 // event and binds those two columns onto the already-persisted row, matched by
 // `creemSubscriptionId`. Because the plugin's own updates only ever set the
 // enumerated columns, a later webhook update cannot clobber the binding.
@@ -29,14 +29,14 @@ export type SubscriptionBindingInput = {
   units?: number | null
 }
 
-export type WorkspaceBinding = {
+export type TeamBinding = {
   creemSubscriptionId: string
-  workspaceId: string
+  teamId: string
   seats: number
 }
 
 /** Commit sink — abstracted so the binding logic is testable without drizzle. */
-export type BindCommit = (binding: WorkspaceBinding) => Promise<void>
+export type BindCommit = (binding: TeamBinding) => Promise<void>
 
 function toPositiveInt(value: unknown): number | null {
   const n =
@@ -49,50 +49,50 @@ function toPositiveInt(value: unknown): number | null {
 }
 
 /**
- * Resolve the workspace binding from a checkout/subscription payload, or
- * `null` when it isn't bindable (no subscription id, or no `workspaceId` in
+ * Resolve the team binding from a checkout/subscription payload, or
+ * `null` when it isn't bindable (no subscription id, or no `teamId` in
  * metadata — e.g. a legacy checkout created before this path existed). Seats
  * resolve entity `units` → metadata `seats` → 1, so the row is never left at
  * 0. `units` MUST win when both are present: it is the quantity Creem
  * actually charged for, while `metadata` is client-suppliable at checkout
  * time (a forged `metadata.seats` must never out-vote the paid quantity).
  */
-export function extractWorkspaceBinding(
+export function extractTeamBinding(
   input: SubscriptionBindingInput
-): WorkspaceBinding | null {
+): TeamBinding | null {
   const creemSubscriptionId = input.creemSubscriptionId?.trim()
   if (!creemSubscriptionId) return null
 
-  const rawWorkspaceId = input.metadata?.workspaceId
-  const workspaceId =
-    typeof rawWorkspaceId === `string` ? rawWorkspaceId.trim() : ``
-  if (!workspaceId) return null
+  const rawTeamId = input.metadata?.teamId
+  const teamId =
+    typeof rawTeamId === `string` ? rawTeamId.trim() : ``
+  if (!teamId) return null
 
   const seats =
     toPositiveInt(input.units) ?? toPositiveInt(input.metadata?.seats) ?? 1
 
-  return { creemSubscriptionId, workspaceId, seats }
+  return { creemSubscriptionId, teamId, seats }
 }
 
 /**
- * Bind a persisted `creem_subscriptions` row to its workspace + seat count.
+ * Bind a persisted `creem_subscriptions` row to its team + seat count.
  * Returns the applied binding, or `null` when the payload wasn't bindable.
  * `commit` defaults to the real DB update; tests inject a fake.
  */
-export async function bindSubscriptionToWorkspace(
+export async function bindSubscriptionToTeam(
   input: SubscriptionBindingInput,
   commit: BindCommit = commitBindingToDb
-): Promise<WorkspaceBinding | null> {
-  const binding = extractWorkspaceBinding(input)
+): Promise<TeamBinding | null> {
+  const binding = extractTeamBinding(input)
   if (!binding) return null
   await commit(binding)
   return binding
 }
 
-async function commitBindingToDb(binding: WorkspaceBinding): Promise<void> {
+async function commitBindingToDb(binding: TeamBinding): Promise<void> {
   await db
     .update(creem_subscriptions)
-    .set({ workspaceId: binding.workspaceId, seats: binding.seats })
+    .set({ teamId: binding.teamId, seats: binding.seats })
     .where(
       eq(creem_subscriptions.creemSubscriptionId, binding.creemSubscriptionId)
     )

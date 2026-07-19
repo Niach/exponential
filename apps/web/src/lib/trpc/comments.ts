@@ -5,9 +5,9 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
 import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
 import {
-  resolveWorkspaceAccess,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
+  resolveTeamAccess,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
 import { isUserAdmin } from "@/lib/admin"
 import { isAgentUser } from "@/lib/auth/app-user"
 import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
@@ -24,7 +24,7 @@ async function loadCommentForMutation(
       id: comments.id,
       authorId: comments.authorId,
       issueId: comments.issueId,
-      workspaceId: comments.workspaceId,
+      teamId: comments.teamId,
     })
     .from(comments)
     .where(eq(comments.id, commentId))
@@ -44,10 +44,10 @@ export const commentsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await getIssueWorkspaceContext(input.issueId)
-      await resolveWorkspaceAccess(
+      const issueContext = await getIssueTeamContext(input.issueId)
+      await resolveTeamAccess(
         ctx.session.user.id,
-        issueContext.workspaceId,
+        issueContext.teamId,
         `comment`
       )
 
@@ -61,8 +61,8 @@ export const commentsRouter = router({
           .insert(comments)
           .values({
             issueId: input.issueId,
-            workspaceId: issueContext.workspaceId,
-            projectId: issueContext.projectId,
+            teamId: issueContext.teamId,
+            boardId: issueContext.boardId,
             authorId: ctx.session.user.id,
             body: input.body,
           })
@@ -72,22 +72,22 @@ export const commentsRouter = router({
         await ensureSubscribed(tx, {
           issueId: input.issueId,
           userId: ctx.session.user.id,
-          workspaceId: issueContext.workspaceId,
+          teamId: issueContext.teamId,
           source: `commenter`,
         })
 
-        // Resolve @email mentions to workspace members and auto-subscribe them
+        // Resolve @email mentions to team members and auto-subscribe them
         // (source='mention') so they keep following the thread.
         const mentionedUserIds = await resolveMentions(
           tx,
           getCommentBodyText(input.body),
-          issueContext.workspaceId
+          issueContext.teamId
         )
         for (const userId of mentionedUserIds) {
           await ensureSubscribed(tx, {
             issueId: input.issueId,
             userId,
-            workspaceId: issueContext.workspaceId,
+            teamId: issueContext.teamId,
             source: `mention`,
           })
         }
@@ -127,12 +127,12 @@ export const commentsRouter = router({
       }
       if (!isAdmin) {
         // Authorship alone isn't enough: the author must still have comment
-        // access to the workspace (membership, or any-authed-user on a public
-        // workspace). Blocks edits by authors who since left a private
-        // workspace. Global admins keep their bypass.
-        await resolveWorkspaceAccess(
+        // access to the team (membership, or any-authed-user on a public
+        // team). Blocks edits by authors who since left a private
+        // team. Global admins keep their bypass.
+        await resolveTeamAccess(
           ctx.session.user.id,
-          existing.workspaceId,
+          existing.teamId,
           `comment`
         )
       }
@@ -163,11 +163,11 @@ export const commentsRouter = router({
         })
       }
       if (!isAdmin) {
-        // Same workspace-access gate as update (see comment there); global
+        // Same team-access gate as update (see comment there); global
         // admins keep their bypass.
-        await resolveWorkspaceAccess(
+        await resolveTeamAccess(
           ctx.session.user.id,
-          existing.workspaceId,
+          existing.teamId,
           `comment`
         )
       }

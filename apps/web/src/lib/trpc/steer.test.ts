@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
 // steer.startSession accepts EITHER a single issueId (wire-unchanged) or
-// issueIds (2..30 → batch). It resolves every issue's workspace + repo
-// server-side, enforces one-workspace / one-repo, and routes a legacy body
+// issueIds (2..30 → batch). It resolves every issue's team + repo
+// server-side, enforces one-team / one-repo, and routes a legacy body
 // for a single (or duplicate-collapsed) id vs a "fat" batch body (issueIds +
-// workspaceId + repo, installationId stripped) for 2+. The relay call is
+// teamId + repo, installationId stripped) for 2+. The relay call is
 // mocked, so a caller + a handful of stubs is enough.
 
 const h = vi.hoisted(() => ({
   getSteerRelayConfig: vi.fn(),
   relayPostStart: vi.fn(),
-  assertWorkspaceMember: vi.fn(),
-  getIssueWorkspaceContext: vi.fn(),
-  resolveProjectRepository: vi.fn(),
+  assertTeamMember: vi.fn(),
+  getIssueTeamContext: vi.fn(),
+  resolveBoardRepository: vi.fn(),
 }))
 
 // lib/trpc.ts + lib/admin.ts import db/auth at module scope; runtime here only
@@ -21,12 +21,12 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, () => ({
-  assertWorkspaceMember: h.assertWorkspaceMember,
-  getIssueWorkspaceContext: h.getIssueWorkspaceContext,
+vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: h.assertTeamMember,
+  getIssueTeamContext: h.getIssueTeamContext,
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
-  resolveProjectRepository: h.resolveProjectRepository,
+  resolveBoardRepository: h.resolveBoardRepository,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -71,16 +71,16 @@ beforeEach(() => {
   })
   h.relayPostStart.mockReset()
   h.relayPostStart.mockResolvedValue({ ok: true })
-  h.assertWorkspaceMember.mockReset()
-  h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
-  h.getIssueWorkspaceContext.mockReset()
-  h.getIssueWorkspaceContext.mockImplementation(async (id: string) => ({
+  h.assertTeamMember.mockReset()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
+  h.getIssueTeamContext.mockReset()
+  h.getIssueTeamContext.mockImplementation(async (id: string) => ({
     issueId: id,
-    projectId: `proj-${id}`,
-    workspaceId: `ws-1`,
+    boardId: `proj-${id}`,
+    teamId: `ws-1`,
   }))
-  h.resolveProjectRepository.mockReset()
-  h.resolveProjectRepository.mockResolvedValue({
+  h.resolveBoardRepository.mockReset()
+  h.resolveBoardRepository.mockResolvedValue({
     repositoryId: `repo-1`,
     fullName: `acme/api`,
     defaultBranch: `main`,
@@ -116,31 +116,31 @@ describe(`steer.startSession — subject XOR`, () => {
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(h.getIssueWorkspaceContext).not.toHaveBeenCalled()
+    expect(h.getIssueTeamContext).not.toHaveBeenCalled()
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
 
 describe(`steer.startSession — server-side validation`, () => {
-  it(`rejects issues spanning multiple workspaces`, async () => {
-    h.getIssueWorkspaceContext.mockImplementation(async (id: string) => ({
+  it(`rejects issues spanning multiple teams`, async () => {
+    h.getIssueTeamContext.mockImplementation(async (id: string) => ({
       issueId: id,
-      projectId: `proj-${id}`,
-      workspaceId: id === ISSUE_A ? `ws-1` : `ws-2`,
+      boardId: `proj-${id}`,
+      teamId: id === ISSUE_A ? `ws-1` : `ws-2`,
     }))
     const error = await rejectionOf(
       caller.startSession({ issueIds: [ISSUE_A, ISSUE_B], deviceId: `dev-1` })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`one workspace`)
+    expect((error as TRPCError).message).toContain(`one team`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`rejects issues spanning multiple repositories, naming both`, async () => {
-    h.resolveProjectRepository.mockImplementation(
-      async (projectId: string) => ({
-        repositoryId: projectId === `proj-${ISSUE_A}` ? `repo-a` : `repo-b`,
-        fullName: projectId === `proj-${ISSUE_A}` ? `acme/api` : `acme/web`,
+    h.resolveBoardRepository.mockImplementation(
+      async (boardId: string) => ({
+        repositoryId: boardId === `proj-${ISSUE_A}` ? `repo-a` : `repo-b`,
+        fullName: boardId === `proj-${ISSUE_A}` ? `acme/api` : `acme/web`,
         defaultBranch: `main`,
         installationId: 1,
       })
@@ -153,8 +153,8 @@ describe(`steer.startSession — server-side validation`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`rejects when a project has no linked repository`, async () => {
-    h.resolveProjectRepository.mockResolvedValue(null)
+  it(`rejects when a board has no linked repository`, async () => {
+    h.resolveBoardRepository.mockResolvedValue(null)
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     )
@@ -187,7 +187,7 @@ describe(`steer.startSession — routed body shape`, () => {
       issueId: ISSUE_A,
     })
     expect(`issueIds` in body).toBe(false)
-    expect(`workspaceId` in body).toBe(false)
+    expect(`teamId` in body).toBe(false)
     expect(`repo` in body).toBe(false)
   })
 
@@ -203,7 +203,7 @@ describe(`steer.startSession — routed body shape`, () => {
       issueIds: [ISSUE_A, ISSUE_A],
       deviceId: `dev-1`,
     })
-    expect(h.getIssueWorkspaceContext).toHaveBeenCalledTimes(1)
+    expect(h.getIssueTeamContext).toHaveBeenCalledTimes(1)
     const body = lastStartBody()
     expect(body.issueId).toBe(ISSUE_A)
     expect(`issueIds` in body).toBe(false)
@@ -220,7 +220,7 @@ describe(`steer.startSession — routed body shape`, () => {
       userId: `actor`,
       deviceId: `dev-1`,
       issueIds: [ISSUE_A, ISSUE_B],
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
       repo: {
         repositoryId: `repo-1`,
         fullName: `acme/api`,

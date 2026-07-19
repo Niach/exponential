@@ -7,7 +7,7 @@ import com.exponential.app.ui.markdown.model.RichText
 import java.util.UUID
 
 /**
- * An editing-friendly projection of the block document: a flat, ordered list of
+ * An editing-friendly boardion of the block document: a flat, ordered list of
  * single-line paragraphs and images. Each [Para] is exactly one editable line
  * (no embedded `'\n'`), which lets every paragraph be its own `BasicTextField`
  * with independent per-paragraph styling (heading / list glyph / quote / code)

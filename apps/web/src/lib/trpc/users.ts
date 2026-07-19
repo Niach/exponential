@@ -3,8 +3,8 @@ import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { apikeys, users } from "@/db/auth-schema"
 import { auth } from "@/lib/auth"
-import { getReadableUserIdsInWorkspaces } from "@/lib/workspace-membership"
-import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
+import { getReadableUserIdsInTeams } from "@/lib/team-membership"
+import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   cancelCreemSubscriptionsBestEffort,
@@ -13,10 +13,10 @@ import {
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
 export const usersRouter = router({
-  listByWorkspaceIds: authedProcedure.query(async ({ ctx }) => {
+  listByTeamIds: authedProcedure.query(async ({ ctx }) => {
     // Same email-safe scoping as the users shape: only co-members of
-    // workspaces the caller actually joined (not all public workspaces).
-    const userIds = await getReadableUserIdsInWorkspaces(ctx.session.user.id)
+    // teams the caller actually joined (not all public teams).
+    const userIds = await getReadableUserIdsInTeams(ctx.session.user.id)
 
     if (userIds.length === 0) {
       return { users: [] }
@@ -90,7 +90,7 @@ export const usersRouter = router({
     return { ok: true }
   }),
 
-  // Dismiss the "Getting started" cards on the empty project board (EXP-88).
+  // Dismiss the "Getting started" cards on the empty board (EXP-88).
   // Same contract as dismissDesktopAppCard: one-way per-user timestamp flag
   // surfaced read-only on the session; the client hides the cards immediately
   // via local state.
@@ -121,8 +121,8 @@ export const usersRouter = router({
   // supports account creation (email-only deletion is explicitly insufficient).
   // Mirrors admin.deleteUser: the users row delete cascades sessions, accounts,
   // apikeys, memberships, issues/comments authored, fcm tokens, notifications.
-  // Additionally removes workspaces where the caller is the ONLY member (their
-  // personal workspace + solo workspaces) so no orphaned data survives — the
+  // Additionally removes teams where the caller is the ONLY member (their
+  // personal team + solo teams) so no orphaned data survives — the
   // privacy policy promises deletion of "all associated data".
   deleteAccount: authedProcedure
     .input(z.object({ confirm: z.literal(true) }))
@@ -160,19 +160,19 @@ export const usersRouter = router({
 
       let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
-        // Fail closed when the caller is the sole owner of a workspace that
-        // still has other members, then delete their solo workspaces (shared
+        // Fail closed when the caller is the sole owner of a team that
+        // still has other members, then delete their solo teams (shared
         // with admin.deleteUser — see lib/account-deletion.ts).
-        const cleanup = await guardAndCleanupWorkspacesForUserDeletion(
+        const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           userId,
           `self`
         )
         storageKeys = cleanup.storageKeys
-        // Subscriptions bound to the deleted solo workspaces but purchased by
+        // Subscriptions bound to the deleted solo teams but purchased by
         // SOMEONE ELSE (e.g. after an ownership hand-off) — invisible to the
-        // buyer-scoped capture above, yet their workspace just vanished.
-        for (const sub of cleanup.doomedWorkspaceSubscriptions) {
+        // buyer-scoped capture above, yet their team just vanished.
+        for (const sub of cleanup.doomedTeamSubscriptions) {
           if (!doomedSubscriptions.some((s) => s.id === sub.id)) {
             doomedSubscriptions.push(sub)
           }

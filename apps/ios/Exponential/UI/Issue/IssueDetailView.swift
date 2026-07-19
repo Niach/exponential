@@ -16,13 +16,13 @@ struct IssueDetailView: View {
     @State private var showAssigneePicker = false
     @State private var showDuplicatePicker = false
     @State private var showCreateLabel = false
-    @State private var showMoveProjectPicker = false
-    // The project picked in the move sheet, pending confirmation (EXP-57) —
+    @State private var showMoveBoardPicker = false
+    // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
-    @State private var moveTarget: ProjectEntity?
+    @State private var moveTarget: BoardEntity?
     @FocusState private var titleFocused: Bool
 
-    // Shown while workspace membership is still syncing, so a signed-in viewer
+    // Shown while team membership is still syncing, so a signed-in viewer
     // sees "we're catching up" instead of a silently read-only issue.
     private var syncingBanner: some View {
         HStack(spacing: 8) {
@@ -56,13 +56,13 @@ struct IssueDetailView: View {
                                     .padding(.vertical, 4)
                                     .glassButton()
                             }
-                            // Backing repo chip (v4 §6): the project's repositoryId
+                            // Backing repo chip (v4 §6): the board's repositoryId
                             // resolved to owner/name via the repositories API.
-                            if let project = vm.project, project.repositoryId != nil {
+                            if let board = vm.board, board.repositoryId != nil {
                                 RepoNameChip(
                                     accountId: accountId,
-                                    workspaceId: project.workspaceId,
-                                    repositoryId: project.repositoryId
+                                    teamId: board.teamId,
+                                    repositoryId: board.repositoryId
                                 )
                             }
                             Spacer()
@@ -175,9 +175,9 @@ struct IssueDetailView: View {
                                 .disabled(!vm.permissions.isModerator)
                             }
 
-                            // Assignee — hidden on solo workspaces, where there's
+                            // Assignee — hidden on solo teams, where there's
                             // no one else to reassign to (EXP-50).
-                            if !vm.singleMemberWorkspace {
+                            if !vm.singleMemberTeam {
                                 Divider().background(Color.white.opacity(0.06))
 
                                 detailRow(label: "Assignee") {
@@ -267,7 +267,7 @@ struct IssueDetailView: View {
                                     .buttonStyle(.plain)
                                     .disabled(!vm.permissions.isModerator)
                                 }
-                                // "+ Label" — create a new workspace label and
+                                // "+ Label" — create a new team label and
                                 // assign it in one step (parity with Android).
                                 if vm.permissions.isModerator {
                                     Button {
@@ -392,14 +392,14 @@ struct IssueDetailView: View {
                     )
                     .presentationBackground(.ultraThinMaterial)
                 }
-                // Move to project (EXP-57): pick a same-workspace target, then
-                // confirm — the issue is renumbered in the target project, so
+                // Move to board (EXP-57): pick a same-team target, then
+                // confirm — the issue is renumbered in the target board, so
                 // the move deserves an explicit yes before it fires.
-                .sheet(isPresented: $showMoveProjectPicker) {
+                .sheet(isPresented: $showMoveBoardPicker) {
                     PickerSheet(
-                        title: "Move to project",
-                        items: vm.moveTargetProjects,
-                        selectedID: issue.projectId,
+                        title: "Move to board",
+                        items: vm.moveTargetBoards,
+                        selectedID: issue.boardId,
                         idFor: { $0.id },
                         onSelect: { target in
                             // Defer so this sheet finishes dismissing before
@@ -409,12 +409,12 @@ struct IssueDetailView: View {
                                 moveTarget = target
                             }
                         }
-                    ) { project in
+                    ) { board in
                         Label {
-                            Text(project.name)
+                            Text(board.name)
                         } icon: {
                             Circle()
-                                .fill(Color(hex: project.color) ?? .gray)
+                                .fill(Color(hex: board.color) ?? .gray)
                                 .frame(width: 10, height: 10)
                         }
                     }
@@ -428,7 +428,7 @@ struct IssueDetailView: View {
                     presenting: moveTarget
                 ) { target in
                     Button("Move") {
-                        Task { await vm.moveToProject(target.id) }
+                        Task { await vm.moveToBoard(target.id) }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { target in
@@ -474,13 +474,13 @@ struct IssueDetailView: View {
                                         Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
                                     }
                                 }
-                                // Move to another project in the same workspace
+                                // Move to another board in the same team
                                 // (EXP-57) — hidden when there's nowhere to go.
-                                if !vm.moveTargetProjects.isEmpty {
+                                if !vm.moveTargetBoards.isEmpty {
                                     Button {
-                                        showMoveProjectPicker = true
+                                        showMoveBoardPicker = true
                                     } label: {
-                                        Label("Move to project", systemImage: "folder")
+                                        Label("Move to board", systemImage: "folder")
                                     }
                                 }
                                 Button("Delete issue", role: .destructive) {

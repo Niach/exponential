@@ -3,7 +3,7 @@
 //! layout — desktop always renders the non-mobile branch, §4.9).
 //!
 //! Groups top-to-bottom exactly like web: Status · Priority · Assignee ·
-//! Labels · Due date · Project. Every
+//! Labels · Due date · Board. Every
 //! control mutates immediately through tRPC (`issues.update` /
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
 //! re-renders. `completed_at` is server-managed and never set here.
@@ -39,7 +39,7 @@ use domain::options::{
     get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
     ISSUE_STATUS_OPTIONS,
 };
-use domain::rows::{Issue, Label, Project, User};
+use domain::rows::{Issue, Label, Board, User};
 
 use crate::icons::{option_icon, ExpIcon};
 use crate::queries;
@@ -87,8 +87,8 @@ impl PropertiesPanel {
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspace_members, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -165,27 +165,27 @@ impl PropertiesPanel {
 
     // -- derived reads ----------------------------------------------------------
 
-    /// Workspace members eligible as assignees (web passes the workspace's
+    /// Team members eligible as assignees (web passes the team's
     /// member users; synthetic agent users are excluded). Resolves the
-    /// issue's workspace, then delegates to the shared
-    /// [`queries::workspace_users`] (EXP-50: one agent-excluding rule).
+    /// issue's team, then delegates to the shared
+    /// [`queries::team_users`] (EXP-50: one agent-excluding rule).
     fn member_users(&self, issue: &Issue, cx: &App) -> Vec<User> {
-        let Some(project) = Store::global(cx)
+        let Some(board) = Store::global(cx)
             .collections()
-            .projects
+            .boards
             .read(cx)
-            .get(&issue.project_id)
+            .get(&issue.board_id)
             .cloned()
         else {
             return Vec::new();
         };
-        queries::workspace_users(cx, &project.workspace_id)
+        queries::team_users(cx, &board.team_id)
     }
 
-    /// The workspace's labels, sort-order sorted (web LabelPicker query).
-    fn workspace_labels(&self, issue: &Issue, cx: &App) -> Vec<Label> {
+    /// The team's labels, sort-order sorted (web LabelPicker query).
+    fn team_labels(&self, issue: &Issue, cx: &App) -> Vec<Label> {
         let collections = Store::global(cx).collections();
-        let Some(project) = collections.projects.read(cx).get(&issue.project_id).cloned()
+        let Some(board) = collections.boards.read(cx).get(&issue.board_id).cloned()
         else {
             return Vec::new();
         };
@@ -193,7 +193,7 @@ impl PropertiesPanel {
             .labels
             .read(cx)
             .iter()
-            .filter(|label| label.workspace_id == project.workspace_id)
+            .filter(|label| label.team_id == board.team_id)
             .cloned()
             .collect();
         labels.sort_by(|a, b| {
@@ -303,7 +303,7 @@ impl PropertiesPanel {
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
-            // Member lists grow with the workspace — cap + scroll (EXP-46a).
+            // Member lists grow with the team — cap + scroll (EXP-46a).
             let mut menu = menu
                 .check_side(Side::Right)
                 .scrollable(true)
@@ -336,11 +336,11 @@ impl PropertiesPanel {
         })
     }
 
-    /// Web `LabelPicker`: toggle menu over the workspace's labels (colored
-    /// dot + name + check). Label creation stays in workspace settings on
+    /// Web `LabelPicker`: toggle menu over the team's labels (colored
+    /// dot + name + check). Label creation stays in team settings on
     /// desktop v1.
     fn labels_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let labels = self.workspace_labels(issue, cx);
+        let labels = self.team_labels(issue, cx);
         let selected = self.selected_label_ids(&issue.id, cx);
         let issue_id = issue.id.clone();
 
@@ -361,7 +361,7 @@ impl PropertiesPanel {
             .icon(Icon::from(ExpIcon::Tag).text_color(cx.theme().muted_foreground))
             .label(SharedString::from(trigger_label))
             .dropdown_menu(move |menu, _, _| {
-                // Label lists grow with the workspace — cap + scroll (EXP-46a).
+                // Label lists grow with the team — cap + scroll (EXP-46a).
                 let mut menu = menu
                     .check_side(Side::Right)
                     .scrollable(true)
@@ -452,14 +452,14 @@ impl PropertiesPanel {
             })
     }
 
-    fn project_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
-        let project: Project = Store::global(cx)
+    fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
+        let board: Board = Store::global(cx)
             .collections()
-            .projects
+            .boards
             .read(cx)
-            .get(&issue.project_id)
+            .get(&issue.board_id)
             .cloned()?;
-        let color = project
+        let color = board
             .color
             .as_deref()
             .and_then(parse_hex_color)
@@ -475,7 +475,7 @@ impl PropertiesPanel {
                 .font_weight(FontWeight::MEDIUM)
                 .items_center()
                 .child(div().size_2p5().rounded_full().flex_shrink_0().bg(color))
-                .child(SharedString::from(project.name)),
+                .child(SharedString::from(board.name)),
         )
     }
 }
@@ -497,11 +497,11 @@ impl Render for PropertiesPanel {
             return base;
         };
 
-        // EXP-50: a workspace with exactly one human member has no assignment
+        // EXP-50: a team with exactly one human member has no assignment
         // choice — hide the assignee control entirely (server-side default
         // assignment keeps the data correct). Multi-member (and the not-yet-
         // synced 0-member snapshot) keeps the picker.
-        let solo_workspace = self.member_users(&issue, cx).len() == 1;
+        let solo_team = self.member_users(&issue, cx).len() == 1;
 
         base.child(property_group("Status", self.status_control(&issue, cx), cx))
             .child(property_group(
@@ -509,7 +509,7 @@ impl Render for PropertiesPanel {
                 self.priority_control(&issue, cx),
                 cx,
             ))
-            .when(!solo_workspace, |panel| {
+            .when(!solo_team, |panel| {
                 panel.child(property_group(
                     "Assignee",
                     self.assignee_control(&issue, cx),
@@ -522,8 +522,8 @@ impl Render for PropertiesPanel {
                 self.due_control(&issue, cx),
                 cx,
             ))
-            .when_some(self.project_chip(&issue, cx), |panel, chip| {
-                panel.child(property_group("Project", chip, cx))
+            .when_some(self.board_chip(&issue, cx), |panel, chip| {
+                panel.child(property_group("Board", chip, cx))
             })
     }
 }
@@ -614,7 +614,7 @@ fn format_mutation_date(date: NaiveDate) -> String {
     date.format("%Y-%m-%d").to_string()
 }
 
-/// `#rrggbb` (leading `#` optional) → Hsla (labels/projects store hex
+/// `#rrggbb` (leading `#` optional) → Hsla (labels/boards store hex
 /// strings). Shared with the detail view's breadcrumb/banner dots.
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     let hex = hex.trim();

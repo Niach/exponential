@@ -97,7 +97,7 @@ export function CodingDocsPage() {
                 <code>app.exponential.at</code> or your self-hosted URL.
               </li>
               <li>
-                <strong>Open a repo-backed project.</strong> The IDE clones
+                <strong>Open a repo-backed board.</strong> The IDE clones
                 the repository automatically. (Connect a repo in{` `}
                 <strong>Team settings → Repositories</strong> if you
                 haven&apos;t — see{` `}
@@ -257,7 +257,7 @@ export function CodingDocsPage() {
               </li>
               <li>
                 The <strong>Reviews</strong> list in the sidebar collects the
-                project&apos;s open PRs — open one, read the diff, and{` `}
+                board&apos;s open PRs — open one, read the diff, and{` `}
                 <strong>merge from right there</strong>. The linked issues
                 complete on merge.
               </li>
@@ -273,12 +273,12 @@ export function CodingDocsPage() {
           <DocsSection id="run-configs" num="08" label="Run configs">
             <h2>Run configs</h2>
             <p>
-              Run configs are per-project named commands — dev server, test
+              Run configs are per-board named commands — dev server, test
               suite, code generation — stored as an argv plus optional working
               directory and environment, and launched from the IDE with one
               click. They&apos;re spawned directly (no shell), and the first
-              launch of a project&apos;s configs on a new machine asks you to
-              trust them — commands from a shared project never run silently.
+              launch of a board&apos;s configs on a new machine asks you to
+              trust them — commands from a shared board never run silently.
             </p>
             <p>
               Team owners manage them, editing happens in the IDE, and the
@@ -292,7 +292,7 @@ export function CodingDocsPage() {
           <DocsSection id="git-ide" num="09" label="The git IDE">
             <h2>The git IDE</h2>
             <p>
-              Around the coding flow sits a real git IDE. Open a project and
+              Around the coding flow sits a real git IDE. Open a board and
               its repository <strong>clones automatically</strong>; every run
               gets its own branch lane you can switch into.
             </p>

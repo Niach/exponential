@@ -54,7 +54,7 @@ class CommentThreadViewModel @Inject constructor(
 
     // Comments + activity events + labels pre-combined into one flow so the
     // outer combine stays within the 5-arg typed overload. Labels feed the
-    // event rows' "added label X" phrases (EXP-169) — cross-workspace list,
+    // event rows' "added label X" phrases (EXP-169) — cross-team list,
     // tiny table, same usage as the "My Issues" rows.
     private val commentsEventsLabels = combine(dbFlow, issueIdFlow) { db, id -> db to id }
         .flatMapLatest { (db, id) ->

@@ -52,9 +52,9 @@ export function IssuesDocsPage() {
           <DocsSection id="board" num="01" label="The board">
             <h2>The board</h2>
             <p>
-              Every project is a board of issues grouped by status. Change
-              status, priority, assignee, labels, and due date inline from the
-              row — click through for the full detail view.
+              A board is a list of issues grouped by status. Change status,
+              priority, assignee, labels, and due date inline from the row —
+              click through for the full detail view.
             </p>
 
             <div className="docs-embed">

@@ -59,10 +59,10 @@ fun IssueMetadataEditor(
     status: IssueStatus,
     priority: IssuePriority,
     assignee: UserEntity?,
-    workspaceLabels: List<LabelEntity>,
+    teamLabels: List<LabelEntity>,
     issueLabels: List<LabelEntity>,
     isModerator: Boolean,
-    // EXP-50: hide the assignee row in a solo workspace (one human member).
+    // EXP-50: hide the assignee row in a solo team (one human member).
     hideAssignee: Boolean = false,
     onStatusClick: () -> Unit,
     onPriorityClick: () -> Unit,
@@ -165,7 +165,7 @@ fun IssueMetadataEditor(
     }
 
     Spacer(Modifier.height(20.dp))
-    // Labels section (all workspace labels as colored-dot toggle chips)
+    // Labels section (all team labels as colored-dot toggle chips)
     Text(
         "Labels",
         style = MaterialTheme.typography.labelLarge,
@@ -177,7 +177,7 @@ fun IssueMetadataEditor(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val assignedIds = remember(issueLabels) { issueLabels.map { it.id }.toSet() }
-        workspaceLabels.forEach { label ->
+        teamLabels.forEach { label ->
             val assigned = label.id in assignedIds
             Row(
                 modifier = Modifier

@@ -1,5 +1,5 @@
 /**
- * Seed a deterministic, good-looking demo workspace for automated store
+ * Seed a deterministic, good-looking demo team for automated store
  * screenshots (fastlane snapshot on iOS, screengrab on Android).
  *
  * The mobile UI tests log in as the demo user against a LOCAL backend
@@ -8,9 +8,9 @@
  * board, a rich issue with markdown + comments, an inbox with unread
  * notifications, and issues assigned to the demo user.
  *
- * Idempotent: re-running tears down the demo workspace AND the demo users,
+ * Idempotent: re-running tears down the demo team AND the demo users,
  * then rebuilds everything, so relative dates ("due in 2 days", "3h ago")
- * always look fresh. Recreating the users (not just the workspace) matters:
+ * always look fresh. Recreating the users (not just the team) matters:
  * it rotates the user id and with it the identity of the user-scoped
  * Electric shapes (notifications). The vite dev bridge strips the
  * electric-handle/electric-offset response headers from the shape proxies,
@@ -31,18 +31,18 @@ import {
   issueSubscribers,
   labels,
   notifications,
-  projects,
+  boards,
   repositories,
   users,
-  workspaceMembers,
-  workspaces,
+  teamMembers,
+  teams,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
 
 export const DEMO_EMAIL = `demo@exponential.at`
 export const DEMO_PASSWORD = `screenshots-demo`
 const DEMO_NAME = `Alex Carter`
-const WORKSPACE_SLUG = `acme`
+const TEAM_SLUG = `acme`
 
 const TEAMMATES = [
   { id: `demo-mira`, name: `Mira Chen`, email: `mira@acme.dev` },
@@ -101,19 +101,19 @@ async function ensureTeammates(): Promise<Record<string, string>> {
 async function teardown() {
   const [ws] = await db
     .select()
-    .from(workspaces)
-    .where(eq(workspaces.slug, WORKSPACE_SLUG))
+    .from(teams)
+    .where(eq(teams.slug, TEAM_SLUG))
     .limit(1)
   if (ws) {
-    // projects.repository_id is ON DELETE RESTRICT — drop projects before the
-    // workspace cascade reaches repositories.
-    await db.delete(projects).where(eq(projects.workspaceId, ws.id))
-    await db.delete(workspaces).where(eq(workspaces.id, ws.id))
+    // boards.repository_id is ON DELETE RESTRICT — drop boards before the
+    // team cascade reaches repositories.
+    await db.delete(boards).where(eq(boards.teamId, ws.id))
+    await db.delete(teams).where(eq(teams.id, ws.id))
   }
 
   // Recreate the demo users each run (fresh ids ⇒ fresh user-scoped shapes —
-  // see the header). Drop workspaces where a demo user is the sole member
-  // first (their auto-created personal workspaces would otherwise pile up).
+  // see the header). Drop teams where a demo user is the sole member
+  // first (their auto-created personal teams would otherwise pile up).
   const emails = [DEMO_EMAIL, ...TEAMMATES.map((m) => m.email)]
   const demoUsers = await db
     .select({ id: users.id })
@@ -122,15 +122,15 @@ async function teardown() {
   const ids = demoUsers.map((u) => u.id)
   if (ids.length === 0) return
   const orphaned = await db
-    .select({ workspaceId: workspaceMembers.workspaceId })
-    .from(workspaceMembers)
-    .groupBy(workspaceMembers.workspaceId)
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .groupBy(teamMembers.teamId)
     .having(
-      sql`count(*) = 1 and bool_and(${workspaceMembers.userId} in ${ids})`
+      sql`count(*) = 1 and bool_and(${teamMembers.userId} in ${ids})`
     )
-  for (const { workspaceId } of orphaned) {
-    await db.delete(projects).where(eq(projects.workspaceId, workspaceId))
-    await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+  for (const { teamId } of orphaned) {
+    await db.delete(boards).where(eq(boards.teamId, teamId))
+    await db.delete(teams).where(eq(teams.id, teamId))
   }
   await db.delete(users).where(inArray(users.id, ids))
 }
@@ -144,26 +144,26 @@ async function main() {
   const sofia = mates[`demo-sofia`]
 
   const [ws] = await db
-    .insert(workspaces)
-    .values({ name: `Acme`, slug: WORKSPACE_SLUG })
+    .insert(teams)
+    .values({ name: `Acme`, slug: TEAM_SLUG })
     .returning()
 
-  await db.insert(workspaceMembers).values([
-    { workspaceId: ws.id, userId: demoId, role: `owner` },
-    { workspaceId: ws.id, userId: mira, role: `member` },
-    { workspaceId: ws.id, userId: jonas, role: `member` },
-    { workspaceId: ws.id, userId: sofia, role: `member` },
+  await db.insert(teamMembers).values([
+    { teamId: ws.id, userId: demoId, role: `owner` },
+    { teamId: ws.id, userId: mira, role: `member` },
+    { teamId: ws.id, userId: jonas, role: `member` },
+    { teamId: ws.id, userId: sofia, role: `member` },
   ])
 
   const [repo] = await db
     .insert(repositories)
-    .values({ workspaceId: ws.id, fullName: `acme/mobile-app` })
+    .values({ teamId: ws.id, fullName: `acme/mobile-app` })
     .returning()
 
-  const [project] = await db
-    .insert(projects)
+  const [board] = await db
+    .insert(boards)
     .values({
-      workspaceId: ws.id,
+      teamId: ws.id,
       name: `Mobile App`,
       slug: `mobile-app`,
       prefix: `APP`,
@@ -173,13 +173,13 @@ async function main() {
     })
     .returning()
 
-  // Two more projects so the project-switcher screenshot shows several
+  // Two more boards so the board-switcher screenshot shows several
   // glyphs side by side. Issue-less on purpose — only the switcher sheet
   // captures them; sortOrder keeps Mobile App the default board (the loader
-  // picks the first project by sortOrder).
-  await db.insert(projects).values([
+  // picks the first board by sortOrder).
+  await db.insert(boards).values([
     {
-      workspaceId: ws.id,
+      teamId: ws.id,
       name: `Launch Marketing`,
       slug: `launch-marketing`,
       prefix: `MKT`,
@@ -188,7 +188,7 @@ async function main() {
       sortOrder: 10,
     },
     {
-      workspaceId: ws.id,
+      teamId: ws.id,
       name: `Product Feedback`,
       slug: `product-feedback`,
       prefix: `FB`,
@@ -201,11 +201,11 @@ async function main() {
   const labelRows = await db
     .insert(labels)
     .values([
-      { workspaceId: ws.id, name: `Bug`, color: `#ef4444`, sortOrder: 0 },
-      { workspaceId: ws.id, name: `Feature`, color: `#8b5cf6`, sortOrder: 10 },
-      { workspaceId: ws.id, name: `Design`, color: `#3b82f6`, sortOrder: 20 },
+      { teamId: ws.id, name: `Bug`, color: `#ef4444`, sortOrder: 0 },
+      { teamId: ws.id, name: `Feature`, color: `#8b5cf6`, sortOrder: 10 },
+      { teamId: ws.id, name: `Design`, color: `#3b82f6`, sortOrder: 20 },
       {
-        workspaceId: ws.id,
+        teamId: ws.id,
         name: `Performance`,
         color: `#f59e0b`,
         sortOrder: 30,
@@ -357,7 +357,7 @@ async function main() {
     const [row] = await db
       .insert(issues)
       .values({
-        projectId: project.id,
+        boardId: board.id,
         title: spec.title,
         description: spec.description,
         status: spec.status,
@@ -388,8 +388,8 @@ async function main() {
         spec.labels.map((name) => ({
           issueId: row.id,
           labelId: label[name],
-          workspaceId: ws.id,
-          projectId: row.projectId,
+          teamId: ws.id,
+          boardId: row.boardId,
         }))
       )
     }
@@ -401,24 +401,24 @@ async function main() {
   await db.insert(comments).values([
     {
       issueId: showcase.id,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       authorId: mira,
       body: `Profiled on a mid-range device — the shape subscribe alone is **410 ms**. Deferring it until after first frame gets us to ~750 ms cold.`,
       createdAt: hoursAgo(26),
     },
     {
       issueId: showcase.id,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       authorId: jonas,
       body: `Nice find. I'll take the board snapshot cache — we can reuse the reducer state and paint before sync finishes.`,
       createdAt: hoursAgo(22),
     },
     {
       issueId: showcase.id,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       authorId: demoId,
       body: `Deferral PR is merged. CI numbers:\n\n- cold start: ~1.4s → **860 ms**\n- warm start: unchanged\n\nSnapshot cache should get us under target.`,
       createdAt: hoursAgo(5),
@@ -428,30 +428,30 @@ async function main() {
     {
       issueId: showcase.id,
       userId: demoId,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       source: `creator`,
     },
     {
       issueId: showcase.id,
       userId: jonas,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       source: `assignee`,
     },
     {
       issueId: showcase.id,
       userId: mira,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       source: `commenter`,
     },
   ])
   await db.insert(issueEvents).values([
     {
       issueId: showcase.id,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       actorUserId: demoId,
       type: `status_changed`,
       payload: { from: `backlog`, to: `todo` },
@@ -459,8 +459,8 @@ async function main() {
     },
     {
       issueId: showcase.id,
-      workspaceId: ws.id,
-      projectId: showcase.projectId,
+      teamId: ws.id,
+      boardId: showcase.boardId,
       actorUserId: jonas,
       type: `status_changed`,
       payload: { from: `todo`, to: `in_progress` },
@@ -517,8 +517,8 @@ async function main() {
 
   console.log(`
 Seeded screenshot demo data:
-  workspace   ${ws.name} (/${ws.slug})
-  project     ${project.name} (APP), ${inserted.length} issues
+  team   ${ws.name} (/${ws.slug})
+  board     ${board.name} (APP), ${inserted.length} issues
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${3} comments)
   inbox       5 notifications (3 unread)

@@ -6,10 +6,10 @@ import SwiftUI
 
 // Installed-repo picker (web github-repo-picker.tsx): lists the repos the user's
 // GitHub App is installed on and returns the chosen one to the caller. v4: it no
-// longer links a repo to a project directly — instead it feeds the create-project
+// longer links a repo to a board directly — instead it feeds the create-board
 // inline-connect path (`repository: { fullName }`). Handles not-configured /
 // not-installed (in-app install flow + auto re-query) / installed (searchable
-// list). The link/upsert happens server-side in `projects.create`.
+// list). The link/upsert happens server-side in `boards.create`.
 //
 // EXP-8: the install URL opens in an ASWebAuthenticationSession (mobile-width
 // page, in-app) instead of kicking out to system Safari. The server's
@@ -18,9 +18,9 @@ import SwiftUI
 // newly connected repos appear without any manual step.
 struct GithubRepoPicker: View {
     let accountId: String
-    /// Scopes the repo query + connect hop to this workspace's linked GitHub
-    /// accounts (per-workspace installation claiming).
-    let workspaceId: String
+    /// Scopes the repo query + connect hop to this team's linked GitHub
+    /// accounts (per-team installation claiming).
+    let teamId: String
     let integrationsApi: IntegrationsApi
     /// Called with the picked repo; the sheet dismisses itself afterwards.
     var onPick: (GithubPickerRepo) -> Void
@@ -110,7 +110,7 @@ struct GithubRepoPicker: View {
     // Grant model: the list shows exactly the repos the user's last OAuth
     // connect proved access to — never the installation-wide selection. So a
     // repo created or shared since that connect only appears after re-running
-    // the connect hop (`openConnect`), and a workspace linked before grants
+    // the connect hop (`openConnect`), and a team linked before grants
     // existed (`needsReauth`) yields zero repos until someone reconnects.
     @ViewBuilder private func installedList(_ data: GithubReposResult) -> some View {
         let repos = data.repos.filter {
@@ -186,7 +186,7 @@ struct GithubRepoPicker: View {
         }
     }
 
-    // Fail-closed grant state: installed but zero repos — either the workspace
+    // Fail-closed grant state: installed but zero repos — either the team
     // was linked before per-user grants existed (`needsReauth`) or the last
     // connect captured nothing. Reconnecting re-captures the user's grants
     // either way; without this the picker used to dead-end.
@@ -234,7 +234,7 @@ struct GithubRepoPicker: View {
         .glassRow()
     }
 
-    // Connect action: claim a GitHub account for this workspace. Prefer the
+    // Connect action: claim a GitHub account for this team. Prefer the
     // mobile-friendly OAuth `connectUrl` (single consent screen) and fall back
     // to the GitHub App install page when it's absent.
     private func openConnect(_ data: GithubReposResult) {
@@ -248,7 +248,7 @@ struct GithubRepoPicker: View {
     }
 
     // Web parity (github-repo-picker.tsx): the old `/account/integrations`
-    // fallback was removed in v5 (repo management lives in workspace settings →
+    // fallback was removed in v5 (repo management lives in team settings →
     // Repositories). Opened in an ASWebAuthenticationSession: mobile-width
     // rendering, and the server's `exponential://github-connected` redirect
     // dismisses it and hands control back.
@@ -262,7 +262,7 @@ struct GithubRepoPicker: View {
     private func load(refresh: Bool = false) async {
         await MainActor.run { loading = true }
         do {
-            let r = try await integrationsApi.githubRepos(accountId: accountId, workspaceId: workspaceId, refresh: refresh)
+            let r = try await integrationsApi.githubRepos(accountId: accountId, teamId: teamId, refresh: refresh)
             await MainActor.run {
                 result = r
                 error = nil

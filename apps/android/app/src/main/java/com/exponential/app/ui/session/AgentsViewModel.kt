@@ -2,7 +2,7 @@ package com.exponential.app.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -53,7 +53,7 @@ class AgentsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
-    private val selection: WorkspaceSelection,
+    private val selection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -89,20 +89,20 @@ class AgentsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
-    // Issues the Start-coding sheet can queue, scoped to the SELECTED workspace
+    // Issues the Start-coding sheet can queue, scoped to the SELECTED team
     // (no current-issue exemption here — this tab has no "current" issue):
-    // repo-backed, non-archived projects; open issues, `updatedAt` desc.
+    // repo-backed, non-archived boards; open issues, `updatedAt` desc.
     val startCandidates: StateFlow<List<StartIssueOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         selection.selectedId,
-    ) { issues, projects, workspaceId ->
-        if (workspaceId == null) {
+    ) { issues, boards, teamId ->
+        if (teamId == null) {
             emptyList()
         } else {
-            val eligibleProjects = projects
+            val eligibleBoards = boards
                 .filter {
-                    it.workspaceId == workspaceId &&
+                    it.teamId == teamId &&
                         it.repositoryId != null &&
                         it.archivedAt == null &&
                         it.deletedAt == null
@@ -110,7 +110,7 @@ class AgentsViewModel @Inject constructor(
                 .associateBy { it.id }
             issues
                 .filter {
-                    it.projectId in eligibleProjects.keys &&
+                    it.boardId in eligibleBoards.keys &&
                         it.archivedAt == null &&
                         it.status !in TERMINAL_ISSUE_STATUSES &&
                         it.prState != DomainContract.prStateMerged
@@ -121,7 +121,7 @@ class AgentsViewModel @Inject constructor(
                         id = issue.id,
                         identifier = issue.identifier,
                         title = issue.title,
-                        repositoryId = eligibleProjects[issue.projectId]?.repositoryId,
+                        repositoryId = eligibleBoards[issue.boardId]?.repositoryId,
                         status = issue.status,
                         priority = issue.priority,
                     )

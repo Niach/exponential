@@ -5,10 +5,10 @@ import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { codingSessions } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
-import { resolveProjectRepository } from "@/lib/trpc/repositories"
+  assertTeamMember,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
+import { resolveBoardRepository } from "@/lib/trpc/repositories"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -21,7 +21,7 @@ import {
 
 // Remote start + live terminal steer (masterplan §3.5). The web app is the
 // only place that holds STEER_RELAY_SECRET: it mints short-lived HS256 relay
-// tickets after checking the caller's workspace permission, and talks to the
+// tickets after checking the caller's team permission, and talks to the
 // relay's secret-authed admin HTTP for device presence / remote start / kill.
 // The relay itself never sees raw credentials and holds no DB — all
 // authorization is decided here at mint time. STEER_RELAY_URL unset ⇒ the
@@ -110,19 +110,19 @@ export const steerRouter = router({
         return mintSteerTicket(config, {
           kind: `publisher`,
           userId,
-          workspaceId: session.workspaceId,
+          teamId: session.teamId,
           sessionId: session.id,
         })
       }
 
-      // Viewers must be members of the session's workspace; workspace owners
+      // Viewers must be members of the session's team; team owners
       // may steer, and so may the session's own starter — plain members watch
       // (viewerPermFor).
-      const member = await assertWorkspaceMember(userId, session.workspaceId)
+      const member = await assertTeamMember(userId, session.teamId)
       return mintSteerTicket(config, {
         kind: `viewer`,
         userId,
-        workspaceId: session.workspaceId,
+        teamId: session.teamId,
         sessionId: session.id,
         role: member.role,
         isSessionOwner: session.userId === userId,
@@ -178,32 +178,32 @@ export const steerRouter = router({
       // that collapses to a single id falls back to the legacy single wire.
       const ids = [...new Set(input.issueIds ?? [input.issueId!])]
 
-      // Every issue must live in ONE workspace — the membership check is
-      // workspace-scoped and a batch pushes a single shared branch.
+      // Every issue must live in ONE team — the membership check is
+      // team-scoped and a batch pushes a single shared branch.
       const contexts = await Promise.all(
-        ids.map((id) => getIssueWorkspaceContext(id))
+        ids.map((id) => getIssueTeamContext(id))
       )
-      const workspaceIds = new Set(contexts.map((c) => c.workspaceId))
-      if (workspaceIds.size > 1) {
+      const teamIds = new Set(contexts.map((c) => c.teamId))
+      if (teamIds.size > 1) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `All issues in a batch must be in one workspace`,
+          message: `All issues in a batch must be in one team`,
         })
       }
-      const workspaceId = contexts[0]!.workspaceId
-      await assertWorkspaceMember(userId, workspaceId)
+      const teamId = contexts[0]!.teamId
+      await assertTeamMember(userId, teamId)
 
       // The launcher can't do anything without a linked repo, and a batch must
       // land in ONE repo (mirrors the MCP pr_open loop) — resolve per distinct
-      // project and fail before waking the desktop.
-      const projectIds = [...new Set(contexts.map((c) => c.projectId))]
+      // board and fail before waking the desktop.
+      const boardIds = [...new Set(contexts.map((c) => c.boardId))]
       let repo: SteerStartRepo | null = null
-      for (const projectId of projectIds) {
-        const resolved = await resolveProjectRepository(projectId)
+      for (const boardId of boardIds) {
+        const resolved = await resolveBoardRepository(boardId)
         if (!resolved) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `No repository linked to this project — link one in workspace settings`,
+            message: `No repository linked to this board — link one in team settings`,
           })
         }
         if (repo && repo.repositoryId !== resolved.repositoryId) {
@@ -238,7 +238,7 @@ export const steerRouter = router({
               userId,
               deviceId: input.deviceId,
               issueIds: ids,
-              workspaceId,
+              teamId,
               repo: repo!,
               ...options,
             })
@@ -268,9 +268,9 @@ export const steerRouter = router({
       const session = await loadCodingSession(input.codingSessionId)
       const userId = ctx.session.user.id
 
-      // Permission: the session owner, or a workspace owner.
+      // Permission: the session owner, or a team owner.
       if (session.userId !== userId) {
-        await assertWorkspaceMember(userId, session.workspaceId, [`owner`])
+        await assertTeamMember(userId, session.teamId, [`owner`])
       }
 
       // Idempotent: killing an already-ended session leaves the row alone.

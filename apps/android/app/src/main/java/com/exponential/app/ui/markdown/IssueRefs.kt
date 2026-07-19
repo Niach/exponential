@@ -5,11 +5,11 @@ import androidx.compose.runtime.compositionLocalOf
 
 // Inline `#IDENTIFIER` issue references (masterplan §5e) — the Android
 // counterpart of apps/web/src/lib/issue-refs.ts (+ the TipTap decoration in
-// issue-ref-extension.ts and the workspace IssueRefProvider). The token is the
+// issue-ref-extension.ts and the team IssueRefProvider). The token is the
 // single GFM interchange form (`#MET-115` stays plain text in the stored
 // markdown, like `@email` mentions), so detection happens only at render time:
 // MarkdownView pills a token when it resolves to a synced issue in the same
-// workspace and leaves unknown identifiers as plain text, and the editor's
+// team and leaves unknown identifiers as plain text, and the editor's
 // #-autocomplete (BlockTextField) inserts the plain token. The
 // parser/serializer never see these — GFM byte-parity is untouched.
 
@@ -22,14 +22,14 @@ data class IssueRefTarget(
 )
 
 /**
- * Workspace-scoped resolver + tap navigation + autocomplete search for
+ * Team-scoped resolver + tap navigation + autocomplete search for
  * `#IDENTIFIER` tokens. Mirrors the web IssueRefProvider: [candidates] is the
- * workspace's visible issues newest-first, so an empty-query search surfaces
+ * team's visible issues newest-first, so an empty-query search surfaces
  * fresh work.
  */
 @Immutable
 class IssueRefHandler(
-    /** Visible issues in the workspace, newest-first (from the Room issues table). */
+    /** Visible issues in the team, newest-first (from the Room issues table). */
     val candidates: List<IssueRefTarget>,
     val onOpen: (IssueRefTarget) -> Unit,
 ) {

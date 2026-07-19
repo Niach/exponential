@@ -8,7 +8,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.delay
 
 /**
- * Resolves a verified App Link (EXP-92) — workspace slug + identifier from the
+ * Resolves a verified App Link (EXP-92) — team slug + identifier from the
  * web URL — to a local issue id, under the signed-in account whose instanceUrl
  * host matches the link. The row may simply not have synced yet (cold launch /
  * brand-new issue), so a miss polls the DB briefly while sync runs
@@ -41,7 +41,7 @@ class WebLinkResolver @Inject constructor(
             for (account in candidates) {
                 val issueId = runCatching {
                     dbHolder.database(account.id).issueDao()
-                        .findIdByWorkspaceRef(target.workspaceSlug, target.identifier)
+                        .findIdByTeamRef(target.teamSlug, target.identifier)
                 }.getOrNull()
                 if (issueId != null) return Resolution.Found(issueId, account.id)
             }

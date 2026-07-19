@@ -206,7 +206,7 @@ function PropsPanel({ issue }: { issue: Issue }) {
           </button>
         </PropGroup>
       )}
-      <PropGroup label="Project">
+      <PropGroup label="Board">
         <span className="ide-prop-chip">
           <span className="ide-proj-dot" style={{ background: PROJECT.color }} />
           {PROJECT.name}

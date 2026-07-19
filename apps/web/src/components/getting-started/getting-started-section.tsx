@@ -9,13 +9,13 @@ import {
   type GettingStartedCardsProps,
 } from "@/components/getting-started/getting-started-cards"
 
-// The dismissible "Getting started" block under the project board's
+// The dismissible "Getting started" block under the board's
 // "No issues yet" empty state (EXP-88). Dismissal is one-way and per-user
 // (users.gettingStartedDismissedAt, surfaced read-only on the session); the
 // sidebar's Getting started entry stays as the re-entry point.
 export function GettingStartedSection({
-  workspace,
-  workspaceSlug,
+  team,
+  teamSlug,
 }: Omit<GettingStartedCardsProps, `layout`>) {
   const { data: session, isPending } = useSession()
   const [dismissed, setDismissed] = useState(false)
@@ -51,8 +51,8 @@ export function GettingStartedSection({
         </Button>
       </div>
       <GettingStartedCards
-        workspace={workspace}
-        workspaceSlug={workspaceSlug}
+        team={team}
+        teamSlug={teamSlug}
         layout="grid"
       />
     </div>

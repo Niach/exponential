@@ -232,7 +232,7 @@ mod tests {
             .unwrap();
         let base = canned_server(vec![(
             403,
-            r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
+            r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
         )]);
 
         match refresh_clone_token(&client(&base), "repo-refresh-denied", &clone) {

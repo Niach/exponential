@@ -7,7 +7,7 @@
 //!    `apps/web/src/lib/trpc/issues.ts`: create returns `{issue, txId}`,
 //!    update returns `{issue}` (NO txId — inline edits are the §4.1 un-gated
 //!    form; the Electric echo re-renders), delete returns `{txId, id}`,
-//!    move returns `{txId, issue, projectSlug}` (EXP-57).
+//!    move returns `{txId, issue, boardSlug}` (EXP-57).
 //!    Update inputs use [`Patch`] for the zod `.nullable().optional()` fields
 //!    (omit = unchanged, null = clear, value = set). Never pass
 //!    `IssueStatus::Unknown` / `IssuePriority::Unknown` — they serialize as
@@ -61,7 +61,7 @@ pub struct IssueOut {
     #[serde(default)]
     pub identifier: Option<String>,
     #[serde(default)]
-    pub project_id: Option<String>,
+    pub board_id: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
@@ -79,7 +79,7 @@ pub struct IssueOut {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuesCreateInput {
-    pub project_id: String,
+    pub board_id: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<IssueStatus>,
@@ -104,9 +104,9 @@ pub struct IssuesCreateInput {
 }
 
 impl IssuesCreateInput {
-    pub fn new(project_id: impl Into<String>, title: impl Into<String>) -> Self {
+    pub fn new(board_id: impl Into<String>, title: impl Into<String>) -> Self {
         Self {
-            project_id: project_id.into(),
+            board_id: board_id.into(),
             title: title.into(),
             status: None,
             priority: None,
@@ -195,7 +195,7 @@ pub struct IssuesDeleteOutput {
 }
 
 /// `issues.move` output (EXP-57): the renumbered issue (fresh identifier +
-/// project_id) plus the target project's slug — the web navigates with it;
+/// board_id) plus the target board's slug — the web navigates with it;
 /// the desktop's issue tabs key on the stable UUID, so it's informational.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -204,7 +204,7 @@ pub struct IssuesMoveOutput {
     #[serde(default)]
     pub tx_id: Option<i64>,
     #[serde(default)]
-    pub project_slug: Option<String>,
+    pub board_slug: Option<String>,
 }
 
 /// `issues.create` — mutation. Blocking; background executor only (§3.5).
@@ -232,30 +232,30 @@ pub fn issues_delete(trpc: &TrpcClient, id: &str) -> Result<IssuesDeleteOutput, 
     trpc.mutation("issues.delete", &Input { id })
 }
 
-/// `issues.move` — same-workspace project move (EXP-57). The server
-/// renumbers the issue in the target project (EXP-42 → ABC-17), re-points
-/// the denormalized child rows and records a `project_moved` timeline event;
-/// moving to the current project or across workspaces is a BAD_REQUEST.
+/// `issues.move` — same-team board move (EXP-57). The server
+/// renumbers the issue in the target board (EXP-42 → ABC-17), re-points
+/// the denormalized child rows and records a `board_moved` timeline event;
+/// moving to the current board or across teams is a BAD_REQUEST.
 /// Blocking; background executor only (§3.5).
 pub fn issues_move(
     trpc: &TrpcClient,
     id: &str,
-    project_id: &str,
+    board_id: &str,
 ) -> Result<IssuesMoveOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         id: &'a str,
-        project_id: &'a str,
+        board_id: &'a str,
     }
-    trpc.mutation("issues.move", &Input { id, project_id })
+    trpc.mutation("issues.move", &Input { id, board_id })
 }
 
 // ---------------------------------------------------------------------------
 // Bulk mutations (the multi-select action bar)
 // ---------------------------------------------------------------------------
 
-/// `issues.bulkUpdate` input: 1..=200 ids (one workspace per batch,
+/// `issues.bulkUpdate` input: 1..=200 ids (one team per batch,
 /// server-enforced) plus the PROPERTY fields only — status, priority and the
 /// tri-state assignee. Label bulk writes deliberately live on
 /// `issueLabels.bulkAdd/bulkRemove` (`crate::labels`), never here.
@@ -287,7 +287,7 @@ impl IssuesBulkUpdateInput {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuesBulkUpdateOutput {
-    /// Survivor count (stale ids / trashed projects are silently skipped).
+    /// Survivor count (stale ids / trashed boards are silently skipped).
     #[serde(default)]
     pub updated: Option<i64>,
     #[serde(default)]
@@ -389,7 +389,7 @@ pub struct IssueSearchHit {
     pub id: String,
     pub identifier: String,
     pub title: String,
-    pub project_id: String,
+    pub board_id: String,
     pub status: IssueStatus,
     pub priority: IssuePriority,
 }
@@ -397,24 +397,24 @@ pub struct IssueSearchHit {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchInput<'a> {
-    workspace_id: &'a str,
+    team_id: &'a str,
     query: &'a str,
     limit: u32,
 }
 
-/// `issues.search` — workspace-scoped server full-text search (title,
+/// `issues.search` — team-scoped server full-text search (title,
 /// identifier, description, comment bodies; relevance-ordered). `limit` is
 /// server-clamped to 50. Blocking; background executor only (§3.5).
 pub fn search(
     client: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
     query: &str,
     limit: u32,
 ) -> Result<Vec<IssueSearchHit>, ApiError> {
     client.query_with_input(
         "issues.search",
         &SearchInput {
-            workspace_id,
+            team_id,
             query,
             limit,
         },
@@ -539,12 +539,12 @@ mod tests {
     }
 
     #[test]
-    fn search_sends_workspace_scoped_input_and_decodes_hits() {
+    fn search_sends_team_scoped_input_and_decodes_hits() {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":[
-                {"id":"i-1","identifier":"EXP-1","title":"Fix search","projectId":"p-1","status":"todo","priority":"high"},
-                {"id":"i-2","identifier":"EXP-2","title":"Later","projectId":"p-1","status":"brand_new_state","priority":"none"}
+                {"id":"i-1","identifier":"EXP-1","title":"Fix search","boardId":"p-1","status":"todo","priority":"high"},
+                {"id":"i-2","identifier":"EXP-2","title":"Later","boardId":"p-1","status":"brand_new_state","priority":"none"}
             ]}}"#,
         );
         let out = search(&client(&base), "ws-1", "descr text", 20).unwrap();
@@ -555,7 +555,7 @@ mod tests {
         assert_eq!(out[1].status, IssueStatus::Unknown);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/issues.search?input="));
-        assert!(request.contains("%22workspaceId%22"));
+        assert!(request.contains("%22teamId%22"));
         assert!(request.contains("%22limit%22%3A20"));
         assert!(request.contains("Authorization: Bearer tok-1"));
     }
@@ -603,17 +603,17 @@ mod tests {
     fn create_decodes_tx_id_for_the_gate() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"issue":{"id":"i-9","identifier":"EXP-9","projectId":"p-1","title":"New"},"txId":4242}}}"#,
+            r#"{"result":{"data":{"issue":{"id":"i-9","identifier":"EXP-9","boardId":"p-1","title":"New"},"txId":4242}}}"#,
         );
         let mut input = IssuesCreateInput::new("p-1", "New");
         input.priority = Some(IssuePriority::High);
         let out = issues_create(&client(&base), &input).unwrap();
         assert_eq!(out.issue.identifier.as_deref(), Some("EXP-9"));
-        assert_eq!(out.issue.project_id.as_deref(), Some("p-1"));
+        assert_eq!(out.issue.board_id.as_deref(), Some("p-1"));
         assert_eq!(out.tx_id, Some(4242));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.create HTTP/1.1"));
-        assert!(request.ends_with(r#"{"projectId":"p-1","title":"New","priority":"high"}"#));
+        assert!(request.ends_with(r#"{"boardId":"p-1","title":"New","priority":"high"}"#));
     }
 
     #[test]
@@ -679,16 +679,16 @@ mod tests {
     fn move_sends_camel_case_input_and_decodes_new_identity() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"txId":9,"issue":{"id":"i-1","identifier":"ABC-17","projectId":"p-2"},"projectSlug":"abc"}}}"#,
+            r#"{"result":{"data":{"txId":9,"issue":{"id":"i-1","identifier":"ABC-17","boardId":"p-2"},"boardSlug":"abc"}}}"#,
         );
         let out = issues_move(&client(&base), "i-1", "p-2").unwrap();
         assert_eq!(out.issue.identifier.as_deref(), Some("ABC-17"));
-        assert_eq!(out.issue.project_id.as_deref(), Some("p-2"));
-        assert_eq!(out.project_slug.as_deref(), Some("abc"));
+        assert_eq!(out.issue.board_id.as_deref(), Some("p-2"));
+        assert_eq!(out.board_slug.as_deref(), Some("abc"));
         assert_eq!(out.tx_id, Some(9));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.move HTTP/1.1"));
-        assert!(request.ends_with(r#"{"id":"i-1","projectId":"p-2"}"#));
+        assert!(request.ends_with(r#"{"id":"i-1","boardId":"p-2"}"#));
     }
 
     #[test]

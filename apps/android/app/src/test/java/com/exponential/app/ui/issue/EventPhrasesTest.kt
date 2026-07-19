@@ -15,7 +15,7 @@ class EventPhrasesTest {
     private fun event(type: String, payload: String?) = IssueEventEntity(
         id = "evt-1",
         issueId = "issue-1",
-        workspaceId = "ws-1",
+        teamId = "ws-1",
         actorUserId = "actor-1",
         type = type,
         payload = payload,
@@ -41,7 +41,7 @@ class EventPhrasesTest {
 
     private val bugLabel = LabelEntity(
         id = "label-bug",
-        workspaceId = "ws-1",
+        teamId = "ws-1",
         name = "bug",
         color = "#ff0000",
         sortOrder = 1.0,
@@ -135,10 +135,10 @@ class EventPhrasesTest {
     }
 
     @Test
-    fun projectMovedKeepsIdentifierDetail() {
+    fun boardMovedKeepsIdentifierDetail() {
         assertEquals(
-            "moved this to another project (EXP-4 → SUP-9)",
-            phrase(event("project_moved", """{"fromIdentifier":"EXP-4","toIdentifier":"SUP-9"}""")),
+            "moved this to another board (EXP-4 → SUP-9)",
+            phrase(event("board_moved", """{"fromIdentifier":"EXP-4","toIdentifier":"SUP-9"}""")),
         )
     }
 

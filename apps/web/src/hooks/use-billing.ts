@@ -24,7 +24,7 @@ export type BillingPlan = {
     storageMb: number
     widgetConfigs: number
   }
-  // The workspace's active subscription, when it has one. Its presence
+  // The team's active subscription, when it has one. Its presence
   // switches the settings UI from "checkout" to "adjust seats / switch plan"
   // (mutating the existing subscription — never a second checkout).
   subscription: BillingSubscription | null
@@ -49,7 +49,7 @@ export function invalidateBillingCache(): void {
 }
 
 export function useBillingPlan(
-  workspaceId: string | undefined
+  teamId: string | undefined
 ): BillingPlan | null {
   const [plan, setPlan] = useState<BillingPlan | null>(null)
   const [fetchKey, setFetchKey] = useState(0)
@@ -63,7 +63,7 @@ export function useBillingPlan(
   }, [])
 
   useEffect(() => {
-    if (!workspaceId) return
+    if (!teamId) return
 
     let cancelled = false
 
@@ -78,7 +78,7 @@ export function useBillingPlan(
         return
       }
 
-      const data = await trpc.billing.workspacePlan.query({ workspaceId })
+      const data = await trpc.billing.teamPlan.query({ teamId })
       // tRPC has no transformer (plain JSON), so `Infinity` limits serialize
       // to `null` on the wire — normalize back so `=== Infinity` checks and
       // `usage < limit` comparisons behave for unlimited caps.
@@ -100,7 +100,7 @@ export function useBillingPlan(
     return () => {
       cancelled = true
     }
-  }, [workspaceId, fetchKey])
+  }, [teamId, fetchKey])
 
   return plan
 }

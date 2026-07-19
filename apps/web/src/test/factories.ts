@@ -1,21 +1,21 @@
-// Shared DB-backed test factories. v4 collapses project↔repository to a single
-// mandatory `projects.repository_id`, so a project can no longer be inserted
-// without a backing `repositories` row. `createTestProject` auto-creates one
+// Shared DB-backed test factories. v4 collapses board↔repository to a single
+// mandatory `boards.repository_id`, so a board can no longer be inserted
+// without a backing `repositories` row. `createTestBoard` auto-creates one
 // via `ensureTestRepository` when the caller doesn't pass a `repositoryId`, so
-// existing tests that only care about a project keep working unchanged.
+// existing tests that only care about a board keep working unchanged.
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { projects, repositories } from "@/db/schema"
+import { boards, repositories } from "@/db/schema"
 
 let repoCounter = 0
-let projectCounter = 0
+let boardCounter = 0
 
-// Upsert a `repositories` row for the workspace and return its id. Idempotent
-// via the (workspace_id, full_name) unique — safe to call repeatedly with an
+// Upsert a `repositories` row for the team and return its id. Idempotent
+// via the (team_id, full_name) unique — safe to call repeatedly with an
 // explicit `fullName`. Defaults to a unique synthetic name so unrelated tests
 // never collide. `installationId` is null (self-heal fills it in production).
 export async function ensureTestRepository(
-  workspaceId: string,
+  teamId: string,
   opts?: { fullName?: string; installationId?: number | null }
 ): Promise<string> {
   const fullName =
@@ -23,12 +23,12 @@ export async function ensureTestRepository(
   const [inserted] = await db
     .insert(repositories)
     .values({
-      workspaceId,
+      teamId,
       fullName,
       installationId: opts?.installationId ?? null,
     })
     .onConflictDoNothing({
-      target: [repositories.workspaceId, repositories.fullName],
+      target: [repositories.teamId, repositories.fullName],
     })
     .returning({ id: repositories.id })
   if (inserted) return inserted.id
@@ -38,7 +38,7 @@ export async function ensureTestRepository(
     .from(repositories)
     .where(
       and(
-        eq(repositories.workspaceId, workspaceId),
+        eq(repositories.teamId, teamId),
         eq(repositories.fullName, fullName)
       )
     )
@@ -46,27 +46,27 @@ export async function ensureTestRepository(
   return row.id
 }
 
-// Insert a project, auto-creating its mandatory backing repository when the
+// Insert a board, auto-creating its mandatory backing repository when the
 // caller doesn't supply one. Returns both ids so tests can assert the 1:1 link.
-export async function createTestProject(input: {
-  workspaceId: string
+export async function createTestBoard(input: {
+  teamId: string
   name?: string
   slug?: string
   prefix?: string
   repositoryId?: string
 }): Promise<{ id: string; repositoryId: string }> {
   const repositoryId =
-    input.repositoryId ?? (await ensureTestRepository(input.workspaceId))
-  const suffix = `${++projectCounter}-${Date.now()}`
-  const [project] = await db
-    .insert(projects)
+    input.repositoryId ?? (await ensureTestRepository(input.teamId))
+  const suffix = `${++boardCounter}-${Date.now()}`
+  const [board] = await db
+    .insert(boards)
     .values({
-      workspaceId: input.workspaceId,
-      name: input.name ?? `Test Project`,
+      teamId: input.teamId,
+      name: input.name ?? `Test Board`,
       slug: input.slug ?? `proj-${suffix}`,
       prefix: input.prefix ?? `TST`,
       repositoryId,
     })
-    .returning({ id: projects.id })
-  return { id: project.id, repositoryId }
+    .returning({ id: boards.id })
+  return { id: board.id, repositoryId }
 }

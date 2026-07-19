@@ -134,7 +134,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/index.html`,
     sources: [`src/DocsPage.tsx`],
     title: `Docs — Exponential`,
-    description: `Everything about Exponential — quickstart plus guides for issues and boards, coding with Claude, feedback boards and the helpdesk, the embeddable widget, MCP, and the apps.`,
+    description: `Everything about Exponential — quickstart plus guides for issues and boards, coding with Claude, feedback and the helpdesk, the embeddable widget, MCP, and the apps.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -146,7 +146,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/getting-started/index.html`,
     sources: [`src/GettingStartedDocsPage.tsx`],
     title: `Getting started — Exponential docs`,
-    description: `Sign up, create your first project, connect GitHub, invite your team, and pick a plan — from zero to a working tracker.`,
+    description: `Sign up, create your first board, connect GitHub, invite your team, and pick a plan — from zero to a working tracker.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -185,7 +185,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/feedback/index.html`,
     sources: [`src/FeedbackDocsPage.tsx`],
     title: `Feedback & helpdesk — Exponential docs`,
-    description: `Public feedback boards anyone can read, and the helpdesk that turns widget reports into email conversations answered from a shared support inbox.`,
+    description: `Collect feedback with the embeddable widget and run the team helpdesk — email conversations with reporters, answered from a shared support inbox and escalated to issues in one click.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -198,7 +198,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/widget/index.html`,
     sources: [`src/WidgetDocsPage.tsx`],
     title: `Feedback widget — Exponential docs`,
-    description: `Embed the feedback widget on any site: the snippet, the JS API (identify, custom data), annotated screenshots, and what lands in your tracker.`,
+    description: `Embed the feedback widget on any site: the snippet, feedback and support modes, the JS API (identify, custom data), annotated screenshots, and what lands in your tracker.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

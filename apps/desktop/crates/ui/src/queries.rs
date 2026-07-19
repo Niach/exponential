@@ -5,7 +5,7 @@
 //!
 //! Queries are plain Rust over the in-memory collections — no query engine,
 //! no SQL at render time. Grouping/sorting semantics live in `domain::board`
-//! (the verbatim `project-board.ts` port); this module only joins collections.
+//! (the verbatim `board-view.ts` port); this module only joins collections.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use domain::rows::Label;
 use crate::session::AuthContext;
 
 /// The board data one render needs (mirror of the web's
-/// `use-project-board-data.ts` return, §4.1).
+/// `use-board-view-data.ts` return, §4.1).
 pub struct BoardData {
     /// Ready = every shape the query reads has seen its first `up-to-date`
     /// (§4.1 `is_ready`: skeleton while false, real empty-state only when
@@ -37,24 +37,24 @@ pub struct BoardData {
     pub labels_by_issue: HashMap<String, Vec<Label>>,
 }
 
-/// `use-project-board-data.ts`: one project's issues, filtered + grouped.
-pub fn project_board(cx: &App, project_id: &str, filters: &IssueFilters) -> BoardData {
+/// `use-board-view-data.ts`: one board's issues, filtered + grouped.
+pub fn board_board(cx: &App, board_id: &str, filters: &IssueFilters) -> BoardData {
     let collections = Store::global(cx).collections();
-    let issues = collections.issues_in_project(project_id, cx);
+    let issues = collections.issues_in_board(board_id, cx);
     board_data_from(cx, issues, filters)
 }
 
-/// `use-my-issues-data.ts`: the workspace's issues assigned to me, filtered +
+/// `use-my-issues-data.ts`: the team's issues assigned to me, filtered +
 /// grouped like a board.
 pub fn my_issues(
     cx: &App,
-    workspace_id: &str,
+    team_id: &str,
     user_id: &str,
     filters: &IssueFilters,
 ) -> BoardData {
     let collections = Store::global(cx).collections();
     let issues: Vec<_> = collections
-        .issues_in_workspace(workspace_id, cx)
+        .issues_in_team(team_id, cx)
         .into_iter()
         .filter(|issue| issue.assignee_id.as_deref() == Some(user_id))
         .collect();
@@ -68,7 +68,7 @@ fn board_data_from(
 ) -> BoardData {
     let collections = Store::global(cx).collections();
     let is_ready = collections.issues.read(cx).is_ready()
-        && collections.projects.read(cx).is_ready()
+        && collections.boards.read(cx).is_ready()
         && collections.issue_labels.read(cx).is_ready()
         && collections.labels.read(cx).is_ready();
 
@@ -166,34 +166,34 @@ pub(crate) fn absolute_api_url(cx: &App, url: &str) -> Option<String> {
     Some(format!("{}{url}", account.instance_url.trim_end_matches('/')))
 }
 
-/// An issue's workspace (issue → project → `workspace_id`) — the scoping
+/// An issue's team (issue → board → `team_id`) — the scoping
 /// join the editors/autocomplete need (§4.6). `None` while the chain has not
 /// synced.
-pub(crate) fn issue_workspace_id(cx: &App, issue_id: &str) -> Option<String> {
+pub(crate) fn issue_team_id(cx: &App, issue_id: &str) -> Option<String> {
     let collections = Store::global(cx).collections();
-    let project_id = collections
+    let board_id = collections
         .issues
         .read(cx)
         .get(issue_id)
-        .map(|issue| issue.project_id.clone())?;
+        .map(|issue| issue.board_id.clone())?;
     collections
-        .projects
+        .boards
         .read(cx)
-        .get(&project_id)
-        .map(|project| project.workspace_id.clone())
+        .get(&board_id)
+        .map(|board| board.team_id.clone())
 }
 
-/// `use-workspace-data.ts` `useWorkspaceUsers`: `workspace_members` ⨝ `users`
+/// `use-team-data.ts` `useTeamUsers`: `team_members` ⨝ `users`
 /// (name-sorted for deterministic pickers). Synthetic `is_agent` users
 /// (widget creators) are excluded — every assignee/member picker wants the
 /// HUMAN members, matching the web's `people` filter (EXP-50 alignment: this
 /// query and the properties panel's member read now share the rule).
-pub fn workspace_users(cx: &App, workspace_id: &str) -> Vec<domain::rows::User> {
+pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     let collections = Store::global(cx).collections();
-    let members = collections.workspace_members.read(cx);
+    let members = collections.team_members.read(cx);
     let member_ids: std::collections::HashSet<&str> = members
         .iter()
-        .filter(|member| member.workspace_id == workspace_id)
+        .filter(|member| member.team_id == team_id)
         .map(|member| member.user_id.as_str())
         .collect();
     let mut out: Vec<domain::rows::User> = collections
@@ -213,15 +213,15 @@ pub fn workspace_users(cx: &App, workspace_id: &str) -> Vec<domain::rows::User> 
     out
 }
 
-/// The label-picker read (`label-picker.tsx`): a workspace's labels,
+/// The label-picker read (`label-picker.tsx`): a team's labels,
 /// sort-order sorted.
-pub fn workspace_labels(cx: &App, workspace_id: &str) -> Vec<Label> {
+pub fn team_labels(cx: &App, team_id: &str) -> Vec<Label> {
     let collections = Store::global(cx).collections();
     let mut out: Vec<Label> = collections
         .labels
         .read(cx)
         .iter()
-        .filter(|label| label.workspace_id == workspace_id)
+        .filter(|label| label.team_id == team_id)
         .cloned()
         .collect();
     out.sort_by(|a, b| {
@@ -248,7 +248,7 @@ pub struct InboxGroup {
 
 /// The inbox read: is-ready gate + issue-grouped notifications. The
 /// notifications shape is already user-scoped server-side; like web, groups
-/// are NOT workspace-filtered (the join to a synced issue+project is the only
+/// are NOT team-filtered (the join to a synced issue+board is the only
 /// membership requirement).
 pub struct InboxData {
     pub is_ready: bool,
@@ -256,13 +256,13 @@ pub struct InboxData {
     pub total_unread: usize,
 }
 
-/// `inbox-view.tsx` grouping: notifications ⨝ issues ⨝ projects, grouped by
+/// `inbox-view.tsx` grouping: notifications ⨝ issues ⨝ boards, grouped by
 /// issue, group order = newest first item.
 pub fn inbox(cx: &App) -> InboxData {
     let collections = Store::global(cx).collections();
     let is_ready = collections.notifications.read(cx).is_ready()
         && collections.issues.read(cx).is_ready()
-        && collections.projects.read(cx).is_ready();
+        && collections.boards.read(cx).is_ready();
 
     let mut notifications: Vec<domain::rows::Notification> = collections
         .notifications
@@ -275,7 +275,7 @@ pub fn inbox(cx: &App) -> InboxData {
     notifications.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     let issues = collections.issues.read(cx);
-    let projects = collections.projects.read(cx);
+    let boards = collections.boards.read(cx);
 
     let mut order: Vec<String> = Vec::new();
     let mut by_issue: HashMap<String, InboxGroup> = HashMap::new();
@@ -286,7 +286,7 @@ pub fn inbox(cx: &App) -> InboxData {
         let Some(issue) = issues.get(&issue_id) else {
             continue;
         };
-        if projects.get(&issue.project_id).is_none() {
+        if boards.get(&issue.board_id).is_none() {
             continue;
         }
         let group = by_issue.entry(issue_id.clone()).or_insert_with(|| {
@@ -318,21 +318,21 @@ pub fn inbox(cx: &App) -> InboxData {
     }
 }
 
-/// Open pull requests: synced issues in this workspace with an open PR — a
+/// Open pull requests: synced issues in this team with an open PR — a
 /// query over `issues`, independent of notifications. Feeds the Reviews rail
 /// badge and, grouped, the Reviews tool window.
-pub fn review_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
+pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     let collections = Store::global(cx).collections();
-    let projects = collections.projects.read(cx);
+    let boards = collections.boards.read(cx);
     collections
         .issues
         .read(cx)
         .iter()
         .filter(|issue| {
             is_reviewable(issue)
-                && projects
-                    .get(&issue.project_id)
-                    .is_some_and(|project| project.workspace_id == workspace_id)
+                && boards
+                    .get(&issue.board_id)
+                    .is_some_and(|board| board.team_id == team_id)
         })
         .cloned()
         .collect()
@@ -369,22 +369,22 @@ impl ReviewEntry {
     }
 }
 
-/// One Reviews tool-window section: a project and its open-PR entries (the
+/// One Reviews tool-window section: a board and its open-PR entries (the
 /// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
 pub struct ReviewGroup {
-    pub project: domain::rows::Project,
+    pub board: domain::rows::Board,
     pub entries: Vec<ReviewEntry>,
 }
 
 /// The Reviews tool window read: [`review_issues`] collapsed to ONE entry per
 /// PR (issues sharing a `pr_url` — a batch run — group together; issues with
-/// no `pr_url` key on their own id), then grouped by project. Groups follow
-/// project `sort_order` (name tiebreak, like the sidebars); entries are newest
+/// no `pr_url` key on their own id), then grouped by board. Groups follow
+/// board `sort_order` (name tiebreak, like the sidebars); entries are newest
 /// first within a group — web parity.
-pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
-    let open = review_issues(cx, workspace_id);
+pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
+    let open = review_issues(cx, team_id);
     let collections = Store::global(cx).collections();
-    let projects = collections.projects.read(cx);
+    let boards = collections.boards.read(cx);
 
     // Collapse issues sharing a PR into one entry (fallback key = issue id when
     // `pr_url` is absent — a lone issue). Preserve first-seen order so the
@@ -405,52 +405,52 @@ pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
 
     // One entry per PR; issues newest first (ISO strings from one source
     // compare lexicographically, None last) so the representative is newest.
-    let mut by_project: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
-    let mut project_order: Vec<String> = Vec::new();
+    let mut by_board: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
+    let mut board_order: Vec<String> = Vec::new();
     for key in pr_order {
         let mut issues = by_pr.remove(&key).unwrap_or_default();
         issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        let project_id = issues[0].project_id.clone();
-        let entries = by_project.entry(project_id.clone()).or_default();
+        let board_id = issues[0].board_id.clone();
+        let entries = by_board.entry(board_id.clone()).or_default();
         if entries.is_empty() {
-            project_order.push(project_id);
+            board_order.push(board_id);
         }
         entries.push(ReviewEntry { issues });
     }
 
-    let mut groups: Vec<ReviewGroup> = project_order
+    let mut groups: Vec<ReviewGroup> = board_order
         .into_iter()
-        .filter_map(|project_id| {
-            // The workspace filter in `review_issues` already proved the
-            // project exists; the lookup only resolves the row.
-            let project = projects.get(&project_id)?.clone();
-            let mut entries = by_project.remove(&project_id).unwrap_or_default();
+        .filter_map(|board_id| {
+            // The team filter in `review_issues` already proved the
+            // board exists; the lookup only resolves the row.
+            let board = boards.get(&board_id)?.clone();
+            let mut entries = by_board.remove(&board_id).unwrap_or_default();
             // Newest entry first — by the representative's created_at.
             entries.sort_by(|a, b| {
                 b.representative()
                     .created_at
                     .cmp(&a.representative().created_at)
             });
-            Some(ReviewGroup { project, entries })
+            Some(ReviewGroup { board, entries })
         })
         .collect();
     groups.sort_by(|a, b| {
-        a.project
+        a.board
             .sort_order
             .unwrap_or(f64::MAX)
-            .total_cmp(&b.project.sort_order.unwrap_or(f64::MAX))
+            .total_cmp(&b.board.sort_order.unwrap_or(f64::MAX))
             .then_with(|| {
-                a.project
+                a.board
                     .name
                     .to_lowercase()
-                    .cmp(&b.project.name.to_lowercase())
+                    .cmp(&b.board.name.to_lowercase())
             })
     });
     groups
 }
 
 /// The Reviews tool window's unlinked-PR sections: keep only repos that have
-/// open pulls (the server returns every workspace repo, unreachable ones with
+/// open pulls (the server returns every team repo, unreachable ones with
 /// an empty list — an empty section is noise, web parity).
 pub fn visible_pull_repos(
     repos: &[api::repositories::OpenPullsRepo],
@@ -476,13 +476,13 @@ pub fn remove_merged_pull(
     }
 }
 
-/// Every non-archived issue in a workspace (issues ⨝ projects, shared sort
+/// Every non-archived issue in a team (issues ⨝ boards, shared sort
 /// order) — the add-issues picker's candidate pool (the dialog filters
 /// status/membership on top).
-pub fn workspace_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
+pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     Store::global(cx)
         .collections()
-        .issues_in_workspace(workspace_id, cx)
+        .issues_in_team(team_id, cx)
 }
 
 /// EXP-153: a `running` coding_sessions row renders as live only while its
@@ -652,7 +652,7 @@ mod tests {
     fn issue(pr_state: Option<&str>, archived_at: Option<&str>) -> domain::rows::Issue {
         serde_json::from_value(json!({
             "id": "i-1",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",

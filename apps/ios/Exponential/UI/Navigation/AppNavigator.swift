@@ -14,23 +14,23 @@ enum AppRoute: Hashable {
     /// Reviews (EXP-147): the open-PR list, its own tab beside My Work —
     /// no longer a segment inside it.
     case reviews
-    case project(accountId: String, id: String)
+    case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
     case settings
     case serverDetail(accountId: String)
-    case workspaceSettings(accountId: String, workspaceId: String)
+    case teamSettings(accountId: String, teamId: String)
     case invite(token: String)
     case syncDebug
 }
 
-/// The project the Issues tab is currently showing. May belong to a
+/// The board the Issues tab is currently showing. May belong to a
 /// non-active account — the switcher sheet spans every signed-in server.
-struct CurrentProjectRef: Hashable {
+struct CurrentBoardRef: Hashable {
     let accountId: String
-    let projectId: String
+    let boardId: String
 }
 
 struct AppNavigator: View {
@@ -64,8 +64,8 @@ struct AppNavigator: View {
                 // login explicitly reported no onboardingCompletedAt. Gated on
                 // the server flag — never inferred locally from synced data.
                 // The server owns the rule (lib/auth/onboarding.ts): it
-                // backfills the flag for users who already have a project in a
-                // non-public workspace, and OnboardingView re-reads the session
+                // backfills the flag for users who already have a board in a
+                // non-public team, and OnboardingView re-reads the session
                 // on appear so stale accounts dismiss themselves.
                 OnboardingView()
                     .id(deps.auth.activeAccountId ?? "none")
@@ -137,8 +137,8 @@ struct AppNavigator: View {
         switch WebLinks.parse(url) {
         case .invite(let token):
             deps.deepLinkBus.navigateToInvite(token)
-        case .issue(let workspaceSlug, _, let identifier):
-            resolveWebIssueLink(url: url, workspaceSlug: workspaceSlug, identifier: identifier)
+        case .issue(let teamSlug, _, let identifier):
+            resolveWebIssueLink(url: url, teamSlug: teamSlug, identifier: identifier)
         case nil:
             // Shouldn't happen (the AASA claims only the two parsed shapes),
             // but never swallow a link the user tapped.
@@ -146,7 +146,7 @@ struct AppNavigator: View {
         }
     }
 
-    private func resolveWebIssueLink(url: URL, workspaceSlug: String, identifier: String) {
+    private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
         // Signed-in accounts on the link's instance — active account first,
         // then most recently used (multi-account devices can hold several
         // accounts on the same host).
@@ -167,7 +167,7 @@ struct AppNavigator: View {
                 for account in candidates {
                     if let issueId = IssueRefLookup.resolve(
                         identifier: identifier,
-                        workspaceSlug: workspaceSlug,
+                        teamSlug: teamSlug,
                         db: deps.db,
                         accountId: account.id
                     ) {
@@ -196,8 +196,8 @@ struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
     // Typed path (not NavigationPath) so the tab bar can inspect the top route.
     @State private var path: [AppRoute] = []
-    @State private var workspaceState = WorkspaceState()
-    @State private var projectLoader: MultiAccountProjectLoader?
+    @State private var teamState = TeamState()
+    @State private var boardLoader: MultiAccountBoardLoader?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
@@ -205,13 +205,13 @@ struct MainNavigator: View {
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
     @State private var observedSessions: [CodingSessionEntity] = []
-    @State private var currentProject: CurrentProjectRef?
+    @State private var currentBoard: CurrentBoardRef?
     @State private var composeTarget: ComposeTarget?
 
     private struct ComposeTarget: Identifiable {
         let accountId: String
-        let projectId: String
-        var id: String { "\(accountId)/\(projectId)" }
+        let boardId: String
+        var id: String { "\(accountId)/\(boardId)" }
     }
 
     var body: some View {
@@ -221,24 +221,24 @@ struct MainNavigator: View {
             NavigationStack(path: $path) {
                 IssuesHomeView(
                     syncing: syncing,
-                    currentProject: currentProject,
-                    projectLoader: projectLoader,
-                    onSelectProject: { accountId, projectId in
-                        selectProject(accountId: accountId, projectId: projectId)
+                    currentBoard: currentBoard,
+                    boardLoader: boardLoader,
+                    onSelectBoard: { accountId, boardId in
+                        selectBoard(accountId: accountId, boardId: boardId)
                     }
                 )
                 .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
         }
-        .environment(workspaceState)
+        .environment(teamState)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .onAppear {
-            if projectLoader == nil {
-                projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
+            if boardLoader == nil {
+                boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
             }
             startObserving()
-            resolveCurrentProject()
-            if workspaceState.workspaces.isEmpty {
+            resolveCurrentBoard()
+            if teamState.teams.isEmpty {
                 syncing = true
                 Task {
                     await deps.syncManager.initialSync()
@@ -247,7 +247,7 @@ struct MainNavigator: View {
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
-            projectLoader?.refresh()
+            boardLoader?.refresh()
         }
         // Defense-in-depth against a split binding. `.id(activeAccountId)` on
         // this navigator (AppNavigator) normally recreates the whole view on an
@@ -259,17 +259,17 @@ struct MainNavigator: View {
         // cancel, clear state, re-observe the new active pool, re-resolve.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             stopObserving()
-            workspaceState.workspaces = []
-            workspaceState.projects = []
-            workspaceState.activeWorkspaceId = nil
-            currentProject = nil
+            teamState.teams = []
+            teamState.boards = []
+            teamState.activeTeamId = nil
+            currentBoard = nil
             startObserving()
-            resolveCurrentProject()
+            resolveCurrentBoard()
         }
-        // Any change to the available (signed-in, non-archived) projects
-        // re-validates the Issues tab's current project.
-        .onChange(of: availableProjectKeys) { _, _ in
-            resolveCurrentProject()
+        // Any change to the available (signed-in, non-archived) boards
+        // re-validates the Issues tab's current board.
+        .onChange(of: availableBoardKeys) { _, _ in
+            resolveCurrentBoard()
         }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
@@ -288,13 +288,13 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeInvite()
             }
         }
-        // A workspace was deleted in-app (EXP-43): pop to root so no pushed
-        // view (workspace settings, server detail) still targets it.
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceDeleted)) { _ in
+        // A team was deleted in-app (EXP-43): pop to root so no pushed
+        // view (team settings, server detail) still targets it.
+        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
             path = []
         }
         // Drain links that arrived before this navigator mounted (cold launch).
-        // The Issues tab already lands in the last-used project, so there is no
+        // The Issues tab already lands in the last-used board, so there is no
         // auto-push anymore — deep links are the only cold-launch navigation.
         .task {
             let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
@@ -334,7 +334,7 @@ struct MainNavigator: View {
             }
         }
         .sheet(item: $composeTarget) { target in
-            CreateIssueSheet(projectId: target.projectId, onCreated: {})
+            CreateIssueSheet(boardId: target.boardId, onCreated: {})
                 .environment(\.accountId, target.accountId)
                 .presentationBackground(.ultraThinMaterial)
         }
@@ -343,12 +343,12 @@ struct MainNavigator: View {
     // MARK: - Tab bar
 
     /// The bar floats only over the top-level surfaces (Issues root, Search,
-    /// Agents, My Work, Reviews, pushed project lists); detail and settings
+    /// Agents, My Work, Reviews, pushed board lists); detail and settings
     /// screens get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .search, .agents, .myWork, .reviews, .project:
+        case .search, .agents, .myWork, .reviews, .board:
             return true
         default:
             return false
@@ -375,16 +375,16 @@ struct MainNavigator: View {
         return false
     }
 
-    /// Compose targets the project in view: a pushed project list wins,
-    /// otherwise the Issues tab root composes into its current project. The
+    /// Compose targets the board in view: a pushed board list wins,
+    /// otherwise the Issues tab root composes into its current board. The
     /// other surfaces (Search, Agents, My Work, Reviews) hide the button —
-    /// creating an issue without a project context is ambiguous.
+    /// creating an issue without a board context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
-        if case let .project(accountId, id)? = path.last {
-            return ComposeTarget(accountId: accountId, projectId: id)
+        if case let .board(accountId, id)? = path.last {
+            return ComposeTarget(accountId: accountId, boardId: id)
         }
-        if path.isEmpty, let current = currentProject {
-            return ComposeTarget(accountId: current.accountId, projectId: current.projectId)
+        if path.isEmpty, let current = currentBoard {
+            return ComposeTarget(accountId: current.accountId, boardId: current.boardId)
         }
         return nil
     }
@@ -428,8 +428,8 @@ struct MainNavigator: View {
         case .reviews:
             ReviewsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case let .project(accountId, id):
-            IssueListView(projectId: id)
+        case let .board(accountId, id):
+            IssueListView(boardId: id)
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
             IssueDetailView(issueId: id)
@@ -441,8 +441,8 @@ struct MainNavigator: View {
             SettingsView()
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
-        case let .workspaceSettings(accountId, workspaceId):
-            WorkspaceSettingsView(workspaceId: workspaceId)
+        case let .teamSettings(accountId, teamId):
+            TeamSettingsView(teamId: teamId)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)
@@ -457,18 +457,18 @@ struct MainNavigator: View {
         guard let pool = try? deps.db.pool(forAccountId: deps.auth.activeAccountId ?? "") else { return }
 
         let wsObs = ValueObservation.tracking { db in
-            try WorkspaceEntity.fetchAll(db)
+            try TeamEntity.fetchAll(db)
         }
         let projObs = ValueObservation.tracking { db in
-            try ProjectEntity.fetchAll(db)
+            try BoardEntity.fetchAll(db)
         }
 
         let wsTask = Task { @MainActor in
             do {
                 for try await ws in wsObs.values(in: pool) {
-                    workspaceState.workspaces = ws
+                    teamState.teams = ws
                     // Re-resolve a dangling selection (EXP-43): after a
-                    // workspace delete syncs out, an activeWorkspaceId
+                    // team delete syncs out, an activeTeamId
                     // pointing at a vanished row must not stick around.
                     // Non-empty emissions only — "Resync now" wipes every
                     // table before relaunching the pipeline, so this
@@ -477,14 +477,14 @@ struct MainNavigator: View {
                     // arbitrary first row once the refetch lands. A real
                     // delete still heals: its 409 refetch replaces rows in
                     // one transaction, so the emission is non-empty (or
-                    // becomes non-empty via the personal-workspace heal).
+                    // becomes non-empty via the personal-team heal).
                     if !ws.isEmpty,
-                       let active = workspaceState.activeWorkspaceId,
+                       let active = teamState.activeTeamId,
                        !ws.contains(where: { $0.id == active }) {
-                        workspaceState.activeWorkspaceId = nil
+                        teamState.activeTeamId = nil
                     }
-                    if workspaceState.activeWorkspaceId == nil, let first = ws.first {
-                        workspaceState.activeWorkspaceId = first.id
+                    if teamState.activeTeamId == nil, let first = ws.first {
+                        teamState.activeTeamId = first.id
                     }
                 }
             } catch {}
@@ -492,7 +492,7 @@ struct MainNavigator: View {
         let projTask = Task { @MainActor in
             do {
                 for try await proj in projObs.values(in: pool) {
-                    workspaceState.projects = proj
+                    teamState.boards = proj
                 }
             } catch {}
         }
@@ -534,47 +534,47 @@ struct MainNavigator: View {
         observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask]
     }
 
-    // MARK: - Current project (Issues tab)
+    // MARK: - Current board (Issues tab)
 
-    /// Every selectable project across all signed-in servers, as
-    /// `accountId/projectId` keys. `MultiAccountProjectLoader` already limits
-    /// this to non-archived projects of signed-in accounts, so key membership
+    /// Every selectable board across all signed-in servers, as
+    /// `accountId/boardId` keys. `MultiAccountBoardLoader` already limits
+    /// this to non-archived boards of signed-in accounts, so key membership
     /// doubles as validity.
-    private var availableProjectKeys: [String] {
-        (projectLoader?.groups ?? []).flatMap { group in
-            group.workspaceBlocks.flatMap { block in
-                block.projects.map { "\(group.accountId)/\($0.id)" }
+    private var availableBoardKeys: [String] {
+        (boardLoader?.groups ?? []).flatMap { group in
+            group.teamBlocks.flatMap { block in
+                block.boards.map { "\(group.accountId)/\($0.id)" }
             }
         }
     }
 
-    /// Resolution order: keep a still-valid selection → last-used project →
-    /// first project of the first workspace (active account sorts first) →
+    /// Resolution order: keep a still-valid selection → last-used board →
+    /// first board of the first team (active account sorts first) →
     /// none (empty state, switcher disabled).
-    private func resolveCurrentProject() {
-        let available = Set(availableProjectKeys)
-        if let current = currentProject,
-           available.contains("\(current.accountId)/\(current.projectId)") {
+    private func resolveCurrentBoard() {
+        let available = Set(availableBoardKeys)
+        if let current = currentBoard,
+           available.contains("\(current.accountId)/\(current.boardId)") {
             return
         }
-        if let last = SharedProjectMirror.readLastUsed(),
-           available.contains("\(last.accountId)/\(last.projectId)") {
-            currentProject = CurrentProjectRef(accountId: last.accountId, projectId: last.projectId)
+        if let last = SharedBoardMirror.readLastUsed(),
+           available.contains("\(last.accountId)/\(last.boardId)") {
+            currentBoard = CurrentBoardRef(accountId: last.accountId, boardId: last.boardId)
             return
         }
-        if let group = projectLoader?.groups.first,
-           let project = group.workspaceBlocks.first?.projects.first {
-            currentProject = CurrentProjectRef(accountId: group.accountId, projectId: project.id)
+        if let group = boardLoader?.groups.first,
+           let board = group.teamBlocks.first?.boards.first {
+            currentBoard = CurrentBoardRef(accountId: group.accountId, boardId: board.id)
             return
         }
-        currentProject = nil
+        currentBoard = nil
     }
 
-    private func selectProject(accountId: String, projectId: String) {
+    private func selectBoard(accountId: String, boardId: String) {
         // Remember the choice so the Share Extension defaults its picker to it
         // and the next launch lands back in it.
-        SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
-        currentProject = CurrentProjectRef(accountId: accountId, projectId: projectId)
+        SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
+        currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
     }
 
     /// Push the issue detail from a deep-link/push tap. Shared by both drain
@@ -583,7 +583,7 @@ struct MainNavigator: View {
     /// the running Electric long-poll — on a cold start the initial sync is
     /// already in flight by the time this route lands, so there is nothing
     /// useful to await here (initialSync only passively polls the active
-    /// account's workspaces table; it starts no shape fetch).
+    /// account's teams table; it starts no shape fetch).
     private func appendIssueRoute(accountId: String, issueId: String) {
         path.append(AppRoute.issue(accountId: accountId, id: issueId))
     }
@@ -611,7 +611,7 @@ extension Notification.Name {
     /// `exponential://github-connected` arrived — a GitHub App install just
     /// completed.
     static let githubConnected = Notification.Name("githubConnected")
-    /// A workspace was deleted in-app (EXP-43) — MainNavigator pops to root so
-    /// no pushed view still targets the deleted workspace.
-    static let workspaceDeleted = Notification.Name("workspaceDeleted")
+    /// A team was deleted in-app (EXP-43) — MainNavigator pops to root so
+    /// no pushed view still targets the deleted team.
+    static let teamDeleted = Notification.Name("teamDeleted")
 }

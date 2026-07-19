@@ -127,11 +127,11 @@ bun dev
               user — that&apos;s your instance.
             </p>
 
-            <DocsCallout kind="note" title="GitHub App — only for dev projects">
-              Task and feedback boards work out of the box. Only dev projects —
-              the ones backed by a GitHub repository for coding sessions and PRs
-              — need a configured GitHub App; the next section walks through
-              creating one, and you can skip it if you just want issue tracking.
+            <DocsCallout kind="note" title="GitHub App — only for coding">
+              Boards work out of the box. Only coding — backing a board with a
+              GitHub repository for coding sessions and PRs — needs a
+              configured GitHub App; the next section walks through creating
+              one, and you can skip it if you just want issue tracking.
             </DocsCallout>
 
             <h3>Connect the apps</h3>
@@ -179,10 +179,10 @@ docker run -d --name exponential-web \\
           <DocsSection id="github-app" num="02" label="GitHub App">
             <h2>GitHub App</h2>
             <p>
-              Dev projects are backed by a GitHub repository, so a GitHub App
+              Coding runs against a GitHub repository, so a GitHub App
               is a <strong>prerequisite for coding sessions and PRs</strong>
               {` `}
-              (task and feedback boards need none). The server uses it to mint
+              (repo-less boards need none). The server uses it to mint
               short-lived per-repo installation tokens — no personal access
               tokens, no stored user OAuth tokens.
             </p>
@@ -433,9 +433,9 @@ PUSH_RELAY_SECRET=<shared secret>
               </EnvVar>
               <EnvVar name="PUBLIC_FEEDBACK_URL">
                 Where the in-app &quot;Send feedback&quot; button sends your
-                users — defaults to the Exponential cloud feedback board (
-                <code>https://app.exponential.at</code>), where issues about
-                Exponential itself belong.
+                users — defaults to the Exponential cloud (
+                <code>https://app.exponential.at</code>), where feedback about
+                Exponential itself belongs.
               </EnvVar>
             </dl>
           </DocsSection>

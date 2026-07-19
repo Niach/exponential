@@ -52,26 +52,23 @@ export function PrivacyPage() {
               calendar, or location.
             </li>
             <li style={listItem}>
-              <strong>Content you create.</strong> Workspaces, projects,
+              <strong>Content you create.</strong> Teams, boards,
               issues, comments, labels, and file attachments (including
               screenshots submitted through the feedback widget) are stored so
               the service can function. Issue and comment text may contain
               whatever you choose to write.
             </li>
             <li style={listItem}>
-              <strong>Feedback widget and public-board submissions.</strong> If
-              a site operator embeds our feedback widget and you submit
-              feedback through it, we store what you send — your message and
+              <strong>Feedback widget submissions.</strong> If a site operator
+              embeds our feedback widget and you submit feedback or a support
+              request through it, we store what you send — your message and
               optional screenshot — plus the page URL you were on, your
               browser’s user-agent and viewport/screen size, and any email,
               name, or custom data the host site chooses to pass along with
-              your submission. The same applies when you report an issue
-              through the form on a public feedback board, where you can
-              optionally leave your email address. This lets the site operator
-              triage and follow up on your report — the members of the
-              operator’s workspace who handle feedback can see your email and
-              message. Your email is never exposed to anonymous or public-board
-              viewers.
+              your submission. This lets the site operator triage and follow
+              up on your report — the members of the operator’s team who
+              handle feedback can see your email and message. Your email is
+              never exposed outside that team.
             </li>
             <li style={listItem}>
               <strong>Push notification tokens.</strong> If you enable push
@@ -142,9 +139,8 @@ export function PrivacyPage() {
           </ul>
           <p style={prose}>
             There are no data brokers, ad networks, or analytics providers.
-            Content you place on a public feedback board is visible to that
-            board’s members; member identities on public boards are shown
-            anonymized.
+            Feedback and support requests you submit through a widget are
+            visible only to the members of the team that operates it.
           </p>
 
           <h2 style={h2Style}>4. Storage and protection</h2>
@@ -159,8 +155,8 @@ export function PrivacyPage() {
               application servers.
             </li>
             <li style={listItem}>
-              Access is session-authenticated; workspace data is only synced
-              to members of that workspace. Server-side authorization enforces
+              Access is session-authenticated; a team’s data is only synced
+              to members of that team. Server-side authorization enforces
               the same rules for every API call.
             </li>
           </ul>
@@ -168,13 +164,13 @@ export function PrivacyPage() {
           <h2 style={h2Style}>5. Retention and deletion</h2>
           <p style={prose}>
             Your data is retained while your account is active. You can delete
-            issues, comments, attachments, projects, and workspaces yourself
+            issues, comments, attachments, boards, and teams yourself
             inside the app — deletions are immediate and propagate to all
             synced devices. You can also delete your entire account and all
             associated data directly in the product: on the web under Account →
             Notifications → Danger Zone, and in the mobile apps under Settings
             → your server → “Delete account”. Deletion is immediate and
-            removes your personal workspaces and everything you created.
+            removes your personal teams and everything you created.
             Alternatively, email{` `}
             <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
               dennis@straehhuber.com

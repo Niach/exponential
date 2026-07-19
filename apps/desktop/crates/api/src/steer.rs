@@ -126,7 +126,7 @@ pub fn mint_publisher_ticket(
 }
 
 /// `steer.mintTicket({kind: "viewer", codingSessionId})` — watch/steer a
-/// session from this client (workspace members; owners get perm `steer`).
+/// session from this client (team members; owners get perm `steer`).
 pub fn mint_viewer_ticket(
     trpc: &TrpcClient,
     coding_session_id: &str,

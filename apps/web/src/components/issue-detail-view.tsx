@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, User, Project } from "@/db/schema"
+import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -71,9 +71,9 @@ interface IssueDetailViewProps {
   issue: Issue
   issueLabelIds: string[]
   users: User[]
-  project: Project
-  workspaceSlug: string
-  workspaceId: string
+  board: Board
+  teamSlug: string
+  teamId: string
   readOnly?: boolean
   restrictModeration?: boolean
   // Board filter params carried from the list view — preserved on prev/next
@@ -137,9 +137,9 @@ export function IssueDetailView({
   issue,
   issueLabelIds,
   users,
-  project,
-  workspaceSlug,
-  workspaceId,
+  board,
+  teamSlug,
+  teamId,
   readOnly = false,
   restrictModeration = false,
   filterSearch,
@@ -157,10 +157,10 @@ export function IssueDetailView({
   const navigateToIssue = (identifier: string | null) => {
     if (!identifier) return
     void navigate({
-      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
       params: {
-        workspaceSlug,
-        projectSlug: project.slug,
+        teamSlug,
+        boardSlug: board.slug,
         issueIdentifier: identifier,
       },
       search: {
@@ -211,8 +211,8 @@ export function IssueDetailView({
     Boolean(position),
     prevIdentifier,
     nextIdentifier,
-    project.slug,
-    workspaceSlug,
+    board.slug,
+    teamSlug,
     filterSearch?.status,
     filterSearch?.priority,
     filterSearch?.labels,
@@ -435,12 +435,12 @@ export function IssueDetailView({
   }
 
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
-  // once it commits, land back on the project board with the carried filters.
+  // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
     await trpc.issues.delete.mutate({ id: issue.id })
     void navigate({
-      to: `/t/$workspaceSlug/projects/$projectSlug`,
-      params: { workspaceSlug, projectSlug: project.slug },
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug, boardSlug: board.slug },
       search: {
         status: filterSearch?.status,
         priority: filterSearch?.priority,
@@ -468,7 +468,7 @@ export function IssueDetailView({
         await trpc.issues.update.mutate({ id: issue.id, assigneeId })
       }}
       users={users}
-      workspaceId={workspaceId}
+      teamId={teamId}
       selectedLabelIds={issueLabelIds}
       onToggleLabel={async (labelId) => {
         if (readOnly) return
@@ -501,26 +501,26 @@ export function IssueDetailView({
         if (readOnly) return
         await trpc.issues.update.mutate({ id: issue.id, endTime: time })
       }}
-      projectName={project.name}
-      projectColor={project.color}
-      projectPrefix={project.prefix}
-      projectId={issue.projectId}
-      onProjectChange={async (projectId) => {
+      boardName={board.name}
+      boardColor={board.color}
+      boardPrefix={board.prefix}
+      boardId={issue.boardId}
+      onBoardChange={async (boardId) => {
         if (readOnly) return
-        // EXP-57: the server renumbers the issue in the target project, so
-        // both the project slug AND the identifier change — await the issues
+        // EXP-57: the server renumbers the issue in the target board, so
+        // both the board slug AND the identifier change — await the issues
         // txId, then hop to the issue's new canonical URL.
         const {
           txId,
           issue: moved,
-          projectSlug,
-        } = await trpc.issues.move.mutate({ id: issue.id, projectId })
+          boardSlug,
+        } = await trpc.issues.move.mutate({ id: issue.id, boardId })
         await issueCollection.utils.awaitTxId(txId)
         void navigate({
-          to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+          to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
           params: {
-            workspaceSlug,
-            projectSlug,
+            teamSlug,
+            boardSlug,
             issueIdentifier: moved.identifier,
           },
         })
@@ -533,8 +533,8 @@ export function IssueDetailView({
   const breadcrumb = (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-4 py-2 border-b border-border min-w-0">
       <Link
-        to="/t/$workspaceSlug/projects/$projectSlug"
-        params={{ workspaceSlug, projectSlug: project.slug }}
+        to="/t/$teamSlug/boards/$boardSlug"
+        params={{ teamSlug, boardSlug: board.slug }}
         // Link back to the board WITH the carried filters, so the round trip
         // lands on the exact view the user navigated from.
         search={{
@@ -546,9 +546,9 @@ export function IssueDetailView({
       >
         <div
           className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: project.color }}
+          style={{ backgroundColor: board.color }}
         />
-        {project.name}
+        {board.name}
       </Link>
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="shrink-0 font-mono">{issue.identifier}</span>
@@ -599,7 +599,7 @@ export function IssueDetailView({
               if (typeof navigator === `undefined` || !navigator.clipboard) {
                 return
               }
-              const url = `${window.location.origin}/t/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
+              const url = `${window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
               navigator.clipboard.writeText(url).then(
                 () => {
                   setLinkCopied(true)
@@ -737,9 +737,9 @@ export function IssueDetailView({
   const codingRows = currentUserId ? (
     <IssueCodingRows
       issue={issue}
-      project={project}
-      workspaceId={workspaceId}
-      workspaceSlug={workspaceSlug}
+      board={board}
+      teamId={teamId}
+      teamSlug={teamSlug}
       currentUserId={currentUserId}
       users={users}
     />

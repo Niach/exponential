@@ -37,7 +37,7 @@ data class ServerAccount(
         fun makeId(instanceUrl: String): String = hash(instanceUrl)
 
         // Per-user account id: two users on the same server get DIFFERENT ids —
-        // hence different Room DB files, offsets, and workspace selection — so a
+        // hence different Room DB files, offsets, and team selection — so a
         // sign-out/sign-in as another user can never surface the first user's
         // cached data. The URL-only id survives as the pending identity.
         fun makeId(instanceUrl: String, userId: String): String = hash("$instanceUrl\n$userId")

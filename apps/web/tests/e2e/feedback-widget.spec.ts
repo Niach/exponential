@@ -1,6 +1,6 @@
 // End-to-end coverage for the embeddable feedback widget: settings UI →
 // public cross-origin endpoints → the real widget on the built demo page →
-// issue visible in the project board.
+// issue visible in the board.
 //
 // Requires the widget artifacts in apps/web/public/widget/v1 (run
 // `bun run build:widget` from the repo root before the e2e suite).
@@ -10,31 +10,31 @@ import { expect, test, type AppFixture } from "./fixtures"
 
 const tinyPngBase64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==`
 
-function getWorkspaceSlug(currentUrl: string) {
-  const [, , workspaceSlug] = new URL(currentUrl).pathname.split(`/`)
-  return workspaceSlug
+function getTeamSlug(currentUrl: string) {
+  const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
+  return teamSlug
 }
 
-async function createProject(page: Page, app: AppFixture) {
-  await page.getByLabel(`Create project`).click()
+async function createBoard(page: Page, app: AppFixture) {
+  await page.getByLabel(`Create board`).click()
   const dialog = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `Create project` }),
+    has: page.getByRole(`heading`, { name: `Create board` }),
   })
   await expect(dialog).toBeVisible()
-  await dialog.getByLabel(`Name`).fill(app.projectName)
-  await dialog.getByRole(`button`, { name: `Create project` }).click()
+  await dialog.getByLabel(`Name`).fill(app.boardName)
+  await dialog.getByRole(`button`, { name: `Create board` }).click()
   await expect(dialog).toBeHidden()
 }
 
 async function createWidget(
   page: Page,
   app: AppFixture,
-  workspaceSlug: string,
+  teamSlug: string,
   domains: string
 ): Promise<string> {
   // Settings is split into per-section pages (EXP-146) — widgets live on
   // their own page.
-  await page.goto(`/t/${workspaceSlug}/settings/widget`)
+  await page.goto(`/t/${teamSlug}/settings/widget`)
   await expect(
     page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
   ).toBeVisible()
@@ -66,10 +66,10 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createProject(page, app)
-  const workspaceSlug = getWorkspaceSlug(page.url())
+  await createBoard(page, app)
+  const teamSlug = getTeamSlug(page.url())
 
-  const key = await createWidget(page, app, workspaceSlug, `example.com`)
+  const key = await createWidget(page, app, teamSlug, `example.com`)
 
   // Config endpoint: allowed origin gets CORS echo + form payload.
   const allowedConfig = await page.request.get(
@@ -124,7 +124,7 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   })
   expect(submitted.status()).toBe(201)
   const submitBody = (await submitted.json()) as { identifier: string }
-  expect(submitBody.identifier).toMatch(new RegExp(`^${app.projectPrefix}-`))
+  expect(submitBody.identifier).toMatch(new RegExp(`^${app.boardPrefix}-`))
 
   // Honeypot submissions pretend success but create nothing.
   const honeypot = await page.request.post(`/api/widget/submit`, {
@@ -144,8 +144,8 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   })
   expect(deniedSubmit.status()).toBe(403)
 
-  // The real submission shows up in the project; the honeypot one doesn't.
-  await page.goto(`/t/${workspaceSlug}/projects/${app.projectSlug}`)
+  // The real submission shows up in the board; the honeypot one doesn't.
+  await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)
   await expect(
     page.getByText(`Widget report ${app.namespace}`)
   ).toBeVisible()
@@ -171,14 +171,14 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createProject(page, app)
-  const workspaceSlug = getWorkspaceSlug(page.url())
+  await createBoard(page, app)
+  const teamSlug = getTeamSlug(page.url())
 
   // localhost must be allowed for the demo page's origin.
   const key = await createWidget(
     page,
     app,
-    workspaceSlug,
+    teamSlug,
     `example.com\nlocalhost`
   )
 
@@ -231,8 +231,8 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
     timeout: 15_000,
   })
 
-  // The issue landed in the project the widget points at.
-  await page.goto(`/t/${workspaceSlug}/projects/${app.projectSlug}`)
+  // The issue landed in the board the widget points at.
+  await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)
   await expect(
     page.getByText(`In-widget report ${app.namespace}`)
   ).toBeVisible()

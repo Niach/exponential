@@ -9,31 +9,31 @@ final class IssueListViewModel {
     var labels: [LabelEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
-    var project: ProjectEntity?
+    var board: BoardEntity?
     var filters = IssueFilters()
     var activeTab: FilterTab = .all
     var collapsedStatuses: Set<IssueStatus> = []
-    var permissions: WorkspacePermissions = .denied
+    var permissions: TeamPermissions = .denied
     // True while a signed-in viewer looks like a non-member ONLY because the
-    // workspace_members shape hasn't synced yet — drives a "Syncing workspace…"
+    // team_members shape hasn't synced yet — drives a "Syncing team…"
     // banner instead of silently rendering everything as a permission denial.
     var permissionsPending = false
     var error: String?
 
     private let accountId: String
-    private let projectId: String
+    private let boardId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
-    private let projectsApi: ProjectsApi
+    private let boardsApi: BoardsApi
     private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(accountId: String, projectId: String, db: DatabaseManager, issuesApi: IssuesApi, projectsApi: ProjectsApi, auth: AuthRepository) {
+    init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, auth: AuthRepository) {
         self.accountId = accountId
-        self.projectId = projectId
+        self.boardId = boardId
         self.db = db
         self.issuesApi = issuesApi
-        self.projectsApi = projectsApi
+        self.boardsApi = boardsApi
         self.auth = auth
     }
 
@@ -42,15 +42,15 @@ final class IssueListViewModel {
             guard let self else { return }
             guard let pool = try? self.db.pool(forAccountId: self.accountId) else { return }
 
-            // Observe project
-            let projectObservation = ValueObservation.tracking { db in
-                try ProjectEntity.fetchOne(db, key: self.projectId)
+            // Observe board
+            let boardObservation = ValueObservation.tracking { db in
+                try BoardEntity.fetchOne(db, key: self.boardId)
             }
-            let projectTask = Task {
+            let boardTask = Task {
                 do {
-                    for try await project in projectObservation.values(in: pool) {
-                        self.project = project
-                        self.refreshPermissions(for: project)
+                    for try await board in boardObservation.values(in: pool) {
+                        self.board = board
+                        self.refreshPermissions(for: board)
                     }
                 } catch {}
             }
@@ -58,7 +58,7 @@ final class IssueListViewModel {
             // Observe issues
             let issueObservation = ValueObservation.tracking { db in
                 try IssueEntity
-                    .filter(Column("project_id") == self.projectId)
+                    .filter(Column("board_id") == self.boardId)
                     .fetchAll(db)
             }
             let issueTask = Task {
@@ -69,7 +69,7 @@ final class IssueListViewModel {
                 } catch {}
             }
 
-            // Observe labels (workspace-scoped, need project's workspace)
+            // Observe labels (team-scoped, need board's team)
             let labelObservation = ValueObservation.tracking { db in
                 try LabelEntity.fetchAll(db)
             }
@@ -106,27 +106,27 @@ final class IssueListViewModel {
             }
 
             // Recompute permissions when membership or the members-shape sync
-            // state changes. The project row observed above may never change
+            // state changes. The board row observed above may never change
             // again after the members shape snapshots in, so without this the
-            // "Syncing workspace…" banner would stick and controls would stay
+            // "Syncing team…" banner would stick and controls would stay
             // read-only until the view is remounted. Tracks the two regions the
-            // computation reads: the workspace_members table and the
-            // "workspace-members" offset row (isLive).
+            // computation reads: the team_members table and the
+            // "team-members" offset row (isLive).
             let permsObservation = ValueObservation.tracking { db -> (Int, Bool) in
-                let count = try WorkspaceMemberEntity.fetchCount(db)
-                let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+                let count = try TeamMemberEntity.fetchCount(db)
+                let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
                 return (count, live)
             }
             let permsTask = Task {
                 do {
                     for try await _ in permsObservation.values(in: pool) {
-                        self.refreshPermissions(for: self.project)
+                        self.refreshPermissions(for: self.board)
                     }
                 } catch {}
             }
 
             // Wait for cancellation
-            _ = await (projectTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value, permsTask.value)
+            _ = await (boardTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value, permsTask.value)
         }
     }
 
@@ -166,11 +166,11 @@ final class IssueListViewModel {
         return users.first { $0.id == id }
     }
 
-    /// Labels belonging to this project's workspace (the pool holds every
-    /// synced workspace's labels).
-    var workspaceLabels: [LabelEntity] {
-        guard let workspaceId = project?.workspaceId else { return [] }
-        return labels.filter { $0.workspaceId == workspaceId }
+    /// Labels belonging to this board's team (the pool holds every
+    /// synced team's labels).
+    var teamLabels: [LabelEntity] {
+        guard let teamId = board?.teamId else { return [] }
+        return labels.filter { $0.teamId == teamId }
     }
 
     func setTab(_ tab: FilterTab) {
@@ -235,8 +235,8 @@ final class IssueListViewModel {
 
     // MARK: - Permissions
 
-    private func refreshPermissions(for project: ProjectEntity?) {
-        guard let project else {
+    private func refreshPermissions(for board: BoardEntity?) {
+        guard let board else {
             permissions = .denied
             permissionsPending = false
             return
@@ -246,13 +246,13 @@ final class IssueListViewModel {
             permissionsPending = false
             return
         }
-        let (workspace, membersLive): (WorkspaceEntity?, Bool) = (try? pool.read { db in
-            let ws = try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
-            let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+        let (team, membersLive): (TeamEntity?, Bool) = (try? pool.read { db in
+            let ws = try TeamEntity.fetchOne(db, key: board.teamId)
+            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
             return (ws, live)
         }) ?? (nil, false)
-        permissions = WorkspacePermissions.resolve(
-            workspace: workspace,
+        permissions = TeamPermissions.resolve(
+            team: team,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
             dbPool: pool

@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 is WebLinks.Parsed.IssueRef -> deepLinkBus.openWebIssueRef(
                     uri = data,
                     host = data.host ?: return,
-                    workspaceSlug = parsed.workspaceSlug,
+                    teamSlug = parsed.teamSlug,
                     identifier = parsed.identifier,
                 )
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)

@@ -7,8 +7,8 @@
 //! `Pane`/`Dock` (§6.13's licensing rule). Behavior:
 //!
 //! - **"+"** (and cmd-t / ctrl-shift-t inside the dock) → a plain `Shell`
-//!   tab (`$SHELL -l`, cwd = the active project's **trunk** clone root, v4
-//!   §4.6; `$HOME` only off a project screen or before the clone exists).
+//!   tab (`$SHELL -l`, cwd = the active board's **trunk** clone root, v4
+//!   §4.6; `$HOME` only off a board screen or before the clone exists).
 //!   This is also the launch surface: the Start-coding launcher and run-bar
 //!   play button call the same `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
@@ -396,21 +396,21 @@ impl TerminalDockPanel {
     }
 
     /// The `+` shell tab (v4 §4.6): cwd = the **trunk** clone root of this
-    /// window's active project; `$HOME` only off a project screen or while the
+    /// window's active board; `$HOME` only off a board screen or while the
     /// clone doesn't exist yet. The repo→trunk-root resolution needs a
     /// (tRPC-only, never synced) `repositories.list` lookup, so the resolve
     /// runs off the foreground and the tab opens once the cwd is known; a
-    /// non-project screen (or missing session/project) opens at `$HOME`
+    /// non-board screen (or missing session/board) opens at `$HOME`
     /// immediately (`open_shell(None)`).
     fn new_shell_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some((resolver, project_id, settings)) = self.shell_scope(window, cx) else {
+        let Some((resolver, board_id, settings)) = self.shell_scope(window, cx) else {
             self.open_shell_cwd(None, cx);
             return;
         };
         // The repo comes from the shared window resolver (the run/git bars keep
         // it warm); a still-loading / unlinked repo just opens at `$HOME`.
         resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
-        let full_name = match resolver.read(cx).lookup_project(&project_id) {
+        let full_name = match resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Found(repo) => repo.full_name,
             _ => {
                 self.open_shell_cwd(None, cx);
@@ -440,9 +440,9 @@ impl TerminalDockPanel {
     }
 
     /// The sync-resolvable inputs for the `+` shell cwd: the shared window repo
-    /// resolver, the window's active project (screen scope with the
+    /// resolver, the window's active board (screen scope with the
     /// last-board fallback), and the coding settings (repos root). `None`
-    /// with no resolvable project — the caller then opens the shell at
+    /// with no resolvable board — the caller then opens the shell at
     /// `$HOME`.
     fn shell_scope(
         &self,
@@ -450,10 +450,10 @@ impl TerminalDockPanel {
         cx: &mut gpui::Context<Self>,
     ) -> Option<(Entity<RepoResolver>, String, coding::Settings)> {
         let nav = navigation::nav_for_window(window, cx);
-        let project_id = navigation::active_project_id(&nav, cx)?;
+        let board_id = navigation::active_board_id(&nav, cx)?;
         let resolver = repo_resolver_for_window(window, cx);
         let settings = CodingHub::global(cx).read(cx).settings.clone();
-        Some((resolver, project_id, settings))
+        Some((resolver, board_id, settings))
     }
 
     fn on_new_tab(&mut self, _: &NewTerminalTab, window: &mut Window, cx: &mut gpui::Context<Self>) {

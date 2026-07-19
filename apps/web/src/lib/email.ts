@@ -295,11 +295,11 @@ export async function sendNotificationDigestEmail(args: {
 // (it interpolates into HTML) and rendered with preserved line breaks.
 export async function sendSupportReplyEmail(args: {
   to: string
-  projectName: string
+  boardName: string
   replyText: string
   threadUrl: string
 }): Promise<EmailSendResult> {
-  const subject = `New reply from ${args.projectName} support`
+  const subject = `New reply from ${args.boardName} support`
   const replyHtml = escapeHtml(args.replyText).replace(/\n/g, `<br/>`)
   return await sendEmail({
     to: args.to,
@@ -329,10 +329,10 @@ export async function sendSupportReplyEmail(args: {
 // later reply email repeats.
 export async function sendSupportConfirmationEmail(args: {
   to: string
-  projectName: string
+  boardName: string
   threadUrl: string
 }): Promise<EmailSendResult> {
-  const subject = `We got your request — ${args.projectName} support`
+  const subject = `We got your request — ${args.boardName} support`
   return await sendEmail({
     to: args.to,
     subject,
@@ -361,7 +361,7 @@ export async function sendSupportConfirmationEmail(args: {
 
 // One-way helpdesk resolution notice for an external widget reporter. CLEAN
 // reporter-facing copy only — no assignee names, no page/UA metadata, none of
-// the internal buildWidgetDescription block, no workspace context, no links
+// the internal buildWidgetDescription block, no team context, no links
 // into the app (reporters have no account).
 export async function sendReporterResolutionEmail(args: {
   to: string

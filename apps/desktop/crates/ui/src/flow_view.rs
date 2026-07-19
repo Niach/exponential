@@ -89,7 +89,7 @@ impl FlowView {
             cx.observe(&shared, |_, _, cx| cx.notify()),
             // The lane joins read synced rows.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            // Workspace/project switches change the join scope.
+            // Team/board switches change the join scope.
             cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
         Self {
@@ -125,14 +125,14 @@ impl FlowView {
         build_lanes(&branches, &default_branch, &branch_prefix, &issues)
     }
 
-    /// Snapshot the synced rows the lane join reads (active workspace).
+    /// Snapshot the synced rows the lane join reads (active team).
     fn join_rows(&self, cx: &App) -> Vec<IssueLite> {
-        let Some(workspace_id) = navigation::active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = navigation::active_team_id(&self.nav, cx) else {
             return Vec::new();
         };
         Store::global(cx)
             .collections()
-            .issues_in_workspace(&workspace_id, cx)
+            .issues_in_team(&team_id, cx)
             .into_iter()
             .map(|issue| IssueLite {
                 id: issue.id,
@@ -630,7 +630,7 @@ impl Render for FlowView {
         let flow = self.build_flow(cx);
         if flow.lanes.is_empty() {
             let note = if self.git_bar.read(cx).branches_ready() {
-                "No repository connected to this project."
+                "No repository connected to this board."
             } else {
                 "Loading branches…"
             };

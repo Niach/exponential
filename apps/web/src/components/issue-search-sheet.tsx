@@ -7,17 +7,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Search } from "lucide-react"
-import type { Issue, Project } from "@/db/schema"
+import type { Issue, Board } from "@/db/schema"
 
 interface IssueSearchSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
 }
 
 // The minimal fields a result row needs to render + navigate. Local Electric
@@ -27,7 +27,7 @@ interface SearchResult {
   id: string
   identifier: string
   title: string
-  projectId: string
+  boardId: string
   status: string
 }
 
@@ -39,30 +39,30 @@ type ServerHit = Awaited<ReturnType<typeof trpc.issues.search.query>>[number]
 export function IssueSearchSheet({
   open,
   onOpenChange,
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
 }: IssueSearchSheetProps) {
   const [query, setQuery] = useState(``)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const projects = useWorkspaceProjects(workspaceId)
-  const projectIds = useMemo(
-    () => projects.map((p: Project) => p.id),
-    [projects]
+  const boards = useTeamBoards(teamId)
+  const boardIds = useMemo(
+    () => boards.map((p: Board) => p.id),
+    [boards]
   )
-  const projectMap = useMemo(
-    () => new Map<string, Project>(projects.map((p: Project) => [p.id, p])),
-    [projects]
+  const boardMap = useMemo(
+    () => new Map<string, Board>(boards.map((p: Board) => [p.id, p])),
+    [boards]
   )
 
   const { data: issues } = useLiveQuery(
     (q) =>
-      projectIds.length > 0
+      boardIds.length > 0
         ? q
             .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.projectId, projectIds))
+            .where(({ issues }) => inArray(issues.boardId, boardIds))
         : undefined,
-    [projectIds.join(`,`)]
+    [boardIds.join(`,`)]
   )
 
   // Server full-text search ("search everything" path): debounced ~250ms,
@@ -81,7 +81,7 @@ export function IssueSearchSheet({
     let cancelled = false
     const timer = setTimeout(() => {
       trpc.issues.search
-        .query({ workspaceId, query: trimmed, limit: 30 })
+        .query({ teamId, query: trimmed, limit: 30 })
         .then((rows) => {
           if (!cancelled) setServerHits({ query: trimmed, rows })
         })
@@ -93,7 +93,7 @@ export function IssueSearchSheet({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query, workspaceId])
+  }, [query, teamId])
 
   const localById = useMemo(
     () => new Map<string, Issue>((issues ?? []).map((i: Issue) => [i.id, i])),
@@ -129,15 +129,15 @@ export function IssueSearchSheet({
   }
 
   const handlePick = (issue: SearchResult) => {
-    const project = projectMap.get(issue.projectId)
-    if (!project) return
+    const board = boardMap.get(issue.boardId)
+    if (!board) return
     onOpenChange(false)
     setQuery(``)
     void navigate({
-      to: `/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
       params: {
-        workspaceSlug,
-        projectSlug: project.slug,
+        teamSlug,
+        boardSlug: board.slug,
         issueIdentifier: issue.identifier,
       },
     })
@@ -181,7 +181,7 @@ export function IssueSearchSheet({
         </div>
       )}
       {results.map((issue) => {
-        const project = projectMap.get(issue.projectId)
+        const board = boardMap.get(issue.boardId)
         return (
           <Button
             key={issue.id}
@@ -193,14 +193,14 @@ export function IssueSearchSheet({
             <StatusIcon status={issue.status} className="size-4 shrink-0" />
             <div className="flex flex-col flex-1 min-w-0">
               <span className="text-sm truncate">{issue.title}</span>
-              {project && (
+              {board && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span
                     className="h-1.5 w-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: project.color }}
+                    style={{ backgroundColor: board.color }}
                   />
                   <span className="truncate">
-                    {project.name} · {issue.identifier}
+                    {board.name} · {issue.identifier}
                   </span>
                 </span>
               )}

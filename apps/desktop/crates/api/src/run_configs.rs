@@ -2,9 +2,9 @@
 //! configs). The router is a fresh server addition (lifted from the archive
 //! branch); its pinned wire shape per §7.3.2:
 //!
-//! `runConfigs.list({projectId})` — **query**, member-read — →
-//! `{configs: [{id, projectId, name, argv, cwd, env, sortOrder, createdAt,
-//! updatedAt}]}` ordered by `sortOrder`, then `name`. (`workspaceId` is a
+//! `runConfigs.list({boardId})` — **query**, member-read — →
+//! `{configs: [{id, boardId, name, argv, cwd, env, sortOrder, createdAt,
+//! updatedAt}]}` ordered by `sortOrder`, then `name`. (`teamId` is a
 //! server-side denormalization detail and stays off the wire.)
 //!
 //! SECURITY (§7.3.5): these rows are **DB-stored argv the desktop spawns as
@@ -32,7 +32,7 @@ use crate::trpc::TrpcClient;
 #[serde(rename_all = "camelCase")]
 pub struct RunConfig {
     pub id: String,
-    pub project_id: String,
+    pub board_id: String,
     pub name: String,
     /// Program + args, spawned as-is (no shell). Server-validated ≥ 1 item.
     pub argv: Vec<String>,
@@ -59,27 +59,27 @@ struct ListResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ListInput<'a> {
-    project_id: &'a str,
+    board_id: &'a str,
 }
 
 /// `runConfigs.list` — query, ordered by `sortOrder` then `name` server-side.
-pub fn list(trpc: &TrpcClient, project_id: &str) -> Result<Vec<RunConfig>, ApiError> {
+pub fn list(trpc: &TrpcClient, board_id: &str) -> Result<Vec<RunConfig>, ApiError> {
     let response: ListResponse =
-        trpc.query_with_input("runConfigs.list", &ListInput { project_id })?;
+        trpc.query_with_input("runConfigs.list", &ListInput { board_id })?;
     Ok(response.configs)
 }
 
 // ---------------------------------------------------------------------------
 // §7.3.2 owner-only CRUD (the desktop "Edit configurations…" dialog + web
 // editor share the same router; the server re-validates everything — argv
-// caps, cwd relativity, env sanitization — and owns the (projectId, name)
+// caps, cwd relativity, env sanitization — and owns the (boardId, name)
 // CONFLICT)
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateInput<'a> {
-    project_id: &'a str,
+    board_id: &'a str,
     name: &'a str,
     argv: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,7 +97,7 @@ struct ConfigResponse {
 /// server appends to the end of the sort order.
 pub fn create(
     trpc: &TrpcClient,
-    project_id: &str,
+    board_id: &str,
     name: &str,
     argv: &[String],
     cwd: Option<&str>,
@@ -106,7 +106,7 @@ pub fn create(
     let response: ConfigResponse = trpc.mutation(
         "runConfigs.create",
         &CreateInput {
-            project_id,
+            board_id,
             name,
             argv,
             cwd,
@@ -168,7 +168,7 @@ pub fn delete(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
 /// §7.3.5 `commandSetHash`: a stable hash over the *full fetched set* —
 /// stable-serialize each `{name, argv, cwd, env}`, **sort by id**, hash.
 /// Any content change (add / edit / reorder-that-alters-content / a config
-/// from another author) yields a new hash, which un-trusts the project on
+/// from another author) yields a new hash, which un-trusts the board on
 /// this device until the Trust & Run dialog confirms the new set.
 ///
 /// The hash is SHA-256 (§7.3.5 allows blake3 or sha256; sha256 needs no new
@@ -304,7 +304,7 @@ mod tests {
     fn config(id: &str, name: &str, argv: &[&str]) -> RunConfig {
         RunConfig {
             id: id.to_string(),
-            project_id: "proj-1".to_string(),
+            board_id: "proj-1".to_string(),
             name: name.to_string(),
             argv: argv.iter().map(|s| s.to_string()).collect(),
             cwd: None,
@@ -320,7 +320,7 @@ mod tests {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"configs":[
-                {"id":"rc-1","projectId":"proj-1","name":"dev server",
+                {"id":"rc-1","boardId":"proj-1","name":"dev server",
                  "argv":["bun","run","dev"],"cwd":"apps/web","env":{"PORT":"5173"},
                  "sortOrder":1,"createdAt":"2026-07-03T00:00:00.000Z","updatedAt":"2026-07-03T00:00:00.000Z"}]}}}"#,
         );
@@ -340,7 +340,7 @@ mod tests {
         let (base, _captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"configs":[
-                {"id":"rc-1","projectId":"proj-1","name":"test","argv":["cargo","test"],
+                {"id":"rc-1","boardId":"proj-1","name":"test","argv":["cargo","test"],
                  "cwd":null,"env":{},"sortOrder":0}]}}}"#,
         );
         let configs = list(&client(&base), "proj-1").unwrap();
@@ -397,7 +397,7 @@ mod tests {
     fn create_posts_and_decodes_the_config() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"config":{"id":"rc-1","projectId":"proj-1","name":"dev",
+            r#"{"result":{"data":{"config":{"id":"rc-1","boardId":"proj-1","name":"dev",
                 "argv":["bun","dev"],"cwd":null,"env":{},"sortOrder":1}}}}"#,
         );
         let argv = vec!["bun".to_string(), "dev".to_string()];
@@ -407,7 +407,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/runConfigs.create HTTP/1.1"));
         // Omitted optionals stay off the wire (zod .optional()).
-        assert!(request.contains(r#""projectId":"proj-1""#));
+        assert!(request.contains(r#""boardId":"proj-1""#));
         assert!(!request.contains(r#""cwd""#));
         assert!(!request.contains(r#""env""#));
     }
@@ -437,7 +437,7 @@ mod tests {
     fn update_posts_and_decodes() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"config":{"id":"rc-1","projectId":"proj-1","name":"renamed",
+            r#"{"result":{"data":{"config":{"id":"rc-1","boardId":"proj-1","name":"renamed",
                 "argv":["cargo","test"],"cwd":null,"env":{},"sortOrder":1}}}}"#,
         );
         let mut input = RunConfigUpdate::new("rc-1");

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 
 // The floating-button preview pill shared by the widget settings dialog and
 // the getting-started widget card (EXP-141 — extracted unchanged from
-// workspace/widget-section.tsx).
+// team/widget-section.tsx).
 
 // Mirrors the widget bundle's theme.defaultAccent / pickForeground so the
 // launcher preview matches what embedders actually see.

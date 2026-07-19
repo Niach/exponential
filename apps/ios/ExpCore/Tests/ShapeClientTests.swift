@@ -232,40 +232,25 @@ final class OffsetRefetchStateTests: XCTestCase {
         XCTAssertEqual(ElectricOffset(shape: "s", handle: "h", offset: "o").isLive, false)
     }
 
-    func testV2MigrationIsAdditiveAndPreservesExistingRows() throws {
-        // Simulate a pre-v2 install: a DB whose migration record contains only
-        // v1_initial and whose electric_offsets rows use the old 3-column
-        // schema. Opening through DatabaseManager must run ONLY the additive
-        // v2 migration — rows survive with needs_refetch/is_live = false.
-        // (A -v4 filename bump would instead wipe the local snapshot; the
-        // whole point of v2 being ALTER TABLE is that it never does.)
-        let accountId = "refetch-migration-\(UUID().uuidString)"
-        defer { DatabaseManager.deleteFiles(forAccountId: accountId) }
-
-        let url = try DatabaseManager.fileURL(for: accountId)
-        do {
-            var migrator = DatabaseMigrator()
-            migrator.registerMigration("v1_initial") { db in
-                try db.create(table: "electric_offsets", ifNotExists: true) { t in
-                    t.primaryKey("shape", .text)
-                    t.column("handle", .text).notNull()
-                    t.column("offset", .text).notNull()
-                }
-            }
-            let pool = try DatabasePool(path: url.path)
-            try migrator.migrate(pool)
-            try pool.write { db in
-                try db.execute(
-                    sql: "INSERT INTO electric_offsets (shape, handle, offset) VALUES (?, ?, ?)",
-                    arguments: ["issues", "h1", "42_0"]
-                )
-            }
-            try pool.close()
-        }
-
+    func testFreshInstallOffsetsCarryRefetchState() throws {
+        // EXP-180 collapsed the migration list to a single v1_initial (the -v5
+        // filename bump wiped every old snapshot, so the additive v2 upgrade
+        // path is gone). The refetch-state columns must now be baked directly
+        // into the collapsed create — a DatabaseManager-opened pool decodes
+        // rows with the inert defaults straight away.
+        let accountId = "refetch-fresh-\(UUID().uuidString)"
         let manager = DatabaseManager()
-        defer { manager.closePool(forAccountId: accountId) }
+        defer {
+            manager.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
         let pool = try manager.pool(forAccountId: accountId)
+        try pool.write { db in
+            try db.execute(
+                sql: "INSERT INTO electric_offsets (shape, handle, offset) VALUES (?, ?, ?)",
+                arguments: ["issues", "h1", "42_0"]
+            )
+        }
         let saved = try pool.read { try ElectricOffset.fetchOne($0, key: "issues") }
         XCTAssertEqual(saved?.handle, "h1")
         XCTAssertEqual(saved?.offset, "42_0")

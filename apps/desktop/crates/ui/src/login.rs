@@ -27,7 +27,7 @@
 //! a **copyable row** (degrade to copy-paste, never a dead end). The
 //! callback lands via `on_open_urls` → [`crate::oauth::handle_open_urls`].
 //!
-//! The workspace renders this view whenever the session machine is not
+//! The shell renders this view whenever the session machine is not
 //! `Synced` — including `AuthExpired`, the dead-token routing
 //! (never an empty board).
 

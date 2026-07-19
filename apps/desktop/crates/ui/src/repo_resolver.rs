@@ -2,29 +2,29 @@
 //!
 //! The five trunk/IDE surfaces — the git bar (§4.3), run bar (§7.5), file tree
 //! (§4.5), terminal-dock `+` shell (§4.6) and Source Control screen (§4.4) — all
-//! need the same project → repo resolution off the server-only
+//! need the same board → repo resolution off the server-only
 //! `repositories.list` (never synced). Rather than each firing its own identical
-//! network call on every project switch (five concurrent identical queries),
+//! network call on every board switch (five concurrent identical queries),
 //! this ONE per-window entity runs `repositories.list` once per active
-//! workspace, caches the parsed rows, and exposes the resolution as gpui state
+//! team, caches the parsed rows, and exposes the resolution as gpui state
 //! the surfaces `cx.observe` + read.
 //!
-//! The v4 model is one repo per project via `projects.repositoryId`; the server
-//! returns each repo with the `projects[]` it backs (the web `repositories.list`
-//! loader — `[{ id, name, slug }]`). A project resolves to the repo whose
-//! `projects[]` contains its id; the workspace-level trunk surface resolves the
-//! first project's repo, else the sole workspace repo.
+//! The v4 model is one repo per board via `boards.repositoryId`; the server
+//! returns each repo with the `boards[]` it backs (the web `repositories.list`
+//! loader — `[{ id, name, slug }]`). A board resolves to the repo whose
+//! `boards[]` contains its id; the team-level trunk surface resolves the
+//! first board's repo, else the sole team repo.
 //!
 //! Consumer-driven, like every other load gate in this crate: a surface calls
 //! [`RepoResolver::ensure_loaded`] at render time (idempotent — one fetch per
-//! workspace) and reads [`RepoResolver::lookup_project`] /
-//! [`RepoResolver::lookup_workspace_trunk`]. The fetch keys on the active
-//! workspace, so switching projects within a workspace reuses the cache; the
+//! team) and reads [`RepoResolver::lookup_board`] /
+//! [`RepoResolver::lookup_team_trunk`]. The fetch keys on the active
+//! team, so switching boards within a team reuses the cache; the
 //! surfaces `cx.observe(&resolver, …)` to re-render when the fetch lands.
 //!
 //! The cache is NOT restart-scoped (EXP-139): the resolver observes the synced
-//! projects collection and refetches when the workspace's
-//! (project → `repository_id`) mapping changes — linking/unlinking a repo on
+//! boards collection and refetches when the team's
+//! (board → `repository_id`) mapping changes — linking/unlinking a repo on
 //! the web (or another client) reaches the trunk surfaces live. The refetch is
 //! stale-while-revalidate: the old rows keep serving until the fresh ones land.
 
@@ -40,7 +40,7 @@ use crate::navigation::{self, Navigation};
 use crate::queries;
 
 /// A resolved repository row: the ids the launcher / token paths need plus the
-/// project ids it backs (the resolution key).
+/// board ids it backs (the resolution key).
 #[derive(Clone)]
 pub struct ResolvedRepo {
     /// `repositories.id` — the input to `repositories.installationToken`.
@@ -53,13 +53,13 @@ pub struct ResolvedRepo {
     /// branch resolves it at use-time from a freshly-minted installation token
     /// (whose `default_branch` is looked up live), not a stale/assumed default.
     pub default_branch: Option<String>,
-    /// The project ids this repo backs (`projects.repositoryId` == this repo).
-    project_ids: Vec<String>,
+    /// The board ids this repo backs (`boards.repositoryId` == this repo).
+    board_ids: Vec<String>,
 }
 
-/// The outcome of a project / trunk lookup against the cached rows.
+/// The outcome of a board / trunk lookup against the cached rows.
 pub enum RepoLookup {
-    /// `repositories.list` has not resolved yet (or the workspace isn't known).
+    /// `repositories.list` has not resolved yet (or the team isn't known).
     Loading,
     /// Resolved: this scope is backed by a repo.
     Found(ResolvedRepo),
@@ -69,7 +69,7 @@ pub enum RepoLookup {
     Error(SharedString),
 }
 
-/// The single fetch's lifecycle for the active workspace.
+/// The single fetch's lifecycle for the active team.
 enum State {
     Idle,
     Loading,
@@ -80,13 +80,13 @@ enum State {
 /// One per window, shared by all five trunk/IDE surfaces.
 pub struct RepoResolver {
     nav: Entity<Navigation>,
-    /// The workspace the cached `state` belongs to; a switch re-fetches.
-    workspace_id: Option<String>,
+    /// The team the cached `state` belongs to; a switch re-fetches.
+    team_id: Option<String>,
     state: State,
-    /// Stale-fetch guard — bumped per fetch so a superseded workspace's
+    /// Stale-fetch guard — bumped per fetch so a superseded team's
     /// in-flight result is dropped.
     generation: u64,
-    /// The synced (project → repository) links the current fetch was started
+    /// The synced (board → repository) links the current fetch was started
     /// under (EXP-139) — a mismatch means a repo was linked, unlinked, or
     /// retargeted since, so the cached mapping is stale and must refetch.
     fetched_links: Option<Vec<(String, String)>>,
@@ -95,16 +95,16 @@ pub struct RepoResolver {
 
 impl RepoResolver {
     fn new(nav: Entity<Navigation>, cx: &mut Context<Self>) -> Self {
-        // EXP-139: `projects.repository_id` is Electric-synced and live, but
+        // EXP-139: `boards.repository_id` is Electric-synced and live, but
         // this cache is built from the server-only `repositories.list` — watch
         // the synced rows so a link change on any client invalidates it.
-        let projects = Store::global(cx).collections().projects.clone();
-        let subscriptions = vec![cx.observe(&projects, |this: &mut Self, _, cx| {
+        let boards = Store::global(cx).collections().boards.clone();
+        let subscriptions = vec![cx.observe(&boards, |this: &mut Self, _, cx| {
             this.refresh_if_links_changed(cx);
         })];
         Self {
             nav,
-            workspace_id: None,
+            team_id: None,
             state: State::Idle,
             generation: 0,
             fetched_links: None,
@@ -112,13 +112,13 @@ impl RepoResolver {
         }
     }
 
-    /// Kick the single `repositories.list` fetch for the active workspace when
-    /// first needed or after a workspace switch. Idempotent — surfaces call it
-    /// at render time; only one network call runs per workspace.
+    /// Kick the single `repositories.list` fetch for the active team when
+    /// first needed or after a team switch. Idempotent — surfaces call it
+    /// at render time; only one network call runs per team.
     pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
-        let workspace_id = navigation::active_workspace_id(&self.nav, cx);
-        if workspace_id.as_deref() != self.workspace_id.as_deref() {
-            self.workspace_id = workspace_id;
+        let team_id = navigation::active_team_id(&self.nav, cx);
+        if team_id.as_deref() != self.team_id.as_deref() {
+            self.team_id = team_id;
             self.state = State::Idle;
         }
         if matches!(self.state, State::Idle) {
@@ -126,7 +126,7 @@ impl RepoResolver {
         }
     }
 
-    /// Refetch when the synced (project → repository) links no longer match
+    /// Refetch when the synced (board → repository) links no longer match
     /// what the cached rows were fetched under (EXP-139). An `Idle` cache
     /// refetches on the next `ensure_loaded` anyway, and a `Loading` fetch
     /// re-checks on completion, so only settled states act here.
@@ -134,17 +134,17 @@ impl RepoResolver {
         if !matches!(self.state, State::Ready(_) | State::Error(_)) {
             return;
         }
-        let Some(workspace_id) = self.workspace_id.clone() else {
+        let Some(team_id) = self.team_id.clone() else {
             return;
         };
-        if self.fetched_links.as_ref() != Some(&links_snapshot(&workspace_id, cx)) {
+        if self.fetched_links.as_ref() != Some(&links_snapshot(&team_id, cx)) {
             self.start_fetch(cx);
         }
     }
 
     fn start_fetch(&mut self, cx: &mut Context<Self>) {
-        let Some(workspace_id) = self.workspace_id.clone() else {
-            return; // workspace not synced yet — a surface re-drives on notify
+        let Some(team_id) = self.team_id.clone() else {
+            return; // team not synced yet — a surface re-drives on notify
         };
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
@@ -156,19 +156,19 @@ impl RepoResolver {
         if !matches!(self.state, State::Ready(_)) {
             self.state = State::Loading;
         }
-        self.fetched_links = Some(links_snapshot(&workspace_id, cx));
+        self.fetched_links = Some(links_snapshot(&team_id, cx));
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    fetch_repos(&trpc, &workspace_id).map_err(|err| err.to_string())
+                    fetch_repos(&trpc, &team_id).map_err(|err| err.to_string())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
-                    return; // superseded by a workspace switch
+                    return; // superseded by a team switch
                 }
                 match result {
                     Ok(repos) => this.state = State::Ready(repos),
@@ -192,15 +192,15 @@ impl RepoResolver {
         .detach();
     }
 
-    /// Resolve a project's repo (git bar / run bar / file tree / `+` shell
-    /// scope): the repo whose `projects[]` contains `project_id`.
-    pub fn lookup_project(&self, project_id: &str) -> RepoLookup {
+    /// Resolve a board's repo (git bar / run bar / file tree / `+` shell
+    /// scope): the repo whose `boards[]` contains `board_id`.
+    pub fn lookup_board(&self, board_id: &str) -> RepoLookup {
         match &self.state {
             State::Idle | State::Loading => RepoLookup::Loading,
             State::Error(msg) => RepoLookup::Error(msg.clone()),
             State::Ready(repos) => match repos
                 .iter()
-                .find(|repo| repo.project_ids.iter().any(|id| id == project_id))
+                .find(|repo| repo.board_ids.iter().any(|id| id == board_id))
             {
                 Some(repo) => RepoLookup::Found(repo.clone()),
                 None => RepoLookup::NotFound,
@@ -208,18 +208,18 @@ impl RepoResolver {
         }
     }
 
-    /// Resolve the workspace trunk repo (Source Control scope): the
-    /// `first_project`'s repo, else the sole repo in the workspace.
-    pub fn lookup_workspace_trunk(&self, first_project: Option<&str>) -> RepoLookup {
+    /// Resolve the team trunk repo (Source Control scope): the
+    /// `first_board`'s repo, else the sole repo in the team.
+    pub fn lookup_team_trunk(&self, first_board: Option<&str>) -> RepoLookup {
         match &self.state {
             State::Idle | State::Loading => RepoLookup::Loading,
             State::Error(msg) => RepoLookup::Error(msg.clone()),
             State::Ready(repos) => {
-                let chosen = first_project
-                    .and_then(|project_id| {
+                let chosen = first_board
+                    .and_then(|board_id| {
                         repos
                             .iter()
-                            .find(|repo| repo.project_ids.iter().any(|id| id == project_id))
+                            .find(|repo| repo.board_ids.iter().any(|id| id == board_id))
                     })
                     .or(if repos.len() == 1 {
                         repos.first()
@@ -235,34 +235,34 @@ impl RepoResolver {
     }
 }
 
-/// A workspace's (project → repository) links from the SYNCED projects rows
+/// A team's (board → repository) links from the SYNCED boards rows
 /// (EXP-139) — the live signal that a server-only `repositories.list` cache
-/// is stale. Shared with the settings Projects/Repositories panes, which
+/// is stale. Shared with the settings Boards/Repositories panes, which
 /// cache the same server read. Sorted, so collection iteration order can
-/// never look like a link change. Repo-less projects are omitted (unrelated
-/// project churn must not force refetches); archived projects are omitted
-/// because the server's `projects[]` mapping hides them too, so archiving or
-/// unarchiving a LINKED project correctly counts as a mapping change.
-pub(crate) fn links_snapshot(workspace_id: &str, cx: &App) -> Vec<(String, String)> {
+/// never look like a link change. Repo-less boards are omitted (unrelated
+/// board churn must not force refetches); archived boards are omitted
+/// because the server's `boards[]` mapping hides them too, so archiving or
+/// unarchiving a LINKED board correctly counts as a mapping change.
+pub(crate) fn links_snapshot(team_id: &str, cx: &App) -> Vec<(String, String)> {
     let store = Store::global(cx);
-    let projects = store.collections().projects.read(cx);
-    let mut links: Vec<(String, String)> = projects
+    let boards = store.collections().boards.read(cx);
+    let mut links: Vec<(String, String)> = boards
         .iter()
-        .filter(|project| {
-            project.workspace_id == workspace_id && project.archived_at.is_none()
+        .filter(|board| {
+            board.team_id == team_id && board.archived_at.is_none()
         })
-        .filter_map(|project| {
-            project
+        .filter_map(|board| {
+            board
                 .repository_id
                 .clone()
-                .map(|repository_id| (project.id.clone(), repository_id))
+                .map(|repository_id| (board.id.clone(), repository_id))
         })
         .collect();
     links.sort();
     links
 }
 
-/// One `repositories.list` row (the new `projects[]` shape).
+/// One `repositories.list` row (the new `boards[]` shape).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RepoRow {
@@ -271,28 +271,28 @@ struct RepoRow {
     #[serde(default)]
     default_branch: Option<String>,
     #[serde(default)]
-    projects: Vec<ProjectRef>,
+    boards: Vec<BoardRef>,
 }
 
 #[derive(Deserialize)]
-struct ProjectRef {
+struct BoardRef {
     id: String,
 }
 
-/// `repositories.list` → resolved rows (the new `projects[]` shape). Blocking;
+/// `repositories.list` → resolved rows (the new `boards[]` shape). Blocking;
 /// the caller runs it off the foreground.
 fn fetch_repos(
     trpc: &api::TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
 ) -> Result<Vec<ResolvedRepo>, api::ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        workspace_id: &'a str,
+        team_id: &'a str,
     }
 
     let rows: Vec<RepoRow> =
-        trpc.query_with_input("repositories.list", &Input { workspace_id })?;
+        trpc.query_with_input("repositories.list", &Input { team_id })?;
     Ok(rows.into_iter().map(resolved_from_row).collect())
 }
 
@@ -305,7 +305,7 @@ fn resolved_from_row(row: RepoRow) -> ResolvedRepo {
         // Keep the server-healed value; an empty/absent field becomes `None` so
         // no consumer inherits a fabricated `main` (they resolve via a token).
         default_branch: row.default_branch.filter(|branch| !branch.is_empty()),
-        project_ids: row.projects.into_iter().map(|project| project.id).collect(),
+        board_ids: row.boards.into_iter().map(|board| board.id).collect(),
     }
 }
 
@@ -323,7 +323,7 @@ impl Global for ResolverRegistry {}
 /// The window's repo resolver, created on first access (shared by all five
 /// trunk/IDE surfaces in the window). The nav entity it observes is looked up
 /// through the same window registry, so every surface + the resolver agree on
-/// the active workspace/project scope.
+/// the active team/board scope.
 pub fn repo_resolver_for_window(window: &Window, cx: &mut App) -> Entity<RepoResolver> {
     let window_id = window.window_handle().window_id();
     if let Some(existing) = cx
@@ -340,7 +340,7 @@ pub fn repo_resolver_for_window(window: &Window, cx: &mut App) -> Entity<RepoRes
     resolver
 }
 
-/// Drop a closed window's entry (called from the `Workspace` release hook —
+/// Drop a closed window's entry (called from the `Shell` release hook —
 /// entities die with the window; the registry must not leak handles).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
     if let Some(registry) = cx.try_global::<ResolverRegistry>() {
@@ -361,7 +361,7 @@ mod tests {
             id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),
             default_branch: default_branch.map(str::to_string),
-            projects: vec![ProjectRef {
+            boards: vec![BoardRef {
                 id: "proj-1".to_string(),
             }],
         }
@@ -374,7 +374,7 @@ mod tests {
         let resolved = resolved_from_row(row(Some("master")));
         assert_eq!(resolved.default_branch.as_deref(), Some("master"));
         assert_eq!(resolved.repository_id, "repo-1");
-        assert_eq!(resolved.project_ids, vec!["proj-1".to_string()]);
+        assert_eq!(resolved.board_ids, vec!["proj-1".to_string()]);
     }
 
     #[test]

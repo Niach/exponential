@@ -9,12 +9,12 @@ import type { AppRouter } from "@/routes/api/trpc/$"
 const ROUTER_NOUNS: Record<string, string> = {
   issues: `the issue`,
   comments: `the comment`,
-  projects: `the project`,
+  boards: `the board`,
   labels: `the label`,
   issueLabels: `the issue's labels`,
-  workspaces: `the workspace`,
-  workspaceMembers: `the member`,
-  workspaceInvites: `the invite`,
+  teams: `the team`,
+  teamMembers: `the member`,
+  teamInvites: `the invite`,
   notifications: `notifications`,
   subscriptions: `the subscription`,
 }
@@ -37,7 +37,7 @@ function mutationErrorTitle(path: string): string {
 }
 
 // Surface the server's TRPCError message when it reads like a sentence (the
-// authz layer writes human messages such as "Not a member of this workspace").
+// authz layer writes human messages such as "Not a member of this team").
 // Zod validation errors serialize as a JSON array — skip those.
 function serverErrorDetail(error: unknown): string | undefined {
   if (!(error instanceof TRPCClientError)) return undefined

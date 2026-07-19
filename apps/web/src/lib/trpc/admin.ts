@@ -5,31 +5,31 @@ import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts, sessions } from "@/db/auth-schema"
 import {
   attachments,
-  workspaces,
-  workspaceMembers,
-  projects,
+  teams,
+  teamMembers,
+  boards,
   issues,
   issueEvents,
   emailDeliveries,
   creem_subscriptions,
 } from "@/db/schema"
 import {
-  getWorkspacePlan,
-  getWorkspaceUsage,
+  getTeamPlan,
+  getTeamUsage,
   planFromSubscription,
   parseCompTier,
   resolveEffectiveTier,
   type PlanTier,
 } from "@/lib/billing"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
-import { getFeedbackWorkspaceId, isCloudInstance } from "@/lib/bootstrap-cloud"
-import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
+import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
+import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
   ACTIVE_SUBSCRIPTION_STATUSES,
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForUser,
-  findActiveSubscriptionsForWorkspaces,
-  getActiveWorkspaceSubscription,
+  findActiveSubscriptionsForTeams,
+  getActiveTeamSubscription,
 } from "@/lib/billing/creem-subscriptions"
 import type { db as Database } from "@/db/connection"
 
@@ -37,8 +37,8 @@ function bytesToMb(bytes: number): number {
   return Math.round((bytes / (1024 * 1024)) * 10) / 10
 }
 
-// The workspace's effective plan for admin read surfaces: comp floor over the
-// Creem-derived tier, mirroring getWorkspacePlan (self-hosted → unlimited).
+// The team's effective plan for admin read surfaces: comp floor over the
+// Creem-derived tier, mirroring getTeamPlan (self-hosted → unlimited).
 function effectivePlanForAdmin(
   cloud: boolean,
   sub: { productId: string; seats: number } | null,
@@ -63,7 +63,7 @@ export const adminRouter = router({
         image: users.image,
         isAdmin: users.isAdmin,
         createdAt: users.createdAt,
-        workspaceCount: sql<number>`count(distinct ${workspaceMembers.workspaceId})::int`,
+        teamCount: sql<number>`count(distinct ${teamMembers.teamId})::int`,
         providers: sql<string[]>`coalesce(array_agg(distinct ${accounts.providerId}) filter (where ${accounts.providerId} is not null), '{}')`,
         // max() is duplicate-insensitive, so the join fan-out that forces the
         // count(distinct …) above is harmless here.
@@ -72,7 +72,7 @@ export const adminRouter = router({
       })
       .from(users)
       .where(eq(users.isAgent, false))
-      .leftJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
+      .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
       .leftJoin(accounts, eq(accounts.userId, users.id))
       .leftJoin(sessions, eq(sessions.userId, users.id))
       .groupBy(users.id)
@@ -167,19 +167,19 @@ export const adminRouter = router({
       let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
-        // fail closed when the user is the sole owner of a workspace that
+        // fail closed when the user is the sole owner of a team that
         // still has other members — an admin delete must not silently strand
-        // a team — and delete workspaces where they are the only member.
-        const cleanup = await guardAndCleanupWorkspacesForUserDeletion(
+        // a team — and delete teams where they are the only member.
+        const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           input.userId,
           `admin`
         )
         storageKeys = cleanup.storageKeys
-        // Subscriptions bound to the deleted solo workspaces but purchased by
+        // Subscriptions bound to the deleted solo teams but purchased by
         // SOMEONE ELSE (e.g. after an ownership hand-off) — invisible to the
-        // buyer-scoped capture above, yet their workspace just vanished.
-        for (const sub of cleanup.doomedWorkspaceSubscriptions) {
+        // buyer-scoped capture above, yet their team just vanished.
+        for (const sub of cleanup.doomedTeamSubscriptions) {
           if (!doomedSubscriptions.some((s) => s.id === sub.id)) {
             doomedSubscriptions.push(sub)
           }
@@ -196,77 +196,77 @@ export const adminRouter = router({
       return { ok: true }
     }),
 
-  listWorkspaces: adminProcedure.query(async ({ ctx }) => {
+  listTeams: adminProcedure.query(async ({ ctx }) => {
     const wsRows = await ctx.db
       .select({
-        id: workspaces.id,
-        name: workspaces.name,
-        slug: workspaces.slug,
-        compTier: workspaces.compTier,
-        createdAt: workspaces.createdAt,
+        id: teams.id,
+        name: teams.name,
+        slug: teams.slug,
+        compTier: teams.compTier,
+        createdAt: teams.createdAt,
       })
-      .from(workspaces)
-      .orderBy(desc(workspaces.createdAt))
+      .from(teams)
+      .orderBy(desc(teams.createdAt))
 
     if (wsRows.length === 0) return []
 
     const ids = wsRows.map((w) => w.id)
 
-    // Grouped queries only — one per aggregate, never per workspace (the old
-    // implementation ran getWorkspacePlan once per row).
-    const [memberRows, projectRows, issueRows, storageRows, ownerRows, subRows] =
+    // Grouped queries only — one per aggregate, never per team (the old
+    // implementation ran getTeamPlan once per row).
+    const [memberRows, boardRows, issueRows, storageRows, ownerRows, subRows] =
       await Promise.all([
         ctx.db
           .select({
-            workspaceId: workspaceMembers.workspaceId,
+            teamId: teamMembers.teamId,
             count: sql<number>`count(*)::int`,
           })
-          .from(workspaceMembers)
-          .where(inArray(workspaceMembers.workspaceId, ids))
-          .groupBy(workspaceMembers.workspaceId),
+          .from(teamMembers)
+          .where(inArray(teamMembers.teamId, ids))
+          .groupBy(teamMembers.teamId),
         ctx.db
           .select({
-            workspaceId: projects.workspaceId,
+            teamId: boards.teamId,
             count: sql<number>`count(*)::int`,
           })
-          .from(projects)
-          .where(inArray(projects.workspaceId, ids))
-          .groupBy(projects.workspaceId),
+          .from(boards)
+          .where(inArray(boards.teamId, ids))
+          .groupBy(boards.teamId),
         ctx.db
           .select({
-            workspaceId: projects.workspaceId,
+            teamId: boards.teamId,
             count: sql<number>`count(${issues.id})::int`,
           })
           .from(issues)
-          .innerJoin(projects, eq(projects.id, issues.projectId))
-          .where(inArray(projects.workspaceId, ids))
-          .groupBy(projects.workspaceId),
+          .innerJoin(boards, eq(boards.id, issues.boardId))
+          .where(inArray(boards.teamId, ids))
+          .groupBy(boards.teamId),
         ctx.db
           .select({
-            workspaceId: attachments.workspaceId,
+            teamId: attachments.teamId,
             totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
           })
           .from(attachments)
-          .where(inArray(attachments.workspaceId, ids))
-          .groupBy(attachments.workspaceId),
+          .where(inArray(attachments.teamId, ids))
+          .groupBy(attachments.teamId),
         ctx.db
           .select({
-            workspaceId: workspaceMembers.workspaceId,
+            teamId: teamMembers.teamId,
             userId: users.id,
             name: users.name,
             email: users.email,
           })
-          .from(workspaceMembers)
-          .innerJoin(users, eq(users.id, workspaceMembers.userId))
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
           .where(
             and(
-              inArray(workspaceMembers.workspaceId, ids),
-              eq(workspaceMembers.role, `owner`)
+              inArray(teamMembers.teamId, ids),
+              eq(teamMembers.role, `owner`)
             )
           ),
         ctx.db
           .select({
-            workspaceId: creem_subscriptions.workspaceId,
+            teamId: creem_subscriptions.teamId,
             productId: creem_subscriptions.productId,
             seats: creem_subscriptions.seats,
             status: creem_subscriptions.status,
@@ -275,34 +275,34 @@ export const adminRouter = router({
           .from(creem_subscriptions)
           .where(
             and(
-              inArray(creem_subscriptions.workspaceId, ids),
+              inArray(creem_subscriptions.teamId, ids),
               inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
             )
           )
           .orderBy(desc(creem_subscriptions.seats)),
       ])
 
-    const memberCounts = new Map(memberRows.map((r) => [r.workspaceId, r.count]))
-    const projectCounts = new Map(projectRows.map((r) => [r.workspaceId, r.count]))
-    const issueCounts = new Map(issueRows.map((r) => [r.workspaceId, r.count]))
+    const memberCounts = new Map(memberRows.map((r) => [r.teamId, r.count]))
+    const boardCounts = new Map(boardRows.map((r) => [r.teamId, r.count]))
+    const issueCounts = new Map(issueRows.map((r) => [r.teamId, r.count]))
     const storageMbByWs = new Map(
-      storageRows.map((r) => [r.workspaceId, bytesToMb(Number(r.totalBytes))])
+      storageRows.map((r) => [r.teamId, bytesToMb(Number(r.totalBytes))])
     )
     const ownersByWs = new Map<
       string,
       { id: string; name: string; email: string }[]
     >()
     for (const o of ownerRows) {
-      const list = ownersByWs.get(o.workspaceId) ?? []
+      const list = ownersByWs.get(o.teamId) ?? []
       list.push({ id: o.userId, name: o.name, email: o.email })
-      ownersByWs.set(o.workspaceId, list)
+      ownersByWs.set(o.teamId, list)
     }
-    // Rows arrive seats-desc, so the first row per workspace is the same
-    // most-seats-wins subscription getWorkspacePlan resolves.
+    // Rows arrive seats-desc, so the first row per team is the same
+    // most-seats-wins subscription getTeamPlan resolves.
     const subByWs = new Map<string, (typeof subRows)[number]>()
     for (const s of subRows) {
-      if (s.workspaceId && !subByWs.has(s.workspaceId)) {
-        subByWs.set(s.workspaceId, s)
+      if (s.teamId && !subByWs.has(s.teamId)) {
+        subByWs.set(s.teamId, s)
       }
     }
 
@@ -332,7 +332,7 @@ export const adminRouter = router({
             }
           : null,
         memberCount: memberCounts.get(w.id) ?? 0,
-        projectCount: projectCounts.get(w.id) ?? 0,
+        boardCount: boardCounts.get(w.id) ?? 0,
         issueCount: issueCounts.get(w.id) ?? 0,
         storageMb: storageMbByWs.get(w.id) ?? 0,
         owners: ownersByWs.get(w.id) ?? [],
@@ -340,23 +340,23 @@ export const adminRouter = router({
     })
   }),
 
-  getWorkspaceDetail: adminProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+  getTeamDetail: adminProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const [ws] = await ctx.db
         .select({
-          id: workspaces.id,
-          name: workspaces.name,
-          slug: workspaces.slug,
-          iconUrl: workspaces.iconUrl,
-          compTier: workspaces.compTier,
-          createdAt: workspaces.createdAt,
+          id: teams.id,
+          name: teams.name,
+          slug: teams.slug,
+          iconUrl: teams.iconUrl,
+          compTier: teams.compTier,
+          createdAt: teams.createdAt,
         })
-        .from(workspaces)
-        .where(eq(workspaces.id, input.workspaceId))
+        .from(teams)
+        .where(eq(teams.id, input.teamId))
         .limit(1)
       if (!ws) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })
       }
 
       const [
@@ -365,18 +365,18 @@ export const adminRouter = router({
         subscription,
         [issueCountRow],
         memberRows,
-        projectRows,
+        boardRows,
         eventRows,
       ] = await Promise.all([
-        // Already comp-aware (the comp floor lives in getWorkspacePlan).
-        getWorkspacePlan(input.workspaceId),
-        getWorkspaceUsage(input.workspaceId),
-        getActiveWorkspaceSubscription(input.workspaceId),
+        // Already comp-aware (the comp floor lives in getTeamPlan).
+        getTeamPlan(input.teamId),
+        getTeamUsage(input.teamId),
+        getActiveTeamSubscription(input.teamId),
         ctx.db
           .select({ count: sql<number>`count(${issues.id})::int` })
           .from(issues)
-          .innerJoin(projects, eq(projects.id, issues.projectId))
-          .where(eq(projects.workspaceId, input.workspaceId)),
+          .innerJoin(boards, eq(boards.id, issues.boardId))
+          .where(eq(boards.teamId, input.teamId)),
         ctx.db
           .select({
             userId: users.id,
@@ -384,30 +384,30 @@ export const adminRouter = router({
             email: users.email,
             image: users.image,
             isAgent: users.isAgent,
-            role: workspaceMembers.role,
-            memberSince: workspaceMembers.createdAt,
+            role: teamMembers.role,
+            memberSince: teamMembers.createdAt,
             lastActiveAt: sql<Date | null>`max(${sessions.updatedAt})`,
           })
-          .from(workspaceMembers)
-          .innerJoin(users, eq(users.id, workspaceMembers.userId))
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
           .leftJoin(sessions, eq(sessions.userId, users.id))
-          .where(eq(workspaceMembers.workspaceId, input.workspaceId))
-          .groupBy(users.id, workspaceMembers.id)
-          .orderBy(desc(workspaceMembers.createdAt)),
+          .where(eq(teamMembers.teamId, input.teamId))
+          .groupBy(users.id, teamMembers.id)
+          .orderBy(desc(teamMembers.createdAt)),
         ctx.db
           .select({
-            id: projects.id,
-            name: projects.name,
-            slug: projects.slug,
-            deletedAt: projects.deletedAt,
-            createdAt: projects.createdAt,
+            id: boards.id,
+            name: boards.name,
+            slug: boards.slug,
+            deletedAt: boards.deletedAt,
+            createdAt: boards.createdAt,
             issueCount: sql<number>`count(${issues.id})::int`,
           })
-          .from(projects)
-          .leftJoin(issues, eq(issues.projectId, projects.id))
-          .where(eq(projects.workspaceId, input.workspaceId))
-          .groupBy(projects.id)
-          .orderBy(desc(projects.createdAt)),
+          .from(boards)
+          .leftJoin(issues, eq(issues.boardId, boards.id))
+          .where(eq(boards.teamId, input.teamId))
+          .groupBy(boards.id)
+          .orderBy(desc(boards.createdAt)),
         ctx.db
           .select({
             id: issueEvents.id,
@@ -422,14 +422,14 @@ export const adminRouter = router({
           .from(issueEvents)
           .innerJoin(issues, eq(issues.id, issueEvents.issueId))
           .leftJoin(users, eq(users.id, issueEvents.actorUserId))
-          .where(eq(issueEvents.workspaceId, input.workspaceId))
+          .where(eq(issueEvents.teamId, input.teamId))
           .orderBy(desc(issueEvents.createdAt))
           .limit(50),
       ])
 
-      // email_deliveries has no workspace column — scope via BOTH linkages it
+      // email_deliveries has no team column — scope via BOTH linkages it
       // does have: the recipient being a member (digest/notification mail) and
-      // the issue living in this workspace (covers widget_resolution rows,
+      // the issue living in this team (covers widget_resolution rows,
       // whose user_id is null because widget reporters have no users row).
       const memberIds = memberRows.map((m) => m.userId)
       const emailRows = await ctx.db
@@ -446,13 +446,13 @@ export const adminRouter = router({
         })
         .from(emailDeliveries)
         .leftJoin(issues, eq(issues.id, emailDeliveries.issueId))
-        .leftJoin(projects, eq(projects.id, issues.projectId))
+        .leftJoin(boards, eq(boards.id, issues.boardId))
         .where(
           or(
             memberIds.length
               ? inArray(emailDeliveries.userId, memberIds)
               : sql`false`,
-            eq(projects.workspaceId, input.workspaceId)
+            eq(boards.teamId, input.teamId)
           )
         )
         .orderBy(desc(emailDeliveries.createdAt))
@@ -466,7 +466,7 @@ export const adminRouter = router({
       ).plan
 
       return {
-        workspace: {
+        team: {
           id: ws.id,
           name: ws.name,
           slug: ws.slug,
@@ -500,7 +500,7 @@ export const adminRouter = router({
         usage,
         issueCount: issueCountRow?.count ?? 0,
         members: memberRows,
-        projects: projectRows,
+        boards: boardRows,
         events: eventRows,
         emailDeliveries: emailRows,
       }
@@ -534,17 +534,17 @@ export const adminRouter = router({
             .where(eq(accounts.userId, input.userId)),
           ctx.db
             .select({
-              workspaceId: workspaceMembers.workspaceId,
-              role: workspaceMembers.role,
-              memberSince: workspaceMembers.createdAt,
-              name: workspaces.name,
-              slug: workspaces.slug,
-              compTier: workspaces.compTier,
+              teamId: teamMembers.teamId,
+              role: teamMembers.role,
+              memberSince: teamMembers.createdAt,
+              name: teams.name,
+              slug: teams.slug,
+              compTier: teams.compTier,
             })
-            .from(workspaceMembers)
-            .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-            .where(eq(workspaceMembers.userId, input.userId))
-            .orderBy(desc(workspaceMembers.createdAt)),
+            .from(teamMembers)
+            .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+            .where(eq(teamMembers.userId, input.userId))
+            .orderBy(desc(teamMembers.createdAt)),
           ctx.db
             .select({
               id: sessions.id,
@@ -581,20 +581,20 @@ export const adminRouter = router({
             .where(eq(issues.creatorId, input.userId)),
         ])
 
-      // One grouped subscription query for all of the user's workspaces —
-      // same effective-plan resolution as listWorkspaces, no per-row lookups.
-      const wsIds = membershipRows.map((m) => m.workspaceId)
+      // One grouped subscription query for all of the user's teams —
+      // same effective-plan resolution as listTeams, no per-row lookups.
+      const wsIds = membershipRows.map((m) => m.teamId)
       const subRows = wsIds.length
         ? await ctx.db
             .select({
-              workspaceId: creem_subscriptions.workspaceId,
+              teamId: creem_subscriptions.teamId,
               productId: creem_subscriptions.productId,
               seats: creem_subscriptions.seats,
             })
             .from(creem_subscriptions)
             .where(
               and(
-                inArray(creem_subscriptions.workspaceId, wsIds),
+                inArray(creem_subscriptions.teamId, wsIds),
                 inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
               )
             )
@@ -602,8 +602,8 @@ export const adminRouter = router({
         : []
       const subByWs = new Map<string, (typeof subRows)[number]>()
       for (const s of subRows) {
-        if (s.workspaceId && !subByWs.has(s.workspaceId)) {
-          subByWs.set(s.workspaceId, s)
+        if (s.teamId && !subByWs.has(s.teamId)) {
+          subByWs.set(s.teamId, s)
         }
       }
       const cloud = isCloudInstance()
@@ -613,14 +613,14 @@ export const adminRouter = router({
           ...user,
           providers: providerRows.map((p) => p.providerId),
         },
-        workspaces: membershipRows.map((m) => {
+        teams: membershipRows.map((m) => {
           const { plan, compApplied } = effectivePlanForAdmin(
             cloud,
-            subByWs.get(m.workspaceId) ?? null,
+            subByWs.get(m.teamId) ?? null,
             m.compTier
           )
           return {
-            id: m.workspaceId,
+            id: m.teamId,
             name: m.name,
             slug: m.slug,
             role: m.role,
@@ -635,10 +635,10 @@ export const adminRouter = router({
       }
     }),
 
-  setWorkspaceCompTier: adminProcedure
+  setTeamCompTier: adminProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         // null clears the comp back to the pure Creem-derived plan. `free` is
         // deliberately not grantable — a floor of free is a no-op.
         compTier: z.enum([`pro`, `business`, `unlimited`]).nullable(),
@@ -646,24 +646,24 @@ export const adminRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const updated = await ctx.db
-        .update(workspaces)
+        .update(teams)
         .set({ compTier: input.compTier, updatedAt: new Date() })
-        .where(eq(workspaces.id, input.workspaceId))
-        .returning({ id: workspaces.id })
+        .where(eq(teams.id, input.teamId))
+        .returning({ id: teams.id })
       if (updated.length === 0) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })
       }
       return { ok: true }
     }),
 
   overview: adminProcedure.query(async ({ ctx }) => {
     const signupDay = sql<string>`to_char(date_trunc('day', ${users.createdAt}), 'YYYY-MM-DD')`
-    const wsDay = sql<string>`to_char(date_trunc('day', ${workspaces.createdAt}), 'YYYY-MM-DD')`
+    const wsDay = sql<string>`to_char(date_trunc('day', ${teams.createdAt}), 'YYYY-MM-DD')`
 
     const [
       [userCount],
-      [workspaceCount],
-      [projectCount],
+      [teamCount],
+      [boardCount],
       [issueCount],
       [storageSum],
       subRows,
@@ -674,8 +674,8 @@ export const adminRouter = router({
         .select({ count: sql<number>`count(*)::int` })
         .from(users)
         .where(eq(users.isAgent, false)),
-      ctx.db.select({ count: sql<number>`count(*)::int` }).from(workspaces),
-      ctx.db.select({ count: sql<number>`count(*)::int` }).from(projects),
+      ctx.db.select({ count: sql<number>`count(*)::int` }).from(teams),
+      ctx.db.select({ count: sql<number>`count(*)::int` }).from(boards),
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(issues),
       ctx.db
         .select({
@@ -691,7 +691,7 @@ export const adminRouter = router({
         .where(
           and(
             inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES),
-            isNotNull(creem_subscriptions.workspaceId)
+            isNotNull(creem_subscriptions.teamId)
           )
         ),
       ctx.db
@@ -707,8 +707,8 @@ export const adminRouter = router({
         .orderBy(signupDay),
       ctx.db
         .select({ day: wsDay, count: sql<number>`count(*)::int` })
-        .from(workspaces)
-        .where(sql`${workspaces.createdAt} >= now() - interval '30 days'`)
+        .from(teams)
+        .where(sql`${teams.createdAt} >= now() - interval '30 days'`)
         .groupBy(wsDay)
         .orderBy(wsDay),
     ])
@@ -730,8 +730,8 @@ export const adminRouter = router({
     return {
       totals: {
         users: userCount.count,
-        workspaces: workspaceCount.count,
-        projects: projectCount.count,
+        teams: teamCount.count,
+        boards: boardCount.count,
         issues: issueCount.count,
         storageMb: bytesToMb(Number(storageSum.totalBytes)),
         activeSubscriptions: subRows.length,
@@ -739,25 +739,25 @@ export const adminRouter = router({
         estimatedMrr,
       },
       signupsByDay: signupRows,
-      workspacesByDay: wsCreatedRows,
+      teamsByDay: wsCreatedRows,
     }
   }),
 
-  deleteWorkspace: adminProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+  deleteTeam: adminProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // The cloud boot would recreate the feedback workspace EMPTY — block.
-      if (input.workspaceId === (await getFeedbackWorkspaceId())) {
+      // The cloud boot would recreate the feedback team EMPTY — block.
+      if (input.teamId === (await getFeedbackTeamId())) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `The feedback workspace cannot be deleted`,
+          message: `The feedback team cannot be deleted`,
         })
       }
 
-      // Capture BEFORE the delete: creem_subscriptions.workspace_id goes
-      // `set null` when the workspace row is deleted.
-      const doomedSubscriptions = await findActiveSubscriptionsForWorkspaces([
-        input.workspaceId,
+      // Capture BEFORE the delete: creem_subscriptions.team_id goes
+      // `set null` when the team row is deleted.
+      const doomedSubscriptions = await findActiveSubscriptionsForTeams([
+        input.teamId,
       ])
 
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
@@ -769,14 +769,14 @@ export const adminRouter = router({
           await tx
             .select({ storageKey: attachments.storageKey })
             .from(attachments)
-            .where(eq(attachments.workspaceId, input.workspaceId))
+            .where(eq(attachments.teamId, input.teamId))
         ).map((row) => row.storageKey)
-        await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
+        await tx.delete(teams).where(eq(teams.id, input.teamId))
         return { ok: true, txId }
       })
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
-      // leaves the workspace half-deleted.
+      // leaves the team half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
       await deleteStorageObjects(storageKeys)
 

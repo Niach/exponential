@@ -7,8 +7,8 @@ import { createMentionRegExp } from "@/lib/mention-refs"
 // Renders `@email` mentions as name pills via decorations — the document text
 // stays the plain token, so the GFM markdown round-trip is untouched (exactly
 // like the `#IDENTIFIER` pills in lib/issue-ref-extension.ts). A token is only
-// decorated when the email resolves to a workspace member the viewer can see
-// (the users shape already excludes public-workspace co-members, so
+// decorated when the email resolves to a team member the viewer can see
+// (the users shape already excludes public-team co-members, so
 // anonymization holds by construction); unresolved tokens render as plain
 // text.
 //

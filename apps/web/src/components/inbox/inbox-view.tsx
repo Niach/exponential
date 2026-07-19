@@ -12,14 +12,14 @@ import {
   MessageSquarePlus,
   UserPlus,
 } from "lucide-react"
-import type { Issue, Notification, Project, Workspace } from "@/db/schema"
+import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { EmptyState } from "@/components/empty-state"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
   notificationCollection,
-  projectCollection,
-  workspaceCollection,
+  boardCollection,
+  teamCollection,
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -49,8 +49,8 @@ function relativeTime(value: Date | string): string {
 type IssueGroup = {
   kind: `issue`
   issue: Issue
-  project: Project
-  workspaceSlug: string
+  board: Board
+  teamSlug: string
   items: Notification[]
   unread: number
 }
@@ -70,9 +70,9 @@ type Group = IssueGroup | SupportGroup
 // latest notification's sentence (titles are already full human sentences —
 // no composition, no actor avatar). Reviewing open PRs moved to the
 // dedicated Reviews page.
-export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
+export function InboxView({ teamSlug }: { teamSlug: string }) {
   // The notifications shape is scoped to the current user, NOT to a
-  // workspace — the stream spans all the user's workspaces (matching the
+  // team — the stream spans all the user's teams (matching the
   // user-wide sidebar unread badge and "Mark all read").
   const { data: notifications } = useLiveQuery((query) =>
     query
@@ -82,31 +82,31 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
   const { data: issues } = useLiveQuery((query) =>
     query.from({ issues: issueCollection })
   )
-  const { data: projects } = useLiveQuery((query) =>
-    query.from({ projects: projectCollection })
+  const { data: boards } = useLiveQuery((query) =>
+    query.from({ boards: boardCollection })
   )
-  const { data: workspaces } = useLiveQuery((query) =>
-    query.from({ workspaces: workspaceCollection })
+  const { data: teams } = useLiveQuery((query) =>
+    query.from({ teams: teamCollection })
   )
 
   const issueMap = useMemo(
     () => new Map((issues ?? []).map((i) => [i.id, i as Issue])),
     [issues]
   )
-  const projectMap = useMemo(
-    () => new Map((projects ?? []).map((p) => [p.id, p as Project])),
-    [projects]
+  const boardMap = useMemo(
+    () => new Map((boards ?? []).map((p) => [p.id, p as Board])),
+    [boards]
   )
-  const workspaceSlugMap = useMemo(
+  const teamSlugMap = useMemo(
     () =>
-      new Map((workspaces ?? []).map((w) => [w.id, (w as Workspace).slug])),
-    [workspaces]
+      new Map((teams ?? []).map((w) => [w.id, (w as Team).slug])),
+    [teams]
   )
 
   // Group notifications by issue (newest first, tracking unread count), plus
   // ONE synthetic Support group for issue-less support_reply rows. Each issue
-  // group links into the issue's OWN workspace — linking with the current
-  // route's slug would dead-end for issues from other workspaces.
+  // group links into the issue's OWN team — linking with the current
+  // route's slug would dead-end for issues from other teams.
   const groups = useMemo<Group[]>(() => {
     const byIssue = new Map<string, IssueGroup>()
     const support: SupportGroup = { kind: `support`, items: [], unread: 0 }
@@ -120,17 +120,17 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
       }
       const issue = issueMap.get(n.issueId)
       if (!issue) continue
-      const project = projectMap.get(issue.projectId)
-      if (!project) continue
-      const slug = workspaceSlugMap.get(project.workspaceId)
+      const board = boardMap.get(issue.boardId)
+      if (!board) continue
+      const slug = teamSlugMap.get(board.teamId)
       if (!slug) continue
       let g = byIssue.get(n.issueId)
       if (!g) {
         g = {
           kind: `issue`,
           issue,
-          project,
-          workspaceSlug: slug,
+          board,
+          teamSlug: slug,
           items: [],
           unread: 0,
         }
@@ -146,7 +146,7 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
     )
-  }, [notifications, issueMap, projectMap, workspaceSlugMap])
+  }, [notifications, issueMap, boardMap, teamSlugMap])
 
   const totalUnread = groups.reduce((sum, g) => sum + g.unread, 0)
 
@@ -190,8 +190,8 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
               return (
                 <Link
                   key="support"
-                  to="/t/$workspaceSlug/support"
-                  params={{ workspaceSlug }}
+                  to="/t/$teamSlug/support"
+                  params={{ teamSlug }}
                   onClick={() => void markGroupRead(g.items)}
                   className={cn(
                     `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
@@ -229,10 +229,10 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
             return (
               <Link
                 key={g.issue.id}
-                to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+                to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
                 params={{
-                  workspaceSlug: g.workspaceSlug,
-                  projectSlug: g.project.slug,
+                  teamSlug: g.teamSlug,
+                  boardSlug: g.board.slug,
                   issueIdentifier: g.issue.identifier,
                 }}
                 onClick={() => void markGroupRead(g.items)}

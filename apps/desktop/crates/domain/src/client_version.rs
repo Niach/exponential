@@ -9,8 +9,8 @@ pub const CLIENT_VERSION_HEADER: &str = "x-client-version";
 
 /// The header value: `desktop/<compiled version>`. Release CI injects the real
 /// tag version via `EXP_DESKTOP_VERSION`; the `CARGO_PKG_VERSION` fallback
-/// resolves to the shared workspace version (every crate inherits
-/// `version.workspace = true`, so it matches the update-check's own
+/// resolves to the shared team version (every crate inherits
+/// `version.team = true`, so it matches the update-check's own
 /// `current_version()` in `ui::update` regardless of which crate this compiles
 /// into).
 pub fn client_version_header_value() -> String {

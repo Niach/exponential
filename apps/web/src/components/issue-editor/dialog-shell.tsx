@@ -44,7 +44,7 @@ interface IssueEditorDialogShellProps {
   disabled?: boolean
   // When true, disables status / priority / assignee / due-date / overflow
   // controls while keeping title, description, labels, and image upload
-  // available. Used for non-moderator contributors in public workspaces.
+  // available. Used for non-moderator contributors in public teams.
   restrictModeration?: boolean
   dialogTestId?: string
   dueDate: Date | undefined
@@ -75,14 +75,14 @@ interface IssueEditorDialogShellProps {
   open: boolean
   primaryAction?: PrimaryAction
   priority: IssuePriority
-  projectColor: string
-  projectPrefix: string
+  boardColor: string
+  boardPrefix: string
   selectedLabelIds: string[]
   status: IssueStatus
   title: string
   titleRef?: Ref<HTMLInputElement>
   users: User[]
-  workspaceId: string
+  teamId: string
 }
 
 export function IssueEditorDialogShell({
@@ -121,14 +121,14 @@ export function IssueEditorDialogShell({
   open,
   primaryAction,
   priority,
-  projectColor,
-  projectPrefix,
+  boardColor,
+  boardPrefix,
   selectedLabelIds,
   status,
   title,
   titleRef,
   users,
-  workspaceId,
+  teamId,
 }: IssueEditorDialogShellProps) {
   const isMobile = useIsMobile()
   const closeBlocked = closeDisabled === true
@@ -148,13 +148,13 @@ export function IssueEditorDialogShell({
     [editorRef]
   )
 
-  const projectPill = (
+  const boardPill = (
     <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
       <div
         className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: projectColor }}
+        style={{ backgroundColor: boardColor }}
       />
-      {projectPrefix}
+      {boardPrefix}
     </div>
   )
 
@@ -201,7 +201,7 @@ export function IssueEditorDialogShell({
       priority={priority}
       assigneeId={assigneeId}
       selectedLabelIds={selectedLabelIds}
-      workspaceId={workspaceId}
+      teamId={teamId}
       users={users}
       dueDate={dueDate}
       dueTime={dueTime}
@@ -235,7 +235,7 @@ export function IssueEditorDialogShell({
     const mobileBody = (
       <>
         <SheetTitle className="sr-only">
-          {title || `Issue ${projectPrefix}`}
+          {title || `Issue ${boardPrefix}`}
         </SheetTitle>
         <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2 border-b border-border/50">
           <Button
@@ -250,7 +250,7 @@ export function IssueEditorDialogShell({
             <X className="size-4" />
           </Button>
           <div className="flex flex-1 items-center justify-center gap-1.5 min-w-0 text-sm text-muted-foreground">
-            {projectPill}
+            {boardPill}
             <span className="truncate">{headerContent}</span>
           </div>
           {primaryAction ? (
@@ -322,11 +322,11 @@ export function IssueEditorDialogShell({
   const desktopBody = (
     <>
       <DialogTitle className="sr-only">
-        {title || `Issue ${projectPrefix}`}
+        {title || `Issue ${boardPrefix}`}
       </DialogTitle>
       <div className="flex items-center justify-between px-5 pt-4 pb-2">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          {projectPill}
+          {boardPill}
           <ChevronRight className="h-3 w-3" />
           {headerContent}
         </div>

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createShapeRouteHandler } from "@/lib/shape-route"
-import { Route as projectsRoute } from "@/routes/api/shapes/projects"
+import { Route as boardsRoute } from "@/routes/api/shapes/boards"
 import { Route as usersRoute } from "@/routes/api/shapes/users"
-import { Route as workspaceInvitesRoute } from "@/routes/api/shapes/workspace-invites"
+import { Route as teamInvitesRoute } from "@/routes/api/shapes/team-invites"
 import { Route as commentsRoute } from "@/routes/api/shapes/comments"
 import { Route as issueEventsRoute } from "@/routes/api/shapes/issue-events"
 import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
@@ -18,13 +18,13 @@ const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   })
 )
 
-// The real shape proxies resolve their scope through workspace-membership; keep
+// The real shape proxies resolve their scope through team-membership; keep
 // the pure clause builders (andClauses/buildWhereClause) real and only stub the
 // DB-touching scope resolvers.
 const membership = vi.hoisted(() => ({
-  getUserWorkspaceIds: vi.fn(),
-  getUserProjectIds: vi.fn(),
-  getReadableUserIdsInWorkspaces: vi.fn(),
+  getUserTeamIds: vi.fn(),
+  getUserBoardIds: vi.fn(),
+  getReadableUserIdsInTeams: vi.fn(),
 }))
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
@@ -36,14 +36,14 @@ vi.mock(`@/lib/electric-proxy`, () => ({
   proxyElectricRequest,
 }))
 
-vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
+vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/workspace-membership")>()
+    await importOriginal<typeof import("@/lib/team-membership")>()
   return {
     ...actual,
-    getUserWorkspaceIds: membership.getUserWorkspaceIds,
-    getUserProjectIds: membership.getUserProjectIds,
-    getReadableUserIdsInWorkspaces: membership.getReadableUserIdsInWorkspaces,
+    getUserTeamIds: membership.getUserTeamIds,
+    getUserBoardIds: membership.getUserBoardIds,
+    getReadableUserIdsInTeams: membership.getReadableUserIdsInTeams,
   }
 })
 
@@ -81,7 +81,7 @@ describe(`shape route handler`, () => {
 
     const handler = createShapeRouteHandler({
       table: `issues`,
-      getWhere: async () => `"project_id" = 'p-1'`,
+      getWhere: async () => `"board_id" = 'p-1'`,
     })
 
     // A dead token must NOT degrade to the anonymous where clause (that
@@ -101,7 +101,7 @@ describe(`shape route handler`, () => {
 
     const handler = createShapeRouteHandler({
       table: `issues`,
-      getWhere: async () => `"project_id" = 'p-1'`,
+      getWhere: async () => `"board_id" = 'p-1'`,
     })
 
     const response = await handler({
@@ -122,7 +122,7 @@ describe(`shape route handler`, () => {
 
     const getWhere = vi.fn().mockResolvedValue(`"is_public" = true`)
     const handler = createShapeRouteHandler({
-      table: `workspaces`,
+      table: `teams`,
       getWhere,
     })
 
@@ -130,7 +130,7 @@ describe(`shape route handler`, () => {
     // cookie falls back to the anonymous where clause instead of erroring;
     // the router auth guard re-authenticates on next navigation.
     const response = await handler({
-      request: new Request(`https://example.com/api/shapes/workspaces`, {
+      request: new Request(`https://example.com/api/shapes/teams`, {
         headers: { cookie: `better-auth.session_token=expired` },
       }),
     })
@@ -147,12 +147,12 @@ describe(`shape route handler`, () => {
 
     const getWhere = vi.fn().mockResolvedValue(`"is_public" = true`)
     const handler = createShapeRouteHandler({
-      table: `workspaces`,
+      table: `teams`,
       getWhere,
     })
 
     await handler({
-      request: new Request(`https://example.com/api/shapes/workspaces`),
+      request: new Request(`https://example.com/api/shapes/teams`),
     })
 
     expect(getWhere).toHaveBeenCalledWith(null)
@@ -167,7 +167,7 @@ describe(`shape route handler`, () => {
 
     const handler = createShapeRouteHandler({
       table: `issue_subscribers`,
-      columns: [`id`, `issue_id`, `workspace_id`],
+      columns: [`id`, `issue_id`, `team_id`],
     })
 
     // A client-supplied columns param must not widen the allowlist.
@@ -178,7 +178,7 @@ describe(`shape route handler`, () => {
     })
 
     expect(originUrl.searchParams.get(`columns`)).toBe(
-      `id,issue_id,workspace_id`
+      `id,issue_id,team_id`
     )
   })
 
@@ -214,19 +214,19 @@ describe(`shape column + trash contracts`, () => {
     resolveSession.mockReset()
     prepareElectricUrl.mockReset()
     proxyElectricRequest.mockReset()
-    membership.getUserWorkspaceIds.mockReset()
-    membership.getReadableUserIdsInWorkspaces.mockReset()
+    membership.getUserTeamIds.mockReset()
+    membership.getReadableUserIdsInTeams.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  it(`pins the projects columns and appends the deleted_at filter for members`, async () => {
+  it(`pins the boards columns and appends the deleted_at filter for members`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserWorkspaceIds.mockResolvedValue([`w-2`, `w-1`])
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
 
-    await shapeHandler(projectsRoute)({
-      request: new Request(`https://example.com/api/shapes/projects`, {
+    await shapeHandler(boardsRoute)({
+      request: new Request(`https://example.com/api/shapes/boards`, {
         headers: { authorization: `Bearer t` },
       }),
     })
@@ -241,17 +241,17 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`helpdesk_enabled`)
     const where = originUrl.searchParams.get(`where`) ?? ``
     expect(where).toContain(`"deleted_at" IS NULL`)
-    // Byte-stable: workspace ids are sorted regardless of query heap order.
-    expect(where).toContain(`"workspace_id" IN ('w-1','w-2')`)
+    // Byte-stable: team ids are sorted regardless of query heap order.
+    expect(where).toContain(`"team_id" IN ('w-1','w-2')`)
   })
 
-  it(`anonymous projects requests get the impossible-match sentinel`, async () => {
+  it(`anonymous boards requests get the impossible-match sentinel`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue(null)
     prepareElectricUrl.mockReturnValue(originUrl)
 
-    await shapeHandler(projectsRoute)({
-      request: new Request(`https://example.com/api/shapes/projects`),
+    await shapeHandler(boardsRoute)({
+      request: new Request(`https://example.com/api/shapes/boards`),
     })
 
     expect(originUrl.searchParams.get(`where`)).toBe(
@@ -263,7 +263,7 @@ describe(`shape column + trash contracts`, () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getReadableUserIdsInWorkspaces.mockResolvedValue([`user-1`])
+    membership.getReadableUserIdsInTeams.mockResolvedValue([`user-1`])
 
     await shapeHandler(usersRoute)({
       request: new Request(`https://example.com/api/shapes/users`, {
@@ -287,19 +287,19 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`email_verified`)
   })
 
-  it(`pins the workspace-invites columns and excludes the invite bearer token`, async () => {
+  it(`pins the team-invites columns and excludes the invite bearer token`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserWorkspaceIds.mockResolvedValue([`w-1`])
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
 
     // A client attempting to widen the allowlist back to `token` must be
     // overridden by the server pin — the token is a bearer secret (accept is
     // not recipient-bound; a synced owner-role token would let any member
     // escalate to owner).
-    await shapeHandler(workspaceInvitesRoute)({
+    await shapeHandler(teamInvitesRoute)({
       request: new Request(
-        `https://example.com/api/shapes/workspace-invites?columns=token`,
+        `https://example.com/api/shapes/team-invites?columns=token`,
         { headers: { authorization: `Bearer t` } }
       ),
     })
@@ -307,7 +307,7 @@ describe(`shape column + trash contracts`, () => {
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).toEqual([
       `id`,
-      `workspace_id`,
+      `team_id`,
       `invited_by_id`,
       `role`,
       `accepted_at`,
@@ -324,13 +324,13 @@ describe(`trash-aware child shapes`, () => {
     resolveSession.mockReset()
     prepareElectricUrl.mockReset()
     proxyElectricRequest.mockReset()
-    membership.getUserWorkspaceIds.mockReset()
-    membership.getUserProjectIds.mockReset()
+    membership.getUserTeamIds.mockReset()
+    membership.getUserBoardIds.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // The five issue-child shapes with a NOT NULL project_id all scope members
-  // by project (never workspace) so a trashed project's children drop out of
+  // The five issue-child shapes with a NOT NULL board_id all scope members
+  // by board (never team) so a trashed board's children drop out of
   // sync. buildWhereClause sorts the id list, so the SQL is byte-stable.
   const childRoutes = [
     [`comments`, commentsRoute],
@@ -341,13 +341,13 @@ describe(`trash-aware child shapes`, () => {
   ] as const
 
   it.each(childRoutes)(
-    `%s member branch is project-scoped and byte-stable`,
+    `%s member branch is board-scoped and byte-stable`,
     async (_name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue({ user: { id: `user-1` } })
       prepareElectricUrl.mockReturnValue(originUrl)
       // Unsorted on purpose — the emitted clause must come out sorted.
-      membership.getUserProjectIds.mockResolvedValue([`p-2`, `p-1`])
+      membership.getUserBoardIds.mockResolvedValue([`p-2`, `p-1`])
 
       await shapeHandler(route)({
         request: new Request(`https://example.com/api/shapes/x`, {
@@ -356,10 +356,10 @@ describe(`trash-aware child shapes`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `"project_id" IN ('p-1','p-2')`
+        `"board_id" IN ('p-1','p-2')`
       )
-      // Members must no longer resolve through the workspace-id path.
-      expect(membership.getUserWorkspaceIds).not.toHaveBeenCalled()
+      // Members must no longer resolve through the team-id path.
+      expect(membership.getUserTeamIds).not.toHaveBeenCalled()
     }
   )
 
@@ -367,7 +367,7 @@ describe(`trash-aware child shapes`, () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserProjectIds.mockResolvedValue([`p-1`])
+    membership.getUserBoardIds.mockResolvedValue([`p-1`])
 
     // A client attempting to widen the allowlist to `email` must be overridden.
     await shapeHandler(issueSubscribersRoute)({
@@ -379,16 +379,16 @@ describe(`trash-aware child shapes`, () => {
 
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).not.toContain(`email`)
-    expect(columns).toContain(`workspace_id`)
-    expect(originUrl.searchParams.get(`where`)).toBe(`"project_id" IN ('p-1')`)
+    expect(columns).toContain(`team_id`)
+    expect(originUrl.searchParams.get(`where`)).toBe(`"board_id" IN ('p-1')`)
   })
 
-  it(`coding-sessions member composite keeps batch (null-project) rows`, async () => {
+  it(`coding-sessions member composite keeps batch (null-board) rows`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserWorkspaceIds.mockResolvedValue([`w-2`, `w-1`])
-    membership.getUserProjectIds.mockResolvedValue([`p-1`])
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+    membership.getUserBoardIds.mockResolvedValue([`p-1`])
 
     await shapeHandler(codingSessionsRoute)({
       request: new Request(`https://example.com/api/shapes/coding-sessions`, {
@@ -399,16 +399,16 @@ describe(`trash-aware child shapes`, () => {
     // Byte-stable composite is the contract — sorted lists, fixed literal,
     // fixed parenthesization.
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("workspace_id" IN ('w-1','w-2')) AND (("project_id" IS NULL) OR ("project_id" IN ('p-1')))`
+      `("team_id" IN ('w-1','w-2')) AND (("board_id" IS NULL) OR ("board_id" IN ('p-1')))`
     )
   })
 
-  it(`coding-sessions member with zero non-trashed projects still syncs batch rows`, async () => {
+  it(`coding-sessions member with zero non-trashed boards still syncs batch rows`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserWorkspaceIds.mockResolvedValue([`w-1`])
-    membership.getUserProjectIds.mockResolvedValue([])
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+    membership.getUserBoardIds.mockResolvedValue([])
 
     await shapeHandler(codingSessionsRoute)({
       request: new Request(`https://example.com/api/shapes/coding-sessions`, {
@@ -416,10 +416,10 @@ describe(`trash-aware child shapes`, () => {
       }),
     })
 
-    // The project sentinel matches nothing, but batch rows (project_id NULL)
+    // The board sentinel matches nothing, but batch rows (board_id NULL)
     // still sync via the OR.
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("workspace_id" IN ('w-1')) AND (("project_id" IS NULL) OR ("project_id" = '00000000-0000-0000-0000-000000000000'))`
+      `("team_id" IN ('w-1')) AND (("board_id" IS NULL) OR ("board_id" = '00000000-0000-0000-0000-000000000000'))`
     )
   })
 
@@ -433,9 +433,9 @@ describe(`trash-aware child shapes`, () => {
     })
 
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `"workspace_id" = '00000000-0000-0000-0000-000000000000'`
+      `"team_id" = '00000000-0000-0000-0000-000000000000'`
     )
-    expect(membership.getUserWorkspaceIds).not.toHaveBeenCalled()
-    expect(membership.getUserProjectIds).not.toHaveBeenCalled()
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(membership.getUserBoardIds).not.toHaveBeenCalled()
   })
 })

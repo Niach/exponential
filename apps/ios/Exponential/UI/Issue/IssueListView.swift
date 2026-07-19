@@ -4,7 +4,7 @@ import SwiftUI
 import GRDB
 
 struct IssueListView: View {
-    let projectId: String
+    let boardId: String
     /// False when pushed on a bar-less surface (where MainNavigator hides the
     /// floating tab bar): no clearance then.
     var showsTabBarClearance = true
@@ -23,12 +23,12 @@ struct IssueListView: View {
 
             if let vm = viewModel {
                 VStack(spacing: 0) {
-                    if let project = vm.project, project.repositoryId != nil {
+                    if let board = vm.board, board.repositoryId != nil {
                         HStack {
                             RepoNameChip(
                                 accountId: accountId,
-                                workspaceId: project.workspaceId,
-                                repositoryId: project.repositoryId
+                                teamId: board.teamId,
+                                repositoryId: board.repositoryId
                             )
                             Spacer()
                         }
@@ -40,7 +40,7 @@ struct IssueListView: View {
                 }
             }
         }
-        .navigationTitle(viewModel?.project?.name ?? "Issues")
+        .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .sheet(isPresented: $showFilterSheet) {
             if let vm = viewModel {
@@ -53,10 +53,10 @@ struct IssueListView: View {
             if viewModel == nil {
                 let vm = IssueListViewModel(
                     accountId: accountId,
-                    projectId: projectId,
+                    boardId: boardId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
-                    projectsApi: deps.projectsApi,
+                    boardsApi: deps.boardsApi,
                     auth: deps.auth
                 )
                 viewModel = vm
@@ -162,7 +162,7 @@ struct IssueListView: View {
         }
     }
 
-    // Shown while workspace membership is still syncing, so a signed-in viewer
+    // Shown while team membership is still syncing, so a signed-in viewer
     // sees "we're catching up" rather than silently-disabled controls.
     private var syncingBanner: some View {
         HStack(spacing: 8) {
@@ -256,7 +256,7 @@ struct IssueListView: View {
                         vm.togglePriority(priority)
                     }
                 }
-                ForEach(vm.workspaceLabels.filter { vm.filters.labelIds.contains($0.id) }, id: \.id) { label in
+                ForEach(vm.teamLabels.filter { vm.filters.labelIds.contains($0.id) }, id: \.id) { label in
                     filterPill(dotColor: Color(hex: label.color) ?? .gray, text: label.name) {
                         vm.toggleLabel(label.id)
                     }

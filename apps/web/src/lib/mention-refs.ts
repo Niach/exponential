@@ -3,7 +3,7 @@
 // `#IDENTIFIER` issue references (lib/issue-refs.ts), the token is the single
 // interchange form across all clients: it round-trips as plain GFM text, so
 // there is zero schema impact. Clients render a token as a name pill only when
-// the email resolves to a workspace member they can actually see; unresolved
+// the email resolves to a team member they can actually see; unresolved
 // tokens stay plain text.
 //
 // This module is client-safe (no server imports) so the same regex drives the

@@ -14,7 +14,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -23,7 +23,7 @@ import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
@@ -54,7 +54,7 @@ data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>
 // IssueListState so the transient UI flags (busy/error/refreshing) can be
 // overlaid without rebuilding the grouped list.
 private data class GroupedIssueState(
-    val project: ProjectEntity? = null,
+    val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
     val filters: IssueFilters = IssueFilters(),
     val tab: FilterTab = FilterTab.All,
@@ -63,7 +63,7 @@ private data class GroupedIssueState(
 )
 
 data class IssueListState(
-    val project: ProjectEntity? = null,
+    val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
     val filters: IssueFilters = IssueFilters(),
     val tab: FilterTab = FilterTab.All,
@@ -88,11 +88,11 @@ class IssueListViewModel @Inject constructor(
     private val appContext: android.content.Context,
 ) : ViewModel() {
 
-    // Pushed mounts (`project/{projectId}`, `project/{projectId}/new`) seed the
-    // project from the nav args; the Issues tab root has no arg and re-points
-    // the ViewModel via setProject whenever its current-project resolution
+    // Pushed mounts (`board/{boardId}`, `board/{boardId}/new`) seed the
+    // board from the nav args; the Issues tab root has no arg and re-points
+    // the ViewModel via setBoard whenever its current-board resolution
     // (last-used → first) changes.
-    private val projectIdFlow = MutableStateFlow<String>(savedStateHandle["projectId"] ?: "")
+    private val boardIdFlow = MutableStateFlow<String>(savedStateHandle["boardId"] ?: "")
 
     // Reactive account scoping: all queries re-scope on account switch (no
     // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
@@ -104,74 +104,74 @@ class IssueListViewModel @Inject constructor(
     private val _busy = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _refreshing = MutableStateFlow(false)
-    private val _project = MutableStateFlow<ProjectEntity?>(null)
+    private val _board = MutableStateFlow<BoardEntity?>(null)
 
-    /** Swap the list to another project in place (Issues tab root). */
-    fun setProject(projectId: String) {
-        if (projectId == projectIdFlow.value) return
-        // Filters can reference another workspace's labels — start clean.
+    /** Swap the list to another board in place (Issues tab root). */
+    fun setBoard(boardId: String) {
+        if (boardId == boardIdFlow.value) return
+        // Filters can reference another team's labels — start clean.
         _filters.value = IssueFilters()
-        projectIdFlow.value = projectId
+        boardIdFlow.value = boardId
     }
 
-    private val issuesForProject = combine(dbFlow, projectIdFlow) { db, pid -> db to pid }
+    private val issuesForBoard = combine(dbFlow, boardIdFlow) { db, pid -> db to pid }
         .flatMapLatest { (db, pid) ->
             if (db == null || pid.isBlank()) flowOf(emptyList())
-            else db.issueDao().observeByProject(pid)
+            else db.issueDao().observeByBoard(pid)
         }
 
-    private val labelsForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(emptyList())
-            else db.labelDao().observeByWorkspace(project.workspaceId)
+    private val labelsForTeam = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.labelDao().observeByTeam(board.teamId)
         }
-    private val issueLabelsForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(emptyList())
-            else db.issueLabelDao().observeByWorkspace(project.workspaceId)
+    private val issueLabelsForTeam = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.issueLabelDao().observeByTeam(board.teamId)
         }
-    private val workspaceForProject = combine(dbFlow, _project) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(null)
-            else db.workspaceDao().observeById(project.workspaceId)
+    private val teamForBoard = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(null)
+            else db.teamDao().observeById(board.teamId)
         }
-    private val membersForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(emptyList())
-            else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
+    private val membersForTeam = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.teamMemberDao().observeByTeam(board.teamId)
         }
 
-    // EXP-50: the target workspace's lone HUMAN member (agent users excluded)
-    // when it has exactly one — else null. A solo workspace hides the assignee
+    // EXP-50: the target team's lone HUMAN member (agent users excluded)
+    // when it has exactly one — else null. A solo team hides the assignee
     // picker and defaults new issues to that member (the server default-assigns
     // anyway; the UI just stops offering a one-option choice).
     val soloMemberId: StateFlow<String?> = combine(
-        membersForWorkspace,
+        membersForTeam,
         dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
     ) { members, users ->
         val agentIds = users.filter { it.isAgent }.map { it.id }.toSet()
         members.map { it.userId }.filter { it !in agentIds }.singleOrNull()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val permissions: StateFlow<WorkspacePermissions> = combine(
-        workspaceForProject,
-        membersForWorkspace,
+    val permissions: StateFlow<TeamPermissions> = combine(
+        teamForBoard,
+        membersForTeam,
         auth.userId,
         auth.isAdmin,
-    ) { workspace, members, userId, isAdmin ->
-        WorkspacePermissions.resolve(
-            workspace = workspace,
+    ) { team, members, userId, isAdmin ->
+        TeamPermissions.resolve(
+            team = team,
             currentUserId = userId,
             isAdmin = isAdmin,
             isMember = userId != null && members.any { it.userId == userId },
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
 
     // Distinguish "still syncing membership" from "not allowed": when the user
-    // is signed in but not yet a resolved member AND the workspace_members shape
+    // is signed in but not yet a resolved member AND the team_members shape
     // hasn't gone live, controls read as pending-sync rather than denied. Drives
-    // the "Syncing workspace…" banner; `stalled` flips the copy when that shape
+    // the "Syncing team…" banner; `stalled` flips the copy when that shape
     // is currently erroring.
     val syncBanner: StateFlow<SyncBanner> = combine(
         permissions,
@@ -182,46 +182,46 @@ class IssueListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
     /**
-     * The target project's workspace issues, newest-first — drives the create
+     * The target board's team issues, newest-first — drives the create
      * screen's `#IDENTIFIER` autocomplete (masterplan §5e). Same scoping as
      * IssueDetailViewModel.issueRefCandidates / the web IssueRefProvider.
      */
     val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
-        _project,
-    ) { issues, projects, project ->
-        if (project == null) {
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        _board,
+    ) { issues, boards, board ->
+        if (board == null) {
             emptyList()
         } else {
-            val workspaceProjectIds = projects
-                .filter { it.workspaceId == project.workspaceId }
+            val teamBoardIds = boards
+                .filter { it.teamId == board.teamId }
                 .map { it.id }
                 .toSet()
             issues
-                .filter { it.projectId in workspaceProjectIds }
+                .filter { it.boardId in teamBoardIds }
                 .sortedByDescending { it.createdAt }
                 .map { IssueRefTarget(it.id, it.identifier, it.title) }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // The heavy filter/group/sort pipeline. Recomputes only when one of its
-    // *meaningful* data inputs changes (project, issues, labels, joins,
+    // *meaningful* data inputs changes (board, issues, labels, joins,
     // filters, or users). Transient UI flags (busy / error / refreshing) are
     // deliberately kept out so toggling them never rebuilds the grouped list.
-    // (Issue-list search is gone — cross-project search lives in its own tab.)
+    // (Issue-list search is gone — cross-board search lives in its own tab.)
     private val groupedState: Flow<GroupedIssueState> = combine(
         listOf(
-            _project,
-            issuesForProject,
-            labelsForWorkspace,
-            issueLabelsForWorkspace,
+            _board,
+            issuesForBoard,
+            labelsForTeam,
+            issueLabelsForTeam,
             _filters,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
-        val project = values[0] as ProjectEntity?
+        val board = values[0] as BoardEntity?
         @Suppress("UNCHECKED_CAST")
         val issues = values[1] as List<IssueEntity>
         @Suppress("UNCHECKED_CAST")
@@ -257,7 +257,7 @@ class IssueListViewModel @Inject constructor(
         }.filter { it.issues.isNotEmpty() }
 
         GroupedIssueState(
-            project = project,
+            board = board,
             groups = grouped,
             filters = filters,
             tab = deriveTab(filters.statuses),
@@ -273,7 +273,7 @@ class IssueListViewModel @Inject constructor(
         _error,
     ) { grouped, busy, refreshing, error ->
         IssueListState(
-            project = grouped.project,
+            board = grouped.board,
             groups = grouped.groups,
             filters = grouped.filters,
             tab = grouped.tab,
@@ -288,11 +288,11 @@ class IssueListViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             combine(
-                dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
-                projectIdFlow,
+                dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+                boardIdFlow,
             ) { all, pid ->
                 all.firstOrNull { it.id == pid }
-            }.collect { _project.value = it }
+            }.collect { _board.value = it }
         }
     }
 
@@ -351,15 +351,15 @@ class IssueListViewModel @Inject constructor(
     }
 
     /**
-     * Create a workspace label from the create screen's picker sheet and return
+     * Create a team label from the create screen's picker sheet and return
      * it (so the caller can pre-select it on the issue being drafted), or null
      * on failure. Suspends — the create screen awaits it on its own scope.
      */
     suspend fun createLabel(name: String, color: String): LabelEntity? {
-        val workspaceId = _project.value?.workspaceId ?: return null
+        val teamId = _board.value?.teamId ?: return null
         val accountId = auth.activeAccountId.value ?: return null
         return runCatching {
-            labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color))
+            labelsApi.create(accountId, CreateLabelInput(teamId, name.trim(), color))
         }.onSuccess { created ->
             // Optimistic local upsert so the label appears immediately instead of
             // waiting for the labels shape's next poll (idempotent REPLACE;
@@ -400,7 +400,7 @@ class IssueListViewModel @Inject constructor(
             val created = issuesApi.create(
                 accountId,
                 CreateIssueInput(
-                    projectId = projectIdFlow.value,
+                    boardId = boardIdFlow.value,
                     title = title.trim(),
                     status = status.wire,
                     priority = priority.wire,
@@ -462,18 +462,18 @@ class IssueListViewModel @Inject constructor(
             val db = holder.database(forAccountId = accountId)
             db.issueDao().upsert(issue)
             if (labelIds.isNotEmpty()) {
-                // issue_labels carries a denormalized workspace_id (Electric
-                // shape scoping). Resolve it from the project; skip the joins if
+                // issue_labels carries a denormalized team_id (Electric
+                // shape scoping). Resolve it from the board; skip the joins if
                 // we can't (Electric still delivers them on its next poll).
-                val workspaceId = db.projectDao().getActiveById(issue.projectId)?.workspaceId
-                    ?: _project.value?.workspaceId
-                if (workspaceId != null) {
+                val teamId = db.boardDao().getActiveById(issue.boardId)?.teamId
+                    ?: _board.value?.teamId
+                if (teamId != null) {
                     for (labelId in labelIds) {
                         db.issueLabelDao().upsert(
                             IssueLabelEntity(
                                 issueId = issue.id,
                                 labelId = labelId,
-                                workspaceId = workspaceId,
+                                teamId = teamId,
                             )
                         )
                     }

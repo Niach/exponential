@@ -5,16 +5,16 @@ import { db } from "@/db/connection"
 import {
   mcpGrants,
   oauthApplications,
-  projects,
-  workspaceMembers,
-  workspaces,
+  boards,
+  teamMembers,
+  teams,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { authedProcedure, router } from "@/lib/trpc"
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
 // what the user can grant, and the accept/deny action that both persists the
-// workspace/project selection (mcp_grants) and completes the better-auth
+// team/board selection (mcp_grants) and completes the better-auth
 // consent hop. Consent completion — which mints the authorization code — runs
 // FIRST; the grant upsert runs only after it succeeds, so a failed consent
 // never rewrites an existing grant. This stays race-free: the code value
@@ -23,17 +23,17 @@ import { authedProcedure, router } from "@/lib/trpc"
 // the code before the grant row exists. A token whose (user, client) pair has
 // no grant row resolves to no access anyway (see lib/mcp/scope.ts).
 
-async function getMemberWorkspaces(userId: string) {
+async function getMemberTeams(userId: string) {
   return db
     .select({
-      id: workspaces.id,
-      name: workspaces.name,
-      slug: workspaces.slug,
+      id: teams.id,
+      name: teams.name,
+      slug: teams.slug,
     })
-    .from(workspaces)
-    .innerJoin(workspaceMembers, eq(workspaceMembers.workspaceId, workspaces.id))
-    .where(eq(workspaceMembers.userId, userId))
-    .orderBy(asc(workspaces.name))
+    .from(teams)
+    .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
+    .where(eq(teamMembers.userId, userId))
+    .orderBy(asc(teams.name))
 }
 
 export const mcpGrantsRouter = router({
@@ -72,36 +72,36 @@ export const mcpGrantsRouter = router({
       return { name: client.name ?? `MCP client`, icon: client.icon }
     }),
 
-  // Everything the signed-in user could grant: their workspaces with each
-  // workspace's non-archived projects.
+  // Everything the signed-in user could grant: their teams with each
+  // team's non-archived boards.
   scopeTree: authedProcedure.query(async ({ ctx }) => {
-    const memberWorkspaces = await getMemberWorkspaces(ctx.session.user.id)
-    if (memberWorkspaces.length === 0) return { workspaces: [] }
-    const projectRows = await db
+    const memberTeams = await getMemberTeams(ctx.session.user.id)
+    if (memberTeams.length === 0) return { teams: [] }
+    const boardRows = await db
       .select({
-        id: projects.id,
-        workspaceId: projects.workspaceId,
-        name: projects.name,
-        prefix: projects.prefix,
-        icon: projects.icon,
-        color: projects.color,
+        id: boards.id,
+        teamId: boards.teamId,
+        name: boards.name,
+        prefix: boards.prefix,
+        icon: boards.icon,
+        color: boards.color,
       })
-      .from(projects)
+      .from(boards)
       .where(
         and(
           inArray(
-            projects.workspaceId,
-            memberWorkspaces.map((w) => w.id)
+            boards.teamId,
+            memberTeams.map((w) => w.id)
           ),
-          isNull(projects.archivedAt),
-          isNull(projects.deletedAt)
+          isNull(boards.archivedAt),
+          isNull(boards.deletedAt)
         )
       )
-      .orderBy(asc(projects.sortOrder), asc(projects.name))
+      .orderBy(asc(boards.sortOrder), asc(boards.name))
     return {
-      workspaces: memberWorkspaces.map((w) => ({
+      teams: memberTeams.map((w) => ({
         ...w,
-        projects: projectRows.filter((p) => p.workspaceId === w.id),
+        boards: boardRows.filter((p) => p.teamId === w.id),
       })),
     }
   }),
@@ -117,9 +117,9 @@ export const mcpGrantsRouter = router({
         clientId: z.string().min(1).max(255),
         consentCode: z.string().min(1).max(255),
         accept: z.boolean(),
-        allWorkspaces: z.boolean().default(false),
-        workspaceIds: z.array(z.string().uuid()).max(500).default([]),
-        projectIds: z.array(z.string().uuid()).max(2000).default([]),
+        allTeams: z.boolean().default(false),
+        teamIds: z.array(z.string().uuid()).max(500).default([]),
+        boardIds: z.array(z.string().uuid()).max(2000).default([]),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -142,13 +142,13 @@ export const mcpGrantsRouter = router({
 
       const userId = ctx.session.user.id
       if (
-        !input.allWorkspaces &&
-        input.workspaceIds.length === 0 &&
-        input.projectIds.length === 0
+        !input.allTeams &&
+        input.teamIds.length === 0 &&
+        input.boardIds.length === 0
       ) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Select at least one workspace or project, or deny access.`,
+          message: `Select at least one team or board, or deny access.`,
         })
       }
 
@@ -163,31 +163,31 @@ export const mcpGrantsRouter = router({
 
       // Clamp the selection to what the user is actually a member of — the
       // page sends ids, but the grant must never exceed membership.
-      const memberWorkspaceIds = new Set(
-        (await getMemberWorkspaces(userId)).map((w) => w.id)
+      const memberTeamIds = new Set(
+        (await getMemberTeams(userId)).map((w) => w.id)
       )
-      const workspaceIds = input.allWorkspaces
+      const teamIds = input.allTeams
         ? []
-        : input.workspaceIds.filter((id) => memberWorkspaceIds.has(id))
-      let projectIds: string[] = []
-      if (!input.allWorkspaces && input.projectIds.length > 0) {
+        : input.teamIds.filter((id) => memberTeamIds.has(id))
+      let boardIds: string[] = []
+      if (!input.allTeams && input.boardIds.length > 0) {
         const rows = await db
-          .select({ id: projects.id, workspaceId: projects.workspaceId })
-          .from(projects)
+          .select({ id: boards.id, teamId: boards.teamId })
+          .from(boards)
           .where(
             and(
-              inArray(projects.id, input.projectIds),
-              isNull(projects.deletedAt)
+              inArray(boards.id, input.boardIds),
+              isNull(boards.deletedAt)
             )
           )
-        projectIds = rows
-          .filter((p) => memberWorkspaceIds.has(p.workspaceId))
+        boardIds = rows
+          .filter((p) => memberTeamIds.has(p.teamId))
           .map((p) => p.id)
       }
-      if (!input.allWorkspaces && workspaceIds.length === 0 && projectIds.length === 0) {
+      if (!input.allTeams && teamIds.length === 0 && boardIds.length === 0) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `None of the selected workspaces/projects are accessible to your account.`,
+          message: `None of the selected teams/boards are accessible to your account.`,
         })
       }
 
@@ -206,16 +206,16 @@ export const mcpGrantsRouter = router({
         .values({
           userId,
           clientId: input.clientId,
-          allWorkspaces: input.allWorkspaces,
-          workspaceIds,
-          projectIds,
+          allTeams: input.allTeams,
+          teamIds,
+          boardIds,
         })
         .onConflictDoUpdate({
           target: [mcpGrants.userId, mcpGrants.clientId],
           set: {
-            allWorkspaces: input.allWorkspaces,
-            workspaceIds,
-            projectIds,
+            allTeams: input.allTeams,
+            teamIds,
+            boardIds,
             updatedAt: new Date(),
           },
         })

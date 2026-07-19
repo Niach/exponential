@@ -25,7 +25,7 @@ data class SharedPayload(
  * The single most important thing this does is **copy shared images into the
  * app cache synchronously, while the intent's temporary read grant is still
  * live**. That grant is scoped to the receiving task and is revoked once the
- * task finishes; by the time the user has picked a project and tapped Post the
+ * task finishes; by the time the user has picked a board and tapped Post the
  * original `content://` URI may no longer be readable. Copying up front to
  * `cacheDir/share-inbox` and handing downstream code stable `file://` URIs
  * removes that whole failure class — `ContentResolver.openInputStream` (used by

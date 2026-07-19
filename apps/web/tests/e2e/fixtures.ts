@@ -24,9 +24,9 @@ export interface AppFixture {
   member: TestUser
   namespace: string
   owner: TestUser
-  projectName: string
-  projectPrefix: string
-  projectSlug: string
+  boardName: string
+  boardPrefix: string
+  boardSlug: string
   updatedIssueDescription: string
   updatedIssueTitle: string
 }
@@ -102,7 +102,7 @@ function buildUser(
 function buildAppFixture(): AppFixture {
   const namespace = buildNamespace()
   const emailPrefix = `e2e+${namespace}`
-  const projectName = `Alpha ${namespace}`
+  const boardName = `Alpha ${namespace}`
 
   return {
     dueDate: buildDueDate(),
@@ -114,9 +114,9 @@ function buildAppFixture(): AppFixture {
     member: buildUser(`member`, emailPrefix, namespace),
     namespace,
     owner: buildUser(`owner`, emailPrefix, namespace),
-    projectName,
-    projectPrefix: derivePrefix(projectName),
-    projectSlug: slugify(projectName),
+    boardName,
+    boardPrefix: derivePrefix(boardName),
+    boardSlug: slugify(boardName),
     updatedIssueDescription: `Updated issue description for ${namespace}`,
     updatedIssueTitle: `Updated issue ${namespace}`,
   }

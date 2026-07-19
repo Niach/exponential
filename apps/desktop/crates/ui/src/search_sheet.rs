@@ -58,7 +58,7 @@ use crate::coding_flow::CodingHub;
 use crate::icons::option_icon;
 use crate::issue_list::parse_hex_color;
 use crate::navigation::{
-    active_project_id, active_workspace_id, nav_for_window, navigate, Navigation, Screen,
+    active_board_id, active_team_id, nav_for_window, navigate, Navigation, Screen,
 };
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
@@ -136,7 +136,7 @@ pub fn init(cx: &mut App) {
 }
 
 /// Open the search dialog on `window` (no-op unless the session is `Synced`
-/// with a resolvable workspace — ⌘K on the login surface must do nothing).
+/// with a resolvable team — ⌘K on the login surface must do nothing).
 pub fn open_search(window: &mut Window, cx: &mut App) {
     if !matches!(Store::global(cx).session(cx), SessionPhase::Synced { .. }) {
         return;
@@ -147,7 +147,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
         return;
     }
     let nav = nav_for_window(window, cx);
-    let Some(workspace_id) = active_workspace_id(&nav, cx) else {
+    let Some(team_id) = active_team_id(&nav, cx) else {
         return;
     };
     let repo_resolver = repo_resolver_for_window(window, cx);
@@ -155,7 +155,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
 
     let list = cx.new(|cx| {
         ListState::new(
-            SearchDelegate::new(workspace_id, window_id, nav.clone(), repo_resolver),
+            SearchDelegate::new(team_id, window_id, nav.clone(), repo_resolver),
             window,
             cx,
         )
@@ -188,15 +188,15 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     list.update(cx, |list, cx| list.focus(window, cx));
 }
 
-/// One resolved issue hit — project name/color denormalized at search time
-/// (web `projectMap.get(issue.projectId)`).
+/// One resolved issue hit — board name/color denormalized at search time
+/// (web `boardMap.get(issue.boardId)`).
 struct SearchHit {
     issue_id: String,
     identifier: String,
     title: String,
     status: IssueStatus,
-    project_name: Option<String>,
-    project_color: Option<String>,
+    board_name: Option<String>,
+    board_color: Option<String>,
 }
 
 /// One `git grep` content hit.
@@ -208,7 +208,7 @@ struct ContentHit {
     preview: String,
 }
 
-/// The local-repo resolution + file-list snapshot for the active project. Kept
+/// The local-repo resolution + file-list snapshot for the active board. Kept
 /// per dialog session (the delegate is fresh on every open), resolved lazily on
 /// the first keystroke so an issues-only session never touches git.
 enum RepoState {
@@ -221,13 +221,13 @@ enum RepoState {
         root: PathBuf,
         files: Arc<Vec<String>>,
     },
-    /// No repo backs the active project, or it isn't cloned yet — the local
+    /// No repo backs the active board, or it isn't cloned yet — the local
     /// sections stay hidden and only issues show.
     Unavailable,
 }
 
 pub struct SearchDelegate {
-    workspace_id: String,
+    team_id: String,
     window_id: WindowId,
     nav: Entity<Navigation>,
     repo_resolver: Entity<RepoResolver>,
@@ -248,13 +248,13 @@ pub struct SearchDelegate {
 
 impl SearchDelegate {
     fn new(
-        workspace_id: String,
+        team_id: String,
         window_id: WindowId,
         nav: Entity<Navigation>,
         repo_resolver: Entity<RepoResolver>,
     ) -> Self {
         Self {
-            workspace_id,
+            team_id,
             window_id,
             nav,
             repo_resolver,
@@ -270,7 +270,7 @@ impl SearchDelegate {
     }
 
     /// Whether the three labelled sections (Issues / Files / In files) are in
-    /// play — only once a cloned repo is resolved for the active project.
+    /// play — only once a cloned repo is resolved for the active board.
     fn local_sections_visible(&self) -> bool {
         matches!(self.repo, RepoState::Ready { .. })
     }
@@ -285,9 +285,9 @@ impl SearchDelegate {
             return;
         }
         let collections = Store::global(cx).collections();
-        let projects = collections.projects.read(cx);
+        let boards = collections.boards.read(cx);
         self.issue_hits = collections
-            .issues_in_workspace(&self.workspace_id, cx)
+            .issues_in_team(&self.team_id, cx)
             .into_iter()
             .filter(|issue| {
                 issue.title.to_lowercase().contains(&query)
@@ -295,14 +295,14 @@ impl SearchDelegate {
             })
             .take(MAX_RESULTS)
             .map(|issue| {
-                let project = projects.get(&issue.project_id);
+                let board = boards.get(&issue.board_id);
                 SearchHit {
                     issue_id: issue.id,
                     identifier: issue.identifier,
                     title: issue.title,
                     status: issue.status,
-                    project_name: project.map(|p| p.name.clone()),
-                    project_color: project.and_then(|p| p.color.clone()),
+                    board_name: board.map(|p| p.name.clone()),
+                    board_color: board.and_then(|p| p.color.clone()),
                 }
             })
             .collect();
@@ -311,7 +311,7 @@ impl SearchDelegate {
     /// EXP-3: append server full-text hits (description/comment matches) the
     /// local substring filter missed, deduped by id. The synced row wins for
     /// rendering; a hit not (yet) synced locally renders from the returned
-    /// fields — its project denormalization then resolves best-effort.
+    /// fields — its board denormalization then resolves best-effort.
     fn merge_server_hits(&mut self, server_hits: Vec<api::issues::IssueSearchHit>, cx: &App) {
         let seen: std::collections::HashSet<String> = self
             .issue_hits
@@ -320,7 +320,7 @@ impl SearchDelegate {
             .collect();
         let collections = Store::global(cx).collections();
         let issues = collections.issues.read(cx);
-        let projects = collections.projects.read(cx);
+        let boards = collections.boards.read(cx);
         for hit in server_hits {
             if self.issue_hits.len() >= MAX_RESULTS {
                 break;
@@ -328,28 +328,28 @@ impl SearchDelegate {
             if seen.contains(&hit.id) {
                 continue;
             }
-            let (identifier, title, status, project_id) = match issues.get(&hit.id) {
+            let (identifier, title, status, board_id) = match issues.get(&hit.id) {
                 Some(issue) => (
                     issue.identifier.clone(),
                     issue.title.clone(),
                     issue.status,
-                    issue.project_id.clone(),
+                    issue.board_id.clone(),
                 ),
-                None => (hit.identifier, hit.title, hit.status, hit.project_id),
+                None => (hit.identifier, hit.title, hit.status, hit.board_id),
             };
-            let project = projects.get(&project_id);
+            let board = boards.get(&board_id);
             self.issue_hits.push(SearchHit {
                 issue_id: hit.id,
                 identifier,
                 title,
                 status,
-                project_name: project.map(|p| p.name.clone()),
-                project_color: project.and_then(|p| p.color.clone()),
+                board_name: board.map(|p| p.name.clone()),
+                board_color: board.and_then(|p| p.color.clone()),
             });
         }
     }
 
-    /// EXP-15: resolve the active project's trunk clone root (off the shared
+    /// EXP-15: resolve the active board's trunk clone root (off the shared
     /// per-window resolver, exactly like the file tree) and load its
     /// `git ls-files` snapshot on a background thread. Idempotent + lazy:
     /// called at the top of every `perform_search`, it settles once per dialog
@@ -361,10 +361,10 @@ impl SearchDelegate {
         }
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
-        let Some(project_id) = active_project_id(&self.nav, cx) else {
-            return; // no active project yet — retry next keystroke
+        let Some(board_id) = active_board_id(&self.nav, cx) else {
+            return; // no active board yet — retry next keystroke
         };
-        let full_name = match self.repo_resolver.read(cx).lookup_project(&project_id) {
+        let full_name = match self.repo_resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Loading => return, // resolver still fetching — retry next keystroke
             RepoLookup::Found(repo) => repo.full_name,
             RepoLookup::NotFound | RepoLookup::Error(_) => {
@@ -496,12 +496,12 @@ impl SearchDelegate {
     fn render_issue_row(&self, ix: IndexPath, cx: &App) -> Option<ListItem> {
         let hit = self.issue_hits.get(ix.row)?;
         let status_config = get_issue_status_config(hit.status);
-        let project_dot = hit
-            .project_color
+        let board_dot = hit
+            .board_color
             .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(cx.theme().muted_foreground);
-        let subtitle: SharedString = match &hit.project_name {
+        let subtitle: SharedString = match &hit.board_name {
             Some(name) => format!("{name} · {}", hit.identifier).into(),
             None => hit.identifier.clone().into(),
         };
@@ -530,7 +530,7 @@ impl SearchDelegate {
                                                 .size_1p5()
                                                 .rounded_full()
                                                 .flex_shrink_0()
-                                                .bg(project_dot),
+                                                .bg(board_dot),
                                         )
                                         .child(line_secondary(subtitle)),
                                 ),
@@ -620,7 +620,7 @@ impl ListDelegate for SearchDelegate {
         // its lifetime to the List, which drops it on the next keystroke — that
         // drop IS the debounce cancel.
         let trpc = crate::queries::trpc_client(cx);
-        let workspace_id = self.workspace_id.clone();
+        let team_id = self.team_id.clone();
         let query = self.query.clone();
         let grep_root = match &self.repo {
             RepoState::Ready { root, .. } => Some(root.clone()),
@@ -634,13 +634,13 @@ impl ListDelegate for SearchDelegate {
 
             // Server issue full-text pass (EXP-3).
             if let Some(trpc) = trpc {
-                let (search_workspace, search_query) = (workspace_id.clone(), query.clone());
+                let (search_team, search_query) = (team_id.clone(), query.clone());
                 let result = window
                     .background_executor()
                     .spawn(async move {
                         api::issues::search(
                             &trpc,
-                            &search_workspace,
+                            &search_team,
                             &search_query,
                             SERVER_SEARCH_LIMIT,
                         )

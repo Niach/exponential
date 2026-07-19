@@ -7,92 +7,92 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface WorkspaceDao {
-    @Query("SELECT * FROM workspaces ORDER BY name")
-    fun observeAll(): Flow<List<WorkspaceEntity>>
+interface TeamDao {
+    @Query("SELECT * FROM teams ORDER BY name")
+    fun observeAll(): Flow<List<TeamEntity>>
 
-    @Query("SELECT * FROM workspaces WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<WorkspaceEntity?>
+    @Query("SELECT * FROM teams WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<TeamEntity?>
 
-    @Query("SELECT * FROM workspaces WHERE slug = :slug LIMIT 1")
-    fun observeBySlug(slug: String): Flow<WorkspaceEntity?>
+    @Query("SELECT * FROM teams WHERE slug = :slug LIMIT 1")
+    fun observeBySlug(slug: String): Flow<TeamEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: WorkspaceEntity)
+    suspend fun upsert(item: TeamEntity)
 
-    @Query("DELETE FROM workspaces WHERE id = :id")
+    @Query("DELETE FROM teams WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM workspaces")
+    @Query("DELETE FROM teams")
     suspend fun clear()
 }
 
 @Dao
-interface ProjectDao {
-    // deleted_at IS NULL everywhere: trashed projects leave the shape as delete
+interface BoardDao {
+    // deleted_at IS NULL everywhere: trashed boards leave the shape as delete
     // messages, but filter defensively so a stale pre-trash row never resurfaces.
-    @Query("SELECT * FROM projects WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
-    fun observeAll(): Flow<List<ProjectEntity>>
+    @Query("SELECT * FROM boards WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
+    fun observeAll(): Flow<List<BoardEntity>>
 
-    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
-    fun observeByWorkspace(workspaceId: String): Flow<List<ProjectEntity>>
+    @Query("SELECT * FROM boards WHERE team_id = :teamId AND archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
+    fun observeByTeam(teamId: String): Flow<List<BoardEntity>>
 
-    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND slug = :slug AND deleted_at IS NULL LIMIT 1")
-    fun observeBySlug(workspaceId: String, slug: String): Flow<ProjectEntity?>
+    @Query("SELECT * FROM boards WHERE team_id = :teamId AND slug = :slug AND deleted_at IS NULL LIMIT 1")
+    fun observeBySlug(teamId: String, slug: String): Flow<BoardEntity?>
 
-    @Query("SELECT * FROM projects WHERE id = :id AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1")
-    suspend fun getActiveById(id: String): ProjectEntity?
+    @Query("SELECT * FROM boards WHERE id = :id AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1")
+    suspend fun getActiveById(id: String): BoardEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ProjectEntity)
+    suspend fun upsert(item: BoardEntity)
 
-    @Query("DELETE FROM projects WHERE id = :id")
+    @Query("DELETE FROM boards WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM projects")
+    @Query("DELETE FROM boards")
     suspend fun clear()
 }
 
 @Dao
 interface IssueDao {
-    @Query("SELECT * FROM issues WHERE project_id = :projectId AND archived_at IS NULL ORDER BY sort_order, created_at")
-    fun observeByProject(projectId: String): Flow<List<IssueEntity>>
+    @Query("SELECT * FROM issues WHERE board_id = :boardId AND archived_at IS NULL ORDER BY sort_order, created_at")
+    fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
 
     // All issues (used by the inbox to resolve titles + the "needs review" list).
     @Query("SELECT * FROM issues")
     fun observeAll(): Flow<List<IssueEntity>>
 
-    // Cross-project "My Issues" view (masterplan §5a): everything assigned to me.
+    // Cross-board "My Issues" view (masterplan §5a): everything assigned to me.
     @Query("SELECT * FROM issues WHERE assignee_id = :userId AND archived_at IS NULL ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
-    // Reviews (EXP-131): every issue in one workspace with an OPEN pull request.
-    // Joins projects to scope by workspace and drop trashed/archived projects;
+    // Reviews (EXP-131): every issue in one team with an OPEN pull request.
+    // Joins boards to scope by team and drop trashed/archived boards;
     // a batch PR links several issues to the SAME pr_url, so the client groups
     // these rows by pr_url into one review entry. Draft and state-less prUrl
     // rows are deliberately excluded — parity with web use-reviews-data.ts
     // (open only).
     @Query(
-        "SELECT i.* FROM issues i JOIN projects p ON p.id = i.project_id " +
-            "WHERE p.workspace_id = :workspaceId AND i.pr_state = 'open' " +
+        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
+            "WHERE p.team_id = :teamId AND i.pr_state = 'open' " +
             "AND i.archived_at IS NULL AND p.deleted_at IS NULL AND p.archived_at IS NULL"
     )
-    fun observeOpenPrsByWorkspace(workspaceId: String): Flow<List<IssueEntity>>
+    fun observeOpenPrsByTeam(teamId: String): Flow<List<IssueEntity>>
 
-    // App-link resolution (EXP-92): workspace SLUG + identifier → issue id.
+    // App-link resolution (EXP-92): team SLUG + identifier → issue id.
     // Deliberately no archived filter (an emailed link to an archived issue
-    // should still open) and no project-slug predicate (identifiers are
-    // workspace-unique; the project slug in an old link goes stale when an
+    // should still open) and no board-slug predicate (identifiers are
+    // team-unique; the board slug in an old link goes stale when an
     // issue moves — the web route also keys on the identifier alone).
     @Query(
-        "SELECT i.id FROM issues i JOIN projects p ON p.id = i.project_id " +
-            "JOIN workspaces w ON w.id = p.workspace_id " +
-            "WHERE upper(i.identifier) = upper(:identifier) AND w.slug = :workspaceSlug LIMIT 1"
+        "SELECT i.id FROM issues i JOIN boards p ON p.id = i.board_id " +
+            "JOIN teams w ON w.id = p.team_id " +
+            "WHERE upper(i.identifier) = upper(:identifier) AND w.slug = :teamSlug LIMIT 1"
     )
-    suspend fun findIdByWorkspaceRef(workspaceSlug: String, identifier: String): String?
+    suspend fun findIdByTeamRef(teamSlug: String, identifier: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEntity)
@@ -106,10 +106,10 @@ interface IssueDao {
 
 @Dao
 interface LabelDao {
-    @Query("SELECT * FROM labels WHERE workspace_id = :workspaceId ORDER BY sort_order, name")
-    fun observeByWorkspace(workspaceId: String): Flow<List<LabelEntity>>
+    @Query("SELECT * FROM labels WHERE team_id = :teamId ORDER BY sort_order, name")
+    fun observeByTeam(teamId: String): Flow<List<LabelEntity>>
 
-    // Cross-workspace list for the "My Issues" rows (labels span projects there).
+    // Cross-team list for the "My Issues" rows (labels span boards there).
     @Query("SELECT * FROM labels ORDER BY sort_order, name")
     fun observeAll(): Flow<List<LabelEntity>>
 
@@ -128,8 +128,8 @@ interface IssueLabelDao {
     @Query("SELECT * FROM issue_labels WHERE issue_id = :issueId")
     fun observeByIssue(issueId: String): Flow<List<IssueLabelEntity>>
 
-    @Query("SELECT * FROM issue_labels WHERE workspace_id = :workspaceId")
-    fun observeByWorkspace(workspaceId: String): Flow<List<IssueLabelEntity>>
+    @Query("SELECT * FROM issue_labels WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<IssueLabelEntity>>
 
     @Query("SELECT * FROM issue_labels")
     fun observeAllJoins(): Flow<List<IssueLabelEntity>>
@@ -163,17 +163,17 @@ interface UserDao {
 }
 
 @Dao
-interface WorkspaceMemberDao {
-    @Query("SELECT * FROM workspace_members WHERE workspace_id = :workspaceId")
-    fun observeByWorkspace(workspaceId: String): Flow<List<WorkspaceMemberEntity>>
+interface TeamMemberDao {
+    @Query("SELECT * FROM team_members WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<TeamMemberEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: WorkspaceMemberEntity)
+    suspend fun upsert(item: TeamMemberEntity)
 
-    @Query("DELETE FROM workspace_members WHERE id = :id")
+    @Query("DELETE FROM team_members WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM workspace_members")
+    @Query("DELETE FROM team_members")
     suspend fun clear()
 }
 
@@ -200,8 +200,8 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<CodingSessionEntity?>
 
-    @Query("SELECT * FROM coding_sessions WHERE workspace_id = :workspaceId")
-    fun observeByWorkspace(workspaceId: String): Flow<List<CodingSessionEntity>>
+    @Query("SELECT * FROM coding_sessions WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<CodingSessionEntity>>
 
     // Account-wide live sessions (the Agents tab + its bottom-bar dot).
     @Query("SELECT * FROM coding_sessions WHERE status = :status ORDER BY started_at DESC")
@@ -233,20 +233,20 @@ interface AttachmentDao {
 }
 
 @Dao
-interface WorkspaceInviteDao {
-    @Query("SELECT * FROM workspace_invites WHERE workspace_id = :workspaceId AND accepted_at IS NULL")
-    fun observeByWorkspace(workspaceId: String): Flow<List<WorkspaceInviteEntity>>
+interface TeamInviteDao {
+    @Query("SELECT * FROM team_invites WHERE team_id = :teamId AND accepted_at IS NULL")
+    fun observeByTeam(teamId: String): Flow<List<TeamInviteEntity>>
 
-    @Query("SELECT * FROM workspace_invites WHERE token = :token LIMIT 1")
-    fun observeByToken(token: String): Flow<WorkspaceInviteEntity?>
+    @Query("SELECT * FROM team_invites WHERE token = :token LIMIT 1")
+    fun observeByToken(token: String): Flow<TeamInviteEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: WorkspaceInviteEntity)
+    suspend fun upsert(item: TeamInviteEntity)
 
-    @Query("DELETE FROM workspace_invites WHERE id = :id")
+    @Query("DELETE FROM team_invites WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM workspace_invites")
+    @Query("DELETE FROM team_invites")
     suspend fun clear()
 }
 
@@ -273,8 +273,8 @@ interface IssueSubscriberDao {
     @Query("SELECT * FROM issue_subscribers WHERE issue_id = :issueId")
     fun observeByIssue(issueId: String): Flow<List<IssueSubscriberEntity>>
 
-    @Query("SELECT * FROM issue_subscribers WHERE workspace_id = :workspaceId")
-    fun observeByWorkspace(workspaceId: String): Flow<List<IssueSubscriberEntity>>
+    @Query("SELECT * FROM issue_subscribers WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<IssueSubscriberEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueSubscriberEntity)

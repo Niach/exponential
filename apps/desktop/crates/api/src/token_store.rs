@@ -174,7 +174,7 @@ fn restrict_dir(dir: &Path) {
 mod tests {
     use super::*;
 
-    /// Self-cleaning unique temp dir (no tempfile dep in the workspace pins).
+    /// Self-cleaning unique temp dir (no tempfile dep in the team pins).
     struct TempDir(PathBuf);
 
     impl TempDir {

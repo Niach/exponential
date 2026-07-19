@@ -419,17 +419,17 @@ fn tool_detail(name: &str, input: Option<&Value>) -> Option<String> {
 // Transcript location
 // ---------------------------------------------------------------------------
 
-/// `~/.claude/projects` — the root Claude Code writes per-cwd session
+/// `~/.claude/boards` — the root Claude Code writes per-cwd session
 /// transcripts under. `None` when no home dir is resolvable.
 pub fn transcript_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".claude").join("projects"))
+    Some(PathBuf::from(home).join(".claude").join("boards"))
 }
 
 /// Claude Code munges a cwd into its transcript dir name by replacing every
 /// non-alphanumeric character with `-` (verified against live dirs, e.g.
-/// `/home/x/Projects/2026/foo.com` → `-home-x-Projects-2026-foo-com`).
-pub fn munge_project_dir(path: &Path) -> String {
+/// `/home/x/Boards/2026/foo.com` → `-home-x-Boards-2026-foo-com`).
+pub fn munge_board_dir(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -450,12 +450,12 @@ fn plan_body(after: SystemTime, must_contain: Option<&str>) -> Option<String> {
 /// [`plan_body`] on an explicit dir (unit-testable). Candidates are `*.md`
 /// files modified at/after the session spawn; when the picker rendered the
 /// plan's first line on screen, a candidate containing it wins (disambiguates
-/// concurrent sessions — the dir is global, not per-project). Without a
+/// concurrent sessions — the dir is global, not per-board). Without a
 /// needle (the bare "Exit plan mode?" variant) — or when the needle matches
 /// no candidate — a body is attached ONLY when there is exactly one
 /// candidate: with two concurrent sessions the newest file may belong to the
-/// OTHER session's workspace, and a missing body is strictly better than a
-/// cross-workspace plan leak.
+/// OTHER session's team, and a missing body is strictly better than a
+/// cross-team plan leak.
 fn plan_body_in(dir: &Path, after: SystemTime, must_contain: Option<&str>) -> Option<String> {
     let mut candidates: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(dir)
         .ok()?
@@ -580,7 +580,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     });
 
     let spawn_time = SystemTime::now();
-    let transcript_dir = transcript_root().map(|root| root.join(munge_project_dir(&config.worktree)));
+    let transcript_dir = transcript_root().map(|root| root.join(munge_board_dir(&config.worktree)));
 
     let mut current: Option<PathBuf> = None;
     let mut offset: u64 = 0;
@@ -1283,11 +1283,11 @@ mod tests {
     #[test]
     fn munge_matches_claude_code_scheme() {
         assert_eq!(
-            munge_project_dir(Path::new("/home/x/Projects/2026/foo.com")),
-            "-home-x-Projects-2026-foo-com"
+            munge_board_dir(Path::new("/home/x/Boards/2026/foo.com")),
+            "-home-x-Boards-2026-foo-com"
         );
         assert_eq!(
-            munge_project_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
+            munge_board_dir(Path::new("/a/b/worktrees/exp/EXP-1")),
             "-a-b-worktrees-exp-EXP-1"
         );
     }

@@ -10,12 +10,12 @@ import {
   MonitorPlay,
   MonitorUp,
 } from "lucide-react"
-import type { CodingSession, Issue, Project, User } from "@/db/schema"
+import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import {
   codingSessionCollection,
-  workspaceMemberCollection,
+  teamMemberCollection,
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { displayUserName } from "@/lib/user-display"
@@ -71,33 +71,33 @@ function RunningPing() {
 
 interface IssueCodingRowsProps {
   issue: Issue
-  project: Project
-  workspaceId: string
-  workspaceSlug: string
+  board: Board
+  teamId: string
+  teamSlug: string
   currentUserId: string
   users: User[]
 }
 
 export function IssueCodingRows({
   issue,
-  project,
-  workspaceId,
-  workspaceSlug,
+  board,
+  teamId,
+  teamSlug,
   currentUserId,
   users,
 }: IssueCodingRowsProps) {
   const config = useSteerConfig()
 
-  // Steer + branch-probe affordances require workspace membership (the server
+  // Steer + branch-probe affordances require team membership (the server
   // enforces this regardless; this only decides what renders).
   const { data: memberRows } = useLiveQuery(
     (query) =>
       query
-        .from({ m: workspaceMemberCollection })
+        .from({ m: teamMemberCollection })
         .where(({ m }) =>
-          and(eq(m.workspaceId, workspaceId), eq(m.userId, currentUserId))
+          and(eq(m.teamId, teamId), eq(m.userId, currentUserId))
         ),
-    [workspaceId, currentUserId]
+    [teamId, currentUserId]
   )
   const isMember = (memberRows?.length ?? 0) > 0
 
@@ -105,16 +105,16 @@ export function IssueCodingRows({
     <>
       <AgentRow
         issue={issue}
-        project={project}
-        workspaceId={workspaceId}
+        board={board}
+        teamId={teamId}
         users={users}
         isMember={isMember}
         steerEnabled={config?.enabled ?? null}
       />
       <PrRow
         issue={issue}
-        project={project}
-        workspaceSlug={workspaceSlug}
+        board={board}
+        teamSlug={teamSlug}
         isMember={isMember}
       />
     </>
@@ -125,15 +125,15 @@ export function IssueCodingRows({
 
 function AgentRow({
   issue,
-  project,
-  workspaceId,
+  board,
+  teamId,
   users,
   isMember,
   steerEnabled,
 }: {
   issue: Issue
-  project: Project
-  workspaceId: string
+  board: Board
+  teamId: string
   users: User[]
   isMember: boolean
   /** null while steer.config is still loading. */
@@ -198,22 +198,22 @@ function AgentRow({
   }
 
   // Not running: only members can remote-start, and only on a repo-backed
-  // project with the relay enabled. Gate the desktop-presence fetch behind that
+  // board with the relay enabled. Gate the desktop-presence fetch behind that
   // — RemoteStartRow (which owns useRemoteCodingStart) mounts ONLY here, so a
   // non-member / steer-off / repo-less / already-running issue view never fires
   // an ungated steer.myDevices round-trip.
-  if (!isMember || !steerEnabled || !project.repositoryId) return null
-  return <RemoteStartRow issue={issue} workspaceId={workspaceId} />
+  if (!isMember || !steerEnabled || !board.repositoryId) return null
+  return <RemoteStartRow issue={issue} teamId={teamId} />
 }
 
 // The remote-start affordance — split out so its steer.myDevices fetch only
 // runs when the start row can actually render (AgentRow gates the mount).
 function RemoteStartRow({
   issue,
-  workspaceId,
+  teamId,
 }: {
   issue: Issue
-  workspaceId: string
+  teamId: string
 }) {
   const remote = useRemoteCodingStart()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -247,7 +247,7 @@ function RemoteStartRow({
         onOpenChange={setDialogOpen}
         devices={remote.devices}
         starting={remote.starting}
-        workspaceId={workspaceId}
+        teamId={teamId}
         initialIssueIds={[issue.id]}
         onStart={(device, options, issueIds) => {
           remote
@@ -270,13 +270,13 @@ function RemoteStartRow({
 
 function PrRow({
   issue,
-  project,
-  workspaceSlug,
+  board,
+  teamSlug,
   isMember,
 }: {
   issue: Issue
-  project: Project
-  workspaceSlug: string
+  board: Board
+  teamSlug: string
   isMember: boolean
 }) {
   const hasPr = issue.prNumber != null
@@ -285,7 +285,7 @@ function PrRow({
   const canProbe =
     !hasPr &&
     isMember &&
-    Boolean(project.repositoryId) &&
+    Boolean(board.repositoryId) &&
     (issue.status === `in_progress` || issue.status === `in_review`)
   const [branchFileCount, setBranchFileCount] = useState<number | null>(null)
 
@@ -314,8 +314,8 @@ function PrRow({
   if (hasPr) {
     return (
       <Link
-        to="/t/$workspaceSlug/reviews/$issueIdentifier"
-        params={{ workspaceSlug, issueIdentifier: issue.identifier }}
+        to="/t/$teamSlug/reviews/$issueIdentifier"
+        params={{ teamSlug, issueIdentifier: issue.identifier }}
         className={rowClass}
       >
         <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
@@ -334,8 +334,8 @@ function PrRow({
   if (canProbe && branchFileCount != null && branchFileCount > 0) {
     return (
       <Link
-        to="/t/$workspaceSlug/reviews/$issueIdentifier"
-        params={{ workspaceSlug, issueIdentifier: issue.identifier }}
+        to="/t/$teamSlug/reviews/$issueIdentifier"
+        params={{ teamSlug, issueIdentifier: issue.identifier }}
         className={rowClass}
       >
         <GitBranch className="size-4 shrink-0 text-muted-foreground" />

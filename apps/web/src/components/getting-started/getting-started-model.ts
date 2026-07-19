@@ -5,7 +5,7 @@
 
 export type EntryKey =
   | `github`
-  | `project`
+  | `board`
   | `coding`
   | `widget`
   | `helpdesk`
@@ -14,15 +14,15 @@ export type EntryKey =
 export type EntryState = `done` | `available` | `locked`
 
 export interface GettingStartedSignals {
-  /** integrations.github.status → installed (workspace has a linked App install). */
+  /** integrations.github.status → installed (team has a linked App install). */
   githubInstalled: boolean
-  /** Any live (non-archived, non-trashed) project. */
-  hasProject: boolean
-  /** Any live project with a repository attached. */
-  hasRepoProject: boolean
-  /** Any coding_sessions row in the workspace (running or ended). */
+  /** Any live (non-archived, non-trashed) board. */
+  hasBoard: boolean
+  /** Any live board with a repository attached. */
+  hasRepoBoard: boolean
+  /** Any coding_sessions row in the team (running or ended). */
   hasCodingSession: boolean
-  /** The workspace-level helpdesk switch (workspaces.helpdeskEnabled). */
+  /** The team-level helpdesk switch (teams.helpdeskEnabled). */
   helpdeskEnabled: boolean
   /** widgets.list non-empty (owner-only signal — false for members). */
   hasWidget: boolean
@@ -38,7 +38,7 @@ export interface GettingStartedEntry {
 }
 
 // Derive every entry's state, in the single static display order
-// github → project → coding → widget → helpdesk → mcp. Completion always wins
+// github → board → coding → widget → helpdesk → mcp. Completion always wins
 // over locking (a signal that exists proves the prereq was satisfiable). The
 // widget and helpdesk entries are for owners only — widgets.list and the
 // helpdesk switch are owner-only surfaces, so members neither see those
@@ -55,32 +55,32 @@ export function deriveEntryStates(
   })
 
   entries.push({
-    key: `project`,
-    state: signals.hasProject ? `done` : `available`,
+    key: `board`,
+    state: signals.hasBoard ? `done` : `available`,
   })
 
-  // Coding needs a repo-backed project; when locked, point at whichever of
+  // Coding needs a repo-backed board; when locked, point at whichever of
   // its two feeder steps is still missing (GitHub first — without it the
-  // project step can't attach a repo either).
+  // board step can't attach a repo either).
   if (signals.hasCodingSession) {
     entries.push({ key: `coding`, state: `done` })
-  } else if (signals.hasRepoProject) {
+  } else if (signals.hasRepoBoard) {
     entries.push({ key: `coding`, state: `available` })
   } else {
     entries.push({
       key: `coding`,
       state: `locked`,
-      lockedBy: signals.githubInstalled ? `project` : `github`,
+      lockedBy: signals.githubInstalled ? `board` : `github`,
     })
   }
 
   if (canManageWidgets) {
     if (signals.hasWidget) {
       entries.push({ key: `widget`, state: `done` })
-    } else if (signals.hasProject) {
+    } else if (signals.hasBoard) {
       entries.push({ key: `widget`, state: `available` })
     } else {
-      entries.push({ key: `widget`, state: `locked`, lockedBy: `project` })
+      entries.push({ key: `widget`, state: `locked`, lockedBy: `board` })
     }
   }
 

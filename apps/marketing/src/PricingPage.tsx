@@ -33,7 +33,7 @@ export function PricingPage() {
           <div className="shell">
             <PlanCards />
             <p className="plan-footnote">
-              Unlimited projects, repos and coding sessions on every tier.
+              Unlimited boards, repos and coding sessions on every tier.
               Agents are free everywhere — you only ever pay for people.
             </p>
           </div>
@@ -72,7 +72,7 @@ export function PricingPage() {
 
         <FooterCTA
           title="Start free today."
-          subtitle="A workspace for you and your coding agents, free forever. No card required."
+          subtitle="A team for you and your coding agents, free forever. No card required."
         />
       </main>
       <SiteFooter />

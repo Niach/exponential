@@ -30,7 +30,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::rows::{Comment, IssueEvent, Label, Project, User};
+use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
 use crate::comments::{self, CommentRowProps};
 use crate::icons::ExpIcon;
@@ -65,9 +65,9 @@ struct EditState {
 
 pub struct IssueTimeline {
     issue_id: Option<String>,
-    /// The composer's scoping workspace (drives autocomplete + pill
-    /// resolution); re-resolved as the issue/project chain syncs.
-    workspace_id: Option<String>,
+    /// The composer's scoping team (drives autocomplete + pill
+    /// resolution); re-resolved as the issue/board chain syncs.
+    team_id: Option<String>,
     composer: Entity<InputState>,
     /// Mention-capable wrapper around the composer (§4.2: "the lightweight
     /// `@`-autocomplete textarea from §4.6, not the heavy block editor").
@@ -110,20 +110,20 @@ impl IssueTimeline {
         subscriptions.push(cx.observe(&collections.issue_events, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.labels, |_, _, cx| cx.notify()));
-        // The autocomplete scope depends on the issue → project → workspace
-        // chain; re-resolve as those shapes land. Projects also notify —
-        // project names in project_moved rows (EXP-57).
+        // The autocomplete scope depends on the issue → board → team
+        // chain; re-resolve as those shapes land. Boards also notify —
+        // board names in board_moved rows (EXP-57).
         subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
             this.refresh_scope(cx);
         }));
-        subscriptions.push(cx.observe(&collections.projects, |this, _, cx| {
+        subscriptions.push(cx.observe(&collections.boards, |this, _, cx| {
             this.refresh_scope(cx);
             cx.notify();
         }));
 
         Self {
             issue_id: None,
-            workspace_id: None,
+            team_id: None,
             composer,
             composer_mention,
             images,
@@ -145,7 +145,7 @@ impl IssueTimeline {
             return;
         }
         self.issue_id = issue_id;
-        self.workspace_id = None;
+        self.team_id = None;
         self.editing = None;
         self.submitting = false;
         self.composer
@@ -155,18 +155,18 @@ impl IssueTimeline {
     }
 
     /// Re-point the §4.6 completion source + the image transport at the
-    /// issue's workspace once resolvable (idempotent; runs on issue change
-    /// and as the issues/projects shapes sync).
+    /// issue's team once resolvable (idempotent; runs on issue change
+    /// and as the issues/boards shapes sync).
     fn refresh_scope(&mut self, cx: &mut gpui::Context<Self>) {
-        let workspace_id = self
+        let team_id = self
             .issue_id
             .as_deref()
-            .and_then(|issue_id| queries::issue_workspace_id(cx, issue_id));
-        if workspace_id == self.workspace_id {
+            .and_then(|issue_id| queries::issue_team_id(cx, issue_id));
+        if team_id == self.team_id {
             return;
         }
-        self.workspace_id = workspace_id.clone();
-        let source = workspace_id.map(store_completion_source);
+        self.team_id = team_id.clone();
+        let source = team_id.map(store_completion_source);
         self.composer_mention.update(cx, |mention, _| {
             mention.set_source(source.clone());
         });
@@ -247,7 +247,7 @@ impl IssueTimeline {
         });
         let mention = cx.new(|cx| {
             let mut mention = MentionInput::new(input.clone(), cx);
-            mention.set_source(self.workspace_id.clone().map(store_completion_source));
+            mention.set_source(self.team_id.clone().map(store_completion_source));
             mention
         });
         self.editing = Some(EditState {
@@ -377,12 +377,12 @@ impl Render for IssueTimeline {
             .iter()
             .map(|label| (label.id.clone(), label.clone()))
             .collect();
-        // Project names in project_moved rows (EXP-57).
-        let project_map: HashMap<String, Project> = collections
-            .projects
+        // Board names in board_moved rows (EXP-57).
+        let board_map: HashMap<String, Board> = collections
+            .boards
             .read(cx)
             .iter()
-            .map(|project| (project.id.clone(), project.clone()))
+            .map(|board| (board.id.clone(), board.clone()))
             .collect();
 
         let account = queries::active_account(cx);
@@ -427,7 +427,7 @@ impl Render for IssueTimeline {
             match item {
                 TimelineItem::Event(event) => {
                     if let Some(row) =
-                        event_row(event, &user_map, &label_map, &project_map, cx)
+                        event_row(event, &user_map, &label_map, &board_map, cx)
                     {
                         body = body.child(row);
                     }
@@ -454,7 +454,7 @@ impl Render for IssueTimeline {
                             editing,
                             saving,
                             now_epoch,
-                            workspace_id: self.workspace_id.as_deref(),
+                            team_id: self.team_id.as_deref(),
                             images: &self.images,
                         },
                         cx,
@@ -510,7 +510,7 @@ fn event_phrase(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
-    project_map: &HashMap<String, Project>,
+    board_map: &HashMap<String, Board>,
 ) -> Option<(ExpIcon, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
@@ -557,16 +557,16 @@ fn event_phrase(
             let verb = if kind == "label_added" { "added" } else { "removed" };
             Some((ExpIcon::Tag, format!("{verb} label {label_name}"), None))
         }
-        "project_moved" => {
-            // EXP-57 (web `EventRow` parity): from/to project names resolve
-            // from the synced projects; a deleted source degrades generically
+        "board_moved" => {
+            // EXP-57 (web `EventRow` parity): from/to board names resolve
+            // from the synced boards; a deleted source degrades generically
             // and the payload's fromIdentifier keeps the row useful.
-            let project_name = |key: &str| {
-                payload_str(key).and_then(|id| project_map.get(&id).map(|p| p.name.clone()))
+            let board_name = |key: &str| {
+                payload_str(key).and_then(|id| board_map.get(&id).map(|p| p.name.clone()))
             };
             let from =
-                project_name("fromProjectId").unwrap_or_else(|| "another project".to_string());
-            let to = project_name("toProjectId").unwrap_or_else(|| "this project".to_string());
+                board_name("fromBoardId").unwrap_or_else(|| "another board".to_string());
+            let to = board_name("toBoardId").unwrap_or_else(|| "this board".to_string());
             let phrase = match payload_str("fromIdentifier") {
                 Some(identifier) => format!("moved this from {from} ({identifier}) to {to}"),
                 None => format!("moved this from {from} to {to}"),
@@ -602,10 +602,10 @@ fn event_row(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
-    project_map: &HashMap<String, Project>,
+    board_map: &HashMap<String, Board>,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
-    let (icon, phrase, link) = event_phrase(event, user_map, label_map, project_map)?;
+    let (icon, phrase, link) = event_phrase(event, user_map, label_map, board_map)?;
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
@@ -696,16 +696,16 @@ mod tests {
         let users = users_with("Ada");
         let labels: HashMap<String, Label> = HashMap::from([(
             "l-1".to_string(),
-            serde_json::from_value(json!({ "id": "l-1", "workspace_id": "w", "name": "bug" }))
+            serde_json::from_value(json!({ "id": "l-1", "team_id": "w", "name": "bug" }))
                 .unwrap(),
         )]);
-        let projects: HashMap<String, Project> = HashMap::new();
+        let boards: HashMap<String, Board> = HashMap::new();
 
         let (_, phrase, _) = event_phrase(
             &event("status_changed", json!({ "to": "in_progress" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "changed status to in progress");
@@ -715,7 +715,7 @@ mod tests {
             &event("status_changed", json!({ "from": "todo", "to": "in_progress" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");
@@ -724,7 +724,7 @@ mod tests {
             &event("assignee_changed", json!({ "to": "u-1" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "assigned Ada");
@@ -734,7 +734,7 @@ mod tests {
             &event("assignee_changed", json!({ "to": "u-ghost" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "assigned someone");
@@ -743,7 +743,7 @@ mod tests {
             &event("assignee_changed", json!({})),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "removed the assignee");
@@ -752,7 +752,7 @@ mod tests {
             &event("label_added", json!({ "labelId": "l-1" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "added label bug");
@@ -761,7 +761,7 @@ mod tests {
             &event("label_removed", json!({ "labelId": "gone" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "removed label a label");
@@ -770,7 +770,7 @@ mod tests {
             &event("pr_opened", json!({})),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "opened a pull request");
@@ -780,7 +780,7 @@ mod tests {
             &event("pr_merged", json!({})),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "merged the pull request");
@@ -791,7 +791,7 @@ mod tests {
             &event("something_new", json!({})),
             &users,
             &labels,
-            &projects
+            &boards
         )
         .is_none());
     }
@@ -800,7 +800,7 @@ mod tests {
     fn pr_events_surface_number_and_link() {
         let users = HashMap::new();
         let labels = HashMap::new();
-        let projects = HashMap::new();
+        let boards = HashMap::new();
 
         // pr_opened payload: { prUrl, prNumber, branch } (pr-sync.ts).
         let (_, phrase, link) = event_phrase(
@@ -814,7 +814,7 @@ mod tests {
             ),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "opened pull request #42");
@@ -825,7 +825,7 @@ mod tests {
             &event("pr_merged", json!({ "prUrl": "https://github.com/o/r/pull/42" })),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "merged pull request #42");
@@ -837,33 +837,33 @@ mod tests {
     }
 
     #[test]
-    fn project_moved_resolves_names_and_degrades_gracefully() {
+    fn board_moved_resolves_names_and_degrades_gracefully() {
         let users = HashMap::new();
         let labels = HashMap::new();
-        let alpha: Project = serde_json::from_value(json!({
-            "id": "p-1", "workspace_id": "w-1", "name": "Alpha"
+        let alpha: Board = serde_json::from_value(json!({
+            "id": "p-1", "team_id": "w-1", "name": "Alpha"
         }))
         .unwrap();
-        let beta: Project = serde_json::from_value(json!({
-            "id": "p-2", "workspace_id": "w-1", "name": "Beta"
+        let beta: Board = serde_json::from_value(json!({
+            "id": "p-2", "team_id": "w-1", "name": "Beta"
         }))
         .unwrap();
-        let projects = HashMap::from([("p-1".to_string(), alpha), ("p-2".to_string(), beta)]);
+        let boards = HashMap::from([("p-1".to_string(), alpha), ("p-2".to_string(), beta)]);
 
-        // EXP-57 payload (issues.ts move): both projects synced → web parity.
+        // EXP-57 payload (issues.ts move): both boards synced → web parity.
         let (_, phrase, _) = event_phrase(
             &event(
-                "project_moved",
+                "board_moved",
                 json!({
-                    "fromProjectId": "p-1",
-                    "toProjectId": "p-2",
+                    "fromBoardId": "p-1",
+                    "toBoardId": "p-2",
                     "fromIdentifier": "EXP-42",
                     "toIdentifier": "ABC-17"
                 }),
             ),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
         assert_eq!(phrase, "moved this from Alpha (EXP-42) to Beta");
@@ -872,29 +872,29 @@ mod tests {
         // identifier keeps the row useful (web fallback).
         let (_, phrase, _) = event_phrase(
             &event(
-                "project_moved",
+                "board_moved",
                 json!({
-                    "fromProjectId": "gone",
-                    "toProjectId": "p-2",
+                    "fromBoardId": "gone",
+                    "toBoardId": "p-2",
                     "fromIdentifier": "EXP-42"
                 }),
             ),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
-        assert_eq!(phrase, "moved this from another project (EXP-42) to Beta");
+        assert_eq!(phrase, "moved this from another board (EXP-42) to Beta");
 
         // Empty payload never panics.
         let (_, phrase, _) = event_phrase(
-            &event("project_moved", json!({})),
+            &event("board_moved", json!({})),
             &users,
             &labels,
-            &projects,
+            &boards,
         )
         .unwrap();
-        assert_eq!(phrase, "moved this from another project to this project");
+        assert_eq!(phrase, "moved this from another board to this board");
     }
 
     /// EXP-33 regression: the store binds jsonb payloads as JSON TEXT

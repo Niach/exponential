@@ -34,7 +34,7 @@ let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
 let expCoreTestSources: SourceFilesList = ["ExpCore/Tests/**"]
 
 // ExpUI: the iOS SwiftUI presentation layer (theme, glass modifiers,
-// status/priority colors, WorkspaceAvatar, the block markdown editor core).
+// status/priority colors, TeamAvatar, the block markdown editor core).
 // SwiftUI only; depends on ExpCore for the domain enums/entities it renders.
 let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
 // ExpUI unit tests — the editor interchange-contract gate: `@<email>` mentions

@@ -8,10 +8,10 @@ import {
   emailDeliveries,
   issues,
   issueSubscribers,
-  projects,
+  boards,
   widgetConfigs,
   widgetSubmissions,
-  workspaces,
+  teams,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanUseHelpdesk, assertWithinStorageLimit } from "@/lib/billing"
@@ -30,7 +30,7 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
-import { getSoleHumanMemberId } from "@/lib/workspace-membership"
+import { getSoleHumanMemberId } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import {
   fireAndForgetNewIssueNotify,
@@ -65,37 +65,37 @@ export class WidgetRequestError extends Error {
 }
 
 // The widget config row plus the trash/archive state of its feedback target
-// board (nullable — support-only widgets have none) and the workspace's
+// board (nullable — support-only widgets have none) and the team's
 // helpdesk flag, so the submit + config paths can gate each mode on live
 // state.
-export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
-  projectSlug: string | null
-  projectName: string | null
-  projectDeletedAt: Date | null
-  projectArchivedAt: Date | null
-  workspaceSlug: string | null
-  workspaceHelpdeskEnabled: boolean | null
+export type WidgetConfigWithBoard = typeof widgetConfigs.$inferSelect & {
+  boardSlug: string | null
+  boardName: string | null
+  boardDeletedAt: Date | null
+  boardArchivedAt: Date | null
+  teamSlug: string | null
+  teamHelpdeskEnabled: boolean | null
 }
 
 export async function loadWidgetConfigByKey(
   key: string
-): Promise<WidgetConfigWithProject> {
+): Promise<WidgetConfigWithBoard> {
   if (!isWidgetKeyFormat(key)) {
     throw new WidgetRequestError(404, `Unknown widget key`)
   }
   const [row] = await db
     .select({
       config: widgetConfigs,
-      projectSlug: projects.slug,
-      projectName: projects.name,
-      projectDeletedAt: projects.deletedAt,
-      projectArchivedAt: projects.archivedAt,
-      workspaceSlug: workspaces.slug,
-      workspaceHelpdeskEnabled: workspaces.helpdeskEnabled,
+      boardSlug: boards.slug,
+      boardName: boards.name,
+      boardDeletedAt: boards.deletedAt,
+      boardArchivedAt: boards.archivedAt,
+      teamSlug: teams.slug,
+      teamHelpdeskEnabled: teams.helpdeskEnabled,
     })
     .from(widgetConfigs)
-    .leftJoin(projects, eq(projects.id, widgetConfigs.projectId))
-    .leftJoin(workspaces, eq(workspaces.id, widgetConfigs.workspaceId))
+    .leftJoin(boards, eq(boards.id, widgetConfigs.boardId))
+    .leftJoin(teams, eq(teams.id, widgetConfigs.teamId))
     .where(eq(widgetConfigs.publicKey, key))
     .limit(1)
   if (!row) {
@@ -103,12 +103,12 @@ export async function loadWidgetConfigByKey(
   }
   return {
     ...row.config,
-    projectSlug: row.projectSlug,
-    projectName: row.projectName,
-    projectDeletedAt: row.projectDeletedAt,
-    projectArchivedAt: row.projectArchivedAt,
-    workspaceSlug: row.workspaceSlug,
-    workspaceHelpdeskEnabled: row.workspaceHelpdeskEnabled,
+    boardSlug: row.boardSlug,
+    boardName: row.boardName,
+    boardDeletedAt: row.boardDeletedAt,
+    boardArchivedAt: row.boardArchivedAt,
+    teamSlug: row.teamSlug,
+    teamHelpdeskEnabled: row.teamHelpdeskEnabled,
   }
 }
 
@@ -120,7 +120,7 @@ export async function loadWidgetConfigByKey(
 export type WidgetMode = `feedback` | `support`
 
 export function requestedWidgetModes(
-  config: WidgetConfigWithProject
+  config: WidgetConfigWithBoard
 ): WidgetMode[] {
   const raw = config.formConfig?.modes
   const modes = Array.isArray(raw)
@@ -136,16 +136,16 @@ export function requestedWidgetModes(
   return modes.length > 0 ? modes : [`feedback`]
 }
 
-// Support mode is served (and accepted) only while the WORKSPACE helpdesk is
+// Support mode is served (and accepted) only while the TEAM helpdesk is
 // on AND the plan still covers it — the owner-side write gate can go stale
 // (helpdesk toggled off, plan lapsed), so both the config response and raw
 // submits re-check dynamically.
 async function widgetSupportAvailable(
-  config: WidgetConfigWithProject
+  config: WidgetConfigWithBoard
 ): Promise<boolean> {
-  if (config.workspaceHelpdeskEnabled !== true) return false
+  if (config.teamHelpdeskEnabled !== true) return false
   try {
-    await assertCanUseHelpdesk(config.workspaceId)
+    await assertCanUseHelpdesk(config.teamId)
     return true
   } catch {
     return false
@@ -153,14 +153,14 @@ async function widgetSupportAvailable(
 }
 
 // Per-mode availability: feedback needs a live target board, support the
-// workspace helpdesk. An EMPTY result means nothing is servable — the config
+// team helpdesk. An EMPTY result means nothing is servable — the config
 // route reports the widget disabled and both submit paths 403.
 export async function effectiveWidgetModes(
-  config: WidgetConfigWithProject
+  config: WidgetConfigWithBoard
 ): Promise<WidgetMode[]> {
   const modes = requestedWidgetModes(config)
   const feedbackAvailable =
-    config.projectId != null && config.projectDeletedAt == null
+    config.boardId != null && config.boardDeletedAt == null
   const supportAvailable =
     modes.includes(`support`) && (await widgetSupportAvailable(config))
 
@@ -233,7 +233,7 @@ export interface WidgetSubmitResult {
 // The whole submit pipeline past key/origin/rate gating (which the route owns
 // because those decide the CORS headers on the response).
 export async function createWidgetSubmission(args: {
-  config: WidgetConfigWithProject
+  config: WidgetConfigWithBoard
   formData: FormData
   userAgent: string | null
 }): Promise<WidgetSubmitResult> {
@@ -242,8 +242,8 @@ export async function createWidgetSubmission(args: {
   // A missing or trashed target board rejects new writes (a support-only
   // widget has no feedback board at all); restore brings a trashed board
   // back automatically.
-  const projectId = config.projectId
-  if (projectId == null || config.projectDeletedAt != null) {
+  const boardId = config.boardId
+  if (boardId == null || config.boardDeletedAt != null) {
     throw new WidgetRequestError(403, `This feedback board is unavailable`)
   }
 
@@ -306,7 +306,7 @@ export async function createWidgetSubmission(args: {
   }
 
   try {
-    await assertWithinStorageLimit(config.workspaceId, screenshot?.size ?? 0)
+    await assertWithinStorageLimit(config.teamId, screenshot?.size ?? 0)
   } catch (error) {
     if (error instanceof TRPCError) {
       throw new WidgetRequestError(403, error.message)
@@ -341,9 +341,9 @@ export async function createWidgetSubmission(args: {
     screenshotAttachmentId: attachmentId,
   })
 
-  // EXP-50: a solo workspace (exactly one human member) auto-assigns widget
+  // EXP-50: a solo team (exactly one human member) auto-assigns widget
   // feedback to that member — there is nobody else it could belong to.
-  const soleMemberId = await getSoleHumanMemberId(config.workspaceId)
+  const soleMemberId = await getSoleHumanMemberId(config.teamId)
 
   try {
     // Direct insert with the attachment row in the SAME transaction: the
@@ -352,14 +352,14 @@ export async function createWidgetSubmission(args: {
     // so the embedded image URL is valid the moment the issue is visible.
     // The creator is an isAgent user (no subscription, no inbox); member
     // fan-out happens AFTER commit via fireAndForgetNewIssueNotify (EXP-53) —
-    // every human workspace member gets an `issue_created` notification.
+    // every human team member gets an `issue_created` notification.
     const result = await db.transaction(async (tx) => {
       await generateTxId(tx)
       const [issue] = await tx
         .insert(issues)
         .values({
           id: issueId,
-          projectId,
+          boardId,
           title: fields.data.title,
           status: `backlog`,
           priority: `none`,
@@ -374,8 +374,8 @@ export async function createWidgetSubmission(args: {
       if (screenshot && attachmentId && storageKey) {
         await tx.insert(attachments).values({
           id: attachmentId,
-          workspaceId: config.workspaceId,
-          projectId,
+          teamId: config.teamId,
+          boardId,
           issueId,
           uploaderId: config.widgetUserId,
           filename: sanitizeUploadFilename(screenshot.name, `screenshot.png`),
@@ -396,7 +396,7 @@ export async function createWidgetSubmission(args: {
         await ensureSubscribed(tx, {
           issueId,
           userId: soleMemberId,
-          workspaceId: config.workspaceId,
+          teamId: config.teamId,
           source: `assignee`,
         })
       }
@@ -410,8 +410,8 @@ export async function createWidgetSubmission(args: {
           issueId,
           userId: null,
           email: fields.data.email,
-          workspaceId: config.workspaceId,
-          projectId,
+          teamId: config.teamId,
+          boardId,
           source: `widget_reporter`,
           unsubscribed: false,
         })
@@ -441,7 +441,7 @@ export async function createWidgetSubmission(args: {
     })
 
     // EXP-53: after commit (the notification loads the issue row itself, so
-    // it must be visible), fan out `issue_created` to the workspace's human
+    // it must be visible), fan out `issue_created` to the team's human
     // members. Fire-and-forget — never fails the submit.
     fireAndForgetNewIssueNotify({ issueId: result.issueId })
 
@@ -465,7 +465,7 @@ export async function createWidgetSubmission(args: {
 // Support mode (EXP-130, reshaped by EXP-180): the widget's "Get help" form
 // files a STANDALONE helpdesk ticket — a support thread + magic-link token,
 // no issue — and the reporter gets a confirmation email carrying the
-// conversation link. Tickets land in the workspace support inbox.
+// conversation link. Tickets land in the team support inbox.
 // ---------------------------------------------------------------------------
 
 const supportFieldsSchema = z.object({
@@ -478,13 +478,13 @@ const supportFieldsSchema = z.object({
 })
 
 export async function createWidgetSupportSubmission(args: {
-  config: WidgetConfigWithProject
+  config: WidgetConfigWithBoard
   formData: FormData
   userAgent: string | null
 }): Promise<WidgetSubmitResult> {
   const { config, formData } = args
 
-  // Re-checked per submit (not just at config time): the workspace helpdesk
+  // Re-checked per submit (not just at config time): the team helpdesk
   // toggle or the plan may have changed since the widget cached its config.
   if (!(await effectiveWidgetModes(config)).includes(`support`)) {
     throw new WidgetRequestError(403, `Support is not enabled for this widget`)
@@ -523,7 +523,7 @@ export async function createWidgetSupportSubmission(args: {
   const { threadId, token } = await db.transaction(async (tx) => {
     await generateTxId(tx)
     const created = await createSupportThreadInTx(tx, {
-      workspaceId: config.workspaceId,
+      teamId: config.teamId,
       title: supportTicketTitle(fields.data.message),
       reporterEmail: fields.data.email,
       reporterName: fields.data.name ?? null,
@@ -565,7 +565,7 @@ export async function createWidgetSupportSubmission(args: {
     // has one, else the widget's own name ("… — Exponential support").
     const sendResult = await sendSupportConfirmationEmail({
       to: fields.data.email,
-      projectName: config.projectName ?? config.name,
+      boardName: config.boardName ?? config.name,
       threadUrl: supportThreadUrl(token),
     })
     await db.insert(emailDeliveries).values({

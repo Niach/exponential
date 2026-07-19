@@ -4,13 +4,13 @@ import {
   emailDeliveries,
   issueSubscribers,
   issues,
-  projects,
+  boards,
   supportMessages,
   supportThreads,
   users,
   widgetSubmissions,
-  workspaceMembers,
-  workspaces,
+  teamMembers,
+  teams,
 } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
 import { emailEnabled, sendReporterResolutionEmail } from "@/lib/email"
@@ -30,9 +30,9 @@ interface IssueMeta {
   id: string
   identifier: string
   title: string
-  workspaceId: string
-  workspaceSlug: string
-  projectSlug: string
+  teamId: string
+  teamSlug: string
+  boardSlug: string
   assigneeId: string | null
 }
 
@@ -42,14 +42,14 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       id: issues.id,
       identifier: issues.identifier,
       title: issues.title,
-      workspaceId: projects.workspaceId,
-      workspaceSlug: workspaces.slug,
-      projectSlug: projects.slug,
+      teamId: boards.teamId,
+      teamSlug: teams.slug,
+      boardSlug: boards.slug,
       assigneeId: issues.assigneeId,
     })
     .from(issues)
-    .innerJoin(projects, eq(projects.id, issues.projectId))
-    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .innerJoin(teams, eq(teams.id, boards.teamId))
     .where(eq(issues.id, issueId))
     .limit(1)
   return row ?? null
@@ -64,24 +64,24 @@ async function actorName(actorUserId: string): Promise<string> {
   return actor?.name || actor?.email || `Someone`
 }
 
-// Keep only recipients who are CURRENT members of the issue's workspace and
+// Keep only recipients who are CURRENT members of the issue's team and
 // not agents (the widget-helpdesk bot has no inbox). The membership check is
 // the security boundary: subscriber/assignee rows can be stale after a member
 // is removed, and private issue content must never fan out to an ex-member.
 // Exported for tests.
 export async function deliverableRecipients(
-  workspaceId: string,
+  teamId: string,
   userIds: string[]
 ): Promise<string[]> {
   if (userIds.length === 0) return []
   const rows = await db
-    .select({ id: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .select({ id: teamMembers.userId })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
       and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        inArray(workspaceMembers.userId, userIds),
+        eq(teamMembers.teamId, teamId),
+        inArray(teamMembers.userId, userIds),
         eq(users.isAgent, false)
       )
     )
@@ -120,7 +120,7 @@ async function subscriberRecipients(
 // later into one email per user, so a notification read in time (the push did
 // its job) never produces an email. Push and email are free delivery channels
 // — neither is plan-gated. Recipients are de-duped, filtered to CURRENT
-// workspace members, and bot-filtered.
+// team members, and bot-filtered.
 //
 // Idempotency: the fire-and-forget callers can run twice for one logical event
 // (e.g. concurrent comment creations fanning out to the same subscribers), and
@@ -144,7 +144,7 @@ async function deliver(args: {
   title: string
   body: string | null
 }): Promise<void> {
-  const recipients = await deliverableRecipients(args.issue.workspaceId, [
+  const recipients = await deliverableRecipients(args.issue.teamId, [
     ...new Set(args.recipientIds),
   ])
   if (recipients.length === 0) return
@@ -233,7 +233,7 @@ export function fireAndForgetAssignmentNotify(args: {
 }
 
 /**
- * Notify every human member of the issue's workspace that a new issue landed
+ * Notify every human member of the issue's team that a new issue landed
  * (EXP-53: widget feedback submissions). There is no actor to exclude — the
  * creator is the isAgent widget-helpdesk bot, which deliver()'s membership
  * filter drops anyway. Writes `issue_created` rows + push; email follows via
@@ -246,9 +246,9 @@ export function fireAndForgetNewIssueNotify(args: { issueId: string }): void {
       if (!issue) return
 
       const memberRows = await db
-        .select({ userId: workspaceMembers.userId })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, issue.teamId))
       if (memberRows.length === 0) return
 
       await deliver({
@@ -460,19 +460,19 @@ export function fireAndForgetPrNotify(args: {
 
 // Issue-less sibling of deliver(): the fan-out for events that have no
 // backing issue (standalone helpdesk tickets). Same dedupe-insert shape with
-// `issue_id IS NULL` (the trigger-denormalized project_id stays NULL too, so
-// the notifications shape's `project_id IS NULL` arm keeps these rows synced)
+// `issue_id IS NULL` (the trigger-denormalized board_id stays NULL too, so
+// the notifications shape's `board_id IS NULL` arm keeps these rows synced)
 // and the same push-first delivery; the push payload carries no issue keys —
 // natives route on `type` alone.
-async function deliverToWorkspace(args: {
-  workspaceId: string
+async function deliverToTeam(args: {
+  teamId: string
   recipientIds: string[]
   type: NotificationType
   title: string
   body: string | null
   pushData: Record<string, string>
 }): Promise<void> {
-  const recipients = await deliverableRecipients(args.workspaceId, [
+  const recipients = await deliverableRecipients(args.teamId, [
     ...new Set(args.recipientIds),
   ])
   if (recipients.length === 0) return
@@ -521,7 +521,7 @@ async function deliverToWorkspace(args: {
 
 /**
  * Helpdesk: a new ticket arrived or the external reporter replied. Broadcast
- * to every human workspace member (the support inbox is a shared surface and
+ * to every human team member (the support inbox is a shared surface and
  * there is no actor to exclude). The preview is reporter-authored UNTRUSTED
  * text: it is written as a plain string and the digest email escapes bodies,
  * so no extra sanitizing is needed here beyond truncation.
@@ -535,7 +535,7 @@ export function fireAndForgetSupportThreadNotify(args: {
       const [thread] = await db
         .select({
           id: supportThreads.id,
-          workspaceId: supportThreads.workspaceId,
+          teamId: supportThreads.teamId,
           title: supportThreads.title,
           reporterName: supportThreads.reporterName,
           reporterEmail: supportThreads.reporterEmail,
@@ -546,9 +546,9 @@ export function fireAndForgetSupportThreadNotify(args: {
       if (!thread) return
 
       const memberRows = await db
-        .select({ userId: workspaceMembers.userId })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, thread.workspaceId))
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, thread.teamId))
       if (memberRows.length === 0) return
 
       // Preview: the latest public inbound message (the reporter's words).
@@ -571,8 +571,8 @@ export function fireAndForgetSupportThreadNotify(args: {
           : previewSource
 
       const who = thread.reporterName || thread.reporterEmail
-      await deliverToWorkspace({
-        workspaceId: thread.workspaceId,
+      await deliverToTeam({
+        teamId: thread.teamId,
         recipientIds: memberRows.map((row) => row.userId),
         type: `support_reply`,
         title:

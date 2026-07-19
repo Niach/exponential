@@ -106,7 +106,7 @@ pub fn fix_conflicts_prompt(branch: &str, files: &[String]) -> String {
     format!(
         "Please resolve a rebase conflict: a `git pull --rebase` on `{branch}` stopped on \
 conflicts in {file_list}. Resolve them preserving both sides' intent, run `git rebase --continue` (or \
-`git merge --continue`), verify the project still builds, and do NOT push."
+`git merge --continue`), verify the board still builds, and do NOT push."
     )
 }
 
@@ -122,21 +122,21 @@ verify the build, then push with `--force-with-lease`."
 }
 
 /// Prompt for the run-configs editor's "Create with Claude" action (v5 §7.3 /
-/// L24): the ONE MCP-enabled Claude task. It runs in the project's trunk clone
+/// L24): the ONE MCP-enabled Claude task. It runs in the board's trunk clone
 /// alongside a scoped `.exp-mcp.json` that exposes the `exponential_run_configs_*`
 /// MCP tools, and asks Claude to inspect the repo and create run configs for
-/// `project_id`. Unlike the conflict prompts it does NOT touch git — it only
+/// `board_id`. Unlike the conflict prompts it does NOT touch git — it only
 /// reads the repo and calls the MCP tools.
-pub fn create_run_configs_prompt(project_id: &str) -> String {
+pub fn create_run_configs_prompt(board_id: &str) -> String {
     format!(
         "Please inspect this repository — its README, package.json, Cargo.toml, Makefile, \
 justfile, docker-compose, and scripts — to learn how it is developed, built, run, \
 tested, and linted. Then create a small set of useful run configurations for the \
-Exponential project with id `{project_id}` using the `exponential_run_configs_create` \
+Exponential board with id `{board_id}` using the `exponential_run_configs_create` \
 MCP tool (one per common task, e.g. dev server, build, test, lint). Each config's \
 argv is spawned directly with NO shell, so argv[0] must be the program and the rest \
 its arguments; set cwd (repo-relative, no \"..\") and env only when needed. Call \
-`exponential_run_configs_list` for that project first so you don't create duplicates. \
+`exponential_run_configs_list` for that board first so you don't create duplicates. \
 Do not commit, push, or change any files — only call the run-config MCP tools."
     )
 }
@@ -239,7 +239,7 @@ mod tests {
             prompt,
             "Please resolve a rebase conflict: a `git pull --rebase` on `main` stopped on \
 conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent, run `git rebase --continue` (or \
-`git merge --continue`), verify the project still builds, and do NOT push."
+`git merge --continue`), verify the board still builds, and do NOT push."
         );
         // The trunk conflict prompt must never instruct a push (the human
         // reviews the trunk before pushing — v4 §4.9 row 1).
@@ -255,9 +255,9 @@ conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent,
     }
 
     #[test]
-    fn create_run_configs_prompt_targets_the_project_and_the_mcp_tools() {
+    fn create_run_configs_prompt_targets_the_board_and_the_mcp_tools() {
         let prompt = create_run_configs_prompt("proj-123");
-        // Names the exact project so Claude passes the right projectId.
+        // Names the exact board so Claude passes the right boardId.
         assert!(prompt.contains("proj-123"));
         // Points at the run-config MCP tools (the scoped .exp-mcp.json exposes them).
         assert!(prompt.contains("exponential_run_configs_create"));

@@ -14,11 +14,11 @@ import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.data.db.WorkspaceEntity
-import com.exponential.app.data.db.WorkspaceInviteEntity
-import com.exponential.app.data.db.WorkspaceMemberEntity
+import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.data.db.TeamInviteEntity
+import com.exponential.app.data.db.TeamMemberEntity
 import io.ktor.client.HttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -152,14 +152,14 @@ class SyncManager @Inject constructor(
         }
 
         val offsetDao = db.electricOffsetDao()
-        val workspaceDao = db.workspaceDao()
-        val projectDao = db.projectDao()
+        val teamDao = db.teamDao()
+        val boardDao = db.boardDao()
         val issueDao = db.issueDao()
         val labelDao = db.labelDao()
         val issueLabelDao = db.issueLabelDao()
         val userDao = db.userDao()
-        val workspaceMemberDao = db.workspaceMemberDao()
-        val workspaceInviteDao = db.workspaceInviteDao()
+        val teamMemberDao = db.teamMemberDao()
+        val teamInviteDao = db.teamInviteDao()
         val commentDao = db.commentDao()
         val attachmentDao = db.attachmentDao()
         val notificationDao = db.notificationDao()
@@ -169,24 +169,24 @@ class SyncManager @Inject constructor(
 
         return listOf(
             launchShape(
-                shape = "workspaces", path = "/api/shapes/workspaces", tableName = "workspaces",
-                serializer = WorkspaceEntity.serializer(),
+                shape = "teams", path = "/api/shapes/teams", tableName = "teams",
+                serializer = TeamEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("workspaces"),
-                onInsert = { workspaceDao.upsert(it) },
-                onUpdate = { workspaceDao.upsert(it) },
-                onDelete = { workspaceDao.deleteById(it.id) },
-                onRefetch = { workspaceDao.clear() },
+                reporter = reporter("teams"),
+                onInsert = { teamDao.upsert(it) },
+                onUpdate = { teamDao.upsert(it) },
+                onDelete = { teamDao.deleteById(it.id) },
+                onRefetch = { teamDao.clear() },
             ),
             launchShape(
-                shape = "projects", path = "/api/shapes/projects", tableName = "projects",
-                serializer = ProjectEntity.serializer(),
+                shape = "boards", path = "/api/shapes/boards", tableName = "boards",
+                serializer = BoardEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("projects"),
-                onInsert = { projectDao.upsert(it) },
-                onUpdate = { projectDao.upsert(it) },
-                onDelete = { projectDao.deleteById(it.id) },
-                onRefetch = { projectDao.clear() },
+                reporter = reporter("boards"),
+                onInsert = { boardDao.upsert(it) },
+                onUpdate = { boardDao.upsert(it) },
+                onDelete = { boardDao.deleteById(it.id) },
+                onRefetch = { boardDao.clear() },
             ),
             launchShape(
                 shape = "issues", path = "/api/shapes/issues", tableName = "issues",
@@ -229,24 +229,24 @@ class SyncManager @Inject constructor(
                 onRefetch = { userDao.clear() },
             ),
             launchShape(
-                shape = "workspace_members", path = "/api/shapes/workspace-members", tableName = "workspace_members",
-                serializer = WorkspaceMemberEntity.serializer(),
+                shape = "team_members", path = "/api/shapes/team-members", tableName = "team_members",
+                serializer = TeamMemberEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("workspace_members"),
-                onInsert = { workspaceMemberDao.upsert(it) },
-                onUpdate = { workspaceMemberDao.upsert(it) },
-                onDelete = { workspaceMemberDao.deleteById(it.id) },
-                onRefetch = { workspaceMemberDao.clear() },
+                reporter = reporter("team_members"),
+                onInsert = { teamMemberDao.upsert(it) },
+                onUpdate = { teamMemberDao.upsert(it) },
+                onDelete = { teamMemberDao.deleteById(it.id) },
+                onRefetch = { teamMemberDao.clear() },
             ),
             launchShape(
-                shape = "workspace_invites", path = "/api/shapes/workspace-invites", tableName = "workspace_invites",
-                serializer = WorkspaceInviteEntity.serializer(),
+                shape = "team_invites", path = "/api/shapes/team-invites", tableName = "team_invites",
+                serializer = TeamInviteEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("workspace_invites"),
-                onInsert = { workspaceInviteDao.upsert(it) },
-                onUpdate = { workspaceInviteDao.upsert(it) },
-                onDelete = { workspaceInviteDao.deleteById(it.id) },
-                onRefetch = { workspaceInviteDao.clear() },
+                reporter = reporter("team_invites"),
+                onInsert = { teamInviteDao.upsert(it) },
+                onUpdate = { teamInviteDao.upsert(it) },
+                onDelete = { teamInviteDao.deleteById(it.id) },
+                onRefetch = { teamInviteDao.clear() },
             ),
             launchShape(
                 shape = "comments", path = "/api/shapes/comments", tableName = "comments",

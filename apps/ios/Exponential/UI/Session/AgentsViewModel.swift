@@ -23,14 +23,14 @@ final class AgentsViewModel {
     // re-arms on every appear.
     private var sessionTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
-    private var projectTask: Task<Void, Never>?
+    private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
-    // Observed so the Start-coding picker can resolve repo-backed projects
+    // Observed so the Start-coding picker can resolve repo-backed boards
     // (EXP-156) — not used by the running-session list itself.
-    private var projects: [ProjectEntity] = []
+    private var boards: [BoardEntity] = []
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -67,15 +67,15 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // Projects back the Start-coding picker's eligibility filter — the
+        // Boards back the Start-coding picker's eligibility filter — the
         // running-session list doesn't rebuild on these.
-        let projectObservation = ValueObservation.tracking { db in
-            try ProjectEntity.fetchAll(db)
+        let boardObservation = ValueObservation.tracking { db in
+            try BoardEntity.fetchAll(db)
         }
-        projectTask = Task { [weak self] in
+        boardTask = Task { [weak self] in
             do {
-                for try await projects in projectObservation.values(in: pool) {
-                    self?.projects = projects
+                for try await boards in boardObservation.values(in: pool) {
+                    self?.boards = boards
                 }
             } catch {}
         }
@@ -97,24 +97,24 @@ final class AgentsViewModel {
         sessionTask = nil
         issueTask?.cancel()
         issueTask = nil
-        projectTask?.cancel()
-        projectTask = nil
+        boardTask?.cancel()
+        boardTask = nil
         livenessTask?.cancel()
         livenessTask = nil
     }
 
     /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every
-    /// eligible issue in `workspaceId` (nil = across all synced workspaces),
+    /// eligible issue in `teamId` (nil = across all synced teams),
     /// recency-ordered, no preselection. Same eligibility as the issue-detail
     /// card minus the current-issue exemption. Reads the already-observed
-    /// projects/issues (no DB round-trip).
-    func startCandidates(workspaceId: String?) -> [StartCodingSheet.IssueOption] {
-        // Repo-backed, non-archived projects only — projectId → repositoryId.
-        var repoByProject: [String: String] = [:]
-        for project in projects where project.archivedAt == nil {
-            if let workspaceId, project.workspaceId != workspaceId { continue }
-            if let repoId = project.repositoryId {
-                repoByProject[project.id] = repoId
+    /// boards/issues (no DB round-trip).
+    func startCandidates(teamId: String?) -> [StartCodingSheet.IssueOption] {
+        // Repo-backed, non-archived boards only — boardId → repositoryId.
+        var repoByBoard: [String: String] = [:]
+        for board in boards where board.archivedAt == nil {
+            if let teamId, board.teamId != teamId { continue }
+            if let repoId = board.repositoryId {
+                repoByBoard[board.id] = repoId
             }
         }
         let terminal: Set<String> = [
@@ -124,7 +124,7 @@ final class AgentsViewModel {
         ]
         return issues
             .filter { row in
-                guard repoByProject[row.projectId] != nil else { return false }
+                guard repoByBoard[row.boardId] != nil else { return false }
                 if row.archivedAt != nil { return false }
                 if terminal.contains(row.status) { return false }
                 if row.prState == DomainContract.prStateMerged { return false }
@@ -136,7 +136,7 @@ final class AgentsViewModel {
                     id: row.id,
                     identifier: row.identifier,
                     title: row.title,
-                    repositoryId: repoByProject[row.projectId],
+                    repositoryId: repoByBoard[row.boardId],
                     status: row.status,
                     priority: row.priority
                 )

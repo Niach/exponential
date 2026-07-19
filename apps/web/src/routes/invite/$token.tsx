@@ -26,7 +26,7 @@ function InviteAcceptPage() {
   const [success, setSuccess] = useState(false)
 
   const [invite, setInvite] = useState<{
-    workspaceName: string
+    teamName: string
     role: string
     acceptedAt: Date | null
     expiresAt: Date
@@ -35,7 +35,7 @@ function InviteAcceptPage() {
 
   // Fetch invite details on mount
   useEffect(() => {
-    trpc.workspaceInvites.getByToken
+    trpc.teamInvites.getByToken
       .query({ token })
       .then(({ invite }) => {
         setInvite({
@@ -55,14 +55,14 @@ function InviteAcceptPage() {
     setAccepting(true)
     setError(null)
     try {
-      const { workspace } = await trpc.workspaceInvites.accept.mutate({
+      const { team } = await trpc.teamInvites.accept.mutate({
         token,
       })
       setSuccess(true)
       setTimeout(() => {
         navigate({
-          to: `/t/$workspaceSlug`,
-          params: { workspaceSlug: workspace.slug },
+          to: `/t/$teamSlug`,
+          params: { teamSlug: team.slug },
         })
       }, 1500)
     } catch (err: unknown) {
@@ -121,7 +121,7 @@ function InviteAcceptPage() {
             <>
               <div className="rounded-lg border p-4 text-center">
                 <div className="text-lg font-semibold">
-                  {invite.workspaceName}
+                  {invite.teamName}
                 </div>
                 <div className="mt-1 text-sm text-muted-foreground">
                   Role: {invite.role}
@@ -186,8 +186,8 @@ function InviteAcceptPage() {
               className="w-full"
               onClick={() =>
                 navigate({
-                  to: `/t/$workspaceSlug`,
-                  params: { workspaceSlug: `default` },
+                  to: `/t/$teamSlug`,
+                  params: { teamSlug: `default` },
                 })
               }
             >

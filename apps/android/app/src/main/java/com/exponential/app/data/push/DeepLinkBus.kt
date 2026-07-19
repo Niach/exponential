@@ -24,7 +24,7 @@ class DeepLinkBus @Inject constructor() {
         data class WebIssueRef(
             val uri: android.net.Uri,
             val host: String,
-            val workspaceSlug: String,
+            val teamSlug: String,
             val identifier: String,
         ) : Target
 
@@ -58,10 +58,10 @@ class DeepLinkBus @Inject constructor() {
     fun openWebIssueRef(
         uri: android.net.Uri,
         host: String,
-        workspaceSlug: String,
+        teamSlug: String,
         identifier: String,
     ) {
-        _target.value = Target.WebIssueRef(uri, host, workspaceSlug, identifier)
+        _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
     }
 
     fun openGithubConnected() {

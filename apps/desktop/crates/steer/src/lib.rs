@@ -1,6 +1,6 @@
 //! `steer` — the relay publisher (masterplan-v3 §3.1 / §08).
 //!
-//! Two modules over one WebSocket client stack, on the workspace's ONLY tokio
+//! Two modules over one WebSocket client stack, on the team's ONLY tokio
 //! runtime (isolated from gpui's executors and the blocking ureq sync stack):
 //!
 //! - [`control_channel`] — the per-account device-presence socket: `online`
@@ -73,7 +73,7 @@ pub use ring::{RingBuffer, RING_CAP_BYTES};
 
 // ---------------------------------------------------------------------------
 // The isolated tokio runtime (§3.5: "the only tokio in the whole desktop
-// workspace lives in the steer crate … on its own runtime")
+// team lives in the steer crate … on its own runtime")
 // ---------------------------------------------------------------------------
 
 /// Owns the steer subsystem's tokio runtime. Create ONE per app process and
@@ -122,7 +122,8 @@ pub use api::trust_store::device_id as persistent_device_id;
 #[serde(rename_all = "camelCase")]
 pub struct SteerTicketClaims {
     pub sub: String,
-    pub ws: String,
+    /// teamId the ticket is scoped to (empty string for control tickets).
+    pub team: String,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -375,7 +376,7 @@ mod tests {
     fn parses_ticket_claims_without_verifying() {
         // A real ticket shape: base64url(JSON claims) + "." + base64url(sig).
         // Signature is garbage on purpose — parse must not care.
-        let claims_json = r#"{"sub":"user-1","ws":"ws-1","sessionId":"sess-1","role":"publisher","perm":"steer","iat":1751500000,"exp":1751500060}"#;
+        let claims_json = r#"{"sub":"user-1","team":"team-1","sessionId":"sess-1","role":"publisher","perm":"steer","iat":1751500000,"exp":1751500060}"#;
         let payload = base64url_encode_for_test(claims_json.as_bytes());
         let ticket = format!("{payload}.AAAA");
         let claims = parse_ticket_claims(&ticket).unwrap();

@@ -28,7 +28,7 @@ interface MentionTextareaProps extends Omit<
 > {
   value: string
   onValueChange: (next: string) => void
-  // Workspace members to offer; agents are filtered out (you mention people).
+  // Team members to offer; agents are filtered out (you mention people).
   users: User[]
 }
 
@@ -36,7 +36,7 @@ interface MentionTextareaProps extends Omit<
 // member inserts the canonical `@<email>` form the server resolves
 // (lib/integrations/mentions.ts); selecting an issue inserts the `#IDENTIFIER`
 // token the clients render as a pill (lib/issue-refs.ts). Issue suggestions
-// come from the workspace IssueRefProvider (absent outside a workspace → the
+// come from the team IssueRefProvider (absent outside a team → the
 // # trigger is simply inert).
 export function MentionTextarea({
   value,

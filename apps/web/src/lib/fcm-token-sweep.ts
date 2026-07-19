@@ -6,7 +6,7 @@
 // client build that never calls unregister at all. Since register() no longer
 // steals the token row from other users, nothing else removes such rows — the
 // device would keep receiving the departed account's notification content
-// forever. This sweep bounds that leak. Mirrors project-trash.ts's in-process
+// forever. This sweep bounds that leak. Mirrors board-trash.ts's in-process
 // scheduler shell; started once from server-bun.ts. Multi-instance safe: the
 // delete is idempotent.
 

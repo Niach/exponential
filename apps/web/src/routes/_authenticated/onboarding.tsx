@@ -13,7 +13,7 @@ export const Route = createFileRoute(`/_authenticated/onboarding`)({
 function OnboardingPage() {
   const navigate = useNavigate()
   const { data: session } = useSession()
-  const [workspace, setWorkspace] = useState<{
+  const [team, setTeam] = useState<{
     id: string
     slug: string
   } | null>(null)
@@ -21,20 +21,20 @@ function OnboardingPage() {
   useEffect(() => {
     if (!session?.user) return
     if (hasCompletedOnboarding(session.user)) {
-      navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug: `default` } })
+      navigate({ to: `/t/$teamSlug`, params: { teamSlug: `default` } })
       return
     }
-    void trpc.workspaces.ensureDefault
+    void trpc.teams.ensureDefault
       .mutate()
-      .then(({ workspace: ws }) => setWorkspace({ id: ws.id, slug: ws.slug }))
+      .then(({ team: ws }) => setTeam({ id: ws.id, slug: ws.slug }))
   }, [session, navigate])
 
-  if (!workspace) return null
+  if (!team) return null
 
   return (
     <OnboardingWizard
-      workspaceId={workspace.id}
-      workspaceSlug={workspace.slug}
+      teamId={team.id}
+      teamSlug={team.slug}
     />
   )
 }

@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn denied_mint_surfaces_the_api_error_and_caches_nothing() {
         let base = canned_server(vec![
-            (403, r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
+            (403, r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
         ]);
         let cache = TokenCache::default();
         let err = cache.get_or_mint(&client(&base), "repo-denied").unwrap_err();

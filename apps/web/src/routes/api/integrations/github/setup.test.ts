@@ -3,7 +3,7 @@ import { mintGithubSetupState } from "@/lib/integrations/github-setup-state"
 
 // --- Mocked module boundaries ------------------------------------------------
 // Records which tables the route inserts into so a test can assert that the
-// forged-installation path never creates a workspace↔installation LINK.
+// forged-installation path never creates a team↔installation LINK.
 const insertedTables: string[] = []
 
 vi.mock(`@/db/connection`, () => {
@@ -78,10 +78,10 @@ describe(`github setup route — forged installation_id`, () => {
   })
 
   it(`does NOT link an unverified installation id when OAuth is configured — it bounces to the OAuth claim`, async () => {
-    // The attacker mints a perfectly valid state for THEIR OWN workspace and
+    // The attacker mints a perfectly valid state for THEIR OWN team and
     // pairs it with a stranger's guessable installation id.
     const state = mintGithubSetupState(`attacker`, {
-      workspaceId: `attacker-workspace`,
+      teamId: `attacker-team`,
     })!
     const res = await handleSetup(setupRequest(state, 144861041))
 
@@ -97,7 +97,7 @@ describe(`github setup route — forged installation_id`, () => {
   it(`retains the direct link only as the self-hosted fallback (no OAuth secret)`, async () => {
     githubOAuthConfigured.mockReturnValue(false)
     const state = mintGithubSetupState(`owner`, {
-      workspaceId: `own-workspace`,
+      teamId: `own-team`,
     })!
     resolveSessionUserId.mockResolvedValue(`owner`)
     await handleSetup(setupRequest(state, 144861041))

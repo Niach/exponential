@@ -25,7 +25,7 @@ interface AssigneeDropdownProps {
   users: User[]
   userMap: Map<string, User>
   disabled?: boolean
-  // Solo workspaces have no one else to assign to: render the avatar/placeholder
+  // Solo teams have no one else to assign to: render the avatar/placeholder
   // as a static, non-interactive cell instead of a pointless dropdown.
   readOnly?: boolean
 }

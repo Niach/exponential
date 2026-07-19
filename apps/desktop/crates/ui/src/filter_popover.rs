@@ -1,6 +1,6 @@
 //! The board filter popover — web parity target
 //! `apps/web/src/components/issue-filter-popover.tsx` (masterplan-v3 §4.2
-//! "Project board").
+//! "Board view").
 //!
 //! A `Popover` hosting the web component's two-level drill-down: a
 //! **categories** view (Status / Priority / Labels rows with count badges and

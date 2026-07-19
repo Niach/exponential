@@ -1,5 +1,5 @@
 // Best-effort S3 object deletion for callers that live in the server ENTRY
-// graph (server-bun.ts → project-trash). Deliberately does NOT import
+// graph (server-bun.ts → board-trash). Deliberately does NOT import
 // @/lib/storage: any edge from the entry chunk group into the
 // @aws-sdk/client-s3 subgraph makes rollup emit the SSR chunk with
 // `attachRouterServerSsrUtils` treeshaken-but-referenced, and every request

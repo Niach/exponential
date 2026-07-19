@@ -23,9 +23,9 @@ const h = vi.hoisted(() => {
       delete: vi.fn(),
     },
     issues: { prFiles: vi.fn() },
-    projects: { delete: vi.fn(), setRepository: vi.fn() },
-    workspaces: { create: vi.fn(), update: vi.fn() },
-    workspaceInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
+    boards: { delete: vi.fn(), setRepository: vi.fn() },
+    teams: { create: vi.fn(), update: vi.fn() },
+    teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -54,20 +54,20 @@ const h = vi.hoisted(() => {
   }
 
   const membership = {
-    resolveWorkspaceAccess: vi.fn(async () => undefined),
-    assertWorkspaceMember: vi.fn(async () => undefined),
-    getIssueWorkspaceContext: vi.fn(async () => ({
-      workspaceId: `ws-1`,
-      projectId: `proj-1`,
+    resolveTeamAccess: vi.fn(async () => undefined),
+    assertTeamMember: vi.fn(async () => undefined),
+    getIssueTeamContext: vi.fn(async () => ({
+      teamId: `ws-1`,
+      boardId: `proj-1`,
     })),
-    getProjectWorkspaceId: vi.fn(async () => ({ workspaceId: `ws-1` })),
-    getAttachmentWorkspaceContext: vi.fn(async () => ({
-      workspaceId: `ws-1`,
+    getBoardTeamId: vi.fn(async () => ({ teamId: `ws-1` })),
+    getAttachmentTeamContext: vi.fn(async () => ({
+      teamId: `ws-1`,
       contentType: `image/png`,
       storageKey: `k`,
     })),
-    getUserWorkspaceIds: vi.fn(async () => [`ws-1`]),
-    getPublicWorkspaceIds: vi.fn(async () => []),
+    getUserTeamIds: vi.fn(async () => [`ws-1`]),
+    getPublicTeamIds: vi.fn(async () => []),
   }
 
   const uploadObject = vi.fn(async () => undefined)
@@ -104,7 +104,7 @@ vi.mock(`@/routes/api/trpc/$`, () => ({
 
 vi.mock(`@/db/connection`, () => ({ db: h.db }))
 
-vi.mock(`@/lib/workspace-membership`, () => h.membership)
+vi.mock(`@/lib/team-membership`, () => h.membership)
 
 vi.mock(`@/lib/storage`, () => ({
   uploadObject: h.uploadObject,
@@ -204,11 +204,11 @@ beforeEach(() => {
     }
   }
   // Restore default "allowed" behavior after clearAllMocks wiped implementations.
-  membership.resolveWorkspaceAccess.mockResolvedValue(undefined)
-  membership.assertWorkspaceMember.mockResolvedValue(undefined)
-  membership.getIssueWorkspaceContext.mockResolvedValue({
-    workspaceId: `ws-1`,
-    projectId: `proj-1`,
+  membership.resolveTeamAccess.mockResolvedValue(undefined)
+  membership.assertTeamMember.mockResolvedValue(undefined)
+  membership.getIssueTeamContext.mockResolvedValue({
+    teamId: `ws-1`,
+    boardId: `proj-1`,
   })
   assertWithinStorageLimit.mockResolvedValue(undefined)
   insertValues.mockResolvedValue(undefined)
@@ -269,18 +269,18 @@ const descriptors: Array<Descriptor> = [
   {
     tool: `exponential_repositories_list`,
     pick: () => caller.repositories.list,
-    args: { workspaceId: WS },
-    resolved: [{ id: REPO, fullName: `a/b`, projects: [] }],
-    expected: [{ id: REPO, fullName: `a/b`, projects: [] }],
-    calledWith: { workspaceId: WS },
+    args: { teamId: WS },
+    resolved: [{ id: REPO, fullName: `a/b`, boards: [] }],
+    expected: [{ id: REPO, fullName: `a/b`, boards: [] }],
+    calledWith: { teamId: WS },
   },
   {
     tool: `exponential_repositories_add`,
     pick: () => caller.repositories.add,
-    args: { workspaceId: WS, fullName: `a/b` },
+    args: { teamId: WS, fullName: `a/b` },
     resolved: { repository: { id: REPO, fullName: `a/b` } },
     expected: { id: REPO, fullName: `a/b` },
-    calledWith: { workspaceId: WS, fullName: `a/b` },
+    calledWith: { teamId: WS, fullName: `a/b` },
   },
   {
     tool: `exponential_repositories_branch_diff`,
@@ -293,18 +293,18 @@ const descriptors: Array<Descriptor> = [
   {
     tool: `exponential_run_configs_list`,
     pick: () => caller.runConfigs.list,
-    args: { projectId: PROJ },
+    args: { boardId: PROJ },
     resolved: { configs: [{ id: UUID, name: `dev` }] },
     expected: [{ id: UUID, name: `dev` }],
-    calledWith: { projectId: PROJ },
+    calledWith: { boardId: PROJ },
   },
   {
     tool: `exponential_run_configs_create`,
     pick: () => caller.runConfigs.create,
-    args: { projectId: PROJ, name: `dev`, argv: [`bun`, `dev`] },
+    args: { boardId: PROJ, name: `dev`, argv: [`bun`, `dev`] },
     resolved: { config: { id: UUID, name: `dev`, argv: [`bun`, `dev`] } },
     expected: { id: UUID, name: `dev`, argv: [`bun`, `dev`] },
-    calledWith: { projectId: PROJ, name: `dev`, argv: [`bun`, `dev`] },
+    calledWith: { boardId: PROJ, name: `dev`, argv: [`bun`, `dev`] },
   },
   {
     tool: `exponential_run_configs_update`,
@@ -331,56 +331,56 @@ const descriptors: Array<Descriptor> = [
     calledWith: { issueId: UUID },
   },
   {
-    tool: `exponential_projects_delete`,
-    pick: () => caller.projects.delete,
-    args: { projectId: PROJ },
+    tool: `exponential_boards_delete`,
+    pick: () => caller.boards.delete,
+    args: { boardId: PROJ },
     resolved: { ok: true, txId: 1 },
-    expected: { ok: true, projectId: PROJ },
-    calledWith: { projectId: PROJ },
+    expected: { ok: true, boardId: PROJ },
+    calledWith: { boardId: PROJ },
   },
   {
-    tool: `exponential_projects_set_repository`,
-    pick: () => caller.projects.setRepository,
-    args: { projectId: PROJ, repositoryId: REPO },
-    resolved: { project: { id: PROJ, repositoryId: REPO } },
+    tool: `exponential_boards_set_repository`,
+    pick: () => caller.boards.setRepository,
+    args: { boardId: PROJ, repositoryId: REPO },
+    resolved: { board: { id: PROJ, repositoryId: REPO } },
     expected: { id: PROJ, repositoryId: REPO },
-    calledWith: { projectId: PROJ, repositoryId: REPO },
+    calledWith: { boardId: PROJ, repositoryId: REPO },
   },
   {
-    tool: `exponential_workspaces_create`,
-    pick: () => caller.workspaces.create,
+    tool: `exponential_teams_create`,
+    pick: () => caller.teams.create,
     args: { name: `New WS` },
-    resolved: { workspace: { id: WS, name: `New WS` } },
+    resolved: { team: { id: WS, name: `New WS` } },
     expected: { id: WS, name: `New WS` },
     calledWith: { name: `New WS` },
   },
   {
-    tool: `exponential_workspaces_update`,
-    pick: () => caller.workspaces.update,
+    tool: `exponential_teams_update`,
+    pick: () => caller.teams.update,
     args: { id: WS, name: `Renamed` },
-    resolved: { workspace: { id: WS, name: `Renamed` } },
+    resolved: { team: { id: WS, name: `Renamed` } },
     expected: { id: WS, name: `Renamed` },
     calledWith: { id: WS, name: `Renamed` },
   },
   {
     tool: `exponential_invites_create`,
-    pick: () => caller.workspaceInvites.create,
-    args: { workspaceId: WS, role: `member` },
+    pick: () => caller.teamInvites.create,
+    args: { teamId: WS, role: `member` },
     resolved: { invite: { id: INV }, token: `tok-abc` },
     expected: { invite: { id: INV }, token: `tok-abc` },
-    calledWith: { workspaceId: WS, role: `member` },
+    calledWith: { teamId: WS, role: `member` },
   },
   {
     tool: `exponential_invites_list`,
-    pick: () => caller.workspaceInvites.list,
-    args: { workspaceId: WS },
+    pick: () => caller.teamInvites.list,
+    args: { teamId: WS },
     resolved: { invites: [{ id: INV }] },
     expected: [{ id: INV }],
-    calledWith: { workspaceId: WS },
+    calledWith: { teamId: WS },
   },
   {
     tool: `exponential_invites_revoke`,
-    pick: () => caller.workspaceInvites.revoke,
+    pick: () => caller.teamInvites.revoke,
     args: { id: INV },
     resolved: { ok: true },
     expected: { ok: true, id: INV },
@@ -456,7 +456,7 @@ describe(`exponential_notifications_list`, () => {
   })
 })
 
-// ── members_list (direct DB read, workspace-gated, agent-excluded) ───────────
+// ── members_list (direct DB read, team-gated, agent-excluded) ───────────
 
 describe(`exponential_members_list`, () => {
   it(`returns members and excludes agents by default`, async () => {
@@ -464,13 +464,13 @@ describe(`exponential_members_list`, () => {
       { id: `user-1`, name: `User One`, role: `owner`, isAgent: false },
     ]
     const result = await tool(`exponential_members_list`)({
-      workspaceId: WS,
+      teamId: WS,
       includeAgents: false,
     })
     expect(parseOk(result)).toEqual([
       { id: `user-1`, name: `User One`, role: `owner`, isAgent: false },
     ])
-    expect(membership.resolveWorkspaceAccess).toHaveBeenCalledWith(
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(
       `user-1`,
       WS
     )
@@ -482,17 +482,17 @@ describe(`exponential_members_list`, () => {
   it(`includes agents when includeAgents=true`, async () => {
     dbRows.current = []
     await tool(`exponential_members_list`)({
-      workspaceId: WS,
+      teamId: WS,
       includeAgents: true,
     })
     const { sql } = new PgDialect().sqlToQuery(state.capturedWhere as never)
     expect(sql).not.toContain(`is_agent`)
   })
 
-  it(`denies when the user is not in the workspace`, async () => {
-    membership.resolveWorkspaceAccess.mockRejectedValue(forbidden())
+  it(`denies when the user is not in the team`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(forbidden())
     const result = await tool(`exponential_members_list`)({
-      workspaceId: WS,
+      teamId: WS,
       includeAgents: false,
     })
     expect(result.isError).toBe(true)
@@ -541,8 +541,8 @@ describe(`exponential_attachments_upload`, () => {
     expect(uploadObject).not.toHaveBeenCalled()
   })
 
-  it(`denies when the user is not a workspace member`, async () => {
-    membership.assertWorkspaceMember.mockRejectedValue(forbidden())
+  it(`denies when the user is not a team member`, async () => {
+    membership.assertTeamMember.mockRejectedValue(forbidden())
     const result = await tool(`exponential_attachments_upload`)(args)
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)

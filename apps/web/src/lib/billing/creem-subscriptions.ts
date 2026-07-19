@@ -24,26 +24,26 @@ import { isCloudInstance } from "@/lib/bootstrap-cloud"
 // `proration-charge-immediately`.
 export const SUBSCRIPTION_UPDATE_BEHAVIOR = `proration-none` as const
 
-// Statuses that count as "this workspace is subscribed" — mirrors the plan
+// Statuses that count as "this team is subscribed" — mirrors the plan
 // resolution in lib/billing.ts.
 export const ACTIVE_SUBSCRIPTION_STATUSES = [`active`, `trialing`, `paid`]
 
-export type WorkspaceSubscriptionRow = typeof creem_subscriptions.$inferSelect
+export type TeamSubscriptionRow = typeof creem_subscriptions.$inferSelect
 
 /**
- * The workspace's single active workspace-bound subscription row, or `null`.
- * Same most-seats-wins tiebreak as getWorkspacePlan, so seat adjustments
+ * The team's single active team-bound subscription row, or `null`.
+ * Same most-seats-wins tiebreak as getTeamPlan, so seat adjustments
  * always target the subscription that currently determines the plan.
  */
-export async function getActiveWorkspaceSubscription(
-  workspaceId: string
-): Promise<WorkspaceSubscriptionRow | null> {
+export async function getActiveTeamSubscription(
+  teamId: string
+): Promise<TeamSubscriptionRow | null> {
   const [row] = await db
     .select()
     .from(creem_subscriptions)
     .where(
       and(
-        eq(creem_subscriptions.workspaceId, workspaceId),
+        eq(creem_subscriptions.teamId, teamId),
         inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
       )
     )
@@ -58,14 +58,14 @@ export async function getActiveWorkspaceSubscription(
  */
 export function assertSubscriptionMutable(
   row: Pick<
-    WorkspaceSubscriptionRow,
+    TeamSubscriptionRow,
     `creemSubscriptionId` | `cancelAtPeriodEnd`
   > | null
-): asserts row is WorkspaceSubscriptionRow {
+): asserts row is TeamSubscriptionRow {
   if (!row) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This workspace has no active subscription`,
+      message: `This team has no active subscription`,
     })
   }
   if (!row.creemSubscriptionId) {
@@ -166,33 +166,33 @@ export async function upgradeCreemSubscriptionProduct(
 }
 
 // ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
-// Deleting a workspace (or an account) must not leave a paying ghost
+// Deleting a team (or an account) must not leave a paying ghost
 // subscription behind in Creem. The local FKs make the rows unfindable after
-// the delete — `workspace_id` goes `set null` on workspace delete and the
+// the delete — `team_id` goes `set null` on team delete and the
 // buyer FK (`reference_id`) CASCADES on user delete — so callers capture the
 // affected rows with the find* helpers BEFORE deleting, run the local delete,
 // and then cancel remotely with cancelCreemSubscriptionsBestEffort AFTER the
 // transaction commits. That ordering guarantees a Creem API failure can never
-// leave the workspace half-deleted (an orphaned REMOTE subscription is
+// leave the team half-deleted (an orphaned REMOTE subscription is
 // recoverable from the Creem dashboard; it is logged loudly), and a failed
 // local delete never cancels a subscription the customer still uses.
 
 export type CancellableSubscription = Pick<
-  WorkspaceSubscriptionRow,
+  TeamSubscriptionRow,
   `id` | `creemSubscriptionId`
 >
 
 /**
- * Active subscription rows bound to any of the given workspaces. Capture
- * BEFORE deleting the workspaces (see the cancel-on-delete note above).
+ * Active subscription rows bound to any of the given teams. Capture
+ * BEFORE deleting the teams (see the cancel-on-delete note above).
  * Accepts an optional transaction so the user-deletion cascade can capture
- * subscriptions for the solo workspaces it deletes in the same tx.
+ * subscriptions for the solo teams it deletes in the same tx.
  */
-export async function findActiveSubscriptionsForWorkspaces(
-  workspaceIds: string[],
+export async function findActiveSubscriptionsForTeams(
+  teamIds: string[],
   executor: Pick<typeof db, `select`> = db
 ): Promise<CancellableSubscription[]> {
-  if (!isCloudInstance() || workspaceIds.length === 0) return []
+  if (!isCloudInstance() || teamIds.length === 0) return []
   return await executor
     .select({
       id: creem_subscriptions.id,
@@ -201,7 +201,7 @@ export async function findActiveSubscriptionsForWorkspaces(
     .from(creem_subscriptions)
     .where(
       and(
-        inArray(creem_subscriptions.workspaceId, workspaceIds),
+        inArray(creem_subscriptions.teamId, teamIds),
         inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
       )
     )
@@ -210,8 +210,8 @@ export async function findActiveSubscriptionsForWorkspaces(
 /**
  * Active subscription rows PURCHASED by the user (`referenceId` — the Creem
  * customer is this user's email/card). Capture BEFORE deleting the user (see
- * the cancel-on-delete note above). This covers the user's solo workspaces
- * AND surviving workspaces they paid for: once the account is gone nobody can
+ * the cancel-on-delete note above). This covers the user's solo teams
+ * AND surviving teams they paid for: once the account is gone nobody can
  * manage the subscription and the deleted user's card would keep being
  * charged, so those cancel too (a remaining owner re-subscribes with their
  * own payment method).
@@ -238,7 +238,7 @@ export async function findActiveSubscriptionsForUser(
  * Best-effort remote cancellation for the delete paths. NEVER throws — every
  * failure is logged with the Creem subscription id so it can be cancelled
  * manually from the dashboard. Cancellation is immediate (not scheduled): the
- * backing workspace/account no longer exists, so there is nothing to keep
+ * backing team/account no longer exists, so there is nothing to keep
  * serving until period end.
  */
 export async function cancelCreemSubscriptionsBestEffort(

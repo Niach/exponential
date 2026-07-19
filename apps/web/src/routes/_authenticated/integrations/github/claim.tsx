@@ -17,7 +17,7 @@ import { githubConnectedDeepLink } from "@/lib/deep-link"
 // The OAuth claim flow's account picker: the callback verified (via GitHub's
 // /user/installations) which App installations the user controls; when there
 // are several, it lands here with a signed ticket and the user picks which
-// GitHub accounts to connect to the workspace. Also the shared landing page
+// GitHub accounts to connect to the team. Also the shared landing page
 // for the claim flow's error states (?error=…). Mirrors installed.tsx's
 // arrival modes: desktop popup (self-closes into the opener), mobile browser
 // tab (exponential:// return card), plain tab (Continue link).
@@ -57,7 +57,7 @@ interface PreviewInstallation {
 function GithubClaim() {
   const { ticket, error } = Route.useSearch()
   const [preview, setPreview] = useState<{
-    workspaceId: string
+    teamId: string
     mobile: boolean
     dialog: boolean
     installations: PreviewInstallation[]
@@ -212,7 +212,7 @@ function GithubClaim() {
               <CardTitle className="text-xl">Choose GitHub accounts</CardTitle>
               <CardDescription>
                 You have access to several installations of the Exponential
-                App. Pick which to connect to this workspace.
+                App. Pick which to connect to this team.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">

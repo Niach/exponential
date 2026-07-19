@@ -2,10 +2,10 @@
 //! Settings → Labels pane; label toggles on rows/detail). Verified against
 //! `apps/web/src/lib/trpc/labels.ts` and `issue-labels.ts`:
 //!
-//! - `labels.create({workspaceId, name, color?})` → `{txId, label}` (color
+//! - `labels.create({teamId, name, color?})` → `{txId, label}` (color
 //!   defaults server-side to `#6366f1`)
-//! - `labels.update({workspaceId, labelId, name?, color?})` → `{txId}`
-//! - `labels.delete({workspaceId, labelId})` → `{txId}`
+//! - `labels.update({teamId, labelId, name?, color?})` → `{txId}`
+//! - `labels.delete({teamId, labelId})` → `{txId}`
 //! - `issueLabels.add({issueId, labelId})` → `{txId}` (idempotent —
 //!   `onConflictDoNothing`)
 //! - `issueLabels.remove({issueId, labelId})` → `{txId}`
@@ -26,7 +26,7 @@ use crate::trpc::TrpcClient;
 pub struct LabelOut {
     pub id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -53,14 +53,14 @@ pub struct TxOutput {
 /// `labels.create` — mutation. Blocking; background executor only (§3.5).
 pub fn labels_create(
     trpc: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
     name: &str,
     color: Option<&str>,
 ) -> Result<LabelsCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        workspace_id: &'a str,
+        team_id: &'a str,
         name: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         color: Option<&'a str>,
@@ -68,7 +68,7 @@ pub fn labels_create(
     trpc.mutation(
         "labels.create",
         &Input {
-            workspace_id,
+            team_id,
             name,
             color,
         },
@@ -78,7 +78,7 @@ pub fn labels_create(
 /// `labels.update` — mutation (inline name/color edits in the Labels pane).
 pub fn labels_update(
     trpc: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
     label_id: &str,
     name: Option<&str>,
     color: Option<&str>,
@@ -86,7 +86,7 @@ pub fn labels_update(
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        workspace_id: &'a str,
+        team_id: &'a str,
         label_id: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<&'a str>,
@@ -96,7 +96,7 @@ pub fn labels_update(
     trpc.mutation(
         "labels.update",
         &Input {
-            workspace_id,
+            team_id,
             label_id,
             name,
             color,
@@ -107,19 +107,19 @@ pub fn labels_update(
 /// `labels.delete` — mutation.
 pub fn labels_delete(
     trpc: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
     label_id: &str,
 ) -> Result<TxOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        workspace_id: &'a str,
+        team_id: &'a str,
         label_id: &'a str,
     }
     trpc.mutation(
         "labels.delete",
         &Input {
-            workspace_id,
+            team_id,
             label_id,
         },
     )
@@ -205,13 +205,13 @@ mod tests {
     fn create_decodes_label_and_skips_absent_color() {
         let (base, captured) = one_shot_server(
             200,
-            r##"{"result":{"data":{"txId":5,"label":{"id":"l-1","workspaceId":"w-1","name":"bug","color":"#6366f1"}}}}"##,
+            r##"{"result":{"data":{"txId":5,"label":{"id":"l-1","teamId":"w-1","name":"bug","color":"#6366f1"}}}}"##,
         );
         let out = labels_create(&client(&base), "w-1", "bug", None).unwrap();
         assert_eq!(out.label.name.as_deref(), Some("bug"));
         assert_eq!(out.tx_id, Some(5));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"workspaceId":"w-1","name":"bug"}"#));
+        assert!(request.ends_with(r#"{"teamId":"w-1","name":"bug"}"#));
     }
 
     #[test]

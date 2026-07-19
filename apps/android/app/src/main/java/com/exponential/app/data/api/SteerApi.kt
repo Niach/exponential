@@ -196,7 +196,7 @@ fun decodeSteerTicketPerm(ticket: String): String {
 /**
  * Extract the human-readable message from a tRPC error body ([TrpcException]
  * messages embed the raw response, e.g. PRECONDITION_FAILED's "No repository
- * linked to this project…"). Falls back to [fallback] on anything unparsable.
+ * linked to this board…"). Falls back to [fallback] on anything unparsable.
  */
 fun trpcErrorMessage(error: Throwable, fallback: String): String {
     val raw = (error as? TrpcException)?.message ?: return fallback

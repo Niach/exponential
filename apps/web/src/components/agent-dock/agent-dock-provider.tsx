@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react"
 
 // The global agent-coding dock (EXP-106): one expanded live viewer at a time,
-// IDE-style, mounted in the workspace layout. Issue detail and the Agents page
+// IDE-style, mounted in the team layout. Issue detail and the Agents page
 // only ever FOCUS the dock — the live AgentSessionView (and its single relay
 // socket) lives here alone. The single expanded id guarantees at most one
 // viewer socket; consumers remount the panel via `key={expandedSessionId}`.
@@ -19,20 +19,20 @@ export function useAgentDock(): AgentDockValue | null {
 }
 
 export function AgentDockProvider({
-  workspaceId,
+  teamId,
   children,
 }: {
-  workspaceId: string
+  teamId: string
   children: React.ReactNode
 }) {
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null)
 
-  // The dock survives $workspaceSlug PARAM changes (same layout instance), but
-  // a real workspace switch must collapse any expanded viewer — that session
-  // belongs to the previous workspace.
+  // The dock survives $teamSlug PARAM changes (same layout instance), but
+  // a real team switch must collapse any expanded viewer — that session
+  // belongs to the previous team.
   useEffect(() => {
     setExpandedSessionId(null)
-  }, [workspaceId])
+  }, [teamId])
 
   const value: AgentDockValue = {
     expandedSessionId,

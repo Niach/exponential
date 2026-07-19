@@ -3,7 +3,7 @@
 //! `apps/web/src/lib/trpc/repositories.ts`:
 //!
 //! - `repositories.forIssue({issueId})` — **query** — resolves issue →
-//!   project → the primary repo link (else the sole link, else `null`).
+//!   board → the primary repo link (else the sole link, else `null`).
 //!   `null` means "no repository linked" and the launcher must not proceed
 //!   (the disabled Start-coding button with the "Link a repository…"
 //!   helper — never a crash, never a false block).
@@ -115,7 +115,7 @@ struct OpenPullsOutput {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenPullsInput<'a> {
-    workspace_id: &'a str,
+    team_id: &'a str,
 }
 
 #[derive(Serialize)]
@@ -152,13 +152,13 @@ pub fn installation_token(
 }
 
 /// `repositories.openPulls` — query. Member-gated, server-cached (~60s), so
-/// callers refetch on view-open/workspace-switch and never poll.
+/// callers refetch on view-open/team-switch and never poll.
 pub fn open_pulls(
     trpc: &TrpcClient,
-    workspace_id: &str,
+    team_id: &str,
 ) -> Result<Vec<OpenPullsRepo>, ApiError> {
     let out: OpenPullsOutput =
-        trpc.query_with_input("repositories.openPulls", &OpenPullsInput { workspace_id })?;
+        trpc.query_with_input("repositories.openPulls", &OpenPullsInput { team_id })?;
     Ok(out.repos)
 }
 
@@ -282,8 +282,8 @@ mod tests {
         );
         assert!(repos[1].pulls.is_empty());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        // Query → GET with percent-encoded raw-JSON input ({"workspaceId":…}).
-        assert!(request.starts_with("GET /api/trpc/repositories.openPulls?input=%7B%22workspaceId%22%3A%2211111111-2222-3333-4444-555555555555%22%7D HTTP/1.1"));
+        // Query → GET with percent-encoded raw-JSON input ({"teamId":…}).
+        assert!(request.starts_with("GET /api/trpc/repositories.openPulls?input=%7B%22teamId%22%3A%2211111111-2222-3333-4444-555555555555%22%7D HTTP/1.1"));
     }
 
     #[test]
@@ -317,7 +317,7 @@ mod tests {
         // PRECONDITION_FAILED → the launcher's GithubAppMissing mapping.
         let (base, _captured) = one_shot_server(
             412,
-            r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in workspace settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+            r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in team settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
         match installation_token(&client(&base), "repo-1") {
             Err(ApiError::Http { status, message }) => {

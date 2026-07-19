@@ -27,6 +27,7 @@ const cloudPlans: Plan[] = [
     features: [
       `1 seat`,
       `250 MB storage`,
+      `1 feedback widget`,
       `All native apps`,
       `Real-time sync`,
       `Push & steer`,
@@ -43,8 +44,8 @@ const cloudPlans: Plan[] = [
     features: [
       `Everything in Free`,
       `5 GB storage`,
-      `Feedback widget`,
-      `Helpdesk emails`,
+      `3 feedback widgets`,
+      `Helpdesk & support inbox`,
     ],
     cta: { label: `Start with Pro`, href: LINKS.app.register },
   },
@@ -58,7 +59,6 @@ const cloudPlans: Plan[] = [
       `Everything in Pro`,
       `50 GB storage`,
       `Unlimited feedback widgets`,
-      `SSO / OIDC — soon`,
       `Priority support`,
     ],
     cta: { label: `Start with Business`, href: LINKS.app.register },
@@ -71,6 +71,7 @@ const cloudPlans: Plan[] = [
     enterprise: true,
     features: [
       `Everything in Business`,
+      `SSO / OIDC — soon`,
       `SLA with guaranteed response times`,
       `Dedicated support channel`,
       `Custom contracts & procurement`,

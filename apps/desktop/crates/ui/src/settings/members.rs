@@ -1,8 +1,8 @@
 //! Settings → Members (masterplan-v3 §4.2).
 //!
-//! Web parity: `components/workspace/members-section.tsx` — the member list
+//! Web parity: `components/team/members-section.tsx` — the member list
 //! (avatar + name + role badge + per-row actions `DropdownMenu`: Make owner /
-//! Make member / Remove member / Leave workspace) and the owner-only
+//! Make member / Remove member / Leave team) and the owner-only
 //! `InviteControls` (Generate invite link → copy-to-clipboard, pending
 //! invites with revoke).
 //!
@@ -27,20 +27,20 @@ use gpui_component::{
 use sync::Store;
 
 use domain::board::format_short_date;
-use domain::contract::WORKSPACE_ROLE_OWNER;
-use domain::rows::{User, WorkspaceInvite, WorkspaceMember};
+use domain::contract::TEAM_ROLE_OWNER;
+use domain::rows::{User, TeamInvite, TeamMember};
 
-use crate::navigation::{active_workspace_id, Navigation};
+use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
 use super::{
-    card, card_header, error_notice, is_owner, is_plan_limit, show_workspace_chrome, spawn_trpc,
+    card, card_header, error_notice, is_owner, is_plan_limit, show_team_chrome, spawn_trpc,
     upgrade_notice,
 };
 
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
-    member: WorkspaceMember,
+    member: TeamMember,
     user: Option<User>,
 }
 
@@ -58,14 +58,14 @@ impl MembersPane {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |this, _, cx| {
-                // Workspace switch: the generated URL belongs to the old one.
+                // Team switch: the generated URL belongs to the old one.
                 this.invite_url = None;
                 this.error = None;
                 this.limit_notice = None;
                 cx.notify();
             }),
-            cx.observe(&collections.workspace_members, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspace_invites, |_, _, cx| cx.notify()),
+            cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
+            cx.observe(&collections.team_invites, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
         ];
 
@@ -81,14 +81,14 @@ impl MembersPane {
 
     /// Web: members joined with users, agent users filtered out
     /// (`!userMap.get(member.userId)?.isAgent`).
-    fn member_rows(&self, workspace_id: &str, cx: &App) -> Vec<MemberRow> {
+    fn member_rows(&self, team_id: &str, cx: &App) -> Vec<MemberRow> {
         let collections = Store::global(cx).collections();
         let users = collections.users.read(cx);
         let mut rows: Vec<MemberRow> = collections
-            .workspace_members
+            .team_members
             .read(cx)
             .iter()
-            .filter(|member| member.workspace_id == workspace_id)
+            .filter(|member| member.team_id == team_id)
             .map(|member| MemberRow {
                 member: member.clone(),
                 user: users.get(&member.user_id).cloned(),
@@ -108,14 +108,14 @@ impl MembersPane {
         rows
     }
 
-    fn pending_invites(&self, workspace_id: &str, cx: &App) -> Vec<WorkspaceInvite> {
-        let mut invites: Vec<WorkspaceInvite> = Store::global(cx)
+    fn pending_invites(&self, team_id: &str, cx: &App) -> Vec<TeamInvite> {
+        let mut invites: Vec<TeamInvite> = Store::global(cx)
             .collections()
-            .workspace_invites
+            .team_invites
             .read(cx)
             .iter()
             .filter(|invite| {
-                invite.workspace_id == workspace_id && invite.accepted_at.is_none()
+                invite.team_id == team_id && invite.accepted_at.is_none()
             })
             .cloned()
             .collect();
@@ -123,7 +123,7 @@ impl MembersPane {
         invites
     }
 
-    fn generate_invite(&mut self, workspace_id: String, cx: &mut gpui::Context<Self>) {
+    fn generate_invite(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
         if self.generating {
             return;
         }
@@ -144,10 +144,10 @@ impl MembersPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::workspaces::workspace_invites_create(
+                    api::teams::team_invites_create(
                         &trpc,
-                        &workspace_id,
-                        api::workspaces::WorkspaceRole::Member,
+                        &team_id,
+                        api::teams::TeamRole::Member,
                     )
                 })
                 .await;
@@ -188,7 +188,7 @@ impl MembersPane {
             .role
             .clone()
             .unwrap_or_else(|| "member".to_string());
-        let is_owner_row = role == WORKSPACE_ROLE_OWNER;
+        let is_owner_row = role == TEAM_ROLE_OWNER;
         let name = display_name(row);
         let email = row.user.as_ref().and_then(|user| user.email.clone());
 
@@ -255,7 +255,7 @@ impl MembersPane {
 }
 
 /// Web `DropdownMenu` per member row: role changes (owner, not self), then
-/// Leave workspace (self) / Remove member (owner).
+/// Leave team (self) / Remove member (owner).
 fn member_actions_menu(
     member_id: String,
     name: &str,
@@ -275,13 +275,13 @@ fn member_actions_menu(
                     for (label, role, icon, disabled) in [
                         (
                             "Make owner",
-                            api::workspaces::WorkspaceRole::Owner,
+                            api::teams::TeamRole::Owner,
                             IconName::Star,
                             is_owner_row,
                         ),
                         (
                             "Make member",
-                            api::workspaces::WorkspaceRole::Member,
+                            api::teams::TeamRole::Member,
                             IconName::User,
                             !is_owner_row,
                         ),
@@ -293,8 +293,8 @@ fn member_actions_menu(
                                 .disabled(disabled)
                                 .on_click(move |_, _, cx| {
                                     let member_id = member_id.clone();
-                                    spawn_trpc(cx, "workspaceMembers.updateRole", move |trpc| {
-                                        api::workspaces::workspace_members_update_role(
+                                    spawn_trpc(cx, "teamMembers.updateRole", move |trpc| {
+                                        api::teams::team_members_update_role(
                                             trpc, &member_id, role,
                                         )
                                     });
@@ -314,8 +314,8 @@ fn member_actions_menu(
                             .icon(Icon::new(IconName::Close))
                             .on_click(move |_, _, cx| {
                                 let member_id = member_id.clone();
-                                spawn_trpc(cx, "workspaceMembers.remove", move |trpc| {
-                                    api::workspaces::workspace_members_remove(trpc, &member_id)
+                                spawn_trpc(cx, "teamMembers.remove", move |trpc| {
+                                    api::teams::team_members_remove(trpc, &member_id)
                                 });
                             }),
                     );
@@ -327,7 +327,7 @@ fn member_actions_menu(
 
 impl Render for MembersPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(
                 div()
                     .text_sm()
@@ -338,19 +338,19 @@ impl Render for MembersPane {
         let my_user_id = queries::active_account(cx)
             .map(|account| account.user_id)
             .unwrap_or_default();
-        let i_am_owner = is_owner(cx, &workspace_id);
-        let solo = !show_workspace_chrome(cx, &workspace_id);
+        let i_am_owner = is_owner(cx, &team_id);
+        let solo = !show_team_chrome(cx, &team_id);
 
-        let rows = self.member_rows(&workspace_id, cx);
+        let rows = self.member_rows(&team_id, cx);
         let owner_count = rows
             .iter()
-            .filter(|row| row.member.role.as_deref() == Some(WORKSPACE_ROLE_OWNER))
+            .filter(|row| row.member.role.as_deref() == Some(TEAM_ROLE_OWNER))
             .count();
 
         let mut body = card(cx).child(card_header(
             if solo { "Invite teammates" } else { "Members" },
             if solo {
-                "Invite someone to collaborate. Shared projects unlock team features.".to_string()
+                "Invite someone to collaborate. Shared boards unlock team features.".to_string()
             } else {
                 format!(
                     "{} member{} in this team",
@@ -432,9 +432,9 @@ impl Render for MembersPane {
                         .loading(self.generating)
                         .disabled(self.generating)
                         .on_click(cx.listener({
-                            let workspace_id = workspace_id.clone();
+                            let team_id = team_id.clone();
                             move |this, _, _, cx| {
-                                this.generate_invite(workspace_id.clone(), cx);
+                                this.generate_invite(team_id.clone(), cx);
                             }
                         })),
                 ),
@@ -447,7 +447,7 @@ impl Render for MembersPane {
                 invite_section = invite_section.child(error_notice(error.clone(), cx));
             }
 
-            let invites = self.pending_invites(&workspace_id, cx);
+            let invites = self.pending_invites(&team_id, cx);
             if !invites.is_empty() {
                 let mut pending = v_flex().gap_2().child(
                     div()
@@ -497,8 +497,8 @@ impl Render for MembersPane {
                                     .icon(IconName::Delete)
                                     .on_click(move |_, _, cx| {
                                         let invite_id = invite_id.clone();
-                                        spawn_trpc(cx, "workspaceInvites.revoke", move |trpc| {
-                                            api::workspaces::workspace_invites_revoke(
+                                        spawn_trpc(cx, "teamInvites.revoke", move |trpc| {
+                                            api::teams::team_invites_revoke(
                                                 trpc, &invite_id,
                                             )
                                         });

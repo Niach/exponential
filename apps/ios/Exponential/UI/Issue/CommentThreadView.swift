@@ -16,7 +16,7 @@ struct CommentThreadView: View {
     @State private var events: [IssueEventEntity] = []
     @State private var users: [String: UserEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
-    @State private var projects: [String: ProjectEntity] = [:]
+    @State private var boards: [String: BoardEntity] = [:]
     @State private var composerEditor = IssueEditorModel()
     @State private var composerHasText = false
     @State private var submitting = false
@@ -201,13 +201,13 @@ struct CommentThreadView: View {
     }
 
     /// identifier (e.g. `VER-12`) → local issue id for inline `#IDENTIFIER`
-    /// pills in comment bodies (render-only, same workspace only; unresolved
+    /// pills in comment bodies (render-only, same team only; unresolved
     /// refs stay plain text).
     private func resolveIssueRef(_ identifier: String) -> String? {
         IssueRefLookup.resolve(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
-    /// Issues offered by the comment editors' #-autocomplete (workspace-scoped;
+    /// Issues offered by the comment editors' #-autocomplete (team-scoped;
     /// identifier + title substring match).
     private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
         IssueRefLookup.search(query, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
@@ -260,13 +260,13 @@ struct CommentThreadView: View {
                 }
             }
 
-            // Project names for project_moved events (EXP-57).
-            let projectObs = ValueObservation.tracking { db in
-                try ProjectEntity.fetchAll(db)
+            // Board names for board_moved events (EXP-57).
+            let boardObs = ValueObservation.tracking { db in
+                try BoardEntity.fetchAll(db)
             }
             Task {
-                for try await rows in projectObs.values(in: pool) {
-                    self.projects = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                for try await rows in boardObs.values(in: pool) {
+                    self.boards = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
             }
 
@@ -289,7 +289,7 @@ struct CommentThreadView: View {
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity) -> some View {
         let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
-        let phrase = eventPhrase(event, users: users, labels: labels, projects: projects)
+        let phrase = eventPhrase(event, users: users, labels: labels, boards: boards)
         // Append a relative timestamp (EXP-169) — only when it parses, so an
         // unparseable created_at never leaves a dangling " · ".
         let time = relativeDate(event.createdAt)

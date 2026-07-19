@@ -23,7 +23,7 @@ import {
 // GitHub App install "Setup URL": GitHub redirects the user's browser here after
 // they install (or, with "Redirect on update" enabled, reconfigure) the App,
 // with `?installation_id=…&setup_action=…`. We mirror the installation row and
-// — when the signed state carries a target workspace — create the workspace ↔
+// — when the signed state carries a target team — create the team ↔
 // installation link (the claim). This round-trip is the claim FALLBACK for
 // instances without the App's OAuth client secret; the primary claim path is
 // the OAuth callback (./callback.ts). Token minting itself doesn't need any of
@@ -35,7 +35,7 @@ export async function handleSetup(request: Request): Promise<Response> {
   // When the install was launched from an in-app dialog (the dialog flag rides
   // inside the signed state payload), land on a small client page that lets
   // the original tab re-detect the connection; otherwise land on the app
-  // root — GitHub App management lives in workspace settings → Repositories,
+  // root — GitHub App management lives in team settings → Repositories,
   // which self-detects on focus. A mobile-marked state (native client launched
   // the install in an external browser) instead gets a 200 page that fires the
   // exponential://github-connected deep link to hand the user back to the app.
@@ -51,10 +51,10 @@ export async function handleSetup(request: Request): Promise<Response> {
 
   try {
     // `installation_id` is a guessable integer and this redirect is reachable
-    // by anyone, so creating a workspace link demands proof that the CURRENT
+    // by anyone, so creating a team link demands proof that the CURRENT
     // session user launched this very flow from inside the app: the signed
     // single-use state token minted with the install link (HMAC over user id +
-    // workspace id + nonce + expiry, see github-setup-state.ts) must verify
+    // team id + nonce + expiry, see github-setup-state.ts) must verify
     // AND match the session. Record the installation regardless — "installed"
     // must not depend on who happened to be signed in — just unlinked
     // (claimable later via the OAuth flow or another round-trip).
@@ -81,12 +81,12 @@ export async function handleSetup(request: Request): Promise<Response> {
 
       // SECURITY (cross-account repo leak): the URL `installation_id` is
       // attacker-controlled and UNVERIFIED. A valid signed `state` proves only
-      // that the caller launched a connect flow for THEIR OWN workspace — it is
+      // that the caller launched a connect flow for THEIR OWN team — it is
       // minted before any installation exists, so it binds user + nonce +
-      // workspace and NEVER binds an installation id. The old code here trusted
+      // team and NEVER binds an installation id. The old code here trusted
       // the URL id anyway, so any signed-in user could hand-craft
       // /api/integrations/github/setup?installation_id=<guessable>&state=<their
-      // own> and link a stranger's installation to their workspace, then read
+      // own> and link a stranger's installation to their team, then read
       // its private repos through the installation token. (GitHub does NOT sign
       // this redirect, so "it came from GitHub's install page" cannot be
       // assumed.)
@@ -99,9 +99,9 @@ export async function handleSetup(request: Request): Promise<Response> {
       // to prove control. The direct link survives ONLY as the self-hosted
       // fallback for instances with no OAuth client secret (single-tenant,
       // trusted), which have no other link path.
-      if (claim?.workspaceId && sessionUserId && row) {
+      if (claim?.teamId && sessionUserId && row) {
         if (githubOAuthConfigured()) {
-          // Refresh caches for any workspace already legitimately linked to
+          // Refresh caches for any team already legitimately linked to
           // this installation (setup_action=update grants/revokes repos), then
           // bounce into the proof-of-control OAuth flow instead of linking.
           await invalidateRepoCacheForInstallation(installationId)
@@ -109,7 +109,7 @@ export async function handleSetup(request: Request): Promise<Response> {
             mintGithubSetupState(sessionUserId, {
               dialog: fromDialog,
               mobile: fromMobile,
-              workspaceId: claim.workspaceId,
+              teamId: claim.teamId,
               oauth: true,
             })
           )
@@ -125,19 +125,19 @@ export async function handleSetup(request: Request): Promise<Response> {
           // Self-hosted fallback (no OAuth client secret ⇒ no proof-of-control
           // path exists). Single-tenant/trusted only.
           try {
-            await assertCanManageRepos(sessionUserId, claim.workspaceId)
+            await assertCanManageRepos(sessionUserId, claim.teamId)
             await db
               .insert(githubInstallationLinks)
               .values({
-                workspaceId: claim.workspaceId,
+                teamId: claim.teamId,
                 githubInstallationId: row.id,
                 createdByUserId: sessionUserId,
               })
               .onConflictDoNothing()
-            invalidateRepoCache(claim.workspaceId)
+            invalidateRepoCache(claim.teamId)
           } catch (err) {
             console.warn(
-              `[github-setup] link skipped (cannot manage workspace ${claim.workspaceId}):`,
+              `[github-setup] link skipped (cannot manage team ${claim.teamId}):`,
               err
             )
           }
@@ -146,7 +146,7 @@ export async function handleSetup(request: Request): Promise<Response> {
 
       // The installation's repo selection may have just changed (this redirect
       // also fires on setup_action=update when "Redirect on update" is on) —
-      // drop every linked workspace's cached repo list.
+      // drop every linked team's cached repo list.
       await invalidateRepoCacheForInstallation(installationId)
     }
     return ok

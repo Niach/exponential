@@ -56,7 +56,7 @@ use super::toolbar::{self, LinePrefix};
 
 /// `email` → member display name (None ⇒ not a known member; stays text).
 pub type MemberNameResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
-/// `IDENTIFIER` → does the issue exist in this workspace?
+/// `IDENTIFIER` → does the issue exist in this team?
 pub type IssueExistsResolver = Rc<dyn Fn(&str, &App) -> bool>;
 
 /// Resolves decoration tokens against the synced collections at render time.
@@ -64,26 +64,26 @@ pub type IssueExistsResolver = Rc<dyn Fn(&str, &App) -> bool>;
 pub struct RefResolver {
     /// `email` → member display name (None ⇒ not a known member; stays text).
     pub member_name: MemberNameResolver,
-    /// `IDENTIFIER` → does the issue exist in this workspace?
+    /// `IDENTIFIER` → does the issue exist in this team?
     pub issue_exists: IssueExistsResolver,
 }
 
 impl RefResolver {
-    /// Resolve against the §05 collections of the given workspace. Reads the
+    /// Resolve against the §05 collections of the given team. Reads the
     /// live store on every call — the §4.5 "decoration pass re-runs when the
     /// issues store changes" rule falls out of gpui re-render + this.
-    pub fn from_store(workspace_id: impl Into<String>) -> Self {
-        let ws_members = workspace_id.into();
+    pub fn from_store(team_id: impl Into<String>) -> Self {
+        let ws_members = team_id.into();
         let ws_issues = ws_members.clone();
         Self {
             member_name: Rc::new(move |email, cx| {
                 let collections = sync::Store::global(cx).collections();
-                let members = collections.workspace_members.read(cx);
+                let members = collections.team_members.read(cx);
                 let users = collections.users.read(cx);
                 let needle = email.to_lowercase();
                 members
                     .iter()
-                    .filter(|m| m.workspace_id == ws_members)
+                    .filter(|m| m.team_id == ws_members)
                     .filter_map(|m| users.get(&m.user_id))
                     .find(|u| {
                         u.email
@@ -95,7 +95,7 @@ impl RefResolver {
             issue_exists: Rc::new(move |identifier, cx| {
                 let collections = sync::Store::global(cx).collections();
                 collections
-                    .issues_in_workspace(&ws_issues, cx)
+                    .issues_in_team(&ws_issues, cx)
                     .iter()
                     .any(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
             }),

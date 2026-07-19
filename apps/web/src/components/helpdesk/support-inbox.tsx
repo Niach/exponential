@@ -14,10 +14,10 @@ import {
   StickyNote,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { issueCollection, projectCollection } from "@/lib/collections"
+import { issueCollection, boardCollection } from "@/lib/collections"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
-import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -55,11 +55,11 @@ function reporterLabel(row: {
 // live from the issues collection. On small screens the list and the
 // conversation stack (back button); the details rail is desktop-only.
 export function SupportInbox({
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
 }) {
   const [filter, setFilter] = useState<`open` | `resolved`>(`open`)
   const [threads, setThreads] = useState<ThreadRow[] | null>(null)
@@ -68,14 +68,14 @@ export function SupportInbox({
   const loadThreads = useCallback(async () => {
     try {
       const rows = await trpc.helpdesk.listThreads.query({
-        workspaceId,
+        teamId,
         filter,
       })
       setThreads(rows)
     } catch (err) {
       console.error(`helpdesk list failed`, err)
     }
-  }, [workspaceId, filter])
+  }, [teamId, filter])
 
   useEffect(() => {
     setThreads(null)
@@ -166,8 +166,8 @@ export function SupportInbox({
         <ConversationPane
           key={selected.id}
           thread={selected}
-          workspaceId={workspaceId}
-          workspaceSlug={workspaceSlug}
+          teamId={teamId}
+          teamSlug={teamSlug}
           onBack={() => setSelectedId(null)}
           onChanged={loadThreads}
         />
@@ -187,14 +187,14 @@ export function SupportInbox({
 
 function ConversationPane({
   thread,
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
   onBack,
   onChanged,
 }: {
   thread: ThreadRow
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
   onBack: () => void
   onChanged: () => Promise<void>
 }) {
@@ -204,7 +204,7 @@ function ConversationPane({
   const [sending, setSending] = useState(false)
   const [statusBusy, setStatusBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
-  const { userMap } = useWorkspaceUsers(workspaceId)
+  const { userMap } = useTeamUsers(teamId)
 
   const loadDetail = useCallback(async () => {
     try {
@@ -428,8 +428,8 @@ function ConversationPane({
       {/* Right — details rail (desktop only) */}
       <DetailsRail
         thread={thread}
-        workspaceId={workspaceId}
-        workspaceSlug={workspaceSlug}
+        teamId={teamId}
+        teamSlug={teamSlug}
         onEscalated={async () => {
           await Promise.all([loadDetail(), onChanged()])
         }}
@@ -440,13 +440,13 @@ function ConversationPane({
 
 function DetailsRail({
   thread,
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
   onEscalated,
 }: {
   thread: ThreadRow
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
   onEscalated: () => Promise<void>
 }) {
   // The escalated issue (when one exists) is Electric-synced — resolve
@@ -463,41 +463,41 @@ function DetailsRail({
   )
   const issue = issueRows?.[0]
 
-  const issueProjectId = issue?.projectId
-  const { data: projectRows } = useLiveQuery(
+  const issueBoardId = issue?.boardId
+  const { data: boardRows } = useLiveQuery(
     (query) =>
-      issueProjectId
+      issueBoardId
         ? query
-            .from({ projects: projectCollection })
-            .where(({ projects }) => eq(projects.id, issueProjectId))
+            .from({ boards: boardCollection })
+            .where(({ boards }) => eq(boards.id, issueBoardId))
         : undefined,
-    [issueProjectId]
+    [issueBoardId]
   )
-  const project = projectRows?.[0]
+  const board = boardRows?.[0]
 
-  // Escalation board picker: the workspace's live (non-archived) projects.
-  const { data: allProjects } = useLiveQuery(
+  // Escalation board picker: the team's live (non-archived) boards.
+  const { data: allBoards } = useLiveQuery(
     (query) =>
       query
-        .from({ projects: projectCollection })
-        .where(({ projects }) => eq(projects.workspaceId, workspaceId)),
-    [workspaceId]
+        .from({ boards: boardCollection })
+        .where(({ boards }) => eq(boards.teamId, teamId)),
+    [teamId]
   )
-  const boards = (allProjects ?? []).filter(
+  const boards = (allBoards ?? []).filter(
     (row) => !row.archivedAt && !row.deletedAt
   )
-  const [escalateProjectId, setEscalateProjectId] = useState<string>(``)
+  const [escalateBoardId, setEscalateBoardId] = useState<string>(``)
   const [escalating, setEscalating] = useState(false)
   const [escalateError, setEscalateError] = useState<string | null>(null)
 
   const escalate = async () => {
-    if (!escalateProjectId || escalating) return
+    if (!escalateBoardId || escalating) return
     setEscalating(true)
     setEscalateError(null)
     try {
       await trpc.helpdesk.escalate.mutate({
         threadId: thread.id,
-        projectId: escalateProjectId,
+        boardId: escalateBoardId,
       })
       await onEscalated()
     } catch (err) {
@@ -573,16 +573,16 @@ function DetailsRail({
 
       {thread.linkedIssueId ? (
         issue &&
-        project && (
+        board && (
           <section>
             <h2 className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
               Linked issue
             </h2>
             <Link
-              to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+              to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
               params={{
-                workspaceSlug,
-                projectSlug: project.slug,
+                teamSlug,
+                boardSlug: board.slug,
                 issueIdentifier: issue.identifier,
               }}
               className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
@@ -605,8 +605,8 @@ function DetailsRail({
           </p>
           <div className="flex flex-col gap-1.5">
             <Select
-              value={escalateProjectId}
-              onValueChange={setEscalateProjectId}
+              value={escalateBoardId}
+              onValueChange={setEscalateBoardId}
             >
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder="Pick a board" />
@@ -622,7 +622,7 @@ function DetailsRail({
             <Button
               size="sm"
               className="h-8"
-              disabled={!escalateProjectId || escalating}
+              disabled={!escalateBoardId || escalating}
               onClick={() => void escalate()}
             >
               {escalating ? (

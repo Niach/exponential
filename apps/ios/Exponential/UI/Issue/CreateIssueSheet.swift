@@ -4,7 +4,7 @@ import SwiftUI
 import GRDB
 
 struct CreateIssueSheet: View {
-    let projectId: String
+    let boardId: String
     let onCreated: () -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -21,16 +21,16 @@ struct CreateIssueSheet: View {
     @State private var assigneeId: String?
     @State private var selectedLabelIds: Set<String> = []
     @State private var labels: [LabelEntity] = []
-    @State private var workspaceId: String?
+    @State private var teamId: String?
     @State private var users: [UserEntity] = []
-    /// True when the selected workspace has exactly one human member (the
+    /// True when the selected team has exactly one human member (the
     /// creator): the assignee picker is hidden and assigneeId is pre-set to
-    /// that member (EXP-50). Multi-member workspaces keep the picker.
-    @State private var singleMemberWorkspace = false
+    /// that member (EXP-50). Multi-member teams keep the picker.
+    @State private var singleMemberTeam = false
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
-    @State private var permissions: WorkspacePermissions = .denied
+    @State private var permissions: TeamPermissions = .denied
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
@@ -97,9 +97,9 @@ struct CreateIssueSheet: View {
                                 .disabled(!permissions.isModerator)
                             }
 
-                            // Assignee — hidden on solo workspaces, where the
+                            // Assignee — hidden on solo teams, where the
                             // sole member is pre-assigned (EXP-50).
-                            if !singleMemberWorkspace {
+                            if !singleMemberTeam {
                                 metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
                                     Button {
                                         showAssigneePicker = true
@@ -149,7 +149,7 @@ struct CreateIssueSheet: View {
                             .opacity(permissions.isModerator ? 1 : 0.55)
                         }
 
-                        // Labels — all workspace labels as colored-dot toggle
+                        // Labels — all team labels as colored-dot toggle
                         // chips + a "+ Label" chip (parity with Android's
                         // CreateIssueScreen and the web create dialog). Toggling
                         // only flips a local selection; the issue doesn't exist
@@ -184,7 +184,7 @@ struct CreateIssueSheet: View {
                                     }
                                     .buttonStyle(.plain)
                                 }
-                                // "+ Label" — create a new workspace label and
+                                // "+ Label" — create a new team label and
                                 // pre-select it on this draft in one step.
                                 Button {
                                     showCreateLabel = true
@@ -254,37 +254,37 @@ struct CreateIssueSheet: View {
                     }) {
                         users = loaded
                     }
-                    let workspace: WorkspaceEntity? = (try? await pool.read({ db -> WorkspaceEntity? in
-                        guard let project = try ProjectEntity.fetchOne(db, key: projectId) else {
+                    let team: TeamEntity? = (try? await pool.read({ db -> TeamEntity? in
+                        guard let board = try BoardEntity.fetchOne(db, key: boardId) else {
                             return nil
                         }
-                        return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+                        return try TeamEntity.fetchOne(db, key: board.teamId)
                     })) ?? nil
-                    workspaceId = workspace?.id
-                    // Solo-workspace assignee shortcut (EXP-50): when this
-                    // workspace has exactly one human member, hide the picker
+                    teamId = team?.id
+                    // Solo-team assignee shortcut (EXP-50): when this
+                    // team has exactly one human member, hide the picker
                     // and pre-assign the creator. Scoped to the selected
-                    // workspace — the pool can hold several.
-                    if let wsId = workspace?.id,
+                    // team — the pool can hold several.
+                    if let wsId = team?.id,
                        let humanIds = try? await pool.read({ db in
-                           try humanWorkspaceMemberIds(workspaceId: wsId, db: db)
+                           try humanTeamMemberIds(teamId: wsId, db: db)
                        }), humanIds.count == 1 {
-                        singleMemberWorkspace = true
+                        singleMemberTeam = true
                         assigneeId = humanIds.first
                     }
-                    // Labels are workspace-scoped; a shared DB pool can hold more
-                    // than one workspace, so filter to this project's workspace.
-                    if let wsId = workspace?.id,
+                    // Labels are team-scoped; a shared DB pool can hold more
+                    // than one team, so filter to this board's team.
+                    if let wsId = team?.id,
                        let loadedLabels = try? await pool.read({ db in
                            try LabelEntity
-                               .filter(Column("workspace_id") == wsId)
+                               .filter(Column("team_id") == wsId)
                                .order(Column("name"))
                                .fetchAll(db)
                        }) {
                         labels = loadedLabels
                     }
-                    permissions = WorkspacePermissions.resolve(
-                        workspace: workspace,
+                    permissions = TeamPermissions.resolve(
+                        team: team,
                         currentUserId: deps.auth.userId,
                         isAdmin: deps.auth.isAdmin,
                         dbPool: pool
@@ -352,15 +352,15 @@ struct CreateIssueSheet: View {
         }
     }
 
-    /// Create a workspace label and pre-select it on this draft. The label is
+    /// Create a team label and pre-select it on this draft. The label is
     /// real immediately (labels.create); only the assignment is deferred — the
     /// create call carries it via labelIds (parity with Android).
     private func createAndSelectLabel(name: String, color: String) async {
-        guard let workspaceId else { return }
+        guard let teamId else { return }
         do {
             let labelId = try await deps.labelsApi.create(
                 accountId: accountId,
-                CreateLabelInput(name: name, color: color, workspaceId: workspaceId)
+                CreateLabelInput(name: name, color: color, teamId: teamId)
             )
             selectedLabelIds.insert(labelId)
             // Reflect the new label in the chip row without waiting for a sync
@@ -369,7 +369,7 @@ struct CreateIssueSheet: View {
                 labels.append(
                     LabelEntity(
                         id: labelId,
-                        workspaceId: workspaceId,
+                        teamId: teamId,
                         name: name,
                         color: color,
                         sortOrder: nil,
@@ -421,7 +421,7 @@ struct CreateIssueSheet: View {
         let validLabelIds = selectedLabelIds.filter { id in labels.contains { $0.id == id } }
 
         let input = CreateIssueInput(
-            projectId: projectId,
+            boardId: boardId,
             title: title,
             status: status.rawValue,
             priority: priority.rawValue,
@@ -464,8 +464,8 @@ struct CreateIssueSheet: View {
                 }
             }
 
-            // Remember the project so the Share Extension defaults its picker to it.
-            SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
+            // Remember the board so the Share Extension defaults its picker to it.
+            SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
 
             if createMore {
                 title = ""
@@ -483,15 +483,15 @@ struct CreateIssueSheet: View {
         loading = false
     }
 
-    /// `#IDENTIFIER` refs resolve/search against the target project's workspace:
+    /// `#IDENTIFIER` refs resolve/search against the target board's team:
     /// pills for refs that resolve locally, and a #-autocomplete inserting the
     /// plain interchange token. Re-applied when "Create more" resets the model.
     private func configureEditor() {
         editor.issueRefResolver = { identifier in
-            IssueRefLookup.resolve(identifier, scope: .project(id: projectId), db: deps.db, accountId: accountId)
+            IssueRefLookup.resolve(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)
         }
         editor.issueRefSearch = { query in
-            IssueRefLookup.search(query, scope: .project(id: projectId), db: deps.db, accountId: accountId)
+            IssueRefLookup.search(query, scope: .board(id: boardId), db: deps.db, accountId: accountId)
         }
     }
 

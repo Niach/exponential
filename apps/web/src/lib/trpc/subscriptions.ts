@@ -3,9 +3,9 @@ import { and, eq, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { issueSubscribers } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
 
 // A manual subscribe/unsubscribe writes source='manual'. unsubscribed=true is
 // what suppresses future auto-resubscribe (ensureSubscribed onConflictDoNothing
@@ -16,16 +16,16 @@ async function setSubscription(
   issueId: string,
   unsubscribed: boolean
 ) {
-  const { workspaceId } = await getIssueWorkspaceContext(issueId)
-  await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+  const { teamId } = await getIssueTeamContext(issueId)
+  await assertTeamMember(ctx.session.user.id, teamId)
   return await ctx.db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     // Raw SQL: uniq_issue_subscribers_user is a PARTIAL unique index, so the
     // conflict target must carry the index predicate — drizzle 0.39 silently
     // DROPS the `targetWhere` option (verified via .toSQL()).
     await tx.execute(sql`
-      insert into issue_subscribers (issue_id, user_id, workspace_id, source, unsubscribed)
-      values (${issueId}, ${ctx.session.user.id}, ${workspaceId}, 'manual', ${unsubscribed})
+      insert into issue_subscribers (issue_id, user_id, team_id, source, unsubscribed)
+      values (${issueId}, ${ctx.session.user.id}, ${teamId}, 'manual', ${unsubscribed})
       on conflict (issue_id, user_id) where user_id is not null
       do update set unsubscribed = excluded.unsubscribed, source = 'manual', updated_at = now()
     `)

@@ -40,7 +40,7 @@ pub(crate) fn install(cx: &mut App) {
 /// `upload_issue`: `Some(id)` = detail mode (immediate upload on paste);
 /// `None` = create-dialog mode (stage as `draft://`, resolve at submit).
 pub(crate) fn build_editor(
-    workspace_id: Option<String>,
+    team_id: Option<String>,
     upload_issue: Option<String>,
     placeholder: &str,
     initial_markdown: &str,
@@ -59,31 +59,31 @@ pub(crate) fn build_editor(
         if let Some(transport) = queries::attachment_transport(cx) {
             editor.set_transport(transport, cx);
         }
-        if let Some(workspace_id) = workspace_id {
-            editor.set_completion_source(store_completion_source(workspace_id.clone()));
+        if let Some(team_id) = team_id {
+            editor.set_completion_source(store_completion_source(team_id.clone()));
             // `@email`/`#IDENT` pills in the blurred preview resolve against
-            // the issue's workspace, and a resolved issue pill navigates to
+            // the issue's team, and a resolved issue pill navigates to
             // its detail — same wiring as comment bodies (EXP-161).
-            editor.set_resolver(RefResolver::from_store(workspace_id.clone()));
+            editor.set_resolver(RefResolver::from_store(team_id.clone()));
             editor.set_on_open_issue(move |identifier, window, cx| {
-                open_issue_by_identifier(&workspace_id, identifier, window, cx);
+                open_issue_by_identifier(&team_id, identifier, window, cx);
             });
         }
         editor
     })
 }
 
-/// Resolve a `#IDENT` pill click against the synced issues of a workspace and
+/// Resolve a `#IDENT` pill click against the synced issues of a team and
 /// navigate to its detail (§4.5 "clicking navigates to that issue's detail").
 pub(crate) fn open_issue_by_identifier(
-    workspace_id: &str,
+    team_id: &str,
     identifier: &str,
     window: &mut Window,
     cx: &mut App,
 ) {
     let target = Store::global(cx)
         .collections()
-        .issues_in_workspace(workspace_id, cx)
+        .issues_in_team(team_id, cx)
         .into_iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
         .map(|issue| issue.id);
@@ -105,11 +105,11 @@ struct SeamEditor {
 
 impl SeamEditor {
     fn build(params: &DescriptionEditorParams, window: &mut Window, cx: &mut App) -> Self {
-        // Scope autocomplete + pills to the issue's workspace (§4.6).
-        let workspace_id = queries::issue_workspace_id(cx, &params.issue_id);
+        // Scope autocomplete + pills to the issue's team (§4.6).
+        let team_id = queries::issue_team_id(cx, &params.issue_id);
 
         let editor = build_editor(
-            workspace_id,
+            team_id,
             Some(params.issue_id.clone()),
             &params.placeholder,
             &params.initial_markdown,
