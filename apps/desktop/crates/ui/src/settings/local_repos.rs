@@ -492,10 +492,10 @@ fn collect_merged_branches(prefix: &str, cx: &App) -> HashSet<String> {
     set
 }
 
-/// Whether a running coding session is bound to one of this clone's worktrees:
-/// a synced `running` session whose issue's worktree dir exists under
-/// `<clone>.worktrees`. Errs toward "in use" — never delete a clone out from
-/// under a live session (§4.7).
+/// Whether a live coding session is bound to one of this clone's worktrees:
+/// a synced `running`/`in_review` session whose issue's worktree dir exists
+/// under `<clone>.worktrees`. Errs toward "in use" — never delete a clone out
+/// from under a live session (§4.7).
 fn clone_in_use(clone: &Path, prefix: &str, cx: &App) -> bool {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
@@ -505,7 +505,11 @@ fn clone_in_use(clone: &Path, prefix: &str, cx: &App) -> bool {
         .read(cx)
         .iter()
         .filter(|session| {
-            session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+            matches!(
+                session.status.as_deref(),
+                Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+                    | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+            )
         })
         .filter_map(|session| session.issue_id.as_deref())
         .filter_map(|issue_id| issues.get(issue_id))
