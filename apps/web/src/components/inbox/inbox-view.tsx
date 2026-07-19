@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { EmptyState } from "@/components/empty-state"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
@@ -176,7 +177,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
-      <div className="flex-1 space-y-2 overflow-y-auto">
+      <div className={`flex-1 space-y-2 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {groups.length === 0 ? (
           <EmptyState
             icon={CheckCircle2}

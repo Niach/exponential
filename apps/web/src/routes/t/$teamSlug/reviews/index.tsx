@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
@@ -166,7 +167,7 @@ function ReviewsPage() {
         </h1>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>
         ) : count === 0 ? (

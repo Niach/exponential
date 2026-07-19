@@ -14,6 +14,7 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { displayUserName } from "@/lib/user-display"
 import { Button } from "@/components/ui/button"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // Team Agents view: the caller's online desktops (remote-start entry
 // point) plus every RUNNING coding session in the team. Rows focus the
@@ -243,7 +244,7 @@ function AgentsPage() {
         </h1>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isMember && steerConfig?.enabled && (
           <MyDesktops teamId={team.id} />
         )}

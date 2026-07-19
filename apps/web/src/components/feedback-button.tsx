@@ -27,11 +27,9 @@ async function loadWidgetAvailable(): Promise<boolean> {
   return cachePromise
 }
 
-// Sidebar entry point into the embedded feedback widget (the same widget the
-// FeedbackWidgetProvider mounts as a floating launcher). Renders nothing when
-// the runtime config exposes no dogfood widget — EXP-180 removed the legacy
-// public-feedback-board redirect fallback.
-export function FeedbackButton() {
+// Whether the embedded feedback widget is configured on this instance —
+// shared by the sidebar entry and the mobile user menu (EXP-189).
+export function useFeedbackWidgetAvailable(): boolean {
   const [available, setAvailable] = useState<boolean>(
     cachedWidgetAvailable ?? false
   )
@@ -40,6 +38,16 @@ export function FeedbackButton() {
     if (cachedWidgetAvailable !== undefined) return
     void loadWidgetAvailable().then(setAvailable)
   }, [])
+
+  return available
+}
+
+// Sidebar entry point into the embedded feedback widget (the same widget the
+// FeedbackWidgetProvider mounts as a floating launcher). Renders nothing when
+// the runtime config exposes no dogfood widget — EXP-180 removed the legacy
+// public-feedback-board redirect fallback.
+export function FeedbackButton() {
+  const available = useFeedbackWidgetAvailable()
 
   if (!available) return null
 

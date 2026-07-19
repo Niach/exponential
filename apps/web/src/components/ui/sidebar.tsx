@@ -88,10 +88,13 @@ function SidebarProvider({
     [setOpenProp, open]
   )
 
-  // Helper to toggle the sidebar.
+  // Helper to toggle the sidebar. On mobile the sidebar drawer is retired
+  // (EXP-189: the MobileTabBar is the navigation), so toggling is a no-op —
+  // this also keeps Cmd+B from opening the dead drawer.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen, setOpenMobile])
+    if (isMobile) return
+    setOpen((open) => !open)
+  }, [isMobile, setOpen])
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {

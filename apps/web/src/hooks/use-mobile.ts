@@ -3,7 +3,15 @@ import * as React from "react"
 const MOBILE_BREAKPOINT = 768
 
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+  // Synchronous initial read: the app is client-only (`defaultSsr: false`),
+  // so starting from the real viewport width avoids a first-render flash of
+  // the desktop layout (e.g. the fixed-width issue properties panel) on
+  // mobile viewports.
+  const [isMobile, setIsMobile] = React.useState<boolean>(
+    () =>
+      typeof window !== `undefined` &&
+      window.innerWidth < MOBILE_BREAKPOINT
+  )
 
   React.useEffect(() => {
     if (typeof window.matchMedia !== `function`) {
@@ -20,5 +28,5 @@ export function useIsMobile() {
     return () => mql.removeEventListener(`change`, onChange)
   }, [])
 
-  return !!isMobile
+  return isMobile
 }

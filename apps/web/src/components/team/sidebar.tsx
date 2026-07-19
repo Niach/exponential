@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   Bell,
   Bot,
@@ -18,10 +17,6 @@ import {
   Settings,
   Shield,
 } from "lucide-react"
-import {
-  codingSessionCollection,
-  issueCollection,
-} from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
@@ -32,9 +27,11 @@ import {
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
-import type { CodingSession, Board, Team } from "@/db/schema"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
-import { useNow } from "@/hooks/use-now"
+import type { Board, Team } from "@/db/schema"
+import {
+  useReviewsOpenPrCount,
+  useAgentsRunningCount,
+} from "@/hooks/use-nav-counts"
 import {
   useShowTeamChrome,
   useTeamMemberships,
@@ -85,63 +82,16 @@ function SupportUnreadBadge({ teamId }: { teamId?: string }) {
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
 }
 
-// Open-PR count across the team's boards, matching the Reviews page's
-// entry count: DISTINCT PRs, so a batch PR linked to several issues counts
-// once (EXP-131). Pure client-side counting over the already-synced issues
-// shape.
+// Open-PR count across the team's boards (DISTINCT PRs — EXP-131).
 function ReviewsCountBadge({ boards }: { boards: Board[] | undefined }) {
-  const boardIds = useMemo(
-    () => (boards ?? []).map((board) => board.id),
-    [boards]
-  )
-  const { data } = useLiveQuery(
-    (query) =>
-      boardIds.length > 0
-        ? query
-            .from({ issues: issueCollection })
-            .where(({ issues }) =>
-              and(
-                inArray(issues.boardId, boardIds),
-                eq(issues.prState, `open`)
-              )
-            )
-        : undefined,
-    [boardIds.join(`,`)]
-  )
-  const count = useMemo(() => {
-    const keys = new Set<string>()
-    for (const issue of data ?? []) {
-      keys.add(issue.prUrl ?? issue.id)
-    }
-    return keys.size
-  }, [data])
+  const count = useReviewsOpenPrCount(boards)
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
 
-// Live count of running coding sessions in the team, for the Agents
-// entry. Pure client-side counting over the already-synced coding_sessions
-// shape (team-scoped by the denormalized team_id).
+// Live count of running coding sessions in the team, for the Agents entry.
 function AgentsRunningBadge({ teamId }: { teamId?: string }) {
-  const { data } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query
-            .from({ sessions: codingSessionCollection })
-            .where(({ sessions }) =>
-              and(
-                eq(sessions.teamId, teamId),
-                eq(sessions.status, `running`)
-              )
-            )
-        : undefined,
-    [teamId]
-  )
-  // Staleness guard (EXP-153): heartbeat-dead rows don't count.
-  const now = useNow()
-  const count = ((data ?? []) as CodingSession[]).filter(
-    (s) => !isCodingSessionStale(s.updatedAt, now)
-  ).length
+  const count = useAgentsRunningCount(teamId)
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }

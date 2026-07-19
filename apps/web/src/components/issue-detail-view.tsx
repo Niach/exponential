@@ -41,7 +41,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import type { IssueFilterSearch } from "@/lib/filters"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
@@ -558,13 +558,13 @@ export function IssueDetailView({
           priority: filterSearch?.priority,
           labels: filterSearch?.labels,
         }}
-        className="inline-flex shrink-0 items-center gap-1.5 hover:text-foreground"
+        className="inline-flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
       >
         <div
           className="h-2.5 w-2.5 shrink-0 rounded-full"
           style={{ backgroundColor: board.color }}
         />
-        {board.name}
+        <span className="truncate">{board.name}</span>
       </Link>
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="shrink-0 font-mono">{issue.identifier}</span>
@@ -573,7 +573,7 @@ export function IssueDetailView({
       <div className="ml-auto flex items-center gap-1 shrink-0">
         {position && (
           <>
-            <span className="px-0.5 font-mono tabular-nums whitespace-nowrap">
+            <span className="hidden px-0.5 font-mono tabular-nums whitespace-nowrap sm:inline">
               {position.index} / {position.total}
             </span>
             <IconTooltip label="Previous issue" shortcut="K">
@@ -704,14 +704,24 @@ export function IssueDetailView({
     />
   ) : null
 
+  // A wrapping textarea (field-sizing-content), not an Input — long titles
+  // must wrap on narrow viewports instead of clipping (EXP-189). Enter
+  // commits via blur; titles stay single-logical-line.
   const titleField = (
-    <Input
+    <Textarea
       value={title}
+      rows={1}
       onBlur={() => void handleTitleBlur()}
-      onChange={(e) => setTitle(e.target.value)}
+      onChange={(e) => setTitle(e.target.value.replace(/\n/g, ``))}
+      onKeyDown={(e) => {
+        if (e.key === `Enter`) {
+          e.preventDefault()
+          e.currentTarget.blur()
+        }
+      }}
       placeholder="Issue title"
       disabled={readOnly}
-      className="bg-transparent dark:bg-transparent border-none shadow-none text-2xl font-semibold px-5 pt-4 pb-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+      className="min-h-0 resize-none bg-transparent dark:bg-transparent border-none shadow-none !text-2xl font-semibold px-5 pt-4 pb-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
     />
   )
 
