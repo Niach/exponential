@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects, supportMessages, supportThreads, workspaces } from "@/db/schema"
+import { supportMessages, supportThreads, workspaces } from "@/db/schema"
 import { jsonResponse } from "@/lib/widget/cors"
 import { clientIpFromRequest } from "@/lib/widget/rate-limit"
 import {
@@ -44,16 +44,9 @@ async function handleThreadRead(request: Request): Promise<Response> {
   }
 
   const [context] = await db
-    .select({
-      issueTitle: issues.title,
-      issueStatus: issues.status,
-      projectName: projects.name,
-      workspaceName: workspaces.name,
-    })
-    .from(issues)
-    .innerJoin(projects, eq(projects.id, issues.projectId))
-    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
-    .where(eq(issues.id, thread.issueId))
+    .select({ workspaceName: workspaces.name })
+    .from(workspaces)
+    .where(eq(workspaces.id, thread.workspaceId))
     .limit(1)
 
   const messages = await db
@@ -81,10 +74,10 @@ async function handleThreadRead(request: Request): Promise<Response> {
   })()
 
   return jsonResponse(200, {
-    subject: context?.issueTitle ?? `Support conversation`,
-    projectName: context?.projectName ?? null,
+    subject: thread.title,
+    projectName: null,
     workspaceName: context?.workspaceName ?? null,
-    closed: thread.tokenRevokedAt !== null,
+    closed: thread.status === `resolved`,
     reporterName: thread.reporterName,
     messages: messages
       .filter((m) => m.visibility === `public`)

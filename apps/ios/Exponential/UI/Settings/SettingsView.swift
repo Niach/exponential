@@ -15,8 +15,6 @@ struct SettingsView: View {
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
     @State private var previousActiveAccountId: String?
-    @State private var showFeedbackGate = false
-    @State private var pendingFeedbackBoard: FeedbackBoardTarget?
 
     var body: some View {
         ZStack {
@@ -37,13 +35,6 @@ struct SettingsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .navigationDestination(item: $pendingWorkspace) { target in
             WorkspaceSettingsView(workspaceId: target.workspaceId)
-                .environment(\.accountId, target.accountId)
-        }
-        .navigationDestination(item: $pendingFeedbackBoard) { target in
-            // Item-based push: MainNavigator's typed path still ends on
-            // .settings, so the floating tab bar stays hidden here — no
-            // tab-bar clearance (EXP-36).
-            IssueListView(projectId: target.projectId, showsTabBarClearance: false)
                 .environment(\.accountId, target.accountId)
         }
         .onAppear {
@@ -76,19 +67,6 @@ struct SettingsView: View {
                 }
                 showAddServer = false
             }
-        }
-        .sheet(isPresented: $showFeedbackGate) {
-            FeedbackBoardGateSheet { target in
-                showFeedbackGate = false
-                // Let the sheet dismiss before pushing so the two transitions
-                // don't race each other.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    pendingFeedbackBoard = target
-                }
-            }
-            .presentationDetents([.medium])
-            .presentationBackground(.ultraThinMaterial)
         }
     }
 
@@ -217,15 +195,6 @@ struct SettingsView: View {
                     settingsRow(icon: "arrow.triangle.2.circlepath", title: "Sync diagnostics")
                 }
                 .buttonStyle(.plain)
-
-                if deps.auth.instanceUrl != nil {
-                    Button {
-                        showFeedbackGate = true
-                    } label: {
-                        settingsRow(icon: "envelope", title: "Send feedback")
-                    }
-                    .buttonStyle(.plain)
-                }
             }
         }
     }

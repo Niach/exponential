@@ -25,9 +25,8 @@ use crate::hydrate::{
     tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
 };
 
-/// `workspaces` shape row. Workspaces are always private (publicness lives on
-/// feedback-board projects, not the workspace) — the shape carries no
-/// `is_public`/`public_write_policy`.
+/// `workspaces` shape row. Workspaces are always private — the shape carries
+/// no `is_public`/`public_write_policy`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Workspace {
     pub id: String,
@@ -54,32 +53,16 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// Whether this is a public board — anyone with the link can read it. The
-    /// canonical publicness signal.
-    /// NOT NULL default false server-side, but `Option` locally: a store-healed
-    /// column is SQL NULL on pre-existing rows (explicit JSON null at hydrate,
-    /// which `serde(default)` does NOT cover), and a not-yet-updated
-    /// self-hosted server never serves the column — a required bool would drop
-    /// the whole row (§5.5). Read sites default to `false`.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_public: Option<bool>,
     /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
-    /// create time. `None` on pre-icon boards — consumers fall back to an
+    /// create time. `None` on pre-icon projects — consumers fall back to an
     /// attribute-derived glyph.
     #[serde(default)]
     pub icon: Option<String>,
     /// `projects.repository_id` (v4 §3.1, nullable) — the one repository this
-    /// project clones/branches against, or `None` for a repo-less board. Coding
-    /// affordances gate purely on this presence, never on board type.
+    /// project clones/branches against, or `None` for a repo-less project.
+    /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
-    /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
-    /// carried so the desktop mirrors the full shape. `None` on legacy/other
-    /// rows.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub public_show_comments: Option<bool>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub public_show_activity: Option<bool>,
     /// Trash contract: protected projects (the bootstrap dogfood board) are
     /// non-deletable/non-archivable/non-retypable — the server refuses, and
     /// clients disable the affordances from this flag. `None` on legacy rows.
@@ -193,10 +176,11 @@ pub struct User {
     pub updated_at: Option<String>,
 }
 
-/// Display fallback for a user id whose [`User`] row didn't sync: the server
-/// no longer syncs user rows for public-workspace co-members, so a known id can
-/// resolve to no row. Rather than leak the raw id (or a misleading "Someone"),
-/// show `Member <LAST4>` — the uppercased last four chars of the id.
+/// Display fallback for a user id whose [`User`] row didn't sync: a referenced
+/// id can resolve to no local row (the user's row hasn't synced yet, or the
+/// account was deleted). Rather than leak the raw id (or a misleading
+/// "Someone"), show `Member <LAST4>` — the uppercased last four chars of the
+/// id.
 pub fn member_fallback_label(user_id: &str) -> String {
     let chars: Vec<char> = user_id.chars().collect();
     let start = chars.len().saturating_sub(4);
@@ -445,72 +429,29 @@ mod tests {
     }
 
     #[test]
-    fn workspace_hydrates_and_ignores_stray_public_columns() {
-        // Workspaces are always private — the shape has no
-        // is_public/public_write_policy field. A row from an older server that
-        // still serves those columns must hydrate anyway (row structs carry no
-        // deny_unknown_fields, so the extra keys are simply ignored).
-        let ws: Workspace = serde_json::from_value(json!({
-            "id": "w-1",
-            "name": "Exponential",
-            "slug": "exponential",
-            "is_public": "t",
-            "public_write_policy": "authenticated"
-        }))
-        .unwrap();
-        assert_eq!(ws.slug.as_deref(), Some("exponential"));
-    }
-
-    #[test]
-    fn project_public_and_icon_hydrate() {
-        // Publicness comes from `is_public` and the glyph from `icon`; the
-        // dropped `type` column no longer arrives (a stray one is simply
-        // ignored — no field models it).
-        let public: Project = serde_json::from_value(json!({
+    fn project_icon_hydrates_and_stray_public_columns_are_ignored() {
+        // The glyph comes from `icon`; the dropped public-board columns
+        // (`is_public`/`public_show_*`, like the older `type`) no longer
+        // arrive — a stray one from an older server or a pre-drop local table
+        // is simply ignored (row structs carry no deny_unknown_fields).
+        let project: Project = serde_json::from_value(json!({
             "id": "p-1",
             "workspace_id": "w-1",
-            "name": "Feedback",
-            "is_public": "t",
+            "name": "Exponential",
             "icon": "megaphone",
-            "public_show_comments": "t"
+            "is_public": "t",
+            "public_show_comments": "t",
+            "public_show_activity": null
         }))
         .unwrap();
-        assert_eq!(public.is_public, Some(true));
-        assert_eq!(public.icon.as_deref(), Some("megaphone"));
-        assert_eq!(public.public_show_comments, Some(true));
+        assert_eq!(project.icon.as_deref(), Some("megaphone"));
 
-        let private: Project = serde_json::from_value(json!({
-            "id": "p-2", "workspace_id": "w-1", "name": "Tasks",
-            "is_public": false, "icon": "square-kanban"
-        }))
-        .unwrap();
-        assert_eq!(private.is_public, Some(false));
-        assert_eq!(private.icon.as_deref(), Some("square-kanban"));
-
-        // A row missing the new columns degrades: publicness to None (read
-        // sites default to false), glyph to None (attribute-derived fallback).
+        // A row missing `icon` degrades to None (attribute-derived fallback).
         let sparse: Project = serde_json::from_value(json!({
             "id": "p-3", "workspace_id": "w-1", "name": "Sparse"
         }))
         .unwrap();
-        assert_eq!(sparse.is_public, None);
         assert_eq!(sparse.icon, None);
-    }
-
-    #[test]
-    fn project_with_null_is_public_hydrates_not_dropped() {
-        // The 0.8.4→0.8.5 upgrade regression: `heal_missing_columns` ALTERs
-        // `is_public` in as TEXT NULL on pre-existing rows, and the store's
-        // hydrate read re-wraps SQL NULL as EXPLICIT JSON null — which
-        // `serde(default)` does not cover. A required bool here made every
-        // pre-upgrade project row fail hydration and silently vanish from the
-        // project list (§5.5: a partial row degrades, never drops).
-        let healed: Project = serde_json::from_value(json!({
-            "id": "p-1", "workspace_id": "w-1", "name": "Healed",
-            "is_public": null
-        }))
-        .expect("explicit-null is_public must not drop the row");
-        assert_eq!(healed.is_public, None);
     }
 
     #[test]

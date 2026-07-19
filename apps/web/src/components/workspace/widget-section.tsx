@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
+import { Link } from "@tanstack/react-router"
 import {
   Check,
   Code2,
   Copy,
+  LifeBuoy,
   Loader2,
   MessageSquarePlus,
   Pencil,
@@ -10,6 +12,7 @@ import {
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import {
   DEFAULT_ACCENT,
@@ -19,6 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -43,6 +47,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import type { Workspace } from "@/db/schema"
 
 type WidgetList = Awaited<ReturnType<typeof trpc.widgets.list.query>>
 
@@ -58,8 +63,6 @@ function parseDomains(value: string): string[] {
 }
 
 type WidgetPosition = `bottom-left` | `bottom-right`
-// Sentinel for the support-project Select's "Same as project" option.
-const SAME_PROJECT = `__same__`
 // The settings-facing shape of formConfig.modes: a single pick instead of a
 // multi-select (there are only three valid combinations).
 type WidgetModeChoice = `feedback` | `support` | `both`
@@ -97,10 +100,11 @@ function modesForChoice(
 }
 
 export function WorkspaceWidgetSection({
-  workspaceId,
+  workspace,
 }: {
-  workspaceId: string
+  workspace: Workspace
 }) {
+  const workspaceId = workspace.id
   const projects = useWorkspaceProjects(workspaceId).filter(
     (project) => !project.archivedAt
   )
@@ -118,10 +122,6 @@ export function WorkspaceWidgetSection({
   const [editTarget, setEditTarget] = useState<WidgetList[number] | null>(null)
   const [formName, setFormName] = useState(``)
   const [formProjectId, setFormProjectId] = useState<string>(``)
-  // Radix Select forbids value="" — SAME_PROJECT stands in for "support
-  // tickets land in the feedback project" (persisted as null).
-  const [formSupportProjectId, setFormSupportProjectId] =
-    useState<string>(SAME_PROJECT)
   const [formDomains, setFormDomains] = useState(``)
   const [formButtonLabel, setFormButtonLabel] = useState(``)
   // Empty string = "use the widget default" (the accentColor key is omitted).
@@ -132,6 +132,10 @@ export function WorkspaceWidgetSection({
   const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Workspace-level helpdesk switch (EXP-180 — replaced the per-project flag).
+  const [helpdeskBusy, setHelpdeskBusy] = useState(false)
+  const [helpdeskError, setHelpdeskError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -153,7 +157,6 @@ export function WorkspaceWidgetSection({
     setEditTarget(null)
     setFormName(``)
     setFormProjectId(projects[0]?.id ?? ``)
-    setFormSupportProjectId(SAME_PROJECT)
     setFormDomains(``)
     setFormButtonLabel(``)
     setFormAccent(``)
@@ -168,8 +171,7 @@ export function WorkspaceWidgetSection({
     const config = readFormConfig(widget.formConfig)
     setEditTarget(widget)
     setFormName(widget.name)
-    setFormProjectId(widget.projectId)
-    setFormSupportProjectId(widget.supportProjectId ?? SAME_PROJECT)
+    setFormProjectId(widget.projectId ?? ``)
     setFormDomains(widget.allowedDomains.join(`\n`))
     setFormButtonLabel(config.buttonLabel)
     setFormAccent(config.accentColor)
@@ -188,39 +190,37 @@ export function WorkspaceWidgetSection({
     modes: modesForChoice(formMode),
   })
 
-  // Normalize the picker sentinel to the stored shape: null = same as the
-  // feedback project (also when the two selects point at the same project or
-  // support mode is off).
-  const resolveSupportProjectId = (): string | null =>
-    formMode === `feedback` ||
-    formSupportProjectId === SAME_PROJECT ||
-    formSupportProjectId === formProjectId
-      ? null
-      : formSupportProjectId
+  // A feedback board is required whenever the widget offers feedback mode; a
+  // support-only widget has none (tickets go to the workspace support inbox).
+  const needsBoard = formMode !== `support`
+  const canSave =
+    Boolean(formName.trim()) && (!needsBoard || Boolean(formProjectId))
 
   const save = async () => {
-    if (!formName.trim() || !formProjectId) {
-      setFormError(`Name and project are required.`)
+    if (!canSave) {
+      setFormError(
+        needsBoard
+          ? `Name and feedback board are required.`
+          : `Name is required.`
+      )
       return
     }
     setSaving(true)
     setFormError(null)
-    const supportProjectId = resolveSupportProjectId()
+    const projectId = needsBoard ? formProjectId : null
     try {
       if (editTarget) {
         await trpc.widgets.update.mutate({
           widgetConfigId: editTarget.id,
           name: formName.trim(),
-          projectId: formProjectId,
-          supportProjectId,
+          projectId,
           allowedDomains: parseDomains(formDomains),
           formConfig: buildFormConfig(),
         })
       } else {
         const created = await trpc.widgets.create.mutate({
           workspaceId,
-          projectId: formProjectId,
-          supportProjectId,
+          projectId,
           name: formName.trim(),
           allowedDomains: parseDomains(formDomains),
           formConfig: buildFormConfig(),
@@ -229,11 +229,7 @@ export function WorkspaceWidgetSection({
           ...created,
           projectName:
             projects.find((project) => project.id === created.projectId)
-              ?.name ?? ``,
-          supportProjectName:
-            projects.find(
-              (project) => project.id === created.supportProjectId
-            )?.name ?? null,
+              ?.name ?? null,
           submissionCount: 0,
         })
       }
@@ -284,358 +280,394 @@ export function WorkspaceWidgetSection({
     window.setTimeout(() => setCopiedId(null), 1_500)
   }
 
+  const toggleHelpdesk = async (enabled: boolean) => {
+    setHelpdeskBusy(true)
+    setHelpdeskError(null)
+    try {
+      await trpc.workspaces.update.mutate({
+        id: workspaceId,
+        helpdeskEnabled: enabled,
+      })
+    } catch (err) {
+      setHelpdeskError(
+        isPlanLimitError(err)
+          ? `The helpdesk is available on Pro and Business plans.`
+          : `Could not update the helpdesk setting.`
+      )
+    } finally {
+      setHelpdeskBusy(false)
+    }
+  }
+
   return (
-    // Anchor target for the "Getting started" widget card's settings link.
-    <Card id="feedback-widget" className="scroll-mt-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquarePlus className="h-4 w-4" />
-          Exponential widget
-        </CardTitle>
-        <CardDescription>
-          Embed the Exponential widget on your own site: visitors capture a
-          screenshot, describe the problem, and it lands here as an issue — with
-          reporter email and page context attached.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            onClick={openCreate}
-            disabled={projects.length === 0}
-          >
-            New widget
-          </Button>
-        </div>
+    <div className="space-y-6">
+      {/* Anchor target for the "Getting started" widget card's settings link. */}
+      <Card id="feedback-widget" className="scroll-mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquarePlus className="h-4 w-4" />
+            Exponential widget
+          </CardTitle>
+          <CardDescription>
+            Embed the Exponential widget on your own site: visitors capture a
+            screenshot, describe the problem, and it lands here as an issue —
+            with reporter email and page context attached.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={openCreate}>
+              New widget
+            </Button>
+          </div>
 
-        <div className="space-y-2">
-          {loading ? (
-            <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading widgets
-            </div>
-          ) : error ? (
-            <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          ) : widgets.length === 0 ? (
-            <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-              No widgets yet. Create one to get an embed snippet.
-            </div>
-          ) : (
-            widgets.map((widget) => (
-              <div
-                key={widget.id}
-                className="flex flex-col gap-3 overflow-hidden rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="break-all text-sm font-medium">
-                      {widget.name}
-                    </span>
-                    <Badge variant="secondary">{widget.projectName}</Badge>
-                    {widget.supportProjectName && (
-                      <Badge variant="secondary" className="gap-1">
-                        support → {widget.supportProjectName}
-                      </Badge>
-                    )}
-                    {!widget.enabled && (
-                      <Badge variant="outline">disabled</Badge>
-                    )}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                    <span>
-                      {widget.submissionCount}
-                      {` `}
-                      {widget.submissionCount === 1
-                        ? `submission`
-                        : `submissions`}
-                      {` · `}
-                    </span>
-                    {widget.allowedDomains.length === 0 ? (
-                      <span className="text-amber-500">
-                        any website can use this key
-                      </span>
-                    ) : (
-                      widget.allowedDomains.map((domain) => (
-                        <Badge
-                          key={domain}
-                          variant="outline"
-                          className="px-1.5 py-0 text-[11px] font-normal"
-                        >
-                          {domain}
-                        </Badge>
-                      ))
-                    )}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Switch
-                    checked={widget.enabled}
-                    disabled={busyId === widget.id}
-                    onCheckedChange={(next) => toggleEnabled(widget, next)}
-                    aria-label={`Enable ${widget.name}`}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setSnippetTarget(widget)}
-                    aria-label={`Show snippet for ${widget.name}`}
-                  >
-                    <Code2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => openEdit(widget)}
-                    aria-label={`Edit ${widget.name}`}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteWidget(widget)}
-                    disabled={busyId === widget.id}
-                    aria-label={`Delete ${widget.name}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
+          <div className="space-y-2">
+            {loading ? (
+              <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading widgets
               </div>
-            ))
-          )}
-        </div>
-      </CardContent>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editTarget ? `Edit widget` : `New widget`}
-            </DialogTitle>
-            <DialogDescription>
-              Submissions create issues in the selected project. The key in the
-              snippet is public; restrict it to your domains.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="widget-name">Name</Label>
-              <Input
-                id="widget-name"
-                placeholder="Acme App"
-                value={formName}
-                onChange={(event) => setFormName(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <Select value={formProjectId} onValueChange={setFormProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a project" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Modes</Label>
-              <Select
-                value={formMode}
-                onValueChange={(value) =>
-                  setFormMode(value as WidgetModeChoice)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="feedback">Feedback</SelectItem>
-                  <SelectItem value="support">Support</SelectItem>
-                  <SelectItem value="both">Feedback + support</SelectItem>
-                </SelectContent>
-              </Select>
-              {formMode !== `feedback` && (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Support files helpdesk tickets — visitors get a
-                    reply-by-email conversation. Requires the helpdesk to be
-                    enabled on the support target project.
-                  </p>
-                  <div className="space-y-2 pt-1">
-                    <Label>Support project</Label>
-                    <Select
-                      value={formSupportProjectId}
-                      onValueChange={setFormSupportProjectId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={SAME_PROJECT}>
-                          Same as project
-                        </SelectItem>
-                        {projects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            {project.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Support tickets can land in a different project than
-                      feedback — e.g. a private &ldquo;Support&rdquo; board.
-                    </p>
+            ) : error ? (
+              <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            ) : widgets.length === 0 ? (
+              <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                No widgets yet. Create one to get an embed snippet.
+              </div>
+            ) : (
+              widgets.map((widget) => (
+                <div
+                  key={widget.id}
+                  className="flex flex-col gap-3 overflow-hidden rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="break-all text-sm font-medium">
+                        {widget.name}
+                      </span>
+                      {widget.projectName && (
+                        <Badge variant="secondary">{widget.projectName}</Badge>
+                      )}
+                      {!widget.enabled && (
+                        <Badge variant="outline">disabled</Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                      <span>
+                        {widget.submissionCount}
+                        {` `}
+                        {widget.submissionCount === 1
+                          ? `submission`
+                          : `submissions`}
+                        {` · `}
+                      </span>
+                      {widget.allowedDomains.length === 0 ? (
+                        <span className="text-amber-500">
+                          any website can use this key
+                        </span>
+                      ) : (
+                        widget.allowedDomains.map((domain) => (
+                          <Badge
+                            key={domain}
+                            variant="outline"
+                            className="px-1.5 py-0 text-[11px] font-normal"
+                          >
+                            {domain}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="widget-domains">Allowed domains</Label>
-              <Textarea
-                id="widget-domains"
-                placeholder={`app.example.com\n*.example.com\nlocalhost:5173`}
-                value={formDomains}
-                onChange={(event) => setFormDomains(event.target.value)}
-                className="min-h-20 font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                One per line. `*.example.com` matches subdomains only. Leave
-                empty to allow any website (not recommended).
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Switch
+                      checked={widget.enabled}
+                      disabled={busyId === widget.id}
+                      onCheckedChange={(next) => toggleEnabled(widget, next)}
+                      aria-label={`Enable ${widget.name}`}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSnippetTarget(widget)}
+                      aria-label={`Show snippet for ${widget.name}`}
+                    >
+                      <Code2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEdit(widget)}
+                      aria-label={`Edit ${widget.name}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteWidget(widget)}
+                      disabled={busyId === widget.id}
+                      aria-label={`Delete ${widget.name}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {editTarget ? `Edit widget` : `New widget`}
+              </DialogTitle>
+              <DialogDescription>
+                Feedback submissions create issues on the selected board;
+                support tickets land in the team&apos;s Support inbox. The key
+                in the snippet is public; restrict it to your domains.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="widget-button-label">Button label</Label>
+                <Label htmlFor="widget-name">Name</Label>
                 <Input
-                  id="widget-button-label"
-                  placeholder="Feedback"
-                  maxLength={40}
-                  value={formButtonLabel}
-                  onChange={(event) => setFormButtonLabel(event.target.value)}
+                  id="widget-name"
+                  placeholder="Acme App"
+                  value={formName}
+                  onChange={(event) => setFormName(event.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="widget-accent">Accent color</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="widget-accent"
-                    type="color"
-                    value={formAccent || DEFAULT_ACCENT}
-                    onChange={(event) => setFormAccent(event.target.value)}
-                    className="h-9 w-14 cursor-pointer p-1"
-                  />
-                  {formAccent ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setFormAccent(``)}
-                    >
-                      Reset
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      Default
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Position</Label>
+                <Label>Modes</Label>
                 <Select
-                  value={formPosition}
+                  value={formMode}
                   onValueChange={(value) =>
-                    setFormPosition(value as WidgetPosition)
+                    setFormMode(value as WidgetModeChoice)
                   }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="bottom-left">Bottom left</SelectItem>
-                    <SelectItem value="bottom-right">Bottom right</SelectItem>
+                    <SelectItem value="feedback">Feedback</SelectItem>
+                    <SelectItem value="support">Support</SelectItem>
+                    <SelectItem value="both">Feedback + support</SelectItem>
                   </SelectContent>
                 </Select>
+                {formMode !== `feedback` && (
+                  <p className="text-xs text-muted-foreground">
+                    Support files helpdesk tickets — visitors get a
+                    reply-by-email conversation. Requires the helpdesk to be
+                    enabled for this team (below).
+                  </p>
+                )}
               </div>
+              {needsBoard && (
+                <div className="space-y-2">
+                  <Label>Feedback board</Label>
+                  <Select
+                    value={formProjectId}
+                    onValueChange={setFormProjectId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a board" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Feedback submissions land on this board as issues.
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
-                <Label htmlFor="widget-email-required">Require email</Label>
-                <div className="flex h-9 items-center">
-                  <Switch
-                    id="widget-email-required"
-                    checked={formEmailRequired}
-                    onCheckedChange={setFormEmailRequired}
+                <Label htmlFor="widget-domains">Allowed domains</Label>
+                <Textarea
+                  id="widget-domains"
+                  placeholder={`app.example.com\n*.example.com\nlocalhost:5173`}
+                  value={formDomains}
+                  onChange={(event) => setFormDomains(event.target.value)}
+                  className="min-h-20 font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  One per line. `*.example.com` matches subdomains only. Leave
+                  empty to allow any website (not recommended).
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="widget-button-label">Button label</Label>
+                  <Input
+                    id="widget-button-label"
+                    placeholder="Feedback"
+                    maxLength={40}
+                    value={formButtonLabel}
+                    onChange={(event) => setFormButtonLabel(event.target.value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="widget-accent">Accent color</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="widget-accent"
+                      type="color"
+                      value={formAccent || DEFAULT_ACCENT}
+                      onChange={(event) => setFormAccent(event.target.value)}
+                      className="h-9 w-14 cursor-pointer p-1"
+                    />
+                    {formAccent ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setFormAccent(``)}
+                      >
+                        Reset
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Position</Label>
+                  <Select
+                    value={formPosition}
+                    onValueChange={(value) =>
+                      setFormPosition(value as WidgetPosition)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bottom-left">Bottom left</SelectItem>
+                      <SelectItem value="bottom-right">Bottom right</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="widget-email-required">Require email</Label>
+                  <div className="flex h-9 items-center">
+                    <Switch
+                      id="widget-email-required"
+                      checked={formEmailRequired}
+                      onCheckedChange={setFormEmailRequired}
+                    />
+                  </div>
+                </div>
               </div>
+              <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
+                <span className="text-xs text-muted-foreground">
+                  Launcher preview
+                </span>
+                <WidgetLauncherPreview
+                  accentColor={formAccent || undefined}
+                  label={formButtonLabel.trim() || undefined}
+                />
+              </div>
+              {formError && (
+                <p className="text-sm text-destructive">{formError}</p>
+              )}
             </div>
-            <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
-              <span className="text-xs text-muted-foreground">
-                Launcher preview
-              </span>
-              <WidgetLauncherPreview
-                accentColor={formAccent || undefined}
-                label={formButtonLabel.trim() || undefined}
-              />
-            </div>
-            {formError && (
-              <p className="text-sm text-destructive">{formError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDialogOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={save} disabled={saving}>
-              {saving ? `Saving…` : editTarget ? `Save` : `Create widget`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setDialogOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={save} disabled={saving || !canSave}>
+                {saving ? `Saving…` : editTarget ? `Save` : `Create widget`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <Dialog
-        open={snippetTarget !== null}
-        onOpenChange={(open) => !open && setSnippetTarget(null)}
-      >
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Embed snippet</DialogTitle>
-            <DialogDescription>
-              Paste this before the closing {`</body>`} tag of your site.
-            </DialogDescription>
-          </DialogHeader>
-          {snippetTarget && (
-            <>
-              <pre className="max-h-72 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
-                {buildSnippet(snippetTarget.publicKey)}
-              </pre>
-              <DialogFooter>
-                <Button onClick={() => copySnippet(snippetTarget)}>
-                  {copiedId === snippetTarget.id ? (
-                    <>
-                      <Check className="mr-1 h-4 w-4" /> Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="mr-1 h-4 w-4" /> Copy snippet
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </Card>
+        <Dialog
+          open={snippetTarget !== null}
+          onOpenChange={(open) => !open && setSnippetTarget(null)}
+        >
+          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Embed snippet</DialogTitle>
+              <DialogDescription>
+                Paste this before the closing {`</body>`} tag of your site.
+              </DialogDescription>
+            </DialogHeader>
+            {snippetTarget && (
+              <>
+                <pre className="max-h-72 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
+                  {buildSnippet(snippetTarget.publicKey)}
+                </pre>
+                <DialogFooter>
+                  <Button onClick={() => copySnippet(snippetTarget)}>
+                    {copiedId === snippetTarget.id ? (
+                      <>
+                        <Check className="mr-1 h-4 w-4" /> Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="mr-1 h-4 w-4" /> Copy snippet
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </Card>
+
+      {/* Workspace-level helpdesk switch (owner-only page). Lives with the
+          widget settings because support tickets arrive through the widget. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <LifeBuoy className="h-4 w-4" />
+            Helpdesk
+          </CardTitle>
+          <CardDescription>
+            Give this team a shared support inbox. Support tickets from the
+            widget land there.
+          </CardDescription>
+          <CardAction>
+            <Switch
+              checked={workspace.helpdeskEnabled}
+              disabled={helpdeskBusy}
+              onCheckedChange={(next) => void toggleHelpdesk(next)}
+              aria-label="Enable the helpdesk"
+            />
+          </CardAction>
+        </CardHeader>
+        {(helpdeskError || workspace.helpdeskEnabled) && (
+          <CardContent className="space-y-2">
+            {helpdeskError && (
+              <p className="text-xs text-destructive">{helpdeskError}</p>
+            )}
+            {workspace.helpdeskEnabled && (
+              <Button variant="outline" size="sm" asChild className="w-fit">
+                <Link
+                  to="/t/$workspaceSlug/support"
+                  params={{ workspaceSlug: workspace.slug }}
+                >
+                  Open Support inbox
+                </Link>
+              </Button>
+            )}
+          </CardContent>
+        )}
+      </Card>
+    </div>
   )
 }

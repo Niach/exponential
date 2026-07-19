@@ -16,7 +16,6 @@ import {
 export function GettingStartedSection({
   workspace,
   workspaceSlug,
-  projectIsPublic,
 }: Omit<GettingStartedCardsProps, `layout`>) {
   const { data: session, isPending } = useSession()
   const [dismissed, setDismissed] = useState(false)
@@ -54,7 +53,6 @@ export function GettingStartedSection({
       <GettingStartedCards
         workspace={workspace}
         workspaceSlug={workspaceSlug}
-        projectIsPublic={projectIsPublic}
         layout="grid"
       />
     </div>

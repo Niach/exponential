@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   andClauses,
   buildWhereClause,
-  getPublicProjectScope,
   getUserWorkspaceIds,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
@@ -19,16 +18,12 @@ const PROJECT_COLUMNS = [
   `slug`,
   `prefix`,
   `color`,
-  `is_public`,
   `icon`,
-  `public_show_comments`,
-  `public_show_activity`,
   `repository_id`,
   `sort_order`,
   `archived_at`,
   `deleted_at`,
   `is_protected`,
-  `helpdesk_enabled`,
   `created_at`,
   `updated_at`,
 ]
@@ -49,11 +44,8 @@ export const Route = createFileRoute(`/api/shapes/projects`)({
               `"deleted_at" IS NULL`
             )
           }
-          // Anonymous: only the public feedback-board projects themselves —
-          // never sibling projects of the host workspace. The scope already
-          // excludes trashed projects (getPublicProjectScope).
-          const scope = await getPublicProjectScope()
-          return buildWhereClause(`id`, scope.projectIds)
+          // Anonymous callers sync nothing (impossible-match sentinel).
+          return buildWhereClause(`id`, [])
         },
       }),
     },

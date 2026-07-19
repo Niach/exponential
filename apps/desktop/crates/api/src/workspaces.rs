@@ -5,17 +5,9 @@
 //! `workspace-invites.ts`:
 //!
 //! - `workspaces.create({name, iconUrl?})` → `{workspace, txId}`
-//! - `workspaces.update({id, name?, iconUrl?})` → `{workspace, txId}` (v6:
-//!   isPublic/publicWritePolicy are rejected server-side — never sent)
+//! - `workspaces.update({id, name?, iconUrl?})` → `{workspace, txId}`
 //! - `workspaces.delete({workspaceId})` → `{ok, txId}`
 //! - `workspaces.ensureDefault()` → `{workspace, txId}` (txId 0 when reused)
-//! - `workspaces.getBySlug({slug})` → `{id, name, slug, iconUrl,
-//!   hasPublicBoard, membership}` (public query — `hasPublicBoard` is true
-//!   when the workspace hosts at least one public feedback board, `membership`
-//!   is the caller's role or null; NOT_FOUND for workspaces the caller can
-//!   neither view publicly nor belongs to). Workspaces are always private now;
-//!   there is no self-service join — non-members read a public board via the
-//!   web's anonymous view.
 //! - `workspaceMembers.updateRole({memberId, role})` → `{member}`
 //! - `workspaceMembers.remove({memberId})` → `{ok}` (also "Leave workspace")
 //! - `workspaceInvites.create({workspaceId, role})` → `{invite, token}`
@@ -105,8 +97,7 @@ pub fn workspaces_update(
     trpc.mutation("workspaces.update", input)
 }
 
-/// `workspaces.delete` — mutation (Danger Zone; owner + non-public gated
-/// server-side).
+/// `workspaces.delete` — mutation (Danger Zone; owner-gated server-side).
 pub fn workspaces_delete(trpc: &TrpcClient, workspace_id: &str) -> Result<OkTxOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -119,43 +110,6 @@ pub fn workspaces_delete(trpc: &TrpcClient, workspace_id: &str) -> Result<OkTxOu
 /// `workspaces.ensureDefault` — input-less mutation (first-run/onboarding).
 pub fn workspaces_ensure_default(trpc: &TrpcClient) -> Result<WorkspaceTxOutput, ApiError> {
     trpc.mutation_no_input("workspaces.ensureDefault")
-}
-
-/// `workspaces.getBySlug` output — the minimal metadata the Send Feedback flow
-/// reads. `has_public_board` is true when the workspace hosts at least one
-/// public feedback board (the signal that an in-app open is worthwhile);
-/// `membership` is the caller's role (`owner`/`member`), `None` for
-/// non-members. `has_public_board` defaults to `false` so an older
-/// self-hosted server that omits the field decodes and routes to the browser
-/// instead of failing.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceBySlugOut {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub slug: Option<String>,
-    #[serde(default)]
-    pub icon_url: Option<String>,
-    #[serde(default)]
-    pub has_public_board: bool,
-    #[serde(default)]
-    pub membership: Option<String>,
-}
-
-/// `workspaces.getBySlug` — public query. NOT_FOUND (`ApiError::Http` 404)
-/// covers both unknown slugs and private workspaces the caller can't access
-/// (existence is never leaked).
-pub fn workspaces_get_by_slug(
-    trpc: &TrpcClient,
-    slug: &str,
-) -> Result<WorkspaceBySlugOut, ApiError> {
-    #[derive(Serialize)]
-    struct Input<'a> {
-        slug: &'a str,
-    }
-    trpc.query_with_input("workspaces.getBySlug", &Input { slug })
 }
 
 // ---------------------------------------------------------------------------
@@ -374,37 +328,6 @@ mod tests {
         assert_eq!(out.tx_id, Some(0));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/workspaces.ensureDefault HTTP/1.1"));
-    }
-
-    #[test]
-    fn get_by_slug_is_a_get_query_and_decodes_membership() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"id":"w-pub","name":"Feedback","slug":"feedback","iconUrl":null,"hasPublicBoard":true,"membership":null}}}"#,
-        );
-        let workspace = workspaces_get_by_slug(&client(&base), "feedback").unwrap();
-        assert_eq!(workspace.id, "w-pub");
-        assert!(workspace.has_public_board);
-        assert_eq!(workspace.membership, None);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("GET /api/trpc/workspaces.getBySlug?input="));
-
-        // A member's role rides along for the already-a-member fast path.
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"id":"w-pub","name":"Feedback","slug":"feedback","hasPublicBoard":true,"membership":"member"}}}"#,
-        );
-        let workspace = workspaces_get_by_slug(&client(&base), "feedback").unwrap();
-        assert_eq!(workspace.membership.as_deref(), Some("member"));
-
-        // An older self-hosted server that omits `hasPublicBoard` decodes to
-        // the `false` default (routes to the browser rather than failing).
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"id":"w-old","name":"Feedback","slug":"feedback","membership":"member"}}}"#,
-        );
-        let workspace = workspaces_get_by_slug(&client(&base), "feedback").unwrap();
-        assert!(!workspace.has_public_board);
     }
 
     #[test]

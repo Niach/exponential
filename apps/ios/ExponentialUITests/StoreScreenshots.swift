@@ -96,9 +96,9 @@ final class StoreScreenshots: XCTestCase {
             snapshot("03_comments")
         }
 
-        // ── 04: project switcher (v7 typed projects) ────────────────────────
-        // The sheet shows the dev / tasks / feedback type glyphs plus the
-        // globe badge on the public feedback board — the v7 headline feature.
+        // ── 04: project switcher ────────────────────────────────────────────
+        // The sheet shows each project's tinted icon glyph next to its name
+        // and prefix.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
         let switcherButton = app.buttons["Switch project"]
@@ -106,7 +106,7 @@ final class StoreScreenshots: XCTestCase {
         switcherButton.tap()
         XCTAssertTrue(
             app.staticTexts["Product Feedback"].waitForExistence(timeout: 15),
-            "Project switcher sheet did not show the seeded typed projects"
+            "Project switcher sheet did not show the seeded projects"
         )
         settle(2)
         snapshot("04_projects")

@@ -329,8 +329,8 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// in the same breath, forcing a full re-snapshot that repopulates real
 /// values (the iOS v9 projects-migration parity; reuses the 409 refetch
 /// path, so stale rows stay readable until the atomic swap). Without this, a
-/// self-updated build hydrated e.g. `is_public` as explicit JSON null on
-/// every old row indefinitely.
+/// self-updated build hydrated e.g. a newly-added `icon` column as explicit
+/// JSON null on every old row indefinitely.
 fn heal_missing_columns(conn: &Connection, spec: &ShapeSpec) -> Result<()> {
     let existing: Vec<String> = {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info(\"{}\")", spec.name))?;

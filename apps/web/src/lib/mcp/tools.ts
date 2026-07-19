@@ -325,7 +325,7 @@ export function registerExponentialTools(
     `exponential_projects_create`,
     {
       title: `Create project`,
-      description: `Create a project in a workspace. isPublic: true makes it a PUBLIC read-only feedback board (owner-only); the repository is always optional (coding features gate on repo presence). icon is a curated display icon name. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
+      description: `Create a project in a workspace. The repository is always optional (coding features gate on repo presence). icon is a curated display icon name. For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
@@ -342,10 +342,7 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        isPublic: z.boolean().optional(),
         icon: projectIconEnumSchema.optional(),
-        publicShowComments: z.boolean().optional(),
-        publicShowActivity: z.boolean().optional(),
         repository: z
           .union([
             z.object({ repositoryId: z.string().uuid() }),
@@ -380,13 +377,10 @@ export function registerExponentialTools(
     `exponential_projects_update`,
     {
       title: `Update project`,
-      description: `Update a project's name, color, icon, publicness (isPublic — owner-only), public-board visibility toggles (owner-only), or archive state.`,
+      description: `Update a project's name, color, icon, or archive state (archiving is owner-only).`,
       inputSchema: {
         id: z.string().uuid(),
-        isPublic: z.boolean().optional(),
         icon: projectIconEnumSchema.nullable().optional(),
-        publicShowComments: z.boolean().optional(),
-        publicShowActivity: z.boolean().optional(),
         name: z.string().min(1).max(255).optional(),
         color: z
           .string()
@@ -1678,7 +1672,7 @@ export function registerExponentialTools(
     `exponential_workspaces_update`,
     {
       title: `Update a workspace`,
-      description: `Update a workspace's name or icon (by its UUID). Workspace owner only. Workspaces are always private — public visibility lives on feedback-board projects.`,
+      description: `Update a workspace's name or icon (by its UUID). Workspace owner only. Workspaces are always private.`,
       inputSchema: {
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),

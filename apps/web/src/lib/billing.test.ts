@@ -71,17 +71,17 @@ beforeEach(() => {
 })
 
 describe(`getPlanLimits — the §3.2 target table`, () => {
-  it(`free = 1 seat / 250 MB / 0 widgets`, () => {
+  it(`free = 1 seat / 250 MB / 1 widget`, () => {
     expect(getPlanLimits(`free`)).toEqual({
       seats: 1,
       storageMb: 250,
-      widgetConfigs: 0,
+      widgetConfigs: 1,
     })
   })
-  it(`pro = 5 GB / 1 widget`, () => {
+  it(`pro = 5 GB / 3 widgets`, () => {
     const pro = getPlanLimits(`pro`)
     expect(pro.storageMb).toBe(5120)
-    expect(pro.widgetConfigs).toBe(1)
+    expect(pro.widgetConfigs).toBe(3)
   })
   it(`business = 50 GB / unlimited widgets`, () => {
     const biz = getPlanLimits(`business`)
@@ -101,7 +101,7 @@ describe(`planFromSubscription — workspace-bound resolution`, () => {
   it(`null subscription → free defaults`, () => {
     expect(planFromSubscription(null)).toEqual({
       plan: `free`,
-      limits: { seats: 1, storageMb: 250, widgetConfigs: 0 },
+      limits: { seats: 1, storageMb: 250, widgetConfigs: 1 },
     })
   })
 
@@ -113,7 +113,7 @@ describe(`planFromSubscription — workspace-bound resolution`, () => {
     expect(plan).toBe(`pro`)
     expect(limits.seats).toBe(7)
     expect(limits.storageMb).toBe(5120)
-    expect(limits.widgetConfigs).toBe(1)
+    expect(limits.widgetConfigs).toBe(3)
   })
 
   it(`business (monthly + yearly product ids) both resolve to business`, () => {
@@ -141,7 +141,7 @@ describe(`planFromSubscription — workspace-bound resolution`, () => {
     })
     expect(plan).toBe(`free`)
     expect(limits.storageMb).toBe(250)
-    expect(limits.widgetConfigs).toBe(0)
+    expect(limits.widgetConfigs).toBe(1)
   })
 
   it(`a configured id no longer matching after env rotation resolves free, not pro`, () => {
@@ -172,16 +172,16 @@ describe(`assertSeatAvailable — the invite-time seat gate`, () => {
   })
 })
 
-describe(`assertWidgetCreatable — Pro+ widget gate`, () => {
-  it(`free is blocked entirely (widget is a Pro feature)`, () => {
-    expect(() =>
-      assertWidgetCreatable(`free`, getPlanLimits(`free`), 0)
-    ).toThrow(/Pro and Business/)
+describe(`assertWidgetCreatable — per-tier count cap`, () => {
+  it(`free allows its first config, blocks the second (1-widget cap)`, () => {
+    const free = getPlanLimits(`free`)
+    expect(() => assertWidgetCreatable(`free`, free, 0)).not.toThrow()
+    expect(() => assertWidgetCreatable(`free`, free, 1)).toThrow(TRPCError)
   })
-  it(`pro allows the first config, blocks the second`, () => {
+  it(`pro allows up to three configs, blocks the fourth`, () => {
     const pro = getPlanLimits(`pro`)
-    expect(() => assertWidgetCreatable(`pro`, pro, 0)).not.toThrow()
-    expect(() => assertWidgetCreatable(`pro`, pro, 1)).toThrow(TRPCError)
+    expect(() => assertWidgetCreatable(`pro`, pro, 2)).not.toThrow()
+    expect(() => assertWidgetCreatable(`pro`, pro, 3)).toThrow(TRPCError)
   })
   it(`business allows many (unlimited configs)`, () => {
     const biz = getPlanLimits(`business`)
@@ -383,23 +383,23 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
     selectResults.push([{ count: widgets }]) // usage widgets
   }
 
-  it(`free workspace cannot create a widget`, async () => {
+  it(`free workspace can create its first widget (EXP-180)`, async () => {
     await seed([], 0)
-    await expect(assertCanCreateWidget(WS)).rejects.toThrow(/Pro and Business/)
-  })
-
-  it(`a pro comp unlocks the widget (the comp floor lifts limits too)`, async () => {
-    await seed([], 0, `pro`)
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
   })
 
-  it(`pro workspace can create its first widget`, async () => {
-    await seed([{ productId: PRO_ID, seats: 3 }], 0)
-    await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
+  it(`free workspace blocked at its 1-config cap`, async () => {
+    await seed([], 1)
+    await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
 
-  it(`pro workspace blocked at its 1-config cap`, async () => {
+  it(`pro workspace can create a second widget (3-config cap)`, async () => {
     await seed([{ productId: PRO_ID, seats: 3 }], 1)
+    await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
+  })
+
+  it(`pro workspace blocked at its 3-config cap`, async () => {
+    await seed([{ productId: PRO_ID, seats: 3 }], 3)
     await expect(assertCanCreateWidget(WS)).rejects.toThrow(TRPCError)
   })
 

@@ -72,9 +72,13 @@ import androidx.room.RoomDatabase
     //      shape column are gone server-side); the entity field is removed. The
     //      icon fallback now derives from is_public / repository_id instead.
     //      Destructive fallback wipes + resyncs.
+    // v19: public feedback boards removed (EXP-180) — projects.is_public /
+    //      public_show_comments / public_show_activity dropped from the entity
+    //      (and the shape server-side); the icon fallback derives from
+    //      repository_id alone. Destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

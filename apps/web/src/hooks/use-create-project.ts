@@ -21,8 +21,6 @@ export type CreateProjectInput = {
   name: string
   prefix: string
   color: string
-  // Public boards are anonymously readable (owner-only to create).
-  isPublic: boolean
   // Curated icon name from the domain contract.
   icon: ProjectIcon
   repository?: CreateProjectRepository
@@ -67,7 +65,6 @@ export function useCreateProject() {
             name: input.name.trim(),
             prefix: input.prefix.trim(),
             color: input.color,
-            isPublic: input.isPublic,
             icon: input.icon,
             repository: input.repository,
           },

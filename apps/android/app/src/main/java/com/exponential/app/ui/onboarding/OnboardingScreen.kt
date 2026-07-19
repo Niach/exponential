@@ -147,7 +147,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
     }
 }
 
-// Step 2 — Create your first project: name + required repository (with inline
+// Step 2 — Create your first project: name + optional repository (with inline
 // GitHub connect inside the picker when no installation exists yet).
 @Composable
 private fun CreateProjectStep(
@@ -170,7 +170,7 @@ private fun CreateProjectStep(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Pick a board type — dev boards connect a GitHub repository.",
+            "Name your project — connecting a GitHub repository is optional.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,

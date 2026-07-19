@@ -5,9 +5,6 @@ export {
   assertWorkspaceAccess,
   assertAssigneeInWorkspace,
   assertMatchingWorkspaceIds,
-  getPublicProjectScope,
-  getPublicLabelIds,
-  invalidatePublicProjectCache,
   getReadableWorkspaceIds,
   getReadableProjectIds,
   getReadableUserIdsInWorkspaces,
@@ -23,7 +20,6 @@ export {
   getAttachmentWorkspaceContext,
   getWorkspaceById,
 } from "@/lib/auth/membership"
-export type { PublicProjectScope } from "@/lib/auth/membership"
 
 // Canonical authorization predicates (capability/action-driven). These replace
 // the old per-action assertCan* helpers.

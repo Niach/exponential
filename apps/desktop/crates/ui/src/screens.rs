@@ -288,7 +288,7 @@ impl ScreensPanel {
     }
 
     /// Nothing open: point at the sidebar (or at project creation when the
-    /// workspace has none — projects may be dev/task/feedback boards, v7).
+    /// workspace has none).
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let active_workspace = active_workspace_id(&self.nav, cx);
         let has_projects = active_workspace
@@ -345,7 +345,7 @@ impl ScreensPanel {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Create a project to start tracking issues — a dev board with a repository, or a repo-less task or feedback board."),
+                    .child("Create a project to start tracking issues. Connect a repository to code on it."),
             );
         // No workspace resolves (e.g. the last one was just deleted — the
         // EXP-43 self-heal is creating a fresh personal one): the create

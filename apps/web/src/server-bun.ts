@@ -31,11 +31,6 @@ import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startProjectTrashScheduler } from "@/lib/project-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
-import {
-  injectMeta,
-  matchPublicPath,
-  resolvePublicPageMeta,
-} from "@/lib/seo/public-meta"
 
 // Fire-and-forget: seed the public workspace and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -147,50 +142,6 @@ function withWidgetAssetHeaders(req: Request, response: Response): Response {
   return response
 }
 
-// Social-preview rewrite for public feedback boards. The app renders
-// client-side, so unfurlers only ever see the generic __root.tsx head; for the
-// two public routes we buffer the HTML shell and inject route-specific
-// OG/Twitter/canonical meta. This is for LINK PREVIEWS only — the page stays
-// noindex (EXP-99), which unfurlers ignore. Only GET +
-// text/html + 200 responses on a matching path are touched; everything else
-// passes through untouched. NOTE: dev runs through the nitro-alpha bridge,
-// which never reaches this file — this is prod-only (server-bun.ts/srvx).
-async function withPublicMeta(req: Request, response: Response): Promise<Response> {
-  if (req.method !== `GET`) return response
-  if (response.status !== 200) return response
-  if (!response.headers.get(`content-type`)?.includes(`text/html`)) {
-    return response
-  }
-  const url = new URL(req.url)
-  const match = matchPublicPath(url.pathname)
-  if (!match) return response
-
-  // Buffer the shell IMMEDIATELY and always return a fresh Response on this
-  // path: srvx's lazy NodeResponse must not be returned (or consumed) after a
-  // later await boundary — Bun then rejects it with "Expected a Response
-  // object" and serves its default page.
-  const body = await response.text()
-  const status = response.status
-  const statusText = response.statusText
-  const headers = new Headers(response.headers)
-  headers.delete(`content-length`)
-
-  // Meta injection is best-effort decoration: any failure degrades to the
-  // untouched shell, never a broken page.
-  let rewritten = body
-  try {
-    const meta = await resolvePublicPageMeta(match)
-    if (meta) {
-      const origin =
-        process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) || url.origin
-      rewritten = injectMeta(body, meta, origin)
-    }
-  } catch (err) {
-    console.error(`[public-meta] injection failed:`, err)
-  }
-  return new Response(rewritten, { status, statusText, headers })
-}
-
 // The helpdesk magic-link page: the /support/<token> URL IS the credential,
 // so the page must never leak it through the Referer header (the SPA also
 // sets a same-named meta tag; this covers direct navigations before hydration
@@ -248,10 +199,7 @@ let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
           req,
           withWidgetAssetHeaders(
             req,
-            await withPublicMeta(
-              req,
-              ensureNativeResponse(await nitroApp.fetch(req))
-            )
+            ensureNativeResponse(await nitroApp.fetch(req))
           )
         )
     )
@@ -279,10 +227,7 @@ if (hasWebSocket && ws) {
             req,
             withWidgetAssetHeaders(
               req,
-              await withPublicMeta(
-                req,
-                ensureNativeResponse(await nitroApp.fetch(req))
-              )
+              ensureNativeResponse(await nitroApp.fetch(req))
             )
           )
       )

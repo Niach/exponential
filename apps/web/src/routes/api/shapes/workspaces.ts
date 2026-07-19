@@ -14,6 +14,7 @@ const WORKSPACE_COLUMNS = [
   `name`,
   `slug`,
   `icon_url`,
+  `helpdesk_enabled`,
   `created_at`,
   `updated_at`,
 ]

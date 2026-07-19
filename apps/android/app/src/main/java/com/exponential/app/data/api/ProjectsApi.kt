@@ -64,10 +64,10 @@ class ProjectsApi @Inject constructor(
     /**
      * Create a project. The server uppercases `prefix` and defaults `color` to
      * `#6366f1` when omitted. Since the project-type collapse (EXP-121) we send
-     * `isPublic` (public board) + `icon` (curated contract name) instead of the
-     * legacy `type`; a `repository` is OPTIONAL on every project. The
-     * inline-connect path needs owner/admin (repo management). Returns the new
-     * project id plus the full row when decodable (see [CreatedProjectResult]).
+     * `icon` (curated contract name) instead of the legacy `type`; a
+     * `repository` is OPTIONAL on every project. The inline-connect path needs
+     * owner/admin (repo management). Returns the new project id plus the full
+     * row when decodable (see [CreatedProjectResult]).
      */
     suspend fun create(
         accountId: String,
@@ -75,7 +75,6 @@ class ProjectsApi @Inject constructor(
         name: String,
         prefix: String,
         color: String?,
-        isPublic: Boolean,
         icon: String,
         repository: ProjectRepositoryChoice?,
     ): CreatedProjectResult {
@@ -86,7 +85,6 @@ class ProjectsApi @Inject constructor(
             put("name", name)
             put("prefix", prefix)
             color?.let { put("color", it) }
-            put("isPublic", isPublic)
             put("icon", icon)
             repository?.let { put("repository", it.toJson()) }
         }

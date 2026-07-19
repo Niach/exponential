@@ -35,10 +35,7 @@ public struct CreateProjectInput: Encodable, Sendable {
     public let name: String
     public let prefix: String
     public var color: String?
-    // The public-board switch (replaces the deprecated `type` alias) + the
-    // curated glyph name. The server derives the legacy `type` column from
-    // `isPublic` + repo presence, so iOS sends these instead of `type`.
-    public let isPublic: Bool
+    // The curated glyph name.
     public let icon: String?
     // Optional on EVERY project now (the type collapse): coding/PR affordances
     // gate on repo presence, never on a required repo. The server no longer
@@ -50,7 +47,6 @@ public struct CreateProjectInput: Encodable, Sendable {
         name: String,
         prefix: String,
         color: String? = nil,
-        isPublic: Bool = false,
         icon: String? = nil,
         repository: ProjectRepositoryChoice? = nil
     ) {
@@ -58,13 +54,12 @@ public struct CreateProjectInput: Encodable, Sendable {
         self.name = name
         self.prefix = prefix
         self.color = color
-        self.isPublic = isPublic
         self.icon = icon
         self.repository = repository
     }
 
     enum CodingKeys: String, CodingKey {
-        case workspaceId, name, prefix, color, isPublic, icon, repository
+        case workspaceId, name, prefix, color, icon, repository
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -73,7 +68,6 @@ public struct CreateProjectInput: Encodable, Sendable {
         try c.encode(name, forKey: .name)
         try c.encode(prefix, forKey: .prefix)
         try c.encodeIfPresent(color, forKey: .color)
-        try c.encode(isPublic, forKey: .isPublic)
         try c.encodeIfPresent(icon, forKey: .icon)
         // Omit `repository` entirely when nil so the server's optional schema
         // sees an absent key (not JSON null, which the union would reject).

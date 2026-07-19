@@ -1,11 +1,13 @@
 //! Create-project dialog (masterplan-v3 §4.2 — mirror of
 //! `apps/web/src/components/create-project-dialog.tsx`).
 //!
-//! Name `Input` + an **auto-derived-but-editable prefix** `Input`
-//! (`derivePrefix`, uppercased, max 10) + the `ColorSwatchGrid` — **no slug
-//! field** (server-derived) + the **required backing repository** picker (v4
-//! §3.1). The repo picker mirrors the web `GithubRepoPicker`: it offers the
-//! workspace's already-connected registry repos AND, once the GitHub App is
+//! A plain name/prefix/icon/color/optional-repo form: name `Input` + an
+//! **auto-derived-but-editable prefix** `Input` (`derivePrefix`, uppercased,
+//! max 10) + an icon picker over the curated contract glyphs + the
+//! `ColorSwatchGrid` — **no slug field** (server-derived) + the **optional
+//! backing repository** picker (nullable `repository_id`). The repo picker
+//! mirrors the web `GithubRepoPicker`: it offers the workspace's
+//! already-connected registry repos AND, once the GitHub App is
 //! installed, the user's installable GitHub repos to connect inline in the
 //! same `projects.create` call; when the App is configured but not installed a
 //! "Connect GitHub" button opens the browser install and an explicit Refresh
@@ -20,11 +22,9 @@
 //! Opened by the sidebar's Projects `+` via the [`NewProject`]
 //! action; [`init`] owns the handler.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window,
+    div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -32,7 +32,6 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
@@ -56,49 +55,8 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 /// Web default project color (`create-project-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
 
-/// Disable-with-explanation hint for the owner-only public option
-/// (`projects.create` rejects `isPublic` from non-owners — EXP-133).
-const OWNER_ONLY_PUBLIC_HINT: &str = "Only team owners can create public boards.";
-
-/// A quickstart template: `(key, title, subtitle, icon, is_public, repo_leads)`.
-/// The key is an opaque card identifier (never sent to the server). Picking one
-/// seeds `is_public`, `icon`, and whether the repository picker leads the
-/// optional fields.
-struct Template {
-    key: &'static str,
-    title: &'static str,
-    subtitle: &'static str,
-    icon: &'static str,
-    is_public: bool,
-    repo_leads: bool,
-}
-
-const TEMPLATES: [Template; 3] = [
-    Template {
-        key: "dev",
-        title: "Dev board",
-        subtitle: "Code with Claude on a connected repository.",
-        icon: "code",
-        is_public: false,
-        repo_leads: true,
-    },
-    Template {
-        key: "tasks",
-        title: "Task board",
-        subtitle: "Plain issue tracking — a repository is optional.",
-        icon: "square-kanban",
-        is_public: false,
-        repo_leads: false,
-    },
-    Template {
-        key: "feedback",
-        title: "Feedback board",
-        subtitle: "Public board — anyone with the link can read it.",
-        icon: "megaphone",
-        is_public: true,
-        repo_leads: false,
-    },
-];
+/// Default curated icon for a new project (the plain kanban board glyph).
+const DEFAULT_ICON: &str = "square-kanban";
 
 /// A registry repo the new project can target (v4 §3.1 — every project is
 /// backed by exactly one repository). Slim mirror of a `repositories.list`
@@ -211,18 +169,9 @@ pub struct CreateProjectDialogView {
     workspace_id: String,
     name: Entity<InputState>,
     prefix: Entity<InputState>,
-    /// The selected quickstart template (`dev` / `tasks` / `feedback`) — drives
-    /// the card highlight and the default `is_public`/`icon`/`repo_leads`. It is
-    /// NOT sent to the server (the create sends `is_public` + `icon`); picking a
-    /// template just seeds those.
-    template: &'static str,
-    /// Whether the new board is public — seeded by the template, then owned by
-    /// the "Public" toggle. Sent as `isPublic`.
-    is_public: bool,
-    /// Curated icon name seeded by the template. Sent as `icon`.
+    /// Curated icon name (`domain::contract::PROJECT_ICON_VALUES`) chosen in
+    /// the icon picker. Sent as `icon`.
     icon: &'static str,
-    /// Whether the repository picker leads the optional fields (dev template).
-    repo_leads: bool,
     color: String,
     /// The chosen backing repository (v4 §3.1 — required to submit).
     repo_choice: Option<RepoChoice>,
@@ -282,16 +231,11 @@ impl CreateProjectDialogView {
             },
         ));
 
-        // Default to the Dev quickstart (repo picker leads).
-        let default = &TEMPLATES[0];
         let mut this = Self {
             workspace_id,
             name,
             prefix,
-            template: default.key,
-            is_public: default.is_public,
-            icon: default.icon,
-            repo_leads: default.repo_leads,
+            icon: DEFAULT_ICON,
             color: DEFAULT_COLOR.to_string(),
             repo_choice: None,
             repos: RepoLoad::Loading,
@@ -368,15 +312,13 @@ impl CreateProjectDialogView {
         self.submitting = true;
         cx.notify();
 
-        // A repository is optional on every board now — send whatever was
+        // A repository is optional on every project — send whatever was
         // picked, or nothing.
         let repository = self.repo_choice.as_ref().map(RepoChoice::to_input);
         let input = api::projects::ProjectsCreateInput {
             workspace_id: self.workspace_id.clone(),
             name,
             prefix,
-            // Clamped — the server rejects a non-owner's isPublic.
-            is_public: self.is_public && crate::settings::is_owner(cx, &self.workspace_id),
             icon: Some(self.icon.to_string()),
             color: Some(self.color.clone()),
             repository,
@@ -464,128 +406,49 @@ impl CreateProjectDialogView {
 }
 
 impl CreateProjectDialogView {
-    /// The quickstart-template picker: three selectable cards — Dev / Task /
-    /// Feedback board — each with a glyph, title, and one-liner. Picking one
-    /// seeds `is_public` + `icon` + `repo_leads`; the repository stays optional
-    /// on every template and the "Public" toggle can still override the seed.
-    /// Public-board templates are owner-only on the server, so non-owners get
-    /// the card dimmed + non-clickable with a hint (EXP-133).
-    fn template_selector(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let owner = crate::settings::is_owner(cx, &self.workspace_id);
-        let mut grid = v_flex().gap_2();
-        for template in &TEMPLATES {
-            let key = template.key;
-            let icon = template.icon;
-            let is_public = template.is_public;
-            let repo_leads = template.repo_leads;
-            let selected = self.template == key;
-            let owner_locked = template.is_public && !owner;
+    /// The icon picker: a wrapping grid of the curated contract glyphs
+    /// (`domain::contract::PROJECT_ICON_VALUES`), one clickable cell per icon
+    /// name; the selected one carries the primary ring (same selection style
+    /// as the color swatch grid below).
+    fn icon_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let mut grid = h_flex().flex_wrap().gap_1p5();
+        for &name in domain::contract::PROJECT_ICON_VALUES {
+            let selected = name == self.icon;
             let view = cx.entity().clone();
-            let mut card = h_flex()
-                .id(SharedString::from(format!("project-template-{key}")))
-                .w_full()
-                .gap_3()
-                .items_center()
-                .px_3()
-                .py_2()
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_color(if selected {
-                    cx.theme().primary
-                } else {
-                    cx.theme().border
-                })
-                .child(
-                    crate::icons::project_icon_name_glyph(template.icon)
-                        .small()
-                        .flex_shrink_0()
-                        .text_color(if owner_locked {
-                            cx.theme().muted_foreground.opacity(0.5)
-                        } else if selected {
-                            cx.theme().primary
-                        } else {
-                            cx.theme().muted_foreground
-                        }),
-                )
-                .child(
-                    v_flex()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .when(owner_locked, |this| {
-                                    this.text_color(cx.theme().muted_foreground)
-                                })
-                                .child(template.title),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(if owner_locked {
-                                    OWNER_ONLY_PUBLIC_HINT
-                                } else {
-                                    template.subtitle
-                                }),
-                        ),
-                );
-            if !owner_locked {
-                card = card.cursor_pointer().on_click(move |_, _, cx| {
-                    view.update(cx, |this, cx| {
-                        if this.template != key {
-                            this.template = key;
-                            this.icon = icon;
-                            this.is_public = is_public;
-                            this.repo_leads = repo_leads;
+            grid = grid.child(
+                div()
+                    .id(SharedString::from(format!("project-icon-{name}")))
+                    .size(px(28.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(if selected {
+                        cx.theme().primary
+                    } else {
+                        cx.theme().border
+                    })
+                    .cursor_pointer()
+                    .child(
+                        crate::icons::project_icon_name_glyph(name)
+                            .small()
+                            .text_color(if selected {
+                                cx.theme().primary
+                            } else {
+                                cx.theme().muted_foreground
+                            }),
+                    )
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.icon = name;
                             cx.notify();
-                        }
-                    });
-                });
-            }
-            grid = grid.child(card);
+                        });
+                    }),
+            );
         }
 
-        v_flex()
-            .gap_2()
-            .child(field_label(cx, "Template"))
-            .child(grid)
-    }
-
-    /// The "Public" toggle: a public board is readable by anyone with the link.
-    /// Seeded by the template, but the user can flip it independently. Owner-
-    /// only on the server — disabled with a hint for non-owners (EXP-133).
-    fn public_toggle(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let owner = crate::settings::is_owner(cx, &self.workspace_id);
-        let view = cx.entity().clone();
-        v_flex().gap_2().child(field_label(cx, "Visibility")).child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    Switch::new("project-public")
-                        .small()
-                        .checked(self.is_public)
-                        .disabled(self.submitting || !owner)
-                        .on_click(move |checked: &bool, _, cx| {
-                            let checked = *checked;
-                            view.update(cx, |this, cx| {
-                                this.is_public = checked;
-                                cx.notify();
-                            });
-                        }),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(if owner {
-                            "Public — anyone with the link can read it"
-                        } else {
-                            OWNER_ONLY_PUBLIC_HINT
-                        }),
-                ),
-        )
+        v_flex().gap_2().child(field_label(cx, "Icon")).child(grid)
     }
 
     /// The "Repository" field: a dropdown offering the workspace's connected
@@ -884,32 +747,21 @@ impl Render for CreateProjectDialogView {
 
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let prefix_empty = self.prefix.read(cx).value().trim().is_empty();
-        // A repository is optional on every board now — only name + prefix gate
-        // submit.
+        // A repository is optional — only name + prefix gate submit.
         let disabled = name_empty || prefix_empty || self.submitting;
 
         let mut form = v_flex()
             .gap_4()
-            .child(self.template_selector(cx))
             .child(labeled(cx, "Name", Input::new(&self.name).small()))
-            .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()));
-        // Repository (always optional) + public toggle. The dev template leads
-        // with the repo picker; the others surface the toggle first.
-        if self.repo_leads {
-            form = form
-                .child(self.repository_field(cx))
-                .child(self.public_toggle(cx));
-        } else {
-            form = form
-                .child(self.public_toggle(cx))
-                .child(self.repository_field(cx));
-        }
-        form = form.child(
-            v_flex()
-                .gap_2()
-                .child(field_label(cx, "Color"))
-                .child(color_swatch_grid(&self.color, cx.entity().clone(), cx)),
-        );
+            .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()))
+            .child(self.icon_picker(cx))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(field_label(cx, "Color"))
+                    .child(color_swatch_grid(&self.color, cx.entity().clone(), cx)),
+            )
+            .child(self.repository_field(cx));
 
         if let Some(error) = &self.error {
             let mut error_block = v_flex().gap_2().child(

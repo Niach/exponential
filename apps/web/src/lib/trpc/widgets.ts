@@ -1,10 +1,16 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { count, eq } from "drizzle-orm"
-import { alias } from "drizzle-orm/pg-core"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { projects, users, widgetConfigs, widgetSubmissions } from "@/db/schema"
+import {
+  projects,
+  supportThreads,
+  users,
+  widgetConfigs,
+  widgetSubmissions,
+  workspaces,
+} from "@/db/schema"
 import {
   assertWorkspaceMember,
   assertWorkspaceOwner,
@@ -48,22 +54,27 @@ const formConfigSchema = z
   })
   .optional()
 
-// Support mode files helpdesk tickets, so it needs both the plan gate and a
-// target project with the helpdesk switched on — otherwise tickets would land
-// invisibly (the Support inbox nav keys off projects.helpdesk_enabled).
-// `projectId` is the EFFECTIVE support target: supportProjectId when the
-// config splits its destinations (EXP-162), else the primary projectId.
-async function assertSupportModeUsable(workspaceId: string, projectId: string) {
+// Absent modes = feedback-only (every pre-modes config).
+function modesOf(formConfig: { modes?: string[] } | null | undefined): string[] {
+  const raw = formConfig?.modes
+  return Array.isArray(raw) && raw.length > 0 ? raw : [`feedback`]
+}
+
+// Support mode files helpdesk tickets into the workspace support inbox, so it
+// needs both the plan gate and the workspace helpdesk switch — otherwise
+// tickets would land invisibly (the Support inbox nav keys off
+// workspaces.helpdesk_enabled).
+async function assertSupportModeUsable(workspaceId: string) {
   await assertCanUseHelpdesk(workspaceId)
-  const [project] = await db
-    .select({ helpdeskEnabled: projects.helpdeskEnabled })
-    .from(projects)
-    .where(eq(projects.id, projectId))
+  const [workspace] = await db
+    .select({ helpdeskEnabled: workspaces.helpdeskEnabled })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
     .limit(1)
-  if (project?.helpdeskEnabled !== true) {
+  if (workspace?.helpdeskEnabled !== true) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `Enable the helpdesk on the target project first`,
+      message: `Enable the helpdesk in the widget settings first`,
     })
   }
 }
@@ -105,13 +116,35 @@ export const widgetsRouter = router({
       return submission ?? null
     }),
 
+  // Same card for the support inbox details rail: the page/env context of a
+  // widget-filed ticket. MEMBER-gated like submissionForIssue (every member
+  // handles support).
+  submissionForThread: authedProcedure
+    .input(z.object({ threadId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [thread] = await ctx.db
+        .select({ workspaceId: supportThreads.workspaceId })
+        .from(supportThreads)
+        .where(eq(supportThreads.id, input.threadId))
+        .limit(1)
+      if (!thread) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Thread not found` })
+      }
+      await assertWorkspaceMember(ctx.session.user.id, thread.workspaceId)
+      const [submission] = await ctx.db
+        .select()
+        .from(widgetSubmissions)
+        .where(eq(widgetSubmissions.supportThreadId, input.threadId))
+        .limit(1)
+      return submission ?? null
+    }),
+
   list: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // Owner-only: exposes publicKey + submission counts, consumed only by the
       // owner-gated widget settings section.
       await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
-      const supportProjects = alias(projects, `support_projects`)
       return await ctx.db
         .select({
           id: widgetConfigs.id,
@@ -119,8 +152,6 @@ export const widgetsRouter = router({
           publicKey: widgetConfigs.publicKey,
           projectId: widgetConfigs.projectId,
           projectName: projects.name,
-          supportProjectId: widgetConfigs.supportProjectId,
-          supportProjectName: supportProjects.name,
           allowedDomains: widgetConfigs.allowedDomains,
           enabled: widgetConfigs.enabled,
           formConfig: widgetConfigs.formConfig,
@@ -128,17 +159,14 @@ export const widgetsRouter = router({
           submissionCount: count(widgetSubmissions.id),
         })
         .from(widgetConfigs)
-        .innerJoin(projects, eq(widgetConfigs.projectId, projects.id))
-        .leftJoin(
-          supportProjects,
-          eq(widgetConfigs.supportProjectId, supportProjects.id)
-        )
+        // Left join: a support-only widget has no feedback board.
+        .leftJoin(projects, eq(widgetConfigs.projectId, projects.id))
         .leftJoin(
           widgetSubmissions,
           eq(widgetSubmissions.widgetConfigId, widgetConfigs.id)
         )
         .where(eq(widgetConfigs.workspaceId, input.workspaceId))
-        .groupBy(widgetConfigs.id, projects.name, supportProjects.name)
+        .groupBy(widgetConfigs.id, projects.name)
         .orderBy(widgetConfigs.createdAt)
     }),
 
@@ -146,10 +174,10 @@ export const widgetsRouter = router({
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        projectId: z.string().uuid(),
-        // Where SUPPORT tickets land (EXP-162); null/absent = same as
-        // projectId.
-        supportProjectId: z.string().uuid().nullable().optional(),
+        // The feedback target board. Required iff the widget offers feedback
+        // mode; a support-only widget has none (tickets go to the workspace
+        // support inbox).
+        projectId: z.string().uuid().nullable().optional(),
         name: widgetNameSchema,
         allowedDomains: allowedDomainsSchema.default([]),
         formConfig: formConfigSchema,
@@ -158,32 +186,29 @@ export const widgetsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Owner-only: creating a public write path is privacy-significant.
       await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
-      // Feedback widget is a Pro+ feature, capped per tier (§3.3(4)). The
-      // bootstrap dogfood config is inserted directly and is exempt.
+      // Widget count is capped per tier (1 on Free). The bootstrap dogfood
+      // config is inserted directly and is exempt.
       await assertCanCreateWidget(input.workspaceId)
-      const project = await getProjectWorkspaceId(input.projectId)
-      if (project.workspaceId !== input.workspaceId) {
+
+      const modes = modesOf(input.formConfig)
+      const projectId = input.projectId ?? null
+      if (modes.includes(`feedback`) && projectId == null) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Project must belong to the workspace`,
+          message: `Pick a board for feedback submissions`,
         })
       }
-      if (input.supportProjectId != null) {
-        const supportProject = await getProjectWorkspaceId(
-          input.supportProjectId
-        )
-        if (supportProject.workspaceId !== input.workspaceId) {
+      if (projectId != null) {
+        const project = await getProjectWorkspaceId(projectId)
+        if (project.workspaceId !== input.workspaceId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `Support project must belong to the workspace`,
+            message: `Board must belong to the workspace`,
           })
         }
       }
-      if (input.formConfig?.modes?.includes(`support`)) {
-        await assertSupportModeUsable(
-          input.workspaceId,
-          input.supportProjectId ?? input.projectId
-        )
+      if (modes.includes(`support`)) {
+        await assertSupportModeUsable(input.workspaceId)
       }
 
       return await ctx.db.transaction(async (tx) => {
@@ -195,8 +220,7 @@ export const widgetsRouter = router({
           .insert(widgetConfigs)
           .values({
             workspaceId: input.workspaceId,
-            projectId: input.projectId,
-            supportProjectId: input.supportProjectId ?? null,
+            projectId,
             name: input.name,
             publicKey: generateWidgetKey(),
             allowedDomains: input.allowedDomains,
@@ -214,10 +238,9 @@ export const widgetsRouter = router({
       z.object({
         widgetConfigId: z.string().uuid(),
         name: widgetNameSchema.optional(),
-        projectId: z.string().uuid().optional(),
-        // Tri-state: undefined = unchanged, null = clear (support falls back
-        // to projectId), uuid = point support at that project (EXP-162).
-        supportProjectId: z.string().uuid().nullable().optional(),
+        // Tri-state: undefined = unchanged, null = clear (support-only
+        // widget), uuid = feedback lands on that board.
+        projectId: z.string().uuid().nullable().optional(),
         allowedDomains: allowedDomainsSchema.optional(),
         enabled: z.boolean().optional(),
         formConfig: formConfigSchema,
@@ -229,58 +252,38 @@ export const widgetsRouter = router({
         input.widgetConfigId
       )
 
-      if (input.projectId && input.projectId !== config.projectId) {
+      if (input.projectId != null && input.projectId !== config.projectId) {
         const project = await getProjectWorkspaceId(input.projectId)
         if (project.workspaceId !== config.workspaceId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `Project must belong to the workspace`,
-          })
-        }
-      }
-      if (
-        input.supportProjectId != null &&
-        input.supportProjectId !== config.supportProjectId
-      ) {
-        const supportProject = await getProjectWorkspaceId(
-          input.supportProjectId
-        )
-        if (supportProject.workspaceId !== config.workspaceId) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Support project must belong to the workspace`,
+            message: `Board must belong to the workspace`,
           })
         }
       }
 
-      // Gate on the FINAL state, but only when this update actually touches
-      // it (new modes, or a project/support-target repoint re-checked against
-      // the new target) — a lapsed plan must not block unrelated edits like
-      // renaming or disabling, and stale stored support degrades gracefully
-      // at serve time via effectiveWidgetModes.
-      const touchesSupportState =
-        input.formConfig !== undefined ||
-        (input.projectId !== undefined &&
-          input.projectId !== config.projectId) ||
-        (input.supportProjectId !== undefined &&
-          input.supportProjectId !== config.supportProjectId)
+      // Validate the FINAL state, but only when this update actually touches
+      // it — a lapsed plan must not block unrelated edits like renaming or
+      // disabling, and stale stored support degrades gracefully at serve
+      // time via effectiveWidgetModes.
+      const touchesModeState =
+        input.formConfig !== undefined || input.projectId !== undefined
       const finalModes =
         input.formConfig !== undefined
-          ? input.formConfig?.modes
-          : (config.formConfig?.modes as string[] | undefined)
-      if (
-        touchesSupportState &&
-        Array.isArray(finalModes) &&
-        finalModes.includes(`support`)
-      ) {
-        // The FINAL effective support target: a cleared supportProjectId
-        // falls back to the (possibly also updated) primary project.
-        const finalSupportTarget =
-          (input.supportProjectId !== undefined
-            ? input.supportProjectId
-            : config.supportProjectId) ??
-          (input.projectId ?? config.projectId)
-        await assertSupportModeUsable(config.workspaceId, finalSupportTarget)
+          ? modesOf(input.formConfig)
+          : modesOf(config.formConfig as { modes?: string[] } | null)
+      const finalProjectId =
+        input.projectId !== undefined ? input.projectId : config.projectId
+      if (touchesModeState) {
+        if (finalModes.includes(`feedback`) && finalProjectId == null) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Pick a board for feedback submissions`,
+          })
+        }
+        if (finalModes.includes(`support`)) {
+          await assertSupportModeUsable(config.workspaceId)
+        }
       }
 
       await ctx.db.transaction(async (tx) => {
@@ -290,9 +293,6 @@ export const widgetsRouter = router({
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.projectId !== undefined
               ? { projectId: input.projectId }
-              : {}),
-            ...(input.supportProjectId !== undefined
-              ? { supportProjectId: input.supportProjectId }
               : {}),
             ...(input.allowedDomains !== undefined
               ? { allowedDomains: input.allowedDomains }

@@ -7,9 +7,9 @@ import {
 import type { ExponentialWidgetStub, QueuedCall } from "@exp/widget/types"
 
 // Dogfood mount of the embeddable feedback widget: the same loader script a
-// customer would paste, pointed at the public feedback workspace. Cloud-only
-// (runtime config carries no widget on self-hosted instances — their
-// FeedbackButton redirects to the cloud board). Installed once per page load.
+// customer would paste, pointed at the dogfood feedback board. Cloud-only
+// (runtime config carries no widget on self-hosted instances — there the
+// sidebar FeedbackButton renders nothing). Installed once per page load.
 type LoadStatus = `idle` | `loading` | `ready` | `failed`
 let status: LoadStatus = `idle`
 

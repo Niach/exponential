@@ -45,7 +45,7 @@ use gpui_component::{
 use sync::Store;
 
 
-use crate::actions::{CreateWorkspace, OpenSettings, SendFeedback, SignOut};
+use crate::actions::{CreateWorkspace, OpenSettings, SignOut};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::git_bar::GitBar;
@@ -352,7 +352,6 @@ impl RailView {
                         IconName::Bell,
                         Box::new(crate::actions::OpenAccount),
                     )
-                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback))
                     .menu_with_icon("New team", IconName::Plus, Box::new(CreateWorkspace))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))

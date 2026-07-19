@@ -1,11 +1,10 @@
 //! Settings → General + Danger Zone (masterplan-v3 §4.2).
 //!
 //! Web parity: `components/workspace/general-section.tsx` (name `Input`,
-//! dirty-gated Save; visibility is deliberately NOT configurable — v6 made
-//! `workspaces.update` reject isPublic/publicWritePolicy, the only public
-//! workspace is the bootstrap feedback board) and the Danger Zone card of
+//! dirty-gated Save; workspaces are always private — there is no visibility
+//! setting) and the Danger Zone card of
 //! `routes/w/$workspaceSlug/settings/index.tsx` (type-the-name-to-confirm
-//! delete, gated owner + non-public + team-only).
+//! delete, gated owner + team-only).
 //!
 //! Local state mirrors the web's `useState` + resync-on-workspace-change
 //! `useEffect`: an Electric echo that changes the synced row overwrites the
@@ -289,8 +288,7 @@ impl Render for GeneralPane {
         let mut pane = v_flex().gap_4().child(general);
 
         // Danger Zone (web settings/index.tsx): owner + team-only (the solo
-        // case already returned above). Workspaces are always private now — no
-        // publicness gate.
+        // case already returned above).
         if owner {
             let workspace_id = workspace.id.clone();
             let workspace_name = workspace.name.clone();

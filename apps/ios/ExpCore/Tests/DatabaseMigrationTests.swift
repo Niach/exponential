@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 10)
+        XCTAssertEqual(try appliedMigrations(pool).count, 11)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 10)
+        XCTAssertEqual(try appliedMigrations(pool).count, 11)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 10)
+        XCTAssertEqual(try appliedMigrations(pool).count, 11)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -106,7 +106,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 10)
+        XCTAssertEqual(try appliedMigrations(pool).count, 11)
         let tokenColumn = try pool.read { db in
             try db.columns(in: "workspace_invites").first { $0.name == "token" }
         }
@@ -194,6 +194,39 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(surviving, 1)
     }
 
+    // EXP-180: public feedback boards are deleted. A device at v10 still
+    // carries `is_public` / `public_show_comments` / `public_show_activity`
+    // (and the inert legacy `type`) via the historical v4/v9 ALTERs — v11 must
+    // drop all four while the project rows survive.
+    func testV11DropsPublicColumns() throws {
+        let pool = try makePool("drop-public")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v10_drop_recurrence")
+        // The pre-v11 state really has the doomed columns (v4/v9 added them).
+        let before = try columnNames(pool, "projects")
+        for column in ["is_public", "public_show_comments", "public_show_activity", "type"] {
+            XCTAssertTrue(before.contains(column), "pre-v11 fixture missing \(column)")
+        }
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "projects"
+                    ("id", "workspace_id", "name", "slug", "prefix", "created_at", "updated_at")
+                VALUES ('p1', 'w1', 'Keep', 'keep', 'K', '2026-01-01', '2026-01-01')
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let after = try columnNames(pool, "projects")
+        for column in ["is_public", "public_show_comments", "public_show_activity", "type"] {
+            XCTAssertFalse(after.contains(column), "v11 left \(column) behind")
+        }
+        // The dropped columns are in-place surgery — the row must survive.
+        let surviving = try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM projects")
+        }
+        XCTAssertEqual(surviving, 1)
+    }
+
     // Idempotency: running the full migrator twice on the same file is a no-op,
     // never a duplicate-column throw.
     func testReMigrateIsIdempotent() throws {
@@ -229,20 +262,19 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(sessionIssueId)
         XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
-        // v4 project columns must be present after a full migration. `type` is
-        // now dead server-side (EXP-129) but the local column survives as a
-        // NOT-NULL-with-default("dev") relic — SQLite can't cheaply drop it and
-        // inserts that omit it fall back to the default, so it stays harmless.
+        // EXP-180: the public-board columns (and the legacy `type` relic) are
+        // gone from every path — v1 no longer creates them and v11 drops
+        // whatever the historical v4/v9 ALTERs added.
         let projectCols = try columnNames(pool, "projects")
-        XCTAssertTrue(projectCols.contains("type"))
-        XCTAssertTrue(projectCols.contains("public_show_comments"))
-        XCTAssertTrue(projectCols.contains("public_show_activity"))
+        XCTAssertFalse(projectCols.contains("type"))
+        XCTAssertFalse(projectCols.contains("public_show_comments"))
+        XCTAssertFalse(projectCols.contains("public_show_activity"))
+        XCTAssertFalse(projectCols.contains("is_public"))
         // EXP-90: public_show_coding is gone from fresh installs.
         XCTAssertFalse(projectCols.contains("public_show_coding"))
         // v5 protection flag.
         XCTAssertTrue(projectCols.contains("is_protected"))
-        // v9 public-board switch + curated icon (project-type collapse).
-        XCTAssertTrue(projectCols.contains("is_public"))
+        // v9 curated icon (project-type collapse).
         XCTAssertTrue(projectCols.contains("icon"))
         // v6: the invite bearer token is no longer synced (server allowlist),
         // so the local column must be nullable on every path.

@@ -1,8 +1,8 @@
-// Small branding footer shown on public feedback-board views (every
-// non-member visitor sees it). Every shared board doubles as a signpost back
-// to the product — the deliberate growth loop for free-tier public boards.
-// The imprint link is a legal requirement (§5 TMG/DDG): public board pages
-// are indexable, so the imprint must be reachable from them (EXP-40).
+// Small branding footer shown on the public reporter-facing support-thread
+// view (routes/support/$token) — the one surface strangers still see, so it
+// doubles as a signpost back to the product. The imprint link is a legal
+// requirement (§5 TMG/DDG): the page is publicly reachable, so the imprint
+// must be reachable from it (EXP-40).
 export function PoweredByFooter() {
   return (
     <footer className="border-t border-border/60 py-4 text-center">

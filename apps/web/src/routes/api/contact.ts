@@ -44,7 +44,7 @@ const maxContactRequestBytes = 64 * 1024
 // Per-IP in-process token bucket, same per-replica stance as the widget,
 // plus a global backstop bucket: every accepted request sends an email, so a
 // second non-IP limiter bounds total unauthenticated sends even if per-IP
-// keying is evaded (cf. publicBoard.createIssue's per-project backstop).
+// keying is evaded (cf. the widget submit per-key backstop).
 let contactIpLimiter: TokenBucketLimiter | null = null
 let contactGlobalLimiter: TokenBucketLimiter | null = null
 

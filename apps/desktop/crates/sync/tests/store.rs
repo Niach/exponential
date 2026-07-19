@@ -218,7 +218,7 @@ fn bind_scalars_not_json_blobs() {
     assert_eq!(row.get("number"), Some(&Value::String("1".into())));
     assert_eq!(row.get("sort_order"), Some(&Value::String("1.5".into())));
 
-    // Bools → canonical "t"/"f" (projects.is_public is a bool column).
+    // Bools → canonical "t"/"f" (projects.is_protected is a bool column).
     let projects = shape_by_name("projects").unwrap();
     store
         .apply_batch(
@@ -226,11 +226,11 @@ fn bind_scalars_not_json_blobs() {
             &[
                 insert(
                     "p-1",
-                    json!({"id": "p-1", "workspace_id": "w-1", "name": "A", "is_public": true}),
+                    json!({"id": "p-1", "workspace_id": "w-1", "name": "A", "is_protected": true}),
                 ),
                 insert(
                     "p-2",
-                    json!({"id": "p-2", "workspace_id": "w-1", "name": "B", "is_public": false}),
+                    json!({"id": "p-2", "workspace_id": "w-1", "name": "B", "is_protected": false}),
                 ),
             ],
             None,
@@ -238,11 +238,11 @@ fn bind_scalars_not_json_blobs() {
         .unwrap();
     let rows = store.read_all(projects).unwrap();
     assert_eq!(
-        row_by_id(&rows, "p-1").get("is_public"),
+        row_by_id(&rows, "p-1").get("is_protected"),
         Some(&Value::String("t".into()))
     );
     assert_eq!(
-        row_by_id(&rows, "p-2").get("is_public"),
+        row_by_id(&rows, "p-2").get("is_protected"),
         Some(&Value::String("f".into()))
     );
 }

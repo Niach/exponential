@@ -29,7 +29,7 @@ export function extractMentionEmails(text: string): string[] {
 /**
  * Replace each `@email` mention token with whatever `replace` returns for the
  * lowercase-normalized email; a `null` return keeps the token verbatim. Used
- * by the public-board scrub to swap member mentions for the anonymized
+ * to swap mentions of departed members for the anonymized
  * "Member XXXX" handle before the text leaves the server.
  */
 export function replaceMentionTokens(

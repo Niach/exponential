@@ -25,10 +25,8 @@ public final class WorkspaceMembersApi: Sendable {
         self.trpc = trpc
     }
 
-    // The self-service `workspaceMembers.join` procedure was removed: public
-    // boards are now per-project (`type='feedback'`) and read-only for
-    // non-members, so there is no public workspace to join. Membership is
-    // invite-only again.
+    // The self-service `workspaceMembers.join` procedure was removed:
+    // membership is invite-only.
 
     public func updateRole(accountId: String, memberId: String, role: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "workspaceMembers.updateRole", input: UpdateRoleInput(memberId: memberId, role: role))

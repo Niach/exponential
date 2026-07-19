@@ -11,7 +11,6 @@ import { db } from "@/db/connection"
 import { attachments, projects } from "@/db/schema"
 import { PROJECT_TRASH_RETENTION_MS } from "@exp/db-schema/domain"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
-import { invalidatePublicProjectCache } from "@/lib/workspace-membership"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -96,7 +95,6 @@ export async function runProjectPurgeSweep(
     }
   }
 
-  if (projectsPurged > 0) invalidatePublicProjectCache()
   return { projectsPurged, objectsDeleted }
 }
 

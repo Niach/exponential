@@ -4,12 +4,9 @@
 // predicates below. Low-level data lookups and the member-role assertion still
 // live in `./membership`.
 //
-// v7: workspace-level publicness is gone. Membership (always an explicit
-// invite) is the only capability gate — public feedback boards are read-only
-// for non-members (anonymous reads happen in the shape proxies; writes arrive
-// only via the embedded widget's server-side service). The old
-// public-workspace moderation clamp is deleted with the self-joined-member
-// class it existed for.
+// Membership (always an explicit invite) is the only capability gate —
+// nothing is anonymously readable (EXP-180 removed public boards); anonymous
+// writes arrive only via the embedded widget's server-side service.
 
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"

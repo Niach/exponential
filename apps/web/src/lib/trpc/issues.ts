@@ -1228,9 +1228,8 @@ export const issuesRouter = router({
   prFiles: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // PR diffs can expose private-repo file contents — member-only, NEVER
-      // public: anonymous feedback-board viewers have no authed session and
-      // the issues shape hides pr_url/branch from them entirely.
+      // PR diffs can expose private-repo file contents — member-only (like
+      // every read since EXP-180 removed anonymous access).
       const { workspaceId } = await getIssueWorkspaceContext(input.issueId)
       await assertWorkspaceMember(ctx.session.user.id, workspaceId)
 

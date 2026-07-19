@@ -65,7 +65,7 @@ const fullNameSchema = z
 // reach into the backing GitHub repo. Member-gated: since v7 every membership
 // is an explicit invite (the self-service public join is gone), so the old
 // moderator-only clamp for self-joined public-workspace members is obsolete —
-// anonymous public-board viewers never reach these procedures at all.
+// anonymous callers never reach these procedures at all.
 async function assertRepoCapability(userId: string, workspaceId: string) {
   await assertWorkspaceMember(userId, workspaceId)
 }

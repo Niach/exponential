@@ -259,7 +259,7 @@ final class IssueListViewModel {
         )
         // Only "pending" while membership genuinely hasn't landed — a live
         // members shape with no matching row means the viewer really isn't a
-        // member (e.g. a public board), which is a real read-only state.
+        // member, which is a real read-only state.
         permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
     }
 }

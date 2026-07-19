@@ -24,7 +24,6 @@ const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
 const membership = vi.hoisted(() => ({
   getUserWorkspaceIds: vi.fn(),
   getUserProjectIds: vi.fn(),
-  getPublicProjectScope: vi.fn(),
   getReadableUserIdsInWorkspaces: vi.fn(),
 }))
 
@@ -44,7 +43,6 @@ vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
     ...actual,
     getUserWorkspaceIds: membership.getUserWorkspaceIds,
     getUserProjectIds: membership.getUserProjectIds,
-    getPublicProjectScope: membership.getPublicProjectScope,
     getReadableUserIdsInWorkspaces: membership.getReadableUserIdsInWorkspaces,
   }
 })
@@ -217,7 +215,6 @@ describe(`shape column + trash contracts`, () => {
     prepareElectricUrl.mockReset()
     proxyElectricRequest.mockReset()
     membership.getUserWorkspaceIds.mockReset()
-    membership.getPublicProjectScope.mockReset()
     membership.getReadableUserIdsInWorkspaces.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
@@ -237,25 +234,28 @@ describe(`shape column + trash contracts`, () => {
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).toContain(`is_protected`)
     expect(columns).toContain(`deleted_at`)
+    // The public-board columns are gone (EXP-180) and must never resync.
+    expect(columns).not.toContain(`is_public`)
+    expect(columns).not.toContain(`public_show_comments`)
+    expect(columns).not.toContain(`public_show_activity`)
+    expect(columns).not.toContain(`helpdesk_enabled`)
     const where = originUrl.searchParams.get(`where`) ?? ``
     expect(where).toContain(`"deleted_at" IS NULL`)
     // Byte-stable: workspace ids are sorted regardless of query heap order.
     expect(where).toContain(`"workspace_id" IN ('w-1','w-2')`)
   })
 
-  it(`scopes anonymous projects to the public ids with no deleted_at suffix`, async () => {
+  it(`anonymous projects requests get the impossible-match sentinel`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue(null)
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getPublicProjectScope.mockResolvedValue({ projectIds: [`p-1`] })
 
     await shapeHandler(projectsRoute)({
       request: new Request(`https://example.com/api/shapes/projects`),
     })
 
-    expect(originUrl.searchParams.get(`where`)).toBe(`"id" IN ('p-1')`)
-    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toContain(
-      `is_protected`
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
     )
   })
 
@@ -326,7 +326,6 @@ describe(`trash-aware child shapes`, () => {
     proxyElectricRequest.mockReset()
     membership.getUserWorkspaceIds.mockReset()
     membership.getUserProjectIds.mockReset()
-    membership.getPublicProjectScope.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 

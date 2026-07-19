@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import {
   attachments,
-  issueLabels,
   issues,
   projects,
   users,
@@ -41,107 +40,32 @@ export function assertWorkspaceAccess(
   }
 }
 
-// The instance-wide public surface: every unarchived public project
-// (projects.is_public) plus per-toggle sub-lists. Anonymous shape
-// requests resolve against this scope; authed members never do (their where
-// clauses stay membership-derived and byte-identical). Cached per process —
-// invalidated by projects.create/update/delete and bootstrap.
-export type PublicProjectScope = {
-  // All public (is_public, unarchived) project ids.
-  projectIds: string[]
-  // Distinct workspaces hosting at least one public project (the host row's
-  // name/slug must sync for board routing/header).
-  workspaceIds: string[]
-  // Public projects with publicShowComments = true.
-  commentProjectIds: string[]
-  // Public projects with publicShowActivity = true.
-  activityProjectIds: string[]
-}
-
-let publicProjectScopeCache: PublicProjectScope | undefined = undefined
-
-export async function getPublicProjectScope(): Promise<PublicProjectScope> {
-  if (publicProjectScopeCache !== undefined) {
-    return publicProjectScopeCache
-  }
-  const db = await getDb()
-  const rows = await db
-    .select({
-      id: projects.id,
-      workspaceId: projects.workspaceId,
-      publicShowComments: projects.publicShowComments,
-      publicShowActivity: projects.publicShowActivity,
-    })
-    .from(projects)
-    .where(
-      and(
-        eq(projects.isPublic, true),
-        isNull(projects.archivedAt),
-        // Trashed public boards leave the public surface immediately (heals
-        // every anonymous shape scope).
-        isNull(projects.deletedAt)
-      )
-    )
-  publicProjectScopeCache = {
-    projectIds: rows.map((row) => row.id),
-    workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
-    commentProjectIds: rows
-      .filter((row) => row.publicShowComments)
-      .map((row) => row.id),
-    activityProjectIds: rows
-      .filter((row) => row.publicShowActivity)
-      .map((row) => row.id),
-  }
-  return publicProjectScopeCache
-}
-
-export function invalidatePublicProjectCache() {
-  publicProjectScopeCache = undefined
-}
-
-// Label ids used on at least one public project's issues. Uncached: the
-// anonymous labels shape is web-only, low-volume, and a stale list would hide
-// freshly-applied labels; correctness beats the extra query. (The resulting
-// where clause is the one data-driven anonymous clause — acceptable churn for
-// the web collection layer, which recovers from must-refetch. Never reuse this
-// pattern for authed shapes.)
-export async function getPublicLabelIds(): Promise<string[]> {
-  const scope = await getPublicProjectScope()
-  if (scope.projectIds.length === 0) return []
-  const db = await getDb()
-  const rows = await db
-    .selectDistinct({ labelId: issueLabels.labelId })
-    .from(issueLabels)
-    .where(inArray(issueLabels.projectId, scope.projectIds))
-  return rows.map((row) => row.labelId)
-}
-
 // Resolves the set of workspace ids readable by a caller — used by shape
 // proxies. Authed users see only workspaces they have joined; anonymous
-// callers see the workspaces hosting a public feedback board (name/slug only
-// in practice — every other shape scopes anonymous access per-project).
+// callers see nothing (EXP-180 removed the public feedback boards — every
+// shape is member-only, and buildWhereClause([]) yields the impossible-match
+// sentinel).
 export async function getReadableWorkspaceIds(
   userId: string | null
 ): Promise<string[]> {
   if (userId) return getUserWorkspaceIds(userId)
-  return (await getPublicProjectScope()).workspaceIds
+  return []
 }
 
 export async function getReadableProjectIds(
   userId: string | null
 ): Promise<string[]> {
   if (userId) return getUserProjectIds(userId)
-  return (await getPublicProjectScope()).projectIds
+  return []
 }
 
 // Resolves the user ids whose full `users` rows the caller may sync via the
 // users shape (and read via users.listByWorkspaceIds). The users table carries
 // EMAILS and NAMES, so this is deliberately tighter than workspace
 // readability: a caller sees co-members of workspaces they have joined, plus
-// themself. Since v7 every membership is an explicit invite (the self-service
-// public join is gone), so no per-workspace exclusion is needed. Anonymous
-// callers get nothing — public-board viewers render a deterministic anonymous
-// handle for every user row that never syncs.
+// themself. Every membership is an explicit invite (the self-service public
+// join is gone), so no per-workspace exclusion is needed. Anonymous callers
+// get nothing.
 export async function getReadableUserIdsInWorkspaces(
   userId: string | null
 ): Promise<string[]> {
@@ -343,12 +267,6 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
       contentType: attachments.contentType,
       filename: attachments.filename,
       sizeBytes: attachments.sizeBytes,
-      // Public-board read path: anonymous byte reads are allowed for
-      // unarchived public projects (comment attachments only where comments
-      // are public).
-      projectIsPublic: projects.isPublic,
-      projectPublicShowComments: projects.publicShowComments,
-      projectArchivedAt: projects.archivedAt,
     })
     .from(attachments)
     .innerJoin(issues, eq(attachments.issueId, issues.id))

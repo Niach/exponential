@@ -27,11 +27,15 @@ import { cn } from "@/lib/utils"
 // sessions are UNLIMITED on every tier — that is stated explicitly as a row so
 // buyers see it. Push + email notifications and remote steer are free on every
 // tier and are deliberately NOT a paywalled row. The monetized axes are seats
-// (team size), storage per workspace, and the feedback widget.
+// (team size), storage per workspace, the feedback widget, and the helpdesk.
 type Feature = { label: string; enabled: boolean }
 
+// Display-only union: Enterprise is a "Contact us" card, not a PlanTier — it
+// never reaches checkout/seat logic (getProductId returns null for it).
+type ComparisonTier = PlanTier | `enterprise`
+
 type TierInfo = {
-  tier: PlanTier
+  tier: ComparisonTier
   name: string
   // Per-seat monthly price, shown as the big number.
   pricePerSeat: string
@@ -42,12 +46,17 @@ type TierInfo = {
   features: Feature[]
 }
 
-function commonFeatures(storage: string, widget: Feature): Feature[] {
+function commonFeatures(
+  storage: string,
+  widget: Feature,
+  helpdesk: Feature
+): Feature[] {
   return [
     { label: `Unlimited projects & repos`, enabled: true },
     { label: `Unlimited coding sessions`, enabled: true },
     { label: storage, enabled: true },
     widget,
+    helpdesk,
     { label: `Push, email & remote steer`, enabled: true },
   ]
 }
@@ -60,10 +69,11 @@ const TIERS: TierInfo[] = [
     priceUnit: `forever`,
     cadence: `1 seat`,
     features: [
-      ...commonFeatures(`250 MB storage`, {
-        label: `Feedback widget`,
-        enabled: false,
-      }),
+      ...commonFeatures(
+        `250 MB storage`,
+        { label: `1 feedback widget`, enabled: true },
+        { label: `Helpdesk & support inbox`, enabled: false }
+      ),
     ],
   },
   {
@@ -73,10 +83,11 @@ const TIERS: TierInfo[] = [
     priceUnit: `/seat/mo`,
     cadence: `Billed yearly`,
     features: [
-      ...commonFeatures(`5 GB storage`, {
-        label: `1 feedback widget`,
-        enabled: true,
-      }),
+      ...commonFeatures(
+        `5 GB storage`,
+        { label: `3 feedback widgets`, enabled: true },
+        { label: `Helpdesk & support inbox`, enabled: true }
+      ),
     ],
   },
   {
@@ -86,12 +97,25 @@ const TIERS: TierInfo[] = [
     priceUnit: `/seat/mo`,
     cadence: `Billed monthly or yearly`,
     features: [
-      ...commonFeatures(`50 GB storage`, {
-        label: `Unlimited feedback widgets`,
-        enabled: true,
-      }),
+      ...commonFeatures(
+        `50 GB storage`,
+        { label: `Unlimited feedback widgets`, enabled: true },
+        { label: `Helpdesk & support inbox`, enabled: true }
+      ),
       { label: `Priority support`, enabled: true },
-      { label: `SSO / OIDC (coming soon)`, enabled: false },
+    ],
+  },
+  {
+    tier: `enterprise`,
+    name: `Enterprise`,
+    pricePerSeat: `Custom`,
+    priceUnit: ``,
+    cadence: `For larger teams`,
+    features: [
+      { label: `Everything in Business`, enabled: true },
+      { label: `SSO / OIDC (coming soon)`, enabled: true },
+      { label: `SLA & DPA`, enabled: true },
+      { label: `Dedicated support`, enabled: true },
     ],
   },
 ]
@@ -202,7 +226,7 @@ export function PlanComparison({
     if (url) window.location.href = url
   }
 
-  const handleCheckout = async (tier: PlanTier) => {
+  const handleCheckout = async (tier: ComparisonTier) => {
     const productId = getProductId(tier)
     if (!productId) return
     setLoading(tier)
@@ -215,7 +239,7 @@ export function PlanComparison({
     }
   }
 
-  const handleSwitchPlan = async (tier: PlanTier) => {
+  const handleSwitchPlan = async (tier: ComparisonTier) => {
     const productId = getProductId(tier)
     if (!productId) return
     setLoading(tier)
@@ -235,17 +259,18 @@ export function PlanComparison({
     }
   }
 
-  const getProductId = (tier: PlanTier): string | null => {
+  const getProductId = (tier: ComparisonTier): string | null => {
     if (tier === `pro`) return proProductId
     if (tier === `business`) {
       if (businessYearlyProductId && businessYearly) return businessYearlyProductId
       return businessProductId
     }
+    // `free` has no product; `enterprise` is display-only (Contact us).
     return null
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {TIERS.map((t) => {
         const isCurrent = t.tier === currentPlan
         const productId = getProductId(t.tier)
@@ -358,6 +383,20 @@ export function PlanComparison({
                       </p>
                     </>
                   )}
+                </div>
+              )}
+
+              {t.tier === `enterprise` && (
+                <div className="mt-auto border-t pt-3">
+                  <Button className="w-full" size="sm" variant="outline" asChild>
+                    <a
+                      href="https://exponential.at/contact/"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Contact us
+                    </a>
+                  </Button>
                 </div>
               )}
 

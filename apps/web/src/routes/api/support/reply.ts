@@ -9,7 +9,7 @@ import {
   findThreadByToken,
   getSupportRateLimiters,
 } from "@/lib/helpdesk/service"
-import { fireAndForgetSupportNotify } from "@/lib/integrations/notifications"
+import { fireAndForgetSupportThreadNotify } from "@/lib/integrations/notifications"
 
 // Anonymous reporter reply on a helpdesk conversation (magic-link token in
 // the JSON body — see thread.ts for the query-string rationale). Revoked
@@ -80,7 +80,6 @@ async function handleReply(request: Request): Promise<Response> {
     .insert(supportMessages)
     .values({
       threadId: thread.id,
-      issueId: thread.issueId,
       authorUserId: null,
       direction: `inbound`,
       visibility: `public`,
@@ -93,12 +92,7 @@ async function handleReply(request: Request): Promise<Response> {
     .where(eq(supportThreads.id, thread.id))
 
   // Members get the support_reply push/inbox fan-out (digest email later).
-  fireAndForgetSupportNotify({
-    issueId: thread.issueId,
-    reporterName: thread.reporterName,
-    reporterEmail: thread.reporterEmail,
-    messageBody: text,
-  })
+  fireAndForgetSupportThreadNotify({ threadId: thread.id, kind: `reply` })
 
   return jsonResponse(201, {
     ok: true,

@@ -98,22 +98,20 @@ fn project_icon_glyph(name: &str) -> Option<ExpIcon> {
 }
 
 /// The glyph of a raw curated icon name, falling back to the code glyph for an
-/// unknown name (used by the create-project template cards, where there's no
-/// `Project` yet — every template ships a known curated icon).
+/// unknown name (used by the create-project icon picker, where there's no
+/// `Project` yet — every curated name resolves).
 pub fn project_icon_name_glyph(name: &str) -> Icon {
     project_icon_glyph(name)
         .map(Icon::from)
         .unwrap_or_else(|| Icon::from(ExpIcon::Code))
 }
 
-/// A project's fallback glyph when it carries no stored `icon`: a public board
-/// gets the megaphone, a repo-backed board the code brackets, and a plain board
-/// a kanban. The drop migration backfills `icon`, so this is a cosmetic safety
-/// net for rows synced before the backfill.
+/// A project's fallback glyph when it carries no stored `icon`: a repo-backed
+/// project gets the code brackets, a plain one a kanban. The drop migration
+/// backfills `icon`, so this is a cosmetic safety net for rows synced before
+/// the backfill.
 fn project_fallback_glyph(project: &Project) -> ExpIcon {
-    if project.is_public.unwrap_or(false) {
-        ExpIcon::Megaphone
-    } else if project.repository_id.is_some() {
+    if project.repository_id.is_some() {
         ExpIcon::Code
     } else {
         ExpIcon::SquareKanban
@@ -121,8 +119,8 @@ fn project_fallback_glyph(project: &Project) -> ExpIcon {
 }
 
 /// A project row's rendered glyph: the stored curated `icon` when present and
-/// known, otherwise the attribute-derived fallback (`is_public`/repo columns
-/// drive behavior; the glyph is cosmetic).
+/// known, otherwise the attribute-derived fallback (the repo column drives
+/// behavior; the glyph is cosmetic).
 pub fn project_icon(project: &Project) -> Icon {
     project
         .icon
@@ -130,12 +128,6 @@ pub fn project_icon(project: &Project) -> Icon {
         .and_then(project_icon_glyph)
         .map(Icon::from)
         .unwrap_or_else(|| Icon::from(project_fallback_glyph(project)))
-}
-
-/// The public-board marker glyph (a globe) — appended next to feedback-board
-/// projects, which are readable by anyone with the link.
-pub fn public_board_icon() -> Icon {
-    Icon::from(ExpIcon::Globe)
 }
 
 #[cfg(test)]

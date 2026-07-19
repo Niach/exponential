@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -94,7 +93,6 @@ fun SettingsScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
     onOpenWorkspaceSettings: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
-    onOpenFeedbackBoard: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -181,17 +179,6 @@ fun SettingsScreen(
                             title = "Sync diagnostics",
                             subtitle = "Live Electric shape status",
                             onClick = onOpenSyncDiagnostics,
-                        )
-                        CardDivider()
-                        // In-app join gate for the public feedback board
-                        // (FeedbackBoardScreen); the screen itself falls back
-                        // to the old external `/feedback` URL when the active
-                        // server has no joinable public board.
-                        SettingsRow(
-                            icon = Icons.Filled.Forum,
-                            title = "Send feedback",
-                            subtitle = "Join the public feedback board",
-                            onClick = onOpenFeedbackBoard,
                         )
                     }
                 }

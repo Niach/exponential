@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   deriveEntryStates,
-  gettingStartedEntryOrder,
   type GettingStartedSignals,
 } from "./getting-started-model"
 
@@ -10,62 +9,40 @@ const NONE: GettingStartedSignals = {
   hasProject: false,
   hasRepoProject: false,
   hasCodingSession: false,
-  hasPublicProject: false,
-  hasHelpdeskProject: false,
+  helpdeskEnabled: false,
   hasWidget: false,
   mcpConnected: false,
 }
 
+const OWNER = { canManageWidgets: true, isOwner: true }
+const MEMBER = { canManageWidgets: false, isOwner: false }
+
 function stateOf(
   signals: GettingStartedSignals,
   key: string,
-  canManageWidgets = true
+  options = OWNER
 ) {
-  const { entries } = deriveEntryStates(signals, { canManageWidgets })
+  const { entries } = deriveEntryStates(signals, options)
   return entries.find((entry) => entry.key === key)
 }
 
-describe(`gettingStartedEntryOrder`, () => {
-  it(`leads with the feedback track on public boards`, () => {
-    expect(gettingStartedEntryOrder(true)).toEqual([
-      `feedback-board`,
-      `widget`,
-      `mcp`,
-      `github`,
-      `project`,
-      `coding`,
-    ])
-  })
-
-  it(`leads with the coding track everywhere else`, () => {
-    const expected = [
-      `github`,
-      `project`,
-      `coding`,
-      `feedback-board`,
-      `widget`,
-      `mcp`,
-    ]
-    expect(gettingStartedEntryOrder(false)).toEqual(expected)
-    expect(gettingStartedEntryOrder(undefined)).toEqual(expected)
-  })
-})
-
 describe(`deriveEntryStates`, () => {
-  it(`starts with everything undone: coding locked on github, widget locked on project`, () => {
-    const { entries, done, total } = deriveEntryStates(NONE, {
-      canManageWidgets: true,
-    })
-    expect(done).toBe(0)
-    expect(total).toBe(6)
+  it(`emits the single static order github → project → coding → widget → helpdesk → mcp`, () => {
+    const { entries } = deriveEntryStates(NONE, OWNER)
     expect(entries.map((entry) => entry.key)).toEqual([
       `github`,
       `project`,
       `coding`,
-      `feedback-board`,
       `widget`,
+      `helpdesk`,
       `mcp`,
     ])
+  })
+
+  it(`starts with everything undone: coding locked on github, widget locked on project`, () => {
+    const { done, total } = deriveEntryStates(NONE, OWNER)
+    expect(done).toBe(0)
+    expect(total).toBe(6)
     expect(stateOf(NONE, `coding`)).toEqual({
       key: `coding`,
       state: `locked`,
@@ -75,6 +52,11 @@ describe(`deriveEntryStates`, () => {
       key: `widget`,
       state: `locked`,
       lockedBy: `project`,
+    })
+    // Helpdesk has no prereq — available from the start.
+    expect(stateOf(NONE, `helpdesk`)).toEqual({
+      key: `helpdesk`,
+      state: `available`,
     })
   })
 
@@ -121,21 +103,24 @@ describe(`deriveEntryStates`, () => {
       ...NONE,
       githubInstalled: true,
       hasProject: true,
-      hasPublicProject: true,
+      helpdeskEnabled: true,
       mcpConnected: true,
     }
     expect(stateOf(signals, `github`)?.state).toBe(`done`)
     expect(stateOf(signals, `project`)?.state).toBe(`done`)
-    expect(stateOf(signals, `feedback-board`)?.state).toBe(`done`)
+    expect(stateOf(signals, `helpdesk`)?.state).toBe(`done`)
     expect(stateOf(signals, `mcp`)?.state).toBe(`done`)
   })
 
-  it(`members (no widget management) get 5 entries — the widget one is hidden`, () => {
-    const { entries, total } = deriveEntryStates(NONE, {
-      canManageWidgets: false,
-    })
-    expect(total).toBe(5)
-    expect(entries.some((entry) => entry.key === `widget`)).toBe(false)
+  it(`members get 4 entries — the owner-only widget and helpdesk ones are hidden`, () => {
+    const { entries, total } = deriveEntryStates(NONE, MEMBER)
+    expect(total).toBe(4)
+    expect(entries.map((entry) => entry.key)).toEqual([
+      `github`,
+      `project`,
+      `coding`,
+      `mcp`,
+    ])
   })
 
   it(`counts done against the viewer's own total`, () => {
@@ -145,15 +130,17 @@ describe(`deriveEntryStates`, () => {
       hasProject: true,
       hasRepoProject: true,
       hasCodingSession: true,
-      hasPublicProject: true,
+      helpdeskEnabled: true,
       mcpConnected: true,
     }
-    // Owner: widget still open → 5/6. Member: widget hidden → 5/5.
-    expect(deriveEntryStates(signals, { canManageWidgets: true })).toMatchObject(
-      { done: 5, total: 6 }
-    )
-    expect(
-      deriveEntryStates(signals, { canManageWidgets: false })
-    ).toMatchObject({ done: 5, total: 5 })
+    // Owner: widget still open → 5/6. Member: widget+helpdesk hidden → 4/4.
+    expect(deriveEntryStates(signals, OWNER)).toMatchObject({
+      done: 5,
+      total: 6,
+    })
+    expect(deriveEntryStates(signals, MEMBER)).toMatchObject({
+      done: 4,
+      total: 4,
+    })
   })
 })

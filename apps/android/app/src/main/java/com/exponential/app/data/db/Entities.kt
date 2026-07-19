@@ -36,17 +36,10 @@ data class ProjectEntity(
     val slug: String,
     val prefix: String,
     val color: String,
-    // Publicness (EXP-121) — true for anonymously-readable boards. Replaces the
-    // old `type == "feedback"` check as the single public signal.
-    @ColumnInfo(name = "is_public") @SerialName("is_public") @JsonNames("isPublic") val isPublic: PgBool = false,
     // Curated display icon (one of contract projectIconValues) or null for
-    // pre-collapse rows — the client falls back to a type-derived glyph then.
+    // pre-collapse rows — the client falls back to a shape-derived glyph then.
     val icon: String? = null,
-    // Anonymous-visitor toggles — only meaningful on public boards, inert
-    // otherwise.
-    @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: PgBool = true,
-    @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: PgBool = false,
-    // Server-owned protection flag (the dogfood feedback board). A protected
+    // Server-owned protection flag (the dogfood board). A protected
     // project can't be deleted/archived, so clients hide the delete affordance.
     @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: PgBool = false,
     // Nullable — a repository is optional on every project (EXP-121). Coding/PR

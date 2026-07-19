@@ -6,10 +6,6 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: vi.fn(),
 }))
-vi.mock(`@/lib/workspace-membership`, () => ({
-  invalidatePublicProjectCache: vi.fn(),
-}))
-
 import { isProjectPurgeDue, purgeProjectInTx } from "@/lib/project-trash"
 
 // Minimal chainable stub matching the drizzle calls purgeProjectInTx makes:

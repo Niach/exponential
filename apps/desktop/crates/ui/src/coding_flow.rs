@@ -552,7 +552,7 @@ impl TokenRefreshers {
 
 /// The synced project row backing `issue_id`, if both are in the collections.
 /// Used by the header affordance to decide whether Start coding even applies
-/// (a repo-less non-dev board never codes) and by the §P7 activity gating.
+/// (a repo-less project never codes) and by the §P7 activity gating.
 pub(crate) fn issue_project(issue_id: &str, cx: &App) -> Option<domain::rows::Project> {
     let store = Store::global(cx);
     let project_id = store
@@ -946,10 +946,9 @@ impl Render for StartCodingControl {
         let Some(issue_id) = self.issue_id.clone() else {
             return div().into_any_element();
         };
-        // Coding gates purely on repository presence, never on type: a
-        // repo-less board (any type) shows NO Start-coding affordance, while any
-        // repo-backed board (incl. the dogfood public feedback board) keeps the
-        // button. Hidden here before the probe so it never fetches.
+        // Coding gates purely on repository presence: a repo-less project
+        // shows NO Start-coding affordance, while any repo-backed project
+        // keeps the button. Hidden here before the probe so it never fetches.
         let project = issue_project(&issue_id, cx);
         if let Some(project) = &project {
             if project.repository_id.is_none() {

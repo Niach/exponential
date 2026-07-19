@@ -107,9 +107,9 @@ const timestamps = {
 // Tables
 // ---------------------------------------------------------------------------
 
-// Workspaces are ALWAYS private (v7): publicness moved to the project level
-// (projects.is_public). The old workspace-level is_public/public_write_policy
-// columns and the self-service join flow are gone — membership is invite-only.
+// Workspaces are ALWAYS private: membership is invite-only and nothing in a
+// workspace is ever anonymously readable (EXP-180 removed the public feedback
+// boards that used to be the one exception).
 export const workspaces = pgTable(`workspaces`, {
   id: uuidPk(),
   name: varchar({ length: 255 }).notNull(),
@@ -119,6 +119,11 @@ export const workspaces = pgTable(`workspaces`, {
   // SERVER-ONLY — must stay behind the workspaces shape columns allowlist.
   // Honored by getWorkspacePlan as a floor over the Creem-derived tier.
   compTier: text(`comp_tier`),
+  // Workspace-level helpdesk switch (EXP-180 — replaced the per-project flag;
+  // Pro-gated on cloud via assertCanUseHelpdesk on enable and per submission).
+  // Synced so every client can gate its Support-inbox menu entry; the
+  // conversation tables themselves stay server-only.
+  helpdeskEnabled: boolean(`helpdesk_enabled`).notNull().default(false),
   ...timestamps,
 })
 
@@ -209,26 +214,14 @@ export const projects = pgTable(
     slug: varchar({ length: 255 }).notNull(),
     prefix: varchar({ length: 10 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
-    // The project's public-board switch: true = anonymously readable feedback
-    // board (every public-scope query keys on this).
-    isPublic: boolean(`is_public`).notNull().default(false),
     // Curated display icon (projectIconValues in domain.ts / the domain
-    // contract). NULL = clients derive a fallback from publicness/repo presence.
+    // contract). NULL = clients derive a fallback from repo presence.
     icon: text(),
-    // Anonymous-visitor visibility toggles. Only meaningful when
-    // is_public — every public-scope query gates on publicness first, so
-    // stale values on private projects are inert.
-    publicShowComments: boolean(`public_show_comments`).notNull().default(true),
-    publicShowActivity: boolean(`public_show_activity`)
-      .notNull()
-      .default(false),
-    // A `dev` project is backed by exactly one repo from the workspace
-    // registry; the desktop launcher clones this. Nullable since v7: `tasks`
-    // and `feedback` projects need no repo (a feedback board MAY still have
-    // one — the dogfood board is feedback + repo-backed). `restrict` (not
-    // cascade): a repo that still backs a project can't be deleted — retarget
-    // or delete the projects first. One repo may back several projects
-    // (monorepo); plan limits still count registry rows.
+    // A repo-backed project is backed by exactly one repo from the workspace
+    // registry; the desktop launcher clones this. Nullable: projects need no
+    // repo. `restrict` (not cascade): a repo that still backs a project can't
+    // be deleted — retarget or delete the projects first. One repo may back
+    // several projects (monorepo); plan limits still count registry rows.
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `restrict`,
     }),
@@ -239,24 +232,16 @@ export const projects = pgTable(
     // time is computed, never stored (constant retention). Trashed projects drop
     // out of every membership/public scope but keep their rows for restore.
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
-    // Non-deletable marker (the dogfood feedback board). Set by bootstrap; guards
+    // Non-deletable marker (the dogfood board). Set by bootstrap; guards
     // in projects.delete/update and the purge sweep refuse to touch it. A synced
     // column (not a server-only id comparison) so clients can grey out the
     // affordance and it survives restore-from-backup id changes.
     isProtected: boolean(`is_protected`).notNull().default(false),
-    // Helpdesk switch (Pro-gated on cloud — assertCanUseHelpdesk guards the
-    // flip and thread creation). Synced so clients can show the support inbox
-    // entry; the conversation tables themselves stay server-only.
-    helpdeskEnabled: boolean(`helpdesk_enabled`).notNull().default(false),
     ...timestamps,
   },
   (table) => [
     unique().on(table.workspaceId, table.slug),
     index(`idx_projects_repository`).on(table.repositoryId),
-    // Serves the anonymous public-scope resolver (getPublicProjectScope).
-    index(`idx_projects_public`)
-      .on(table.isPublic)
-      .where(sql`is_public`),
     // Serves the purge sweep + trash-aware shape filter; near-empty in steady
     // state (only trashed rows are indexed).
     index(`idx_projects_deleted`)
@@ -875,18 +860,13 @@ export const widgetConfigs = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
-    projectId: uuid(`project_id`)
-      .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
-    // Where SUPPORT-mode (helpdesk) tickets land when the widget splits its
-    // targets (EXP-162). NULL = same project as feedback (`project_id`) —
-    // every pre-split config keeps working unchanged. `set null` (not
-    // cascade): deleting the support project must degrade support, never
-    // delete the config — feedback still targets `project_id`.
-    supportProjectId: uuid(`support_project_id`).references(
-      () => projects.id,
-      { onDelete: `set null` }
-    ),
+    // Where FEEDBACK-mode submissions land. NULLABLE (EXP-180): a
+    // support-only widget targets no board at all — its tickets go to the
+    // workspace support inbox. `set null` (not cascade): deleting the target
+    // board degrades feedback mode, never deletes the config.
+    projectId: uuid(`project_id`).references(() => projects.id, {
+      onDelete: `set null`,
+    }),
     name: varchar({ length: 255 }).notNull(),
     // `expw_` + 32 base62 chars. Public by design (it ships inside the host
     // page's snippet); the domain allowlist + rate limiting are the controls,
@@ -918,9 +898,11 @@ export const widgetConfigs = pgTable(
   (table) => [index(`idx_widget_configs_workspace`).on(table.workspaceId)]
 )
 
-// One row per issue created through a widget (server-only, NOT synced). The
-// structured reporter contact + page/env context that must survive description
-// edits; the issue's description carries the same data as a readable block.
+// One row per widget submission (server-only, NOT synced): the structured
+// reporter contact + page/env context that must survive description edits.
+// Feedback submissions anchor on the created issue (`issue_id`); support
+// submissions anchor on the created ticket (`support_thread_id`) — exactly
+// one of the two is set.
 export const widgetSubmissions = pgTable(
   `widget_submissions`,
   {
@@ -931,9 +913,12 @@ export const widgetSubmissions = pgTable(
       { onDelete: `set null` }
     ),
     issueId: uuid(`issue_id`)
-      .notNull()
       .unique()
       .references(() => issues.id, { onDelete: `cascade` }),
+    supportThreadId: uuid(`support_thread_id`).references(
+      () => supportThreads.id,
+      { onDelete: `cascade` }
+    ),
     reporterEmail: varchar(`reporter_email`, { length: 320 }),
     reporterName: varchar(`reporter_name`, { length: 255 }),
     // Host-app user id passed via identify(); opaque to us.
@@ -955,30 +940,42 @@ export const widgetSubmissions = pgTable(
   },
   (table) => [
     index(`idx_widget_submissions_config`).on(table.widgetConfigId),
+    index(`idx_widget_submissions_thread`).on(table.supportThreadId),
   ]
 )
 
 // Helpdesk conversation threads (SERVER-ONLY, never Electric-synced — read
 // via the `helpdesk` tRPC router and the anonymous magic-link routes). A
-// ticket IS an ordinary issue; the thread rides on it because external
-// reporters can never author `comments` rows (comments.author_id → users is
-// NOT NULL). The reporter's only credential is the token embedded in emailed
-// magic links — deterministic HMAC(server secret, thread id), recomputed per
-// email and verified by recompute (apps/web lib/helpdesk/token.ts), so
-// NOTHING secret is stored at rest and a DB leak never leaks live
-// conversation URLs (EXP-132).
+// ticket is a STANDALONE workspace-scoped record (EXP-180 — it is no longer
+// backed by an issue; the whole conversation lives in these two tables, and
+// a ticket only touches the issue tracker when a member explicitly escalates
+// it, which files an ordinary issue and links it via linked_issue_id). The
+// reporter's only credential is the token embedded in emailed magic links —
+// deterministic HMAC(server secret, thread id), recomputed per email and
+// verified by recompute (apps/web lib/helpdesk/token.ts), so NOTHING secret
+// is stored at rest and a DB leak never leaks live conversation URLs
+// (EXP-132).
 export const supportThreads = pgTable(
   `support_threads`,
   {
     id: uuidPk(),
-    issueId: uuid(`issue_id`)
+    workspaceId: uuid(`workspace_id`)
       .notNull()
-      .unique()
-      .references(() => issues.id, { onDelete: `cascade` }),
-    // Denormalized from the issue for cheap per-project inbox listing.
-    projectId: uuid(`project_id`)
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    title: varchar({ length: 500 }).notNull(),
+    // 'open' | 'resolved' — documented varchar (server-only vocabulary in
+    // domain.ts, not the contract), same convention as message direction/
+    // visibility. Close/reopen flip this; an escalated issue's status is
+    // deliberately independent.
+    status: varchar({ length: 16 })
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .default(`open`)
+      .$type<`open` | `resolved`>(),
+    // Set by the member "escalate" action: the ordinary issue created from
+    // this ticket. `set null` — deleting the issue keeps the conversation.
+    linkedIssueId: uuid(`linked_issue_id`).references(() => issues.id, {
+      onDelete: `set null`,
+    }),
     reporterEmail: varchar(`reporter_email`, { length: 320 }).notNull(),
     reporterName: varchar(`reporter_name`, { length: 255 }),
     // Stamped on close: the transcript stays readable but replies are
@@ -992,7 +989,7 @@ export const supportThreads = pgTable(
     }),
     ...timestamps,
   },
-  (table) => [index(`idx_support_threads_project`).on(table.projectId)]
+  (table) => [index(`idx_support_threads_workspace`).on(table.workspaceId)]
 )
 
 // Individual helpdesk messages. direction: inbound|outbound (inbound = the
@@ -1007,10 +1004,6 @@ export const supportMessages = pgTable(
     threadId: uuid(`thread_id`)
       .notNull()
       .references(() => supportThreads.id, { onDelete: `cascade` }),
-    // Denormalized for direct issue → conversation lookups.
-    issueId: uuid(`issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
     // NULL = the external reporter wrote it.
     authorUserId: text(`author_user_id`).references(() => users.id, {
       onDelete: `set null`,
@@ -1034,10 +1027,7 @@ export const supportMessages = pgTable(
     ),
     ...timestamps,
   },
-  (table) => [
-    index(`idx_support_messages_thread`).on(table.threadId),
-    index(`idx_support_messages_issue`).on(table.issueId),
-  ]
+  (table) => [index(`idx_support_messages_thread`).on(table.threadId)]
 )
 
 // What an OAuth-authenticated MCP client may touch (SERVER-ONLY, written by

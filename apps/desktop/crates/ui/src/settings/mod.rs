@@ -423,8 +423,7 @@ pub(crate) fn is_solo_workspace(cx: &App, workspace_id: &str) -> bool {
 }
 
 /// Web `useShowWorkspaceChrome`: revealed when the workspace stops being solo
-/// OR the user explicitly reasons about 2+ workspaces (public counts only
-/// with a membership row).
+/// OR the user explicitly reasons about 2+ workspaces.
 pub(crate) fn show_workspace_chrome(cx: &App, workspace_id: &str) -> bool {
     let is_solo = is_solo_workspace(cx, workspace_id);
     let Some(me) = queries::active_account(cx) else {
@@ -438,10 +437,8 @@ pub(crate) fn show_workspace_chrome(cx: &App, workspace_id: &str) -> bool {
         .filter(|member| member.user_id == me.user_id)
         .map(|member| member.workspace_id.clone())
         .collect();
-    // Web: `myWorkspaces` = membership workspaces + the public workspace
-    // appended; `explicitCount` keeps only `!isPublic || membership` — so the
-    // appended-without-membership public row contributes 0 and the count
-    // reduces to "workspaces I have a membership row in".
+    // Web parity: the count reduces to "workspaces I have a membership row
+    // in".
     let workspaces = collections.workspaces.read(cx);
     let explicit_count = workspaces
         .iter()

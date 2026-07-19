@@ -105,9 +105,9 @@ public final class SyncManager: @unchecked Sendable {
     }
 
     /// Cancel + relaunch an account's shape pipeline WITHOUT wiping local
-    /// data. Used after a membership change (e.g. joining the public feedback
-    /// board): every shape's where clause is derived server-side from
-    /// membership, so in-flight live long-polls keep the old scope until they
+    /// data. Used after a membership change (e.g. accepting an invite):
+    /// every shape's where clause is derived server-side from membership,
+    /// so in-flight live long-polls keep the old scope until they
     /// drain (up to ~60s). Relaunching re-requests immediately — Electric
     /// 409s each rotated shape and the client refetches atomically via the
     /// needs_refetch path, so the new workspace appears in seconds. This is

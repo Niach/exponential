@@ -199,19 +199,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Electric no longer populates it.
                 t.column("github_repo", .text)
                 // The repo backing this project (Electric ride-along on the
-                // projects shape). Nullable — only `dev` projects require a repo.
+                // projects shape). Nullable — repos are optional on every
+                // project; coding affordances gate on presence.
                 t.column("repository_id", .text)
-                // Legacy board type: dev | tasks | feedback. Server dual-writes
-                // it from is_public + repo presence (dropped in a later release);
-                // clients tolerate it but gate on is_public / repository_id.
-                t.column("type", .text).notNull().defaults(to: "dev")
-                // The public-board switch (replaces type=='feedback') + the
-                // curated glyph name (nullable — nil falls back to a type icon).
-                t.column("is_public", .boolean).notNull().defaults(to: false)
+                // Curated glyph name (nullable — nil falls back to a derived icon).
                 t.column("icon", .text)
-                // Anonymous-visitor visibility toggles (public boards only).
-                t.column("public_show_comments", .boolean).notNull().defaults(to: true)
-                t.column("public_show_activity", .boolean).notNull().defaults(to: false)
                 // Display-only mirror of the preview run targets + feedback target.
                 t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
@@ -671,6 +663,29 @@ public final class DatabaseManager: @unchecked Sendable {
                     }
                     if cols.contains("recurrence_unit") {
                         t.drop(column: "recurrence_unit")
+                    }
+                }
+            }
+        }
+
+        // v11 (EXP-180): public feedback boards are deleted product-wide. Drop
+        // `is_public` / `public_show_comments` / `public_show_activity` plus the
+        // long-inert legacy `type` column — the same guarded plain DROP COLUMN
+        // as v8/v10 (none are indexed or referenced, so every project row
+        // survives with no resnapshot). The v1 create above no longer makes
+        // them, but the historical v4/v9 ALTERs still add them on fresh
+        // installs, so this drop runs everywhere and fresh + upgraded DBs
+        // converge on one schema. The projects shape no longer syncs these
+        // columns, so no offset reset is needed.
+        migrator.registerMigration("v11_drop_public_columns") { db in
+            guard try db.tableExists("projects") else { return }
+            let cols = Set(try db.columns(in: "projects").map(\.name))
+            let doomed = ["is_public", "public_show_comments", "public_show_activity", "type"]
+                .filter { cols.contains($0) }
+            if !doomed.isEmpty {
+                try db.alter(table: "projects") { t in
+                    for column in doomed {
+                        t.drop(column: column)
                     }
                 }
             }

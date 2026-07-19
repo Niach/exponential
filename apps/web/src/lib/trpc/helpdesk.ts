@@ -1,31 +1,28 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import {
   emailDeliveries,
   issues,
-  projects,
   supportMessages,
   supportThreads,
+  workspaces,
 } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getProjectWorkspaceId,
+  getSoleHumanMemberId,
 } from "@/lib/workspace-membership"
-import { recordIssueEvent } from "@/lib/integrations/activity"
-import {
-  fireAndForgetReporterResolution,
-  fireAndForgetStatusChangeNotify,
-} from "@/lib/integrations/notifications"
+import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { sendSupportReplyEmail } from "@/lib/email"
 import { mintSupportToken } from "@/lib/helpdesk/token"
 import {
   MAX_SUPPORT_MESSAGE_CHARS,
+  closeThreadInTx,
   latestMessagesByThread,
-  reinstateThreadToken,
-  revokeThreadToken,
+  reopenThreadInTx,
   supportThreadUrl,
 } from "@/lib/helpdesk/service"
 
@@ -35,12 +32,9 @@ const messageBodySchema = z
   .min(1)
   .max(MAX_SUPPORT_MESSAGE_CHARS)
 
-// Helpdesk-resolved == the underlying issue reached a terminal status.
-const RESOLVED_STATUSES = [`done`, `cancelled`, `duplicate`] as const
-
-// Load a thread and gate on membership of its project's workspace. Every
-// member handles support (permissions collapsed to membership-only) — no
-// owner gating anywhere in this router.
+// Load a thread and gate on membership of its workspace. Every member handles
+// support (permissions collapsed to membership-only) — no owner gating
+// anywhere in this router.
 async function loadThreadForMember(userId: string, threadId: string) {
   const [thread] = await db
     .select()
@@ -50,57 +44,63 @@ async function loadThreadForMember(userId: string, threadId: string) {
   if (!thread) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Thread not found` })
   }
-  const project = await getProjectWorkspaceId(thread.projectId)
-  await assertWorkspaceMember(userId, project.workspaceId)
-  return { thread, workspaceId: project.workspaceId }
+  await assertWorkspaceMember(userId, thread.workspaceId)
+  return thread
+}
+
+// Minimal linked-issue projection for the escalation chip. Web resolves the
+// live row from Electric; natives read this from the tRPC response.
+async function loadLinkedIssue(linkedIssueId: string | null) {
+  if (!linkedIssueId) return null
+  const [issue] = await db
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+      title: issues.title,
+      status: issues.status,
+      projectId: issues.projectId,
+    })
+    .from(issues)
+    .where(eq(issues.id, linkedIssueId))
+    .limit(1)
+  return issue ?? null
 }
 
 export const helpdeskRouter = router({
-  // The inbox list: one row per thread across the workspace's helpdesk
-  // projects (optionally narrowed to one), filtered open/resolved via the
-  // underlying issue status, newest activity first. `unread` = the reporter
-  // spoke last — there is no per-member read state in the MVP.
+  // The inbox list: one row per ticket in the workspace, filtered
+  // open/resolved by the thread's own status, newest activity first.
+  // `unread` = the reporter spoke last — there is no per-member read state.
   listThreads: authedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        projectId: z.string().uuid().optional(),
         filter: z.enum([`open`, `resolved`]).default(`open`),
       })
     )
     .query(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
 
-      const statusFilter =
-        input.filter === `resolved`
-          ? inArray(issues.status, [...RESOLVED_STATUSES])
-          : inArray(issues.status, [`backlog`, `todo`, `in_progress`, `in_review`])
-
       const rows = await ctx.db
         .select({
           id: supportThreads.id,
-          issueId: supportThreads.issueId,
-          projectId: supportThreads.projectId,
+          workspaceId: supportThreads.workspaceId,
+          title: supportThreads.title,
+          status: supportThreads.status,
+          linkedIssueId: supportThreads.linkedIssueId,
           reporterEmail: supportThreads.reporterEmail,
           reporterName: supportThreads.reporterName,
           lastReporterSeenAt: supportThreads.lastReporterSeenAt,
           createdAt: supportThreads.createdAt,
           updatedAt: supportThreads.updatedAt,
-          issueIdentifier: issues.identifier,
-          issueTitle: issues.title,
-          issueStatus: issues.status,
-          projectName: projects.name,
         })
         .from(supportThreads)
-        .innerJoin(issues, eq(issues.id, supportThreads.issueId))
-        .innerJoin(projects, eq(projects.id, supportThreads.projectId))
         .where(
           and(
-            eq(projects.workspaceId, input.workspaceId),
-            input.projectId
-              ? eq(supportThreads.projectId, input.projectId)
-              : undefined,
-            statusFilter
+            eq(supportThreads.workspaceId, input.workspaceId),
+            eq(
+              supportThreads.status,
+              input.filter === `resolved` ? `resolved` : `open`
+            )
           )
         )
         .orderBy(desc(supportThreads.updatedAt))
@@ -120,7 +120,7 @@ export const helpdeskRouter = router({
   getThread: authedProcedure
     .input(z.object({ threadId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { thread } = await loadThreadForMember(
+      const thread = await loadThreadForMember(
         ctx.session.user.id,
         input.threadId
       )
@@ -129,22 +129,11 @@ export const helpdeskRouter = router({
         .from(supportMessages)
         .where(eq(supportMessages.threadId, thread.id))
         .orderBy(supportMessages.createdAt)
-      const [issue] = await ctx.db
-        .select({
-          id: issues.id,
-          identifier: issues.identifier,
-          title: issues.title,
-          status: issues.status,
-          priority: issues.priority,
-          assigneeId: issues.assigneeId,
-        })
-        .from(issues)
-        .where(eq(issues.id, thread.issueId))
-        .limit(1)
+      const linkedIssue = await loadLinkedIssue(thread.linkedIssueId)
       // The magic-link token is the reporter's credential — it is never
       // stored (recomputed per outbound email) and must never reach a
       // member's browser.
-      return { thread, messages, issue: issue ?? null }
+      return { thread, messages, linkedIssue }
     }),
 
   // Public reply: insert the outbound message and email the reporter with the
@@ -156,7 +145,7 @@ export const helpdeskRouter = router({
       z.object({ threadId: z.string().uuid(), body: messageBodySchema })
     )
     .mutation(async ({ ctx, input }) => {
-      const { thread } = await loadThreadForMember(
+      const thread = await loadThreadForMember(
         ctx.session.user.id,
         input.threadId
       )
@@ -166,7 +155,6 @@ export const helpdeskRouter = router({
           .insert(supportMessages)
           .values({
             threadId: thread.id,
-            issueId: thread.issueId,
             authorUserId: ctx.session.user.id,
             direction: `outbound`,
             visibility: `public`,
@@ -180,10 +168,10 @@ export const helpdeskRouter = router({
         return inserted
       })
 
-      const [projectRow] = await ctx.db
-        .select({ name: projects.name })
-        .from(projects)
-        .where(eq(projects.id, thread.projectId))
+      const [workspaceRow] = await ctx.db
+        .select({ name: workspaces.name })
+        .from(workspaces)
+        .where(eq(workspaces.id, thread.workspaceId))
         .limit(1)
 
       // Email outside the transaction; a failed send never loses the message.
@@ -192,7 +180,7 @@ export const helpdeskRouter = router({
       try {
         const result = await sendSupportReplyEmail({
           to: thread.reporterEmail,
-          projectName: projectRow?.name ?? `the team`,
+          projectName: workspaceRow?.name ?? `the team`,
           replyText: input.body,
           threadUrl: supportThreadUrl(mintSupportToken(thread.id)),
         })
@@ -201,7 +189,7 @@ export const helpdeskRouter = router({
           .values({
             userId: null,
             toEmail: thread.reporterEmail,
-            issueId: thread.issueId,
+            issueId: null,
             kind: `support_reply`,
             status: result.delivered ? `sent` : `failed`,
             provider: result.provider,
@@ -229,7 +217,7 @@ export const helpdeskRouter = router({
       z.object({ threadId: z.string().uuid(), body: messageBodySchema })
     )
     .mutation(async ({ ctx, input }) => {
-      const { thread } = await loadThreadForMember(
+      const thread = await loadThreadForMember(
         ctx.session.user.id,
         input.threadId
       )
@@ -237,7 +225,6 @@ export const helpdeskRouter = router({
         .insert(supportMessages)
         .values({
           threadId: thread.id,
-          issueId: thread.issueId,
           authorUserId: ctx.session.user.id,
           direction: `outbound`,
           visibility: `internal`,
@@ -247,107 +234,122 @@ export const helpdeskRouter = router({
       return { message }
     }),
 
-  // Close: terminal issue status + revoke the magic link (transcript stays
-  // readable, replies rejected). Delegates status semantics to the same
-  // derivations issues.update applies.
+  // Close: resolve the ticket + revoke the magic link (transcript stays
+  // readable, replies rejected). A linked escalated issue is deliberately
+  // untouched — its lifecycle is the board's business.
   close: authedProcedure
     .input(z.object({ threadId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { thread, workspaceId } = await loadThreadForMember(
+      const thread = await loadThreadForMember(
         ctx.session.user.id,
         input.threadId
       )
-      const result = await ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        const [current] = await tx
-          .select({ status: issues.status })
-          .from(issues)
-          .where(eq(issues.id, thread.issueId))
-          .limit(1)
-        if (!current) {
-          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
-        }
-        let statusChange: { from: string; to: string } | null = null
-        if (
-          !(RESOLVED_STATUSES as readonly string[]).includes(current.status)
-        ) {
-          await tx
-            .update(issues)
-            .set({ status: `done`, completedAt: new Date() })
-            .where(eq(issues.id, thread.issueId))
-          await recordIssueEvent(tx, {
-            issueId: thread.issueId,
-            workspaceId,
-            actorUserId: ctx.session.user.id,
-            type: `status_changed`,
-            payload: { from: current.status, to: `done` },
-          })
-          statusChange = { from: current.status, to: `done` }
-        }
-        await revokeThreadToken(tx, thread.id)
-        return { txId, statusChange }
+      await ctx.db.transaction(async (tx) => {
+        await closeThreadInTx(tx, thread.id)
       })
-      if (result.statusChange) {
-        fireAndForgetStatusChangeNotify({
-          issueId: thread.issueId,
-          actorUserId: ctx.session.user.id,
-          fromStatus: result.statusChange.from,
-          toStatus: result.statusChange.to,
-        })
-        fireAndForgetReporterResolution({
-          issueId: thread.issueId,
-          toStatus: result.statusChange.to,
-        })
-      }
-      return { ok: true as const, txId: result.txId }
+      return { ok: true as const }
     }),
 
-  // Reopen: issue back to todo + reinstate the revoked magic link — the
+  // Reopen: ticket back to open + reinstate the revoked magic link — the
   // reporter's existing emails work again (the token never changes).
   reopen: authedProcedure
     .input(z.object({ threadId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { thread, workspaceId } = await loadThreadForMember(
+      const thread = await loadThreadForMember(
         ctx.session.user.id,
         input.threadId
       )
-      const result = await ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        const [current] = await tx
-          .select({ status: issues.status })
-          .from(issues)
-          .where(eq(issues.id, thread.issueId))
-          .limit(1)
-        if (!current) {
-          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
-        }
-        let statusChange: { from: string; to: string } | null = null
-        if ((RESOLVED_STATUSES as readonly string[]).includes(current.status)) {
-          await tx
-            .update(issues)
-            .set({ status: `todo`, completedAt: null, duplicateOfId: null })
-            .where(eq(issues.id, thread.issueId))
-          await recordIssueEvent(tx, {
-            issueId: thread.issueId,
-            workspaceId,
-            actorUserId: ctx.session.user.id,
-            type: `status_changed`,
-            payload: { from: current.status, to: `todo` },
-          })
-          statusChange = { from: current.status, to: `todo` }
-        }
-        // The reporter's existing link starts accepting replies again.
-        await reinstateThreadToken(tx, thread.id)
-        return { txId, statusChange }
+      await ctx.db.transaction(async (tx) => {
+        await reopenThreadInTx(tx, thread.id)
       })
-      if (result.statusChange) {
-        fireAndForgetStatusChangeNotify({
-          issueId: thread.issueId,
-          actorUserId: ctx.session.user.id,
-          fromStatus: result.statusChange.from,
-          toStatus: result.statusChange.to,
+      return { ok: true as const }
+    }),
+
+  // Escalate: file an ordinary issue on a board of this workspace and link it
+  // to the ticket. The issue is a normal tracker citizen from then on (its
+  // status never mirrors the thread's). One escalation per ticket.
+  escalate: authedProcedure
+    .input(
+      z.object({
+        threadId: z.string().uuid(),
+        projectId: z.string().uuid(),
+        title: z.string().trim().min(1).max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const thread = await loadThreadForMember(
+        ctx.session.user.id,
+        input.threadId
+      )
+      if (thread.linkedIssueId) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This ticket already has a linked issue`,
         })
       }
-      return { ok: true as const, txId: result.txId }
+      const project = await getProjectWorkspaceId(input.projectId)
+      if (project.workspaceId !== thread.workspaceId) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Board must belong to the ticket's workspace`,
+        })
+      }
+
+      // The escalated issue opens with the reporter's opening message as its
+      // description (plain text is valid GFM) plus a provenance line.
+      const [opening] = await ctx.db
+        .select({ body: supportMessages.body })
+        .from(supportMessages)
+        .where(eq(supportMessages.threadId, thread.id))
+        .orderBy(supportMessages.createdAt)
+        .limit(1)
+      const reporter =
+        thread.reporterName?.trim() || thread.reporterEmail || `a reporter`
+      const description = [
+        opening?.body ?? ``,
+        ``,
+        `---`,
+        ``,
+        `Escalated from a support ticket from ${reporter}.`,
+      ]
+        .join(`\n`)
+        .trim()
+
+      // EXP-50 parity with issues.create: solo workspaces default-assign
+      // their only human member.
+      const assigneeId = await getSoleHumanMemberId(thread.workspaceId)
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [issue] = await tx
+          .insert(issues)
+          .values({
+            projectId: input.projectId,
+            title: input.title ?? thread.title,
+            status: `backlog`,
+            priority: `none`,
+            assigneeId,
+            description,
+            creatorId: ctx.session.user.id,
+          })
+          .returning({
+            id: issues.id,
+            identifier: issues.identifier,
+            title: issues.title,
+          })
+        await ensureSubscribed(tx, {
+          issueId: issue.id,
+          userId: ctx.session.user.id,
+          workspaceId: thread.workspaceId,
+          source: `creator`,
+        })
+        await tx
+          .update(supportThreads)
+          .set({ linkedIssueId: issue.id, updatedAt: new Date() })
+          .where(eq(supportThreads.id, thread.id))
+        return { issue, txId }
+      })
+
+      return result
     }),
 })

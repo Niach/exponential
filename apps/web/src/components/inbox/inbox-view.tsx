@@ -7,6 +7,7 @@ import {
   CircleDot,
   GitMerge,
   GitPullRequest,
+  LifeBuoy,
   MessageSquare,
   MessageSquarePlus,
   UserPlus,
@@ -31,6 +32,7 @@ const typeIcon: Record<string, typeof Bell> = {
   issue_status_changed: CircleDot,
   pr_opened: GitPullRequest,
   pr_merged: GitMerge,
+  support_reply: LifeBuoy,
 }
 
 function relativeTime(value: Date | string): string {
@@ -44,11 +46,31 @@ function relativeTime(value: Date | string): string {
   return `${Math.round(hrs / 24)}d`
 }
 
+type IssueGroup = {
+  kind: `issue`
+  issue: Issue
+  project: Project
+  workspaceSlug: string
+  items: Notification[]
+  unread: number
+}
+
+// Issue-less support_reply notifications (EXP-180: support threads are
+// standalone; legacy issue-anchored rows keep flowing through the issue
+// grouping above). One synthetic group linking to the Support inbox.
+type SupportGroup = {
+  kind: `support`
+  items: Notification[]
+  unread: number
+}
+
+type Group = IssueGroup | SupportGroup
+
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
 // no composition, no actor avatar). Reviewing open PRs moved to the
 // dedicated Reviews page.
-export function InboxView() {
+export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
   // The notifications shape is scoped to the current user, NOT to a
   // workspace — the stream spans all the user's workspaces (matching the
   // user-wide sidebar unread badge and "Mark all read").
@@ -81,37 +103,45 @@ export function InboxView() {
     [workspaces]
   )
 
-  // Group notifications by issue, newest first, tracking unread count. Each
+  // Group notifications by issue (newest first, tracking unread count), plus
+  // ONE synthetic Support group for issue-less support_reply rows. Each issue
   // group links into the issue's OWN workspace — linking with the current
   // route's slug would dead-end for issues from other workspaces.
-  const groups = useMemo(() => {
-    const byIssue = new Map<
-      string,
-      {
-        issue: Issue
-        project: Project
-        workspaceSlug: string
-        items: Notification[]
-        unread: number
-      }
-    >()
+  const groups = useMemo<Group[]>(() => {
+    const byIssue = new Map<string, IssueGroup>()
+    const support: SupportGroup = { kind: `support`, items: [], unread: 0 }
     for (const n of (notifications ?? []) as Notification[]) {
-      if (!n.issueId) continue
+      if (!n.issueId) {
+        if (n.type === `support_reply`) {
+          support.items.push(n)
+          if (!n.readAt) support.unread += 1
+        }
+        continue
+      }
       const issue = issueMap.get(n.issueId)
       if (!issue) continue
       const project = projectMap.get(issue.projectId)
       if (!project) continue
-      const workspaceSlug = workspaceSlugMap.get(project.workspaceId)
-      if (!workspaceSlug) continue
+      const slug = workspaceSlugMap.get(project.workspaceId)
+      if (!slug) continue
       let g = byIssue.get(n.issueId)
       if (!g) {
-        g = { issue, project, workspaceSlug, items: [], unread: 0 }
+        g = {
+          kind: `issue`,
+          issue,
+          project,
+          workspaceSlug: slug,
+          items: [],
+          unread: 0,
+        }
         byIssue.set(n.issueId, g)
       }
       g.items.push(n)
       if (!n.readAt) g.unread += 1
     }
-    return [...byIssue.values()].sort(
+    const all: Group[] = [...byIssue.values()]
+    if (support.items.length > 0) all.push(support)
+    return all.sort(
       (a, b) =>
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
@@ -156,6 +186,45 @@ export function InboxView() {
         ) : (
           groups.map((g) => {
             const latest = g.items[0]
+            if (g.kind === `support`) {
+              return (
+                <Link
+                  key="support"
+                  to="/t/$workspaceSlug/support"
+                  params={{ workspaceSlug }}
+                  onClick={() => void markGroupRead(g.items)}
+                  className={cn(
+                    `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
+                    g.unread === 0 && `opacity-60`
+                  )}
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <LifeBuoy className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          `truncate text-sm`,
+                          g.unread > 0 && `font-medium`
+                        )}
+                      >
+                        Support
+                      </span>
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {relativeTime(latest.createdAt)}
+                      </span>
+                      {g.unread > 0 && (
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {latest.title}
+                    </div>
+                  </div>
+                </Link>
+              )
+            }
             const Icon = typeIcon[latest.type] ?? Bell
             return (
               <Link

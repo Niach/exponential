@@ -5,10 +5,9 @@ import GRDB
 // these rules too — the helper exists so the UI can disable controls a viewer
 // can't change instead of bouncing them on submit.
 //
-// Public boards moved to a per-project `type='feedback'`; workspace membership
-// is once again a simple binary (no self-service public join), so the old
-// "privileged member" / public-workspace special cases collapse: any member is
-// a moderator and can create/mutate.
+// Workspace membership is a simple invite-only binary (no self-service join),
+// so there are no "privileged member" / public-workspace special cases: any
+// member is a moderator and can create/mutate.
 public struct WorkspacePermissions: Sendable {
     public let isAuthed: Bool
     public let isMember: Bool

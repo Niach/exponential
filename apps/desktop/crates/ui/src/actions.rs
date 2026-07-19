@@ -3,7 +3,7 @@
 //! Phase-3 state: the navigation actions are handled by App-global listeners
 //! registered in [`crate::navigation::init`] (they resolve the active window
 //! and swap the center screen — §4.2). Dialog/sheet actions (create
-//! project/workspace, search, feedback) get their handlers with their
+//! project/workspace, search) get their handlers with their
 //! dialogs; the account ones (`SignOut`) were wired in Phase 2. Every chrome
 //! affordance dispatches a typed action, never an inline closure doing view
 //! surgery, so the §3.6 keymap/menubar can bind them.
@@ -28,8 +28,6 @@ actions!(
         /// Board filter bar "New Issue" (§4.2): open the create-issue dialog
         /// (handler lands with the dialog).
         NewIssue,
-        /// Sidebar footer: send feedback.
-        SendFeedback,
         /// Workspace picker: create a new workspace.
         CreateWorkspace,
         /// Footer account dropdown: open settings.

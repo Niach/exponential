@@ -11,15 +11,12 @@ import {
   assertProjectMember,
   resolveWorkspaceAccess,
   assertWorkspaceOwner,
-  invalidatePublicProjectCache,
 } from "@/lib/workspace-membership"
-import { invalidatePublicMetaCache } from "@/lib/seo/public-meta"
 import type { db } from "@/db/connection"
 import {
   assertCanManageRepos,
   connectRepositoryInTx,
 } from "@/lib/trpc/repositories"
-import { assertCanUseHelpdesk } from "@/lib/billing"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -109,13 +106,7 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // Public-board switch: anonymously readable feedback board.
-        isPublic: z.boolean().optional(),
         icon: projectIconSchema.nullish(),
-        // Anonymous-visitor visibility toggles (public boards only; inert on
-        // private projects).
-        publicShowComments: z.boolean().optional(),
-        publicShowActivity: z.boolean().optional(),
         // Always optional (coding features gate on repo presence). Either
         // target an existing registry repo or connect one inline in the same
         // transaction (onboarding/create dialogs stay a single call).
@@ -128,7 +119,6 @@ export const projectsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
-      const isPublic = input.isPublic ?? false
       const repositoryInput = input.repository
       const inlineConnect =
         repositoryInput != null && `fullName` in repositoryInput
@@ -138,12 +128,6 @@ export const projectsRouter = router({
         // every tier now (v5 per-seat model), so there is no plan cap here.
         await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
       }
-      if (isPublic) {
-        // Flipping content public is a privacy-significant act — owner-only,
-        // mirroring the update path. (Free on every tier — no plan gate.)
-        await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
-      }
-
       // Symbol/emoji-only names slugify to `` — fall back to the (alphanumeric)
       // prefix, then a generic root, mirroring workspaces' uniqueSlug fallback,
       // so a project can never insert the unroutable slug '' (EXP-46).
@@ -178,10 +162,7 @@ export const projectsRouter = router({
               slug,
               prefix: input.prefix.toUpperCase(),
               color: input.color ?? `#6366f1`,
-              isPublic,
               icon: input.icon ?? null,
-              publicShowComments: input.publicShowComments ?? true,
-              publicShowActivity: input.publicShowActivity ?? false,
               repositoryId,
             })
             .returning()
@@ -213,7 +194,6 @@ export const projectsRouter = router({
         throw error
       }
 
-      if (isPublic) invalidatePublicProjectCache()
       return result
     }),
 
@@ -239,7 +219,7 @@ export const projectsRouter = router({
       )
 
       // Protected projects (the dogfood board) keep their repo — mirrors the
-      // delete/archive/retype guards.
+      // delete/archive guards.
       const [current] = await ctx.db
         .select({ isProtected: projects.isProtected })
         .from(projects)
@@ -280,12 +260,7 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // Public-board switch: anonymously readable feedback board.
-        isPublic: z.boolean().optional(),
         icon: projectIconSchema.nullable().optional(),
-        publicShowComments: z.boolean().optional(),
-        publicShowActivity: z.boolean().optional(),
-        helpdeskEnabled: z.boolean().optional(),
         archivedAt: z
           .string()
           .datetime()
@@ -296,49 +271,33 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
-      const isPublicUpdate = updates.isPublic
 
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
-      // Archiving, publicness flips, public-visibility toggles and the
-      // helpdesk switch are privacy/structure-significant —
-      // workspace-owner-only. Name/color/icon stay member-editable.
-      const ownerGated =
-        Object.hasOwn(updates, `archivedAt`) ||
-        isPublicUpdate !== undefined ||
-        updates.publicShowComments !== undefined ||
-        updates.publicShowActivity !== undefined ||
-        updates.helpdeskEnabled !== undefined
+      // Archiving is structure-significant — workspace-owner-only.
+      // Name/color/icon stay member-editable.
+      const ownerGated = Object.hasOwn(updates, `archivedAt`)
       if (ownerGated) {
         await assertWorkspaceOwner(
           ctx.session.user.id,
           projectRecord.workspaceId
         )
       }
-      // The helpdesk is Pro+ on cloud; disabling is always allowed (a
-      // downgraded workspace must be able to turn it off).
-      if (updates.helpdeskEnabled === true) {
-        await assertCanUseHelpdesk(projectRecord.workspaceId)
-      }
 
       const [current] = await ctx.db
-        .select({
-          isProtected: projects.isProtected,
-          isPublic: projects.isPublic,
-        })
+        .select({ isProtected: projects.isProtected })
         .from(projects)
         .where(eq(projects.id, id))
         .limit(1)
 
-      // Protected projects (the dogfood board) can't be archived or have
-      // their publicness flipped; name/color/icon stay editable.
-      const attemptsArchiveOrFlip =
-        (Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null) ||
-        (isPublicUpdate !== undefined && isPublicUpdate !== current?.isPublic)
-      if (attemptsArchiveOrFlip && current?.isProtected) {
+      // Protected projects (the dogfood board) can't be archived;
+      // name/color/icon stay editable.
+      const attemptsArchive =
+        Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null
+      if (attemptsArchive && current?.isProtected) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `This project is protected and cannot be archived or have its visibility changed`,
+          message: `This project is protected and cannot be archived`,
         })
       }
 
@@ -347,12 +306,6 @@ export const projectsRouter = router({
         .set(updates)
         .where(eq(projects.id, id))
         .returning()
-
-      // Type/toggle/archive changes can alter the instance's public surface.
-      if (ownerGated) {
-        invalidatePublicProjectCache()
-        invalidatePublicMetaCache()
-      }
 
       return { project }
     }),
@@ -402,8 +355,6 @@ export const projectsRouter = router({
           )
         return { ok: true as const, txId }
       })
-      invalidatePublicProjectCache()
-      invalidatePublicMetaCache()
       return result
     }),
 
@@ -442,8 +393,6 @@ export const projectsRouter = router({
         }
         return { ok: true as const, txId }
       })
-      invalidatePublicProjectCache()
-      invalidatePublicMetaCache()
       return result
     }),
 
@@ -462,7 +411,6 @@ export const projectsRouter = router({
           prefix: projects.prefix,
           color: projects.color,
           icon: projects.icon,
-          isPublic: projects.isPublic,
           repositoryId: projects.repositoryId,
           deletedAt: projects.deletedAt,
         })

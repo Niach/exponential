@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getPublicProjectScope,
   getUserProjectIds,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
@@ -19,8 +18,8 @@ export const Route = createFileRoute(`/api/shapes/issue-labels`)({
             const projectIds = await getUserProjectIds(userId)
             return buildWhereClause(`project_id`, projectIds)
           }
-          const scope = await getPublicProjectScope()
-          return buildWhereClause(`project_id`, scope.projectIds)
+          // Anonymous callers sync nothing (impossible-match sentinel).
+          return buildWhereClause(`project_id`, [])
         },
       }),
     },

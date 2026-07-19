@@ -19,9 +19,9 @@ import {
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 import {
   assertWorkspaceOwner,
-  getPublicProjectScope,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
+import { assertCanUseHelpdesk } from "@/lib/billing"
 import {
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForWorkspaces,
@@ -133,19 +133,26 @@ export const workspacesRouter = router({
       })
     }),
 
-  // Workspaces are always private (v7) — publicness lives on projects
-  // (type='feedback'), so there are no visibility flags to update here.
+  // Workspaces are always private — there are no visibility flags here.
+  // `helpdeskEnabled` is the workspace-level helpdesk switch (owner-only like
+  // every field on this procedure; ENABLING is plan-gated, disabling is
+  // always allowed).
   update: authedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
+        helpdeskEnabled: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
       await assertWorkspaceOwner(ctx.session.user.id, id)
+
+      if (updates.helpdeskEnabled === true) {
+        await assertCanUseHelpdesk(id)
+      }
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -219,13 +226,9 @@ export const workspacesRouter = router({
       return result
     }),
 
-  // Public read of minimal workspace metadata by slug. Used by the route guard
-  // to decide whether anonymous viewing is permitted (`hasPublicBoard`: the
-  // workspace hosts at least one public feedback-board project). `membership`
-  // is the caller's role, null for anonymous callers and non-members — a
-  // non-member of a board-hosting workspace gets the anonymous read-only view
-  // (there is no join gate since v7). Returns NOT_FOUND for workspaces the
-  // caller can't see at all, to avoid leaking existence.
+  // Member-only read of minimal workspace metadata by slug (used by the web
+  // route guard). Returns NOT_FOUND for non-members and anonymous callers
+  // alike, to avoid leaking existence.
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(255) }))
     .query(async ({ ctx, input }) => {
@@ -244,17 +247,14 @@ export const workspacesRouter = router({
         throw new TRPCError({ code: `NOT_FOUND` })
       }
 
-      const scope = await getPublicProjectScope()
-      const hasPublicBoard = scope.workspaceIds.includes(workspace.id)
-
       const userId = ctx.session?.user?.id
       const member = userId
         ? await getWorkspaceMember(userId, workspace.id)
         : undefined
 
-      if (!hasPublicBoard && !member) {
+      if (!member) {
         throw new TRPCError({ code: `NOT_FOUND` })
       }
-      return { ...workspace, hasPublicBoard, membership: member?.role ?? null }
+      return { ...workspace, membership: member.role }
     }),
 })

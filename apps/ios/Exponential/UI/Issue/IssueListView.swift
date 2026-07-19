@@ -5,8 +5,8 @@ import GRDB
 
 struct IssueListView: View {
     let projectId: String
-    /// False when pushed on a bar-less surface (Settings → feedback board,
-    /// where MainNavigator hides the floating tab bar): no clearance then.
+    /// False when pushed on a bar-less surface (where MainNavigator hides the
+    /// floating tab bar): no clearance then.
     var showsTabBarClearance = true
 
     @Environment(AppDependencies.self) private var deps

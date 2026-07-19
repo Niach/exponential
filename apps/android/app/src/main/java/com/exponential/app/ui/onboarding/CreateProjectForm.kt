@@ -25,7 +25,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,8 +42,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ProjectRepositoryChoice
 import com.exponential.app.ui.components.ProjectIconGlyphs
-import com.exponential.app.ui.components.ProjectTemplate
-import com.exponential.app.ui.components.ProjectTemplates
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
@@ -68,18 +65,15 @@ private fun derivePrefix(name: String): String =
         .uppercase()
         .take(5)
 
-// Reusable create-project form. Since the project-type collapse (EXP-121) every
-// project is the same shape: a template quickstart pre-sets the public toggle,
-// the stored icon and whether the repo section leads — then one form (name,
-// prefix, color, icon, optional repository, public toggle). A repository is
-// ALWAYS optional; coding/PR affordances gate on its presence, never on type.
-// The create call sends `isPublic` + `icon` (not the legacy `type`). Owns its
-// own [CreateProjectViewModel] for repo loading + the create call.
+// Reusable create-project form: one plain form of name, prefix, color, icon
+// and an ALWAYS-optional repository (coding/PR affordances gate on its
+// presence, never on a type). The create call sends `icon` (not the legacy
+// `type`). Owns its own [CreateProjectViewModel] for repo loading + the
+// create call.
 //
 // `minimal` (the onboarding wizard, per the shared iOS/Android onboarding spec)
-// reduces the form to template + name + repository: the prefix keeps
-// auto-deriving from the name, the color/icon stay at the template default and
-// the public toggle is hidden — all editable later.
+// reduces the form to name + icon + repository: the prefix keeps auto-deriving
+// from the name and the color stays at the default — all editable later.
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateProjectForm(
@@ -98,17 +92,11 @@ fun CreateProjectForm(
     // Once the user hand-edits the prefix, stop auto-deriving from the name.
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(DEFAULT_COLOR) }
-    // The selected template only seeds isPublic/icon/repo-visibility; those are
-    // then independently editable, so they live in their own state.
-    var template by remember { mutableStateOf(ProjectTemplates.first()) }
-    var isPublic by remember { mutableStateOf(template.isPublic) }
-    var iconName by remember { mutableStateOf(template.iconName) }
-    var showRepo by remember { mutableStateOf(template.suggestsRepo) }
+    var iconName by remember { mutableStateOf("square-kanban") }
     var repository by remember { mutableStateOf<ProjectRepositoryChoice?>(null) }
 
     LaunchedEffect(workspaceId) {
         viewModel.loadRepos(workspaceId)
-        viewModel.observeIsOwner(workspaceId)
     }
 
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -116,25 +104,6 @@ fun CreateProjectForm(
     val canCreate = name.isNotBlank() && prefix.isNotBlank() && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Start from", style = MaterialTheme.typography.labelMedium, color = secondary)
-            ProjectTemplates.forEach { info ->
-                ProjectTemplateCard(
-                    info = info,
-                    selected = info === template,
-                    // Public-board templates are owner-only on the server —
-                    // disabled with a hint for non-owners (EXP-133).
-                    enabled = !info.isPublic || state.isOwner,
-                    onClick = {
-                        template = info
-                        isPublic = info.isPublic
-                        iconName = info.iconName
-                        showRepo = info.suggestsRepo
-                    },
-                )
-            }
-        }
-
         OutlinedTextField(
             value = name,
             onValueChange = {
@@ -187,91 +156,68 @@ fun CreateProjectForm(
                     }
                 }
             }
+        }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ProjectIconGlyphs.forEach { (glyphName, glyph) ->
-                        val selected = glyphName == iconName
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .border(
-                                    if (selected) 2.dp else 1.dp,
-                                    if (selected) parseColor(color)
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-                                    RoundedCornerShape(10.dp),
-                                )
-                                .clickable { iconName = glyphName },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                glyph,
-                                contentDescription = glyphName,
-                                tint = if (selected) parseColor(color)
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                modifier = Modifier.size(20.dp),
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ProjectIconGlyphs.forEach { (glyphName, glyph) ->
+                    val selected = glyphName == iconName
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(
+                                if (selected) 2.dp else 1.dp,
+                                if (selected) parseColor(color)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                                RoundedCornerShape(10.dp),
                             )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Repository is optional on every project. The section leads for the Dev
-        // template; other templates can reveal it with the connect button.
-        if (showRepo) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Repository (optional)", style = MaterialTheme.typography.labelMedium, color = secondary)
-                // A failed registry load must not read as "no repos connected" —
-                // show the error with a retry instead of the selector's empty
-                // state (EXP-46).
-                val reposError = state.reposError
-                if (reposError != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            reposError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
+                            .clickable { iconName = glyphName },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            glyph,
+                            contentDescription = glyphName,
+                            tint = if (selected) parseColor(color)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            modifier = Modifier.size(20.dp),
                         )
-                        TextButton(onClick = { viewModel.loadRepos(workspaceId) }) {
-                            Text("Retry")
-                        }
                     }
-                } else {
-                    RepositorySelector(
-                        accountId = accountId,
-                        workspaceId = workspaceId,
-                        repos = state.repos,
-                        loading = state.loadingRepos,
-                        selection = repository,
-                        onSelect = { repository = it },
-                    )
                 }
-            }
-        } else if (!minimal) {
-            TextButton(onClick = { showRepo = true }) {
-                Text("Connect a GitHub repository")
             }
         }
 
-        if (!minimal) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Public board", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        // Repository is ALWAYS optional on every project.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Repository (optional)", style = MaterialTheme.typography.labelMedium, color = secondary)
+            // A failed registry load must not read as "no repos connected" —
+            // show the error with a retry instead of the selector's empty
+            // state (EXP-46).
+            val reposError = state.reposError
+            if (reposError != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (state.isOwner) "Anyone with the link can read issues and comments."
-                        else "Only team owners can create public boards.",
+                        reposError,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
                     )
+                    TextButton(onClick = { viewModel.loadRepos(workspaceId) }) {
+                        Text("Retry")
+                    }
                 }
-                Spacer(Modifier.width(8.dp))
-                Switch(checked = isPublic, onCheckedChange = { isPublic = it }, enabled = state.isOwner)
+            } else {
+                RepositorySelector(
+                    accountId = accountId,
+                    workspaceId = workspaceId,
+                    repos = state.repos,
+                    loading = state.loadingRepos,
+                    selection = repository,
+                    onSelect = { repository = it },
+                )
             }
         }
 
@@ -290,10 +236,8 @@ fun CreateProjectForm(
 
         Button(
             onClick = {
-                // Repo is optional — send whatever (if any) is selected, only
-                // meaningful while the repo section is shown.
-                val repo = if (showRepo) repository else null
-                viewModel.create(workspaceId, name, prefix, color, isPublic, iconName, repo, onCreated)
+                // Repo is optional — send whatever (if any) is selected.
+                viewModel.create(workspaceId, name, prefix, color, iconName, repository, onCreated)
             },
             enabled = canCreate,
             modifier = Modifier.fillMaxWidth(),
@@ -305,68 +249,6 @@ fun CreateProjectForm(
             } else {
                 Text(submitLabel)
             }
-        }
-    }
-}
-
-// One selectable template card: icon + label + one-line description, with a
-// primary-colored border + check when selected (mirrors the color swatches).
-// A disabled card (owner-only public template shown to a non-owner) renders
-// dimmed, non-clickable, with the owner hint as its description.
-@Composable
-private fun ProjectTemplateCard(
-    info: ProjectTemplate,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val borderColor =
-        if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                if (selected) 2.dp else 1.dp,
-                borderColor,
-                RoundedCornerShape(12.dp),
-            )
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            info.icon,
-            contentDescription = null,
-            tint = if (selected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-            ),
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                info.label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) 1f else TextEmphasis.Tertiary,
-                ),
-            )
-            Text(
-                if (enabled) info.description else "Only team owners can create public boards.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-        if (selected) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
         }
     }
 }

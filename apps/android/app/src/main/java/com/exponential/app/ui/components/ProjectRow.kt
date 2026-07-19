@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,7 +36,7 @@ fun ProjectRow(
     modifier: Modifier = Modifier,
 ) {
     val color = remember(project.color) { parseColor(project.color) }
-    val icon = remember(project.icon, project.isPublic, project.repositoryId) { projectIcon(project) }
+    val icon = remember(project.icon, project.repositoryId) { projectIcon(project) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -62,15 +61,6 @@ fun ProjectRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (project.isPublic) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.Filled.Public,
-                contentDescription = "Public board",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(14.dp),
-            )
-        }
         Spacer(Modifier.width(8.dp))
         Text(
             project.prefix,

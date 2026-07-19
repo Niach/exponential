@@ -59,8 +59,7 @@ const CLOUD_INSTANCE: &str = "https://next.exponential.at";
 /// The effective cloud instance. The compile-time channel is the default, but
 /// `EXP_INSTANCE_URL` overrides it at runtime so the `dev:desktop*` scripts can
 /// retarget local/staging/prod without a recompile (e.g.
-/// `EXP_INSTANCE_URL=http://localhost:3000`). Crate-visible: the feedback
-/// browser fallback targets the cloud `/feedback` page.
+/// `EXP_INSTANCE_URL=http://localhost:3000`).
 pub(crate) fn cloud_instance() -> String {
     match std::env::var("EXP_INSTANCE_URL") {
         Ok(url) if !url.trim().is_empty() => api::login::normalize_instance_url(&url),

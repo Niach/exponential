@@ -8,9 +8,9 @@ import {
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Live "coding now" rows. MEMBER-ONLY: anonymous feedback-board viewers get
-// NOTHING (the anonymous branch's empty id list yields the impossible-match
-// sentinel — zero rows, no 401).
+// Live "coding now" rows. MEMBER-ONLY: anonymous callers get NOTHING (the
+// anonymous branch's empty id list yields the impossible-match sentinel —
+// zero rows, no 401).
 //
 // Members sync sessions in their workspaces that are either batch-scoped
 // (project_id NULL — a batch run spans projects and carries no project

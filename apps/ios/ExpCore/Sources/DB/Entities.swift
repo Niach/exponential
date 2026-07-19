@@ -61,10 +61,10 @@ public struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Iden
         self.updatedAt = updatedAt
     }
 
-    // The public-board machinery moved to a per-project `type` — the workspace
-    // shape no longer carries `is_public` / `public_write_policy`. This decoder
-    // simply ignores any such legacy keys Electric might still deliver during
-    // the one-time shape rotation (unknown keys are dropped by Codable).
+    // The workspace shape no longer carries the long-dropped legacy
+    // `is_public` / `public_write_policy` columns. This decoder simply ignores
+    // any such legacy keys Electric might still deliver during a shape
+    // rotation (unknown keys are dropped by Codable).
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case iconUrl = "icon_url"
@@ -90,21 +90,12 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     // v4: the repo backing this project (server-only `repositories` registry
     // row). Synced ride-along on the projects shape — the uuid resolves to a
     // fullName/defaultBranch via the repositories tRPC API (cached per
-    // workspace). Now nullable at the source too: only `dev` projects require a
-    // repo; `tasks`/`feedback` boards can exist without one.
+    // workspace). Nullable — repos are optional on every project; coding
+    // affordances gate on presence.
     public let repositoryId: String?
-    // The public-board switch. Source of truth for the public/globe badge and
-    // read-only-visitor semantics (the legacy `type` column is gone server-side
-    // — publicness lives here; coding/repo affordances gate on
-    // `repositoryId != nil`).
-    public let isPublic: Bool
     // Curated glyph name (DomainContract.projectIconValues) — nil means fall
     // back to a derived icon. Rendered to an SF Symbol client-side.
     public let icon: String?
-    // Anonymous-visitor visibility toggles — only meaningful on public
-    // boards, inert otherwise.
-    public let publicShowComments: Bool
-    public let publicShowActivity: Bool
     // Server-managed protection flag: a protected project (the bootstrap
     // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
     // the projects shape; clients hide the destructive affordances for it.
@@ -126,10 +117,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         archivedAt: String?,
         githubRepo: String?,
         repositoryId: String?,
-        isPublic: Bool = false,
         icon: String? = nil,
-        publicShowComments: Bool = true,
-        publicShowActivity: Bool = false,
         isProtected: Bool = false,
         previewConfig: String?,
         createdAt: String,
@@ -145,10 +133,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.archivedAt = archivedAt
         self.githubRepo = githubRepo
         self.repositoryId = repositoryId
-        self.isPublic = isPublic
         self.icon = icon
-        self.publicShowComments = publicShowComments
-        self.publicShowActivity = publicShowActivity
         self.isProtected = isProtected
         self.previewConfig = previewConfig
         self.createdAt = createdAt
@@ -162,9 +147,6 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         case archivedAt = "archived_at"
         case githubRepo = "github_repo"
         case repositoryId = "repository_id"
-        case isPublic = "is_public"
-        case publicShowComments = "public_show_comments"
-        case publicShowActivity = "public_show_activity"
         case isProtected = "is_protected"
         case previewConfig = "preview_config"
         case createdAt = "created_at"
@@ -172,10 +154,10 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     }
 }
 
-// Custom Codable: the is_public / icon / public-visibility columns land in a
-// shape rotation; a pre-rotation snapshot (or a partial update touching other
-// columns) may omit them, so decode each permissively with the schema default
-// instead of throwing. Booleans and sort_order come off the Electric wire as
+// Custom Codable: the icon / is_protected columns land in a shape rotation; a
+// pre-rotation snapshot (or a partial update touching other columns) may omit
+// them, so decode each permissively with the schema default instead of
+// throwing. Booleans and sort_order come off the Electric wire as
 // JSON strings (Postgres text — "true"/"false"/"t"/"f"/"1"/"0" for bools,
 // "2"/"3.5" for sort_order) but as native scalars from tRPC/fixtures, so they go
 // through the type-aware wire decoders.
@@ -192,10 +174,7 @@ extension ProjectEntity: Codable {
         archivedAt = try c.decodeIfPresent(String.self, forKey: .archivedAt)
         githubRepo = try c.decodeIfPresent(String.self, forKey: .githubRepo)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
-        isPublic = c.decodeWireBool(forKey: .isPublic, default: false)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        publicShowComments = c.decodeWireBool(forKey: .publicShowComments, default: true)
-        publicShowActivity = c.decodeWireBool(forKey: .publicShowActivity, default: false)
         isProtected = c.decodeWireBool(forKey: .isProtected, default: false)
         previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
         createdAt = try c.decode(String.self, forKey: .createdAt)

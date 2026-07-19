@@ -64,16 +64,12 @@ final class WireDecodingTests: XCTestCase {
         let project = try decode(ProjectEntity.self, #"""
         {
           "id": "p1", "workspace_id": "w1", "name": "P", "slug": "p", "prefix": "P",
-          "sort_order": "2", "is_public": "true", "is_protected": "t",
-          "public_show_comments": "false", "public_show_activity": "f",
+          "sort_order": "2", "is_protected": "t",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)
         XCTAssertEqual(project.sortOrder, 2)
-        XCTAssertTrue(project.isPublic)
         XCTAssertTrue(project.isProtected)
-        XCTAssertFalse(project.publicShowComments)
-        XCTAssertFalse(project.publicShowActivity)
     }
 
     // MARK: - Attachment

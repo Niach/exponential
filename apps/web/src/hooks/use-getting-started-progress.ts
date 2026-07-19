@@ -147,14 +147,18 @@ export function useGettingStartedProgress(
         (project) => project.repositoryId != null
       ),
       hasCodingSession: (sessionRows ?? []).length > 0,
-      hasPublicProject: liveProjects.some((project) => project.isPublic),
-      hasHelpdeskProject: liveProjects.some(
-        (project) => project.isPublic && project.helpdeskEnabled
-      ),
+      helpdeskEnabled: workspace?.helpdeskEnabled === true,
       hasWidget: hasWidget === true,
       mcpConnected: mcpConnected === true,
     }),
-    [githubInstalled, liveProjects, sessionRows, hasWidget, mcpConnected]
+    [
+      githubInstalled,
+      liveProjects,
+      sessionRows,
+      workspace?.helpdeskEnabled,
+      hasWidget,
+      mcpConnected,
+    ]
   )
 
   // Neutral until every signal source has answered — checks/locks that pop in

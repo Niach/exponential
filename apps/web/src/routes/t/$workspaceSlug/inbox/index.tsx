@@ -7,9 +7,10 @@ export const Route = createFileRoute(`/t/$workspaceSlug/inbox/`)({
 })
 
 function InboxPage() {
+  const { workspaceSlug } = Route.useParams()
   const { data: session } = useSession()
 
   if (!session?.user) return null
 
-  return <InboxView />
+  return <InboxView workspaceSlug={workspaceSlug} />
 }

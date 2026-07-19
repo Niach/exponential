@@ -118,12 +118,10 @@ impl TopBar {
         let label: SharedString = active
             .map(|p| SharedString::from(p.name.clone()))
             .unwrap_or_else(|| "Select project".into());
-        // The active project's stored icon (falling back to the legacy
-        // type-derived glyph) drives the leading glyph, color-tinted; the globe
-        // marker keys off publicness. Without an active project fall back to the
-        // neutral color dot.
+        // The active project's stored icon (falling back to the
+        // attribute-derived glyph) drives the leading glyph, color-tinted.
+        // Without an active project fall back to the neutral color dot.
         let type_glyph = active.map(crate::icons::project_icon);
-        let is_public = active.and_then(|p| p.is_public).unwrap_or(false);
 
         // Captured snapshot for the menu builder (menus render lazily in the
         // overlay; they must not read `self`): one group per workspace
@@ -168,7 +166,7 @@ impl TopBar {
                 .into_any_element(),
         };
 
-        let mut trigger_inner = h_flex()
+        let trigger_inner = h_flex()
             .gap_2()
             .items_center()
             .max_w(px(240.))
@@ -183,14 +181,6 @@ impl TopBar {
                     .text_ellipsis()
                     .child(label),
             );
-        if is_public {
-            trigger_inner = trigger_inner.child(
-                crate::icons::public_board_icon()
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            );
-        }
 
         div()
             .flex_shrink_0()

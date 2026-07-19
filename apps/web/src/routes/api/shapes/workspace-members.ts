@@ -5,7 +5,7 @@ import {
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Membership rosters sync only to members. Anonymous public-board viewers get
+// Membership rosters sync only to members. Anonymous callers get
 // NOTHING — a public board must not expose who runs the workspace (user ids +
 // roles), tighter than the old public-workspace behavior.
 export const Route = createFileRoute(`/api/shapes/workspace-members`)({

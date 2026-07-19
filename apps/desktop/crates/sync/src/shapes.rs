@@ -88,10 +88,10 @@ pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "workspaces",
         path: "/api/shapes/workspaces",
-        // Workspaces are always private — no is_public/public_write_policy
-        // (publicness lives on feedback-board projects). A pre-fix install
-        // keeps those as orphaned local TEXT columns (heal_missing_columns is
-        // additive-only); the allowlist drops the keys on upsert.
+        // Workspaces are always private — no is_public/public_write_policy.
+        // A pre-fix install keeps those as orphaned local TEXT columns
+        // (heal_missing_columns is additive-only); the allowlist drops the
+        // keys on upsert.
         columns: &["id", "name", "slug", "icon_url", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
@@ -105,14 +105,13 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "slug",
             "prefix",
             "color",
-            // Nullable repo + publicness/icon + feedback-board visibility
-            // toggles. `heal_missing_columns` ALTERs these onto existing tables
-            // on the next open (all TEXT).
-            "is_public",
+            // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
+            // existing tables on the next open (all TEXT). The dropped
+            // public-board columns (`is_public`/`public_show_*`) linger as
+            // orphaned local TEXT columns on pre-drop installs; the allowlist
+            // drops the keys on upsert.
             "icon",
             "repository_id",
-            "public_show_comments",
-            "public_show_activity",
             // Trash contract: the bootstrap dogfood project is protected —
             // clients disable delete/archive/retype from this synced flag.
             "is_protected",

@@ -46,39 +46,6 @@ public struct DeleteProjectInput: Encodable, Sendable {
     }
 }
 
-public struct GetWorkspaceBySlugInput: Encodable, Sendable {
-    public let slug: String
-
-    public init(slug: String) {
-        self.slug = slug
-    }
-}
-
-/// `workspaces.getBySlug` — the public-aware workspace lookup. Membership-only
-/// sync means a workspace hosting a public feedback board never appears locally
-/// for a non-member, so this resolves it (name/slug/icon) for the board handoff.
-/// `hasPublicBoard` is true when the workspace holds at least one public
-/// (feedback-type) project; `membership` is the caller's role ("owner"/"member")
-/// or nil when not a member. A private workspace the caller can't read comes
-/// back as NOT_FOUND.
-public struct WorkspaceBySlugResult: Decodable, Sendable {
-    public let id: String
-    public let name: String
-    public let slug: String
-    public let iconUrl: String?
-    public let hasPublicBoard: Bool
-    public let membership: String?
-
-    public init(id: String, name: String, slug: String, iconUrl: String? = nil, hasPublicBoard: Bool, membership: String?) {
-        self.id = id
-        self.name = name
-        self.slug = slug
-        self.iconUrl = iconUrl
-        self.hasPublicBoard = hasPublicBoard
-        self.membership = membership
-    }
-}
-
 private struct EmptyInput: Encodable {}
 
 public final class WorkspacesApi: Sendable {
@@ -104,9 +71,5 @@ public final class WorkspacesApi: Sendable {
 
     public func deleteProject(accountId: String, projectId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "projects.delete", input: DeleteProjectInput(projectId: projectId))
-    }
-
-    public func getBySlug(accountId: String, slug: String) async throws -> WorkspaceBySlugResult {
-        try await trpc.query(accountId: accountId, path: "workspaces.getBySlug", input: GetWorkspaceBySlugInput(slug: slug))
     }
 }

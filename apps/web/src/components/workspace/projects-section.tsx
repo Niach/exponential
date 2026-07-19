@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, Globe, LifeBuoy, Pencil, Plus, Trash2 } from "lucide-react"
+import { Github, Pencil, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { getProjectIcon } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
@@ -138,18 +138,6 @@ export function WorkspaceProjectsSection({
                           {repo?.fullName ?? `No repository`}
                         </span>
                       </Badge>
-                    )}
-                    {project.isPublic && (
-                      <Globe
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                        aria-label="Public board"
-                      />
-                    )}
-                    {project.helpdeskEnabled && (
-                      <LifeBuoy
-                        className="h-3.5 w-3.5 shrink-0 text-indigo-400"
-                        aria-label="Helpdesk enabled"
-                      />
                     )}
                     <Badge
                       variant="outline"

@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Locks the v7 issue mutation matrix: membership is the only capability gate
-// (every membership is an explicit invite — the public-workspace self-service
-// join and its moderator clamp are gone). Anonymous feedback-board viewers
-// never reach these predicates: they have no session, and writes arrive only
-// via the widget's server-side service.
+// Locks the issue mutation matrix: membership is the only capability gate
+// (every membership is an explicit invite). Anonymous callers never reach
+// these predicates: they have no session, and writes arrive only via the
+// widget's server-side service.
 
 const h = vi.hoisted(() => {
   const state = {

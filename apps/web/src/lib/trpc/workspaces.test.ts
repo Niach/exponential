@@ -53,8 +53,11 @@ vi.mock(`@/lib/admin`, () => ({
 
 vi.mock(`@/lib/workspace-membership`, () => ({
   assertWorkspaceOwner: vi.fn(async () => ({ role: `owner` })),
-  getPublicProjectScope: vi.fn(async () => null),
   getWorkspaceMember: vi.fn(async () => null),
+}))
+
+vi.mock(`@/lib/billing`, () => ({
+  assertCanUseHelpdesk: vi.fn(async () => {}),
 }))
 
 const FEEDBACK_WS = `99999999-9999-4999-8999-999999999999`

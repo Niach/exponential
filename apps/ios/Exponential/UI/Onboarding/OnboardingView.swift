@@ -77,7 +77,7 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 8)
 
-            Text("Pick a board type to get started — dev boards connect a GitHub repo, task and feedback boards don't.")
+            Text("Create a project to start tracking issues — connect a GitHub repo to code on it.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)

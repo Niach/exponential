@@ -17,7 +17,6 @@ import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import { MentionProvider } from "@/components/mention-provider"
-import { PublicWorkspaceView } from "@/components/public-board/public-board-view"
 import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
 import { AgentDock } from "@/components/agent-dock/agent-dock"
 import {
@@ -47,17 +46,14 @@ export const Route = createFileRoute(`/t/$workspaceSlug`)({
           params: { workspaceSlug: workspace.slug },
         })
       }
-      return { session, user, publicView: false }
+      return { session, user }
     }
 
-    // Public-aware lookup. Members get the normal live app; every other
-    // visitor of a workspace hosting a public feedback board — anonymous OR
-    // signed-in non-member — gets the read-only public view (v7: no join
-    // gate; the widget is the write path). Anything else is NOT_FOUND.
+    // Members-only lookup (EXP-180 removed public boards): getBySlug 404s for
+    // everyone but members, so any failure funnels into the recovery below.
     try {
-      const workspace = await trpc.workspaces.getBySlug.query({ slug })
-      const publicView = workspace.membership === null
-      return { session, user, publicView }
+      await trpc.workspaces.getBySlug.query({ slug })
+      return { session, user }
     } catch (e) {
       const isNotFound =
         e instanceof TRPCClientError && e.data?.code === `NOT_FOUND`
@@ -79,7 +75,7 @@ export const Route = createFileRoute(`/t/$workspaceSlug`)({
 
 function WorkspaceLayout() {
   const { workspaceSlug } = Route.useParams()
-  const { session, user, publicView } = Route.useRouteContext()
+  const { user } = Route.useRouteContext()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -88,12 +84,10 @@ function WorkspaceLayout() {
   const { projectSlug } = useParams({ strict: false })
 
   // EXP-69: remember this device's last-used workspace/project so the root
-  // redirect can jump straight back on the next app entry. Members only —
-  // a read-only public-board visit is not "the user's workspace".
+  // redirect can jump straight back on the next app entry.
   useEffect(() => {
-    if (publicView) return
     rememberLastVisited(workspaceSlug, projectSlug)
-  }, [publicView, workspaceSlug, projectSlug])
+  }, [workspaceSlug, projectSlug])
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (mirrors the Cmd+B sidebar-toggle handler in
@@ -108,19 +102,6 @@ function WorkspaceLayout() {
     window.addEventListener(`keydown`, handleKeyDown)
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
-
-  // Non-members (anonymous or signed-in) see the read-only public board —
-  // their Electric shapes are membership-scoped, so the live tree below would
-  // render an empty shell. The public view fetches through the publicBoard
-  // tRPC router instead and owns the whole subtree (no Outlet).
-  if (publicView) {
-    return (
-      <PublicWorkspaceView
-        workspaceSlug={workspaceSlug}
-        isAuthed={Boolean(session)}
-      />
-    )
-  }
 
   return (
     <SidebarProvider>

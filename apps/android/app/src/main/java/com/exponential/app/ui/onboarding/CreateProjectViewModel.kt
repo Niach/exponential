@@ -11,10 +11,8 @@ import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,11 +42,6 @@ class CreateProjectViewModel @Inject constructor(
         val submitting: Boolean = false,
         val error: String? = null,
         val limitError: String? = null,
-        // Whether the viewer owns the target workspace — the public-board
-        // option is owner-only on the server (projects.create), so the form
-        // disables it with a hint for non-owners. Biased false while the
-        // membership shape loads (disabled-while-loading).
-        val isOwner: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -88,28 +81,6 @@ class CreateProjectViewModel @Inject constructor(
         selection.rememberLastProject(accountId, projectId)
     }
 
-    private var ownerJob: Job? = null
-
-    /** Track whether the viewer owns [workspaceId] (same derivation as
-     * WorkspaceSettingsViewModel.isOwner) — drives the owner-only public
-     * option. Job-managed so a workspace switch drops the old collection. */
-    fun observeIsOwner(workspaceId: String) {
-        ownerJob?.cancel()
-        val accountId = auth.activeAccountId.value ?: return
-        ownerJob = viewModelScope.launch {
-            holder.database(forAccountId = accountId).workspaceMemberDao()
-                .observeByWorkspace(workspaceId)
-                .collect { members ->
-                    val userId = auth.userId.value
-                    _state.value = _state.value.copy(
-                        isOwner = userId != null && members.any {
-                            it.userId == userId && it.role == DomainContract.workspaceRoleOwner
-                        },
-                    )
-                }
-        }
-    }
-
     fun loadRepos(workspaceId: String) {
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
@@ -135,7 +106,6 @@ class CreateProjectViewModel @Inject constructor(
         name: String,
         prefix: String,
         color: String,
-        isPublic: Boolean,
         icon: String,
         repository: ProjectRepositoryChoice?,
         onCreated: (projectId: String) -> Unit,
@@ -151,8 +121,6 @@ class CreateProjectViewModel @Inject constructor(
                     name = name.trim(),
                     prefix = prefix.trim(),
                     color = color,
-                    // Clamped — the server rejects a non-owner's isPublic.
-                    isPublic = isPublic && _state.value.isOwner,
                     icon = icon,
                     repository = repository,
                 )

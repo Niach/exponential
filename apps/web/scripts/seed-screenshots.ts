@@ -173,10 +173,10 @@ async function main() {
     })
     .returning()
 
-  // Two more typed projects (v7) so the project-switcher screenshot shows the
-  // dev / tasks / feedback glyphs side by side. Issue-less on purpose — only
-  // the switcher sheet captures them; sortOrder keeps Mobile App the default
-  // board (the loader picks the first project by sortOrder).
+  // Two more projects so the project-switcher screenshot shows several
+  // glyphs side by side. Issue-less on purpose — only the switcher sheet
+  // captures them; sortOrder keeps Mobile App the default board (the loader
+  // picks the first project by sortOrder).
   await db.insert(projects).values([
     {
       workspaceId: ws.id,
@@ -193,7 +193,6 @@ async function main() {
       slug: `product-feedback`,
       prefix: `FB`,
       color: `#22c55e`,
-      isPublic: true,
       icon: `megaphone`,
       sortOrder: 20,
     },

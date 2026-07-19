@@ -7,8 +7,8 @@ export type EntryKey =
   | `github`
   | `project`
   | `coding`
-  | `feedback-board`
   | `widget`
+  | `helpdesk`
   | `mcp`
 
 export type EntryState = `done` | `available` | `locked`
@@ -22,10 +22,8 @@ export interface GettingStartedSignals {
   hasRepoProject: boolean
   /** Any coding_sessions row in the workspace (running or ended). */
   hasCodingSession: boolean
-  /** Any live public project (feedback board). */
-  hasPublicProject: boolean
-  /** Any live public project with the helpdesk enabled. */
-  hasHelpdeskProject: boolean
+  /** The workspace-level helpdesk switch (workspaces.helpdeskEnabled). */
+  helpdeskEnabled: boolean
   /** widgets.list non-empty (owner-only signal — false for members). */
   hasWidget: boolean
   /** An MCP OAuth grant exists OR the user holds a personal API key. */
@@ -39,21 +37,15 @@ export interface GettingStartedEntry {
   lockedBy?: EntryKey
 }
 
-// A public feedback board's most likely next steps are the feedback track, so
-// it leads there; everywhere else the coding loop comes first.
-export function gettingStartedEntryOrder(projectIsPublic?: boolean): EntryKey[] {
-  return projectIsPublic
-    ? [`feedback-board`, `widget`, `mcp`, `github`, `project`, `coding`]
-    : [`github`, `project`, `coding`, `feedback-board`, `widget`, `mcp`]
-}
-
-// Derive every entry's state. Completion always wins over locking (a signal
-// that exists proves the prereq was satisfiable), and the widget entry is for
-// owners only — widgets.list is an owner-only procedure, so members neither
-// see the entry nor count it in the total.
+// Derive every entry's state, in the single static display order
+// github → project → coding → widget → helpdesk → mcp. Completion always wins
+// over locking (a signal that exists proves the prereq was satisfiable). The
+// widget and helpdesk entries are for owners only — widgets.list and the
+// helpdesk switch are owner-only surfaces, so members neither see those
+// entries nor count them in the total.
 export function deriveEntryStates(
   signals: GettingStartedSignals,
-  { canManageWidgets }: { canManageWidgets: boolean }
+  { canManageWidgets, isOwner }: { canManageWidgets: boolean; isOwner: boolean }
 ): { entries: GettingStartedEntry[]; done: number; total: number } {
   const entries: GettingStartedEntry[] = []
 
@@ -82,11 +74,6 @@ export function deriveEntryStates(
     })
   }
 
-  entries.push({
-    key: `feedback-board`,
-    state: signals.hasPublicProject ? `done` : `available`,
-  })
-
   if (canManageWidgets) {
     if (signals.hasWidget) {
       entries.push({ key: `widget`, state: `done` })
@@ -95,6 +82,13 @@ export function deriveEntryStates(
     } else {
       entries.push({ key: `widget`, state: `locked`, lockedBy: `project` })
     }
+  }
+
+  if (isOwner) {
+    entries.push({
+      key: `helpdesk`,
+      state: signals.helpdeskEnabled ? `done` : `available`,
+    })
   }
 
   entries.push({

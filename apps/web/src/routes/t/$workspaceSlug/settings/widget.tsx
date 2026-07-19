@@ -18,7 +18,7 @@ function SettingsWidget() {
       resolved={resolved}
       allowed={permissions.canManageWidgets}
     >
-      {workspace && <WorkspaceWidgetSection workspaceId={workspace.id} />}
+      {workspace && <WorkspaceWidgetSection workspace={workspace} />}
     </SettingsSectionGuard>
   )
 }

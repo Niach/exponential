@@ -1,10 +1,12 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   emailDeliveries,
   issueSubscribers,
   issues,
   projects,
+  supportMessages,
+  supportThreads,
   users,
   widgetSubmissions,
   workspaceMembers,
@@ -456,48 +458,132 @@ export function fireAndForgetPrNotify(args: {
   })()
 }
 
+// Issue-less sibling of deliver(): the fan-out for events that have no
+// backing issue (standalone helpdesk tickets). Same dedupe-insert shape with
+// `issue_id IS NULL` (the trigger-denormalized project_id stays NULL too, so
+// the notifications shape's `project_id IS NULL` arm keeps these rows synced)
+// and the same push-first delivery; the push payload carries no issue keys —
+// natives route on `type` alone.
+async function deliverToWorkspace(args: {
+  workspaceId: string
+  recipientIds: string[]
+  type: NotificationType
+  title: string
+  body: string | null
+  pushData: Record<string, string>
+}): Promise<void> {
+  const recipients = await deliverableRecipients(args.workspaceId, [
+    ...new Set(args.recipientIds),
+  ])
+  if (recipients.length === 0) return
+
+  const now = new Date()
+
+  const inserted = await db.execute(sql`
+    insert into notifications (user_id, issue_id, type, title, body, pushed_at)
+    select
+      r.user_id,
+      null,
+      ${args.type}::notification_type,
+      ${args.title},
+      ${args.body},
+      ${now}::timestamptz
+    from unnest(${sql.param(recipients)}::text[]) as r(user_id)
+    where not exists (
+      select 1
+      from notifications existing
+      where existing.user_id = r.user_id
+        and existing.issue_id is null
+        and existing.type = ${args.type}::notification_type
+        and existing.title = ${args.title}
+        and existing.body is not distinct from ${args.body}::text
+        and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
+    )
+    returning id, user_id
+  `)
+  const delivered = inserted.rows.map((row) => ({
+    userId: row.user_id as string,
+  }))
+  if (delivered.length === 0) return
+
+  await Promise.all(
+    delivered.map((d) =>
+      sendToUser(d.userId, {
+        title: args.title,
+        body: args.body ?? args.title,
+        data: { type: args.type, ...args.pushData },
+      }).catch((err) => {
+        console.error(`[notify] push to ${d.userId} failed:`, err)
+      })
+    )
+  )
+}
+
 /**
- * Helpdesk: an external reporter replied on a support thread. Broadcast to
- * every human workspace member (mirroring fireAndForgetNewIssueNotify — the
- * inbox is a shared surface and there is no actor to exclude). The preview is
- * reporter-authored UNTRUSTED text: deliver() writes it as a plain string and
- * the digest email escapes bodies, so no extra sanitizing is needed here
- * beyond truncation.
+ * Helpdesk: a new ticket arrived or the external reporter replied. Broadcast
+ * to every human workspace member (the support inbox is a shared surface and
+ * there is no actor to exclude). The preview is reporter-authored UNTRUSTED
+ * text: it is written as a plain string and the digest email escapes bodies,
+ * so no extra sanitizing is needed here beyond truncation.
  */
-export function fireAndForgetSupportNotify(args: {
-  issueId: string
-  reporterName: string | null
-  reporterEmail: string
-  messageBody: string
+export function fireAndForgetSupportThreadNotify(args: {
+  threadId: string
+  kind: `created` | `reply`
 }): void {
   void (async () => {
     try {
-      const issue = await loadIssueMeta(args.issueId)
-      if (!issue) return
+      const [thread] = await db
+        .select({
+          id: supportThreads.id,
+          workspaceId: supportThreads.workspaceId,
+          title: supportThreads.title,
+          reporterName: supportThreads.reporterName,
+          reporterEmail: supportThreads.reporterEmail,
+        })
+        .from(supportThreads)
+        .where(eq(supportThreads.id, args.threadId))
+        .limit(1)
+      if (!thread) return
 
       const memberRows = await db
         .select({ userId: workspaceMembers.userId })
         .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+        .where(eq(workspaceMembers.workspaceId, thread.workspaceId))
       if (memberRows.length === 0) return
 
-      const who = args.reporterName || args.reporterEmail
-      const previewSource = args.messageBody.trim()
+      // Preview: the latest public inbound message (the reporter's words).
+      const [latest] = await db
+        .select({ body: supportMessages.body })
+        .from(supportMessages)
+        .where(
+          and(
+            eq(supportMessages.threadId, thread.id),
+            eq(supportMessages.direction, `inbound`),
+            eq(supportMessages.visibility, `public`)
+          )
+        )
+        .orderBy(desc(supportMessages.createdAt))
+        .limit(1)
+      const previewSource = (latest?.body ?? thread.title).trim()
       const preview =
         previewSource.length > 140
           ? `${previewSource.slice(0, 139)}…`
           : previewSource
 
-      await deliver({
-        issue,
+      const who = thread.reporterName || thread.reporterEmail
+      await deliverToWorkspace({
+        workspaceId: thread.workspaceId,
         recipientIds: memberRows.map((row) => row.userId),
         type: `support_reply`,
-        pushType: `support_reply`,
-        title: `${who} replied on ${issue.identifier}`,
-        body: preview || issue.title,
+        title:
+          args.kind === `created`
+            ? `New support ticket from ${who}`
+            : `${who} replied on a support ticket`,
+        body: preview || thread.title,
+        pushData: { threadId: thread.id },
       })
     } catch (err) {
-      console.error(`[notify] support reply failed:`, err)
+      console.error(`[notify] support ${args.kind} failed:`, err)
     }
   })()
 }

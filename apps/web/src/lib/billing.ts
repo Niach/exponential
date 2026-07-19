@@ -26,8 +26,8 @@ type PlanLimits = {
   seats: number
   // Attachment storage budget per workspace, in megabytes.
   storageMb: number
-  // Feedback-widget configs a workspace may create — a Pro+ feature. Free = 0
-  // (widget gated off entirely), Pro = 1, Business = unlimited.
+  // Feedback-widget configs a workspace may create. Free = 1 (EXP-180),
+  // Pro = 3, Business = unlimited.
   widgetConfigs: number
 }
 
@@ -38,12 +38,12 @@ const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
     seats: 1,
     storageMb: 250,
-    widgetConfigs: 0,
+    widgetConfigs: 1,
   },
   pro: {
     seats: 1,
     storageMb: 5120,
-    widgetConfigs: 1,
+    widgetConfigs: 3,
   },
   business: {
     seats: 1,
@@ -328,18 +328,13 @@ export async function assertCanInviteMember(
   assertSeatAvailable(usage.members, limits.seats)
 }
 
-// Pure widget gate (§3.3(4)): the feedback widget is a Pro+ feature, capped at
-// the tier's widgetConfigs allowance. Exported for unit tests.
+// Pure widget gate: every tier may create widgets, capped at the tier's
+// widgetConfigs allowance (1 on Free). Exported for unit tests.
 export function assertWidgetCreatable(
-  plan: PlanTier,
+  _plan: PlanTier,
   limits: PlanLimits,
   currentCount: number
 ): void {
-  if (plan === `free`) {
-    throw planLimitError(
-      `the feedback widget on Pro and Business plans. Upgrade to add a widget.`
-    )
-  }
   if (currentCount >= limits.widgetConfigs) {
     throw planLimitError(
       `up to ${limits.widgetConfigs} widget config${
@@ -350,7 +345,7 @@ export function assertWidgetCreatable(
 }
 
 // Pure helpdesk gate: the support inbox is a Pro+ feature (no per-tier count —
-// it's a per-project boolean). Exported for unit tests.
+// it's a per-workspace boolean). Exported for unit tests.
 export function assertHelpdeskUsable(plan: PlanTier): void {
   if (plan === `free`) {
     throw planLimitError(
@@ -359,7 +354,7 @@ export function assertHelpdeskUsable(plan: PlanTier): void {
   }
 }
 
-// Helpdesk gate (projects.update helpdesk_enabled flip + support-thread
+// Helpdesk gate (workspaces.update helpdesk_enabled flip + support-thread
 // creation). Self-hosted is unlimited.
 export async function assertCanUseHelpdesk(workspaceId: string): Promise<void> {
   if (!isCloudInstance()) return
