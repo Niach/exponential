@@ -48,8 +48,8 @@ extern "C" {
 pub fn ensure_scheme_registered() {
     let Some(bundle_id) = main_bundle_identifier() else {
         // Unbundled (dev `cargo run`): there is nothing to register. Build and
-        // launch the `.app` (`bun run run:desktop:mac`) for exponential://
-        // routing.
+        // launch the `.app` (`bun run macapp:desktop`, then open it) for
+        // exponential:// routing.
         return;
     };
 
