@@ -1,15 +1,12 @@
 package com.exponential.app.ui.personal
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -25,11 +22,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.inbox.InboxListContent
 import com.exponential.app.ui.inbox.InboxViewModel
 import com.exponential.app.ui.myissues.MyIssuesListContent
-import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 
 /**
  * The personal tab ("My Work", EXP-58): Inbox and My Issues merged into one
@@ -57,36 +53,18 @@ fun PersonalScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "My Work",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
+            // "Mark all read" rides the title row — the iOS top-bar-trailing
+            // placement — now that the segmented control spans full width.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Reserve the TextButton's height even while "Mark all
-                    // read" is hidden so toggling segments never shifts the
-                    // lists below.
-                    .heightIn(min = 40.dp)
-                    .padding(horizontal = 16.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SegmentPill(
-                    label = "Inbox",
-                    // Anything but my_issues renders the inbox (incl. saved
-                    // pre-EXP-147 "reviews" / pre-EXP-180 "support" values) —
-                    // highlight accordingly.
-                    active = section != SECTION_MY_ISSUES,
-                    unread = inboxState.totalUnread,
-                    onClick = { section = SECTION_INBOX },
-                )
-                Spacer(Modifier.width(8.dp))
-                SegmentPill(
-                    label = "My Issues",
-                    active = section == SECTION_MY_ISSUES,
-                    onClick = { section = SECTION_MY_ISSUES },
+                Text(
+                    "My Work",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.weight(1f))
                 if (section != SECTION_MY_ISSUES && inboxState.totalUnread > 0) {
@@ -95,6 +73,17 @@ fun PersonalScreen(
                     }
                 }
             }
+            GlassSegmentedControl(
+                options = listOf(SECTION_INBOX, SECTION_MY_ISSUES),
+                // Anything but my_issues renders the inbox (incl. saved
+                // pre-EXP-147 "reviews" / pre-EXP-180 "support" values) —
+                // highlight accordingly.
+                selected = if (section == SECTION_MY_ISSUES) SECTION_MY_ISSUES else SECTION_INBOX,
+                label = { if (it == SECTION_MY_ISSUES) "My Issues" else "Inbox" },
+                onSelect = { section = it },
+                modifier = Modifier.padding(horizontal = 16.dp),
+                badge = { if (it == SECTION_INBOX) inboxState.totalUnread else 0 },
+            )
             Spacer(Modifier.height(8.dp))
             when (section) {
                 SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
@@ -104,39 +93,6 @@ fun PersonalScreen(
                     viewModel = inboxViewModel,
                 )
             }
-        }
-    }
-}
-
-/** Capsule glass segment (the iOS filter-pill style) with an unread count. */
-@Composable
-private fun SegmentPill(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    unread: Int = 0,
-) {
-    Row(
-        modifier = Modifier
-            .glassButton(active = active)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (active) 1f else TextEmphasis.Secondary,
-            ),
-        )
-        if (unread > 0) {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                unread.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
         }
     }
 }

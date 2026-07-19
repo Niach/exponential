@@ -5,8 +5,8 @@ import SwiftUI
 /// The Support tab (EXP-180): the team helpdesk inbox as its own bottom-bar
 /// destination — a tab that exists only while the active team's synced
 /// `helpdesk_enabled` flag is on (MainNavigator gates it). Owns the screen
-/// chrome; the list itself (filter pills, rows, poll lifecycle) lives in
-/// SupportInboxListContent.
+/// chrome; the list itself (Open/Resolved segmented control, rows, poll
+/// lifecycle) lives in SupportInboxListContent.
 struct SupportView: View {
     @Environment(TeamState.self) private var teamState
 

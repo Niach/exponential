@@ -38,9 +38,15 @@ struct MyWorkView: View {
             AppBackground()
 
             VStack(spacing: 0) {
-                segmentControl
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                GlassSegmentedControl(
+                    options: Segment.allCases,
+                    selection: segment,
+                    label: { $0.label },
+                    badge: { $0 == .inbox ? (inboxViewModel?.totalUnread ?? 0) : 0 },
+                    onSelect: { segmentRaw = $0.rawValue }
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
 
                 switch segment {
                 case .inbox:
@@ -78,46 +84,5 @@ struct MyWorkView: View {
             inboxViewModel?.startObserving()
         }
         .onDisappear { inboxViewModel?.stopObserving() }
-    }
-
-    // Glass-pill segmented control — same pill language as MobileTabBar.
-    private var segmentControl: some View {
-        HStack(spacing: 4) {
-            ForEach(Segment.allCases, id: \.rawValue) { seg in
-                segmentButton(seg)
-            }
-        }
-        .padding(4)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
-    }
-
-    private func segmentButton(_ seg: Segment) -> some View {
-        let active = segment == seg
-        return Button {
-            segmentRaw = seg.rawValue
-        } label: {
-            HStack(spacing: 6) {
-                Text(seg.label)
-                    .font(.subheadline.weight(active ? .semibold : .regular))
-                    .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                if seg == .inbox, let unread = inboxViewModel?.totalUnread, unread > 0 {
-                    Text("\(unread)")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Accent.indigo, in: Capsule())
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .background(active ? Color.white.opacity(0.12) : .clear, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(seg.label)
     }
 }
