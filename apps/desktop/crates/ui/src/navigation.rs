@@ -56,6 +56,10 @@ pub enum Screen {
     /// One support ticket's conversation (EXP-180 — server-only tRPC data,
     /// opened from the Support tool window's thread list).
     SupportThread { thread_id: String },
+    /// Read-only PR diff for an issue's linked PR (EXP-181 — the Reviews
+    /// tool window rows open this instead of the issue detail; data via
+    /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
+    PrDiff { issue_id: String },
 }
 
 impl Screen {
@@ -65,7 +69,10 @@ impl Screen {
     pub(crate) fn undockable(&self) -> bool {
         matches!(
             self,
-            Screen::IssueDetail { .. } | Screen::FileViewer { .. } | Screen::SourceControl
+            Screen::IssueDetail { .. }
+                | Screen::FileViewer { .. }
+                | Screen::SourceControl
+                | Screen::PrDiff { .. }
         )
     }
 }
@@ -93,6 +100,15 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::SupportThread { thread_id } => crate::support_thread::title_of(cx, thread_id)
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Support ticket".into()),
+        // "· Diff" keeps the tab distinguishable from the same issue's
+        // detail tab.
+        Screen::PrDiff { issue_id } => Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(issue_id)
+            .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue.identifier)))
+            .unwrap_or_else(|| "Diff".into()),
     }
 }
 
@@ -666,7 +682,13 @@ pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
 }
 
 /// The active team id: the explicit selection when it still exists,
-/// else the first synced team (name-sorted, web picker order).
+/// else the first synced team WITH boards (name-sorted, web picker
+/// order), else the plain first team. The boards preference is EXP-181:
+/// without a persisted selection the name-sort used to land startups on
+/// an empty personal team ("Select board", blank lists) while another
+/// team was fully usable. Before the boards shape's first sync every
+/// team looks empty and the plain first team wins — the resolution is
+/// query-time, so it self-corrects the moment boards land.
 pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
     let collections = Store::global(cx).collections();
     let selected = nav.read(cx).team_id.clone();
@@ -675,8 +697,10 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
             return Some(id);
         }
     }
-    collections
-        .teams_sorted(cx)
-        .first()
+    let teams = collections.teams_sorted(cx);
+    teams
+        .iter()
+        .find(|team| !collections.boards_in_team(&team.id, cx).is_empty())
+        .or_else(|| teams.first())
         .map(|team| team.id.clone())
 }

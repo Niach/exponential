@@ -961,8 +961,6 @@ impl IssueDetailView {
             .px_4()
             .pt_3()
             .pb_1()
-            .text_xl()
-            .font_weight(FontWeight::SEMIBOLD)
             // Tab jumps from the title into the description editor (web
             // EXP-10 parity, dialog-shell.tsx). Capture runs before the
             // InputState's own Tab handling; Shift+Tab (`OutdentInline`) is a
@@ -975,7 +973,23 @@ impl IssueDetailView {
                     }
                 },
             ))
-            .child(Input::new(&self.title_input).appearance(false));
+            // Style the INPUT itself (EXP-181): the widget's own
+            // `input_text_size`/`input_px` (text_sm, 12px padding) override
+            // wrapper styles, so a size set on the wrapper never reached the
+            // text and the extra padding misaligned it against the
+            // description's px_4 edge. `refine_style` runs last, so these
+            // win; the explicit line height lifts the widget's fixed
+            // 1.25rem, which would clip 2xl glyphs, and h_auto releases the
+            // fixed h_8 box.
+            .child(
+                Input::new(&self.title_input)
+                    .appearance(false)
+                    .text_2xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .line_height(gpui::rems(2.))
+                    .px_0()
+                    .h_auto(),
+            );
 
         let mut column = v_flex()
             .child(title)

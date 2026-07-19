@@ -222,25 +222,21 @@ impl LocalReposPane {
         cx: &mut gpui::Context<Self>,
     ) {
         let pane = cx.entity();
-        window.open_dialog(cx, move |dialog, _, _| {
+        // AlertDialog — a plain Dialog never renders the button_props footer
+        // (EXP-181, same fix as the board-delete confirm).
+        window.open_alert_dialog(cx, move |alert, _, _| {
             let full_name = full_name.clone();
             let clone = clone.clone();
             let pane = pane.clone();
-            let heading = full_name.clone();
-            dialog
+            alert
+                .overlay_closable(true)
+                .close_button(true)
                 .title("Remove local copy")
-                .content(move |content, _, cx| {
-                    content.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(format!(
-                                "This deletes the local clone of {heading} and all its \
-                                 worktrees from disk. Your work on GitHub is untouched; \
-                                 the clone re-creates on the next \u{201c}Start coding\u{201d}."
-                            ))),
-                    )
-                })
+                .description(SharedString::from(format!(
+                    "This deletes the local clone of {full_name} and all its \
+                     worktrees from disk. Your work on GitHub is untouched; \
+                     the clone re-creates on the next \u{201c}Start coding\u{201d}."
+                )))
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text("Remove local copy")

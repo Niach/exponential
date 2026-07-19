@@ -177,22 +177,20 @@ impl BoardsPane {
         window: &mut Window,
         cx: &mut gpui::App,
     ) {
-        window.open_dialog(cx, move |dialog, _, _| {
+        // Alert dialog, not a plain dialog: only AlertDialog renders the
+        // button_props ok/cancel footer — a plain Dialog shows title/body
+        // and NO buttons (EXP-181; the git-bar stash confirm hit the same).
+        window.open_alert_dialog(cx, move |alert, _, _| {
             let name = board_name.clone();
             let board_id = board_id.clone();
-            dialog
+            alert
+                .overlay_closable(true)
+                .close_button(true)
                 .title("Delete board")
-                .content(move |content, _, cx| {
-                    content.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(format!(
-                                "This will permanently delete {name} and all its issues. \
-                                 This cannot be undone."
-                            ))),
-                    )
-                })
+                .description(SharedString::from(format!(
+                    "This will permanently delete {name} and all its issues. \
+                     This cannot be undone."
+                )))
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text("Delete board")

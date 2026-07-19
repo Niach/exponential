@@ -1416,8 +1416,8 @@ impl SidebarPanel {
     /// (EXP-131: N issues on ONE PR) shows `#<pr_number>`, a "N issues" count,
     /// and the linked identifiers in place of the title. Merge/× act on the
     /// representative issue's id — the server merges the ONE PR and completes
-    /// every linked issue. Clicking the row opens the representative issue's
-    /// detail (its Changes tab shows the diff). The subtle ghost `×` left of
+    /// every linked issue. Clicking the row opens the PR diff screen
+    /// (EXP-181; its header links to the issue detail). The subtle ghost `×` left of
     /// Merge closes the PR WITHOUT merging (EXP-100: the reject path) — same
     /// two-click confirm, `issues.closePr`.
     fn review_row(
@@ -1461,7 +1461,7 @@ impl SidebarPanel {
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::IssueDetail { issue_id }) if issue_id == issue.id
+            Some(Screen::PrDiff { issue_id }) if issue_id == issue.id
         );
         let merging = self.review_merging.contains(&issue.id);
         let armed = self.review_arm.as_deref() == Some(issue.id.as_str());
@@ -1543,13 +1543,13 @@ impl SidebarPanel {
                     this.review_arm_seq += 1;
                     cx.notify();
                 }
-                // The issue detail (the Changes tab is gone — EXP-179, web
-                // parity with EXP-157): PR state + merge live on the row
-                // itself, the issue body is what's left to inspect.
+                // The PR diff (EXP-181): a review click is about the CODE —
+                // the diff screen renders it, and its header links back to
+                // the issue detail for the body.
                 crate::navigation::navigate(
                     window,
                     cx,
-                    crate::navigation::Screen::IssueDetail {
+                    crate::navigation::Screen::PrDiff {
                         issue_id: nav_id.clone(),
                     },
                 );
@@ -2183,7 +2183,10 @@ impl SidebarPanel {
                     .gap_1()
                     .text_xs()
                     .text_color(muted)
-                    .child(div().min_w_0().truncate().child(reporter))
+                    // `flex_1` + `min_w_0` — without the flex basis the
+                    // truncating div collapses and renders ONLY the "…"
+                    // (the EXP-175 definite-width chain, again).
+                    .child(div().flex_1().min_w_0().truncate().child(reporter))
                     .child(
                         div()
                             .flex_shrink_0()

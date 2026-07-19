@@ -124,10 +124,14 @@ impl BoardView {
         }
     }
 
-    /// Web `canCreate`: the New Issue button shows on board scopes, never
-    /// on My Issues (web passes `canCreate={false}` there).
+    /// The New Issue button shows on board scopes AND My Issues (EXP-181 —
+    /// the `NewIssue` action targets the window's active board either way;
+    /// web's `canCreate={false}` on My Issues is a web-only choice).
     fn can_create(&self) -> bool {
-        matches!(self.query, IssueQuery::Board { .. })
+        matches!(
+            self.query,
+            IssueQuery::Board { .. } | IssueQuery::MyIssues { .. }
+        )
     }
 
     /// The team whose labels feed the popover + pills (web
