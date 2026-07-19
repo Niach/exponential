@@ -569,7 +569,8 @@ export function AgentSessionView({
    *  single-byte frames to the PTY unwrapped, so the TUI sees keypresses, not
    *  a paste. Verified against the real picker: a digit SELECTS but does not
    *  submit, so single-select answers send the digit + a separate `\r`
-   *  (multi-select taps toggle with the digit alone; Submit sends `\r`). */
+   *  (multi-select taps toggle with the digit alone; Submit sends `\t` —
+   *  `\r` toggles the highlighted option instead of submitting). */
   const sendAnswer = (key: string, submit = false) => {
     if (!sendInput(key)) return
     if (submit && key !== `\r`) {
