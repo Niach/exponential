@@ -255,7 +255,7 @@ function AgentsPage() {
           <EmptyState
             icon={Bot}
             title="No coding sessions yet"
-            description="When you or a teammate starts coding, live sessions appear here and in the dock."
+            description="When you or a teammate starts coding, live sessions appear here."
           />
         ) : (
           <div className="mb-4">

@@ -9,12 +9,16 @@ import { AgentSessionView } from "@/components/agent-session"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
-import { useMobileChromeVisible } from "@/components/team/mobile-tab-bar"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of every
 // running session in the team, with at most one expanded live viewer. It's
 // the SOLE mount point for AgentSessionView; issue detail and the Agents page
 // only call openDock(). Renders nothing when there's nothing to show.
+// Desktop-only chrome (EXP-193): on mobile there is no bottom strip — an
+// opened session takes over the viewport like the native apps' pushed
+// Agent-session screen, and running sessions are reached from the Agents tab
+// (green dot) or the issue's Watch button instead.
 
 function RunningDot() {
   return (
@@ -37,13 +41,13 @@ export function AgentDock({
   const dock = useAgentDock()
   const { running } = useAgentsData(teamId)
   const boards = useTeamBoards(teamId)
+  const isMobile = useIsMobile()
 
   const expandedId = dock?.expandedSessionId ?? null
 
   // Fullscreen (EXP-184) lives here — outside the per-session `key` remount,
   // so switching dock tabs keeps fullscreen; any collapse exits it.
   const [fullscreen, setFullscreen] = useState(false)
-  const tabBarVisible = useMobileChromeVisible()
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
@@ -105,6 +109,26 @@ export function AgentDock({
 
   if (running.length === 0 && !expandedRow) return null
 
+  // Mobile (EXP-193): no IDE-style bottom terminal strip. An opened session
+  // is a full-viewport takeover (native Agent-session parity) — its collapse
+  // chevron dismisses back to wherever it was opened from; nothing renders
+  // while no session is open. z-40 covers the z-[35] floating tab bar while
+  // staying under every z-50 overlay (kill-confirm dialog etc.).
+  if (isMobile) {
+    if (!expandedRow) return null
+    return (
+      <div className="fixed inset-0 z-40 bg-background pb-[env(safe-area-inset-bottom)]">
+        <AgentSessionView
+          key={expandedRow.session.id}
+          session={expandedRow.session}
+          currentUserId={currentUserId}
+          title={<SessionTitle row={expandedRow} teamSlug={teamSlug} />}
+          onCollapse={() => dock?.collapseDock()}
+        />
+      </div>
+    )
+  }
+
   const tabs =
     expandedRow && !runningById.has(expandedRow.session.id)
       ? [...running, expandedRow]
@@ -115,22 +139,14 @@ export function AgentDock({
       className={cn(
         // z-40 covers the layout while staying under every z-50 overlay
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.
-        // On mobile the collapsed strip sits above the floating tab bar
-        // (EXP-189) — the bar itself is z-[35], under the fullscreen z-40.
         fullscreen && expandedRow
           ? `fixed inset-0 z-40 flex flex-col`
-          : cn(
-              `sticky bottom-0 z-30 border-t`,
-              // Only clear the floating tab bar where it actually renders —
-              // detail routes hide it (useMobileChromeVisible).
-              tabBarVisible &&
-                `max-md:bottom-[calc(5rem+env(safe-area-inset-bottom))] max-md:border-b`
-            ),
+          : `sticky bottom-0 z-30 border-t`,
         `border-border bg-background`
       )}
     >
       {expandedRow && (
-        <div className={fullscreen ? `min-h-0 flex-1` : `h-[70dvh] md:h-96`}>
+        <div className={fullscreen ? `min-h-0 flex-1` : `h-96`}>
           <AgentSessionView
             key={expandedRow.session.id}
             session={expandedRow.session}
