@@ -77,8 +77,8 @@ export function DocsPage() {
             <ol>
               <li>
                 <strong>Sign up</strong> at{` `}
-                <a href={LINKS.app.login}>app.exponential.at</a> — a
-                personal team is created for you automatically. Details in{` `}
+                <a href={LINKS.app.login}>app.exponential.at</a> — then
+                create a team or join one via invite link. Details in{` `}
                 <a href="/docs/getting-started/">Getting started</a>.
               </li>
               <li>

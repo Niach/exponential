@@ -71,9 +71,9 @@ export function GettingStartedDocsPage() {
             <p>
               Sign in at <a href={LINKS.app.login}>app.exponential.at</a>{` `}
               with Google — your account is created on first sign-in, no
-              separate registration step. A personal team (
-              <em>&lt;Your name&gt;&apos;s Workspace</em>) is created for you
-              automatically, so you land ready to work.
+              separate registration step. On first launch you either create
+              a team (pick a name, you become its owner) or join an existing
+              one by pasting an invite link.
             </p>
             <p>
               Everything in Exponential lives inside a team: boards, issues,
