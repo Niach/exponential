@@ -28,7 +28,7 @@ function ticket(overrides: Partial<SteerTicketClaims>): string {
   return signSteerTicket(
     {
       sub: `user-1`,
-      ws: `ws-1`,
+      team: `team-1`,
       role: `viewer`,
       perm: `view`,
       iat: now,
@@ -380,7 +380,7 @@ describe(`steer relay end-to-end`, () => {
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`, `issue-2`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
       ultracode: true,
     })
@@ -388,7 +388,7 @@ describe(`steer relay end-to-end`, () => {
     expect(await desktopIn.nextJson()).toEqual({
       t: `start_session`,
       issueIds: [`issue-1`, `issue-2`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
       ultracode: true,
     })
@@ -399,7 +399,7 @@ describe(`steer relay end-to-end`, () => {
       deviceId: `dev-batch`,
       issueId: `issue-1`,
       issueIds: [`issue-2`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
     })
     expect(bothSubjects.status).toBe(400)
@@ -416,7 +416,7 @@ describe(`steer relay end-to-end`, () => {
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
     })
     expect(noRepo.status).toBe(400)
 
@@ -424,7 +424,7 @@ describe(`steer relay end-to-end`, () => {
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: Array.from({ length: 31 }, (_, i) => `issue-${i}`),
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
     })
     expect(tooMany.status).toBe(400)
@@ -433,7 +433,7 @@ describe(`steer relay end-to-end`, () => {
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo: { repositoryId: `repo-1`, fullName: `acme/api` },
     })
     expect(repoMissingBranch.status).toBe(400)
@@ -442,7 +442,7 @@ describe(`steer relay end-to-end`, () => {
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`, 42],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
     })
     expect(nonStringMember.status).toBe(400)

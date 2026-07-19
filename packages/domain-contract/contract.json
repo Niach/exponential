@@ -9,10 +9,10 @@
     "values": ["none", "urgent", "high", "medium", "low"],
     "displayOrder": ["urgent", "high", "medium", "low", "none"]
   },
-  "workspaceRole": {
+  "teamRole": {
     "values": ["owner", "member"]
   },
-  "projectIcon": {
+  "boardIcon": {
     "values": [
       "code",
       "square-kanban",
@@ -67,7 +67,7 @@
       "label_removed",
       "pr_opened",
       "pr_merged",
-      "project_moved"
+      "board_moved"
     ]
   },
   "codingModel": {

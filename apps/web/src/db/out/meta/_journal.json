@@ -225,6 +225,13 @@
       "when": 1784436820358,
       "tag": "0031_breezy_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784439042484,
+      "tag": "0032_sour_shiver_man",
+      "breakpoints": true
     }
   ]
 }

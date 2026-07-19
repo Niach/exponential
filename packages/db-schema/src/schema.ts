@@ -38,8 +38,8 @@ import {
   prStateValues,
   subscriberSourceSchema,
   subscriberSourceValues,
-  workspaceRoleSchema,
-  workspaceRoleValues,
+  teamRoleSchema,
+  teamRoleValues,
 } from "./domain"
 
 export * from "./auth-schema"
@@ -62,9 +62,9 @@ export const notificationTypeEnum = pgEnum(
   notificationTypeValues
 )
 
-export const workspaceMemberRoleEnum = pgEnum(
-  `workspace_member_role`,
-  workspaceRoleValues
+export const teamMemberRoleEnum = pgEnum(
+  `team_member_role`,
+  teamRoleValues
 )
 
 
@@ -107,19 +107,19 @@ const timestamps = {
 // Tables
 // ---------------------------------------------------------------------------
 
-// Workspaces are ALWAYS private: membership is invite-only and nothing in a
-// workspace is ever anonymously readable (EXP-180 removed the public feedback
+// Teams are ALWAYS private: membership is invite-only and nothing in a
+// team is ever anonymously readable (EXP-180 removed the public feedback
 // boards that used to be the one exception).
-export const workspaces = pgTable(`workspaces`, {
+export const teams = pgTable(`teams`, {
   id: uuidPk(),
   name: varchar({ length: 255 }).notNull(),
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
   // Admin-granted complimentary tier ('pro' | 'business' | 'unlimited').
-  // SERVER-ONLY — must stay behind the workspaces shape columns allowlist.
-  // Honored by getWorkspacePlan as a floor over the Creem-derived tier.
+  // SERVER-ONLY — must stay behind the teams shape columns allowlist.
+  // Honored by getTeamPlan as a floor over the Creem-derived tier.
   compTier: text(`comp_tier`),
-  // Workspace-level helpdesk switch (EXP-180 — replaced the per-project flag;
+  // Team-level helpdesk switch (EXP-180 — replaced the per-board flag;
   // Pro-gated on cloud via assertCanUseHelpdesk on enable and per submission).
   // Synced so every client can gate its Support-inbox menu entry; the
   // conversation tables themselves stay server-only.
@@ -129,8 +129,8 @@ export const workspaces = pgTable(`workspaces`, {
 
 // Better Auth's Drizzle adapter resolves models by snake_case key, so this
 // must be exported as `creem_subscriptions` (not camelCase). It lives here
-// (rather than in auth-schema.ts) so its `workspace_id` FK can reference
-// `workspaces` locally — auth-schema.ts must NOT import schema.ts (that edge
+// (rather than in auth-schema.ts) so its `team_id` FK can reference
+// `teams` locally — auth-schema.ts must NOT import schema.ts (that edge
 // forms an eval-time circular import that crashes `createSelectSchema`).
 export const creem_subscriptions = pgTable(`creem_subscriptions`, {
   id: text(`id`).primaryKey(),
@@ -141,13 +141,13 @@ export const creem_subscriptions = pgTable(`creem_subscriptions`, {
   creemCustomerId: text(`creem_customer_id`),
   creemSubscriptionId: text(`creem_subscription_id`),
   creemOrderId: text(`creem_order_id`),
-  // v5 per-seat binding: a subscription belongs to exactly one workspace, and
+  // v5 per-seat binding: a subscription belongs to exactly one team, and
   // `seats` is the purchased quantity (Creem checkout `units`). Both are bound
   // from checkout metadata on the webhook path (lib/billing/creem-binding.ts);
   // the plugin's own persistence never writes these columns, so later webhook
   // updates cannot clobber them. `set null` keeps the billing history row if
-  // the workspace is deleted.
-  workspaceId: uuid(`workspace_id`).references(() => workspaces.id, {
+  // the team is deleted.
+  teamId: uuid(`team_id`).references(() => teams.id, {
     onDelete: `set null`,
   }),
   seats: integer(`seats`).default(1).notNull(),
@@ -165,86 +165,86 @@ export const creem_subscriptions = pgTable(`creem_subscriptions`, {
     .notNull(),
 })
 
-export const workspaceMembers = pgTable(
-  `workspace_members`,
+export const teamMembers = pgTable(
+  `team_members`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    role: workspaceMemberRoleEnum().notNull().default(`member`),
+    role: teamMemberRoleEnum().notNull().default(`member`),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.workspaceId, table.userId),
-    index(`idx_workspace_members_user`).on(table.userId),
+    unique().on(table.teamId, table.userId),
+    index(`idx_team_members_user`).on(table.userId),
   ]
 )
 
-export const workspaceInvites = pgTable(
-  `workspace_invites`,
+export const teamInvites = pgTable(
+  `team_invites`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     invitedById: text(`invited_by_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    role: workspaceMemberRoleEnum().notNull().default(`member`),
+    role: teamMemberRoleEnum().notNull().default(`member`),
     token: varchar({ length: 255 }).notNull().unique(),
     acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
     expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
     ...timestamps,
   },
-  (table) => [index(`idx_workspace_invites_workspace`).on(table.workspaceId)]
+  (table) => [index(`idx_team_invites_team`).on(table.teamId)]
 )
 
-export const projects = pgTable(
-  `projects`,
+export const boards = pgTable(
+  `boards`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
     slug: varchar({ length: 255 }).notNull(),
     prefix: varchar({ length: 10 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
-    // Curated display icon (projectIconValues in domain.ts / the domain
+    // Curated display icon (boardIconValues in domain.ts / the domain
     // contract). NULL = clients derive a fallback from repo presence.
     icon: text(),
-    // A repo-backed project is backed by exactly one repo from the workspace
-    // registry; the desktop launcher clones this. Nullable: projects need no
-    // repo. `restrict` (not cascade): a repo that still backs a project can't
-    // be deleted — retarget or delete the projects first. One repo may back
-    // several projects (monorepo); plan limits still count registry rows.
+    // A repo-backed board is backed by exactly one repo from the team
+    // registry; the desktop launcher clones this. Nullable: boards need no
+    // repo. `restrict` (not cascade): a repo that still backs a board can't
+    // be deleted — retarget or delete the boards first. One repo may back
+    // several boards (monorepo); plan limits still count registry rows.
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `restrict`,
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
-    // it (cascade) once deletedAt + PROJECT_TRASH_RETENTION_MS has passed. Purge
-    // time is computed, never stored (constant retention). Trashed projects drop
+    // it (cascade) once deletedAt + BOARD_TRASH_RETENTION_MS has passed. Purge
+    // time is computed, never stored (constant retention). Trashed boards drop
     // out of every membership/public scope but keep their rows for restore.
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     // Non-deletable marker (the dogfood board). Set by bootstrap; guards
-    // in projects.delete/update and the purge sweep refuse to touch it. A synced
+    // in boards.delete/update and the purge sweep refuse to touch it. A synced
     // column (not a server-only id comparison) so clients can grey out the
     // affordance and it survives restore-from-backup id changes.
     isProtected: boolean(`is_protected`).notNull().default(false),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.workspaceId, table.slug),
-    index(`idx_projects_repository`).on(table.repositoryId),
+    unique().on(table.teamId, table.slug),
+    index(`idx_boards_repository`).on(table.repositoryId),
     // Serves the purge sweep + trash-aware shape filter; near-empty in steady
     // state (only trashed rows are indexed).
-    index(`idx_projects_deleted`)
+    index(`idx_boards_deleted`)
       .on(table.deletedAt)
       .where(sql`deleted_at IS NOT NULL`),
   ]
@@ -254,9 +254,9 @@ export const issues = pgTable(
   `issues`,
   {
     id: uuidPk(),
-    projectId: uuid(`project_id`)
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
     number: integer().notNull().default(0),
     identifier: varchar({ length: 20 }).notNull().default(``),
     title: varchar({ length: 500 }).notNull(),
@@ -295,30 +295,30 @@ export const issues = pgTable(
     ...timestamps,
   },
   (table) => [
-    index(`idx_issues_project_status`).on(table.projectId, table.status),
+    index(`idx_issues_board_status`).on(table.boardId, table.status),
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_due_date`).on(table.dueDate),
     // Backstop under generate_issue_number()'s counter allocator (see
     // issue_number_counters below): any residual allocation race fails loudly
     // instead of committing two issues with the same identifier.
-    uniqueIndex(`uniq_issues_project_number`).on(table.projectId, table.number),
+    uniqueIndex(`uniq_issues_board_number`).on(table.boardId, table.number),
   ]
 )
 
-// Per-project monotonic issue-number allocator — server-only, NEVER
+// Per-board monotonic issue-number allocator — server-only, NEVER
 // Electric-synced (no shape proxy; proxy count stays 14). The
 // generate_issue_number() trigger (custom trigger file, re-applied at every
 // boot by bootstrap-cloud applyCustomSql) increments this row under its row
 // lock: serializes concurrent inserts (no duplicate numbers) and never
 // decreases (deleting the top-numbered issue can't recycle its identifier —
 // #PREFIX-n mentions and exp/PREFIX-n branches stay unambiguous). Keyed 1:1 by
-// project on purpose (deliberate deviation from the uuid-surrogate-PK
+// board on purpose (deliberate deviation from the uuid-surrogate-PK
 // convention). No zod/insert-schema exports — no TS code queries it; only the
 // trigger touches it.
 export const issueNumberCounters = pgTable(`issue_number_counters`, {
-  projectId: uuid(`project_id`)
+  boardId: uuid(`board_id`)
     .primaryKey()
-    .references(() => projects.id, { onDelete: `cascade` }),
+    .references(() => boards.id, { onDelete: `cascade` }),
   counter: integer().notNull(),
   ...timestamps,
 })
@@ -327,15 +327,15 @@ export const labels = pgTable(
   `labels`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
-  (table) => [index(`idx_labels_workspace`).on(table.workspaceId)]
+  (table) => [index(`idx_labels_team`).on(table.teamId)]
 )
 
 export const issueLabels = pgTable(
@@ -347,21 +347,21 @@ export const issueLabels = pgTable(
     labelId: uuid(`label_id`)
       .notNull()
       .references(() => labels.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project by populate_issue_child_project_id so
-    // anonymous feedback-board shape filters stay project-scoped (Electric
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Denormalized from issue→board by populate_issue_child_board_id so
+    // anonymous feedback-board shape filters stay board-scoped (Electric
     // where clauses are single-table).
-    projectId: uuid(`project_id`)
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.labelId] }),
     index(`idx_issue_labels_label`).on(table.labelId),
-    index(`idx_issue_labels_workspace`).on(table.workspaceId),
-    index(`idx_issue_labels_project`).on(table.projectId),
+    index(`idx_issue_labels_team`).on(table.teamId),
+    index(`idx_issue_labels_board`).on(table.boardId),
   ]
 )
 
@@ -372,14 +372,14 @@ export const comments = pgTable(
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project (populate_issue_child_project_id) for
-    // project-scoped anonymous feedback-board shape filters.
-    projectId: uuid(`project_id`)
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Denormalized from issue→board (populate_issue_child_board_id) for
+    // board-scoped anonymous feedback-board shape filters.
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -390,8 +390,8 @@ export const comments = pgTable(
   },
   (table) => [
     index(`idx_comments_issue`).on(table.issueId),
-    index(`idx_comments_workspace`).on(table.workspaceId),
-    index(`idx_comments_project`).on(table.projectId),
+    index(`idx_comments_team`).on(table.teamId),
+    index(`idx_comments_board`).on(table.boardId),
   ]
 )
 
@@ -401,9 +401,9 @@ export const comments = pgTable(
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Two session subjects: issue-scoped
 // (`issue_id` set — one worktree, one issue) and batch-scoped (`issue_id` and
-// `project_id` NULL, `workspace_id` written directly — the desktop multi-issue
-// batch run). Enforced by the tRPC writer (exactly one of issueId/workspaceId
-// in the start input). `workspace_id` is denormalized from issue→project by
+// `board_id` NULL, `team_id` written directly — the desktop multi-issue
+// batch run). Enforced by the tRPC writer (exactly one of issueId/teamId
+// in the start input). `team_id` is denormalized from issue→board by
 // trigger for issue rows (the populate triggers no-op when issue_id IS NULL).
 export const codingSessions = pgTable(
   `coding_sessions`,
@@ -413,14 +413,14 @@ export const codingSessions = pgTable(
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `cascade`,
     }),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project (populate_issue_child_project_id) for
-    // project-scoped anonymous feedback-board shape filters. Nullable: a
-    // batch-scoped session spans projects (never anonymous-visible — the
-    // anonymous project_id clause can't match NULL).
-    projectId: uuid(`project_id`).references(() => projects.id, {
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Denormalized from issue→board (populate_issue_child_board_id) for
+    // board-scoped anonymous feedback-board shape filters. Nullable: a
+    // batch-scoped session spans boards (never anonymous-visible — the
+    // anonymous board_id clause can't match NULL).
+    boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
     // The real user driving the session under their own auth — NOT a synthetic
@@ -439,8 +439,8 @@ export const codingSessions = pgTable(
   },
   (table) => [
     index(`idx_coding_sessions_issue`).on(table.issueId),
-    index(`idx_coding_sessions_workspace`).on(table.workspaceId),
-    index(`idx_coding_sessions_project`).on(table.projectId),
+    index(`idx_coding_sessions_team`).on(table.teamId),
+    index(`idx_coding_sessions_board`).on(table.boardId),
     index(`idx_coding_sessions_user`).on(table.userId),
   ]
 )
@@ -449,18 +449,18 @@ export const attachments = pgTable(
   `attachments`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project (populate_issue_child_project_id) for
-    // project-scoped anonymous feedback-board shape filters + the public
+    // Denormalized from issue→board (populate_issue_child_board_id) for
+    // board-scoped anonymous feedback-board shape filters + the public
     // attachment-bytes read path.
-    projectId: uuid(`project_id`)
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
     commentId: uuid(`comment_id`).references(() => comments.id, {
       onDelete: `set null`,
     }),
@@ -481,8 +481,8 @@ export const attachments = pgTable(
   },
   (table) => [
     index(`idx_attachments_issue`).on(table.issueId),
-    index(`idx_attachments_workspace`).on(table.workspaceId),
-    index(`idx_attachments_project`).on(table.projectId),
+    index(`idx_attachments_team`).on(table.teamId),
+    index(`idx_attachments_board`).on(table.boardId),
   ]
 )
 
@@ -507,7 +507,7 @@ export const fcmTokens = pgTable(
 // GitHub App installations (server-only, not synced). Mirrored from the setup
 // redirect, the OAuth claim callback, and installation webhooks; token
 // resolution itself is storage-free (the App JWT looks up a repo's installation
-// on demand). Visibility is granted per workspace via githubInstallationLinks —
+// on demand). Visibility is granted per team via githubInstallationLinks —
 // an unlinked row is invisible to every picker.
 export const githubInstallations = pgTable(`github_installations`, {
   id: uuidPk(),
@@ -519,20 +519,20 @@ export const githubInstallations = pgTable(`github_installations`, {
   ...timestamps,
 })
 
-// Workspace ↔ GitHub App installation claims (SERVER-ONLY, never synced).
-// A link means "this workspace may browse/connect this installation's repos".
+// Team ↔ GitHub App installation claims (SERVER-ONLY, never synced).
+// A link means "this team may browse/connect this installation's repos".
 // Created by the OAuth claim flow (or the install-page round-trip fallback) —
 // both prove control of the GitHub account before linking. Many-to-many: one
-// org install can serve several workspaces, one workspace can link several
+// org install can serve several teams, one team can link several
 // GitHub accounts. CASCADE on the installation FK: when an uninstall webhook
 // deletes the github_installations row, its links vanish with it.
 export const githubInstallationLinks = pgTable(
   `github_installation_links`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     githubInstallationId: uuid(`github_installation_id`)
       .notNull()
       .references(() => githubInstallations.id, { onDelete: `cascade` }),
@@ -543,21 +543,21 @@ export const githubInstallationLinks = pgTable(
     ...timestamps,
   },
   (table) => [
-    unique().on(table.workspaceId, table.githubInstallationId),
+    unique().on(table.teamId, table.githubInstallationId),
     index(`idx_github_installation_links_installation`).on(
       table.githubInstallationId
     ),
   ]
 )
 
-// User-scoped repo entitlements under a workspace ↔ installation claim
+// User-scoped repo entitlements under a team ↔ installation claim
 // (SERVER-ONLY, never synced). A link alone is INSTALLATION-granular, but
 // GitHub attributes an installation to a user who can access even ONE of its
 // repos — so a lone collaborator must not get to browse/connect the WHOLE
 // installation. These rows capture what the connecting user could actually
 // access, recorded at OAuth-callback time via
 // `GET /user/installations/{id}/repositories` (the only moment a user-scoped
-// token exists — it is transient, never persisted). A row means "workspace W
+// token exists — it is transient, never persisted). A row means "team W
 // may see/connect repo `fullName` under installation I because user U proved
 // user-scoped GitHub access". Effective entitlement = EXISTS(any grant for
 // (W, I, fullName)) — union across members; the per-user unique key makes each
@@ -569,9 +569,9 @@ export const githubInstallationRepoGrants = pgTable(
   `github_installation_repo_grants`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     installationId: bigint(`installation_id`, { mode: `number` }).notNull(),
     // `owner/name` as GitHub reports it.
     fullName: text(`full_name`).notNull(),
@@ -579,8 +579,8 @@ export const githubInstallationRepoGrants = pgTable(
     defaultBranch: text(`default_branch`),
     // Cascade, never set-null: a grant row means "THIS user proved access",
     // and the entitlement check (assertRepoGrant) matches on
-    // workspace+installation+repo alone. A set-null here would leave an
-    // ownerless row that keeps entitling the workspace to the departed
+    // team+installation+repo alone. A set-null here would leave an
+    // ownerless row that keeps entitling the team to the departed
     // user's private repos while being unreachable by the per-user re-auth
     // REPLACE and every other cleanup path.
     grantedByUserId: text(`granted_by_user_id`).references(() => users.id, {
@@ -592,13 +592,13 @@ export const githubInstallationRepoGrants = pgTable(
     // Named explicitly: drizzle's default composite name here exceeds
     // Postgres's 63-byte identifier limit (silent truncation).
     unique(`github_installation_repo_grants_scope_unique`).on(
-      table.workspaceId,
+      table.teamId,
       table.installationId,
       table.fullName,
       table.grantedByUserId
     ),
     index(`idx_github_installation_repo_grants_ws_inst`).on(
-      table.workspaceId,
+      table.teamId,
       table.installationId
     ),
   ]
@@ -615,11 +615,11 @@ export const notifications = pgTable(
       onDelete: `cascade`,
     }),
     // Trigger-denormalized from the issue (0001_triggers.sql §7) so the
-    // notifications shape can hide rows of trashed projects for the 48h
+    // notifications shape can hide rows of trashed boards for the 48h
     // trash window. Server-only scoping — excluded from the shape via its
     // columns allowlist, like emailed_at. Nullable like issue_id: an
-    // issue-less notification carries no project identity.
-    projectId: uuid(`project_id`).references(() => projects.id, {
+    // issue-less notification carries no board identity.
+    boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
     type: notificationTypeEnum().notNull(),
@@ -636,7 +636,7 @@ export const notifications = pgTable(
   },
   (table) => [
     index(`idx_notifications_user_unread`).on(table.userId, table.readAt),
-    index(`idx_notifications_project`).on(table.projectId),
+    index(`idx_notifications_board`).on(table.boardId),
     // The hourly digest sweep's scan: unread, never-emailed rows by age.
     index(`idx_notifications_digest_pending`)
       .on(table.createdAt)
@@ -662,17 +662,17 @@ export const issueSubscribers = pgTable(
     }),
     // Set for widget_reporter rows; null for member rows.
     email: varchar({ length: 320 }),
-    // Denormalized from issue→project by populate_issue_subscriber_workspace_id.
-    // Retained for notification fan-out and workspace-level queries; the Electric
-    // shape filter is project-scoped (see the project_id column below) so a
-    // trashed project's subscriptions drop out of member sync.
-    workspaceId: uuid(`workspace_id`)
+    // Denormalized from issue→board by populate_issue_subscriber_team_id.
+    // Retained for notification fan-out and team-level queries; the Electric
+    // shape filter is board-scoped (see the board_id column below) so a
+    // trashed board's subscriptions drop out of member sync.
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project (populate_issue_child_project_id).
-    projectId: uuid(`project_id`)
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Denormalized from issue→board (populate_issue_child_board_id).
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
     source: subscriberSourceEnum().notNull(),
     unsubscribed: boolean().notNull().default(false),
     ...timestamps,
@@ -685,8 +685,8 @@ export const issueSubscribers = pgTable(
       .on(table.issueId, table.email)
       .where(sql`email IS NOT NULL`),
     index(`idx_issue_subscribers_user`).on(table.userId),
-    index(`idx_issue_subscribers_workspace`).on(table.workspaceId),
-    index(`idx_issue_subscribers_project`).on(table.projectId),
+    index(`idx_issue_subscribers_team`).on(table.teamId),
+    index(`idx_issue_subscribers_board`).on(table.boardId),
   ]
 )
 
@@ -700,14 +700,14 @@ export const issueEvents = pgTable(
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project by populate_issue_event_workspace_id.
-    workspaceId: uuid(`workspace_id`)
+    // Denormalized from issue→board by populate_issue_event_team_id.
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
-    // Denormalized from issue→project (populate_issue_child_project_id).
-    projectId: uuid(`project_id`)
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Denormalized from issue→board (populate_issue_child_board_id).
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+      .references(() => boards.id, { onDelete: `cascade` }),
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
@@ -717,22 +717,22 @@ export const issueEvents = pgTable(
   },
   (table) => [
     index(`idx_issue_events_issue`).on(table.issueId),
-    index(`idx_issue_events_workspace`).on(table.workspaceId),
-    index(`idx_issue_events_project`).on(table.projectId),
+    index(`idx_issue_events_team`).on(table.teamId),
+    index(`idx_issue_events_board`).on(table.boardId),
   ]
 )
 
-// Workspace repository registry (SERVER-ONLY, tRPC-managed — never an Electric
+// Team repository registry (SERVER-ONLY, tRPC-managed — never an Electric
 // shape). One row per connected GitHub repo; the desktop "Start coding"
-// launcher resolves its clone target through the project's `repositoryId`.
+// launcher resolves its clone target through the board's `repositoryId`.
 // GitHub itself stays storage-free (App JWT → JIT installation token on demand).
 export const repositories = pgTable(
   `repositories`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     // `owner/name` as GitHub reports it.
     fullName: text(`full_name`).notNull(),
     defaultBranch: text(`default_branch`).notNull().default(`main`),
@@ -749,29 +749,29 @@ export const repositories = pgTable(
     ...timestamps,
   },
   (table) => [
-    unique().on(table.workspaceId, table.fullName),
-    index(`idx_repositories_workspace`).on(table.workspaceId),
+    unique().on(table.teamId, table.fullName),
+    index(`idx_repositories_team`).on(table.teamId),
   ]
 )
 
-// Per-project terminal run commands (SERVER-ONLY, tRPC-managed — never an
+// Per-board terminal run commands (SERVER-ONLY, tRPC-managed — never an
 // Electric shape; the proxy count stays 14). A run config is just a named
 // argv the desktop apps spawn into a terminal tab (run configs live in the
 // DATABASE, not the repo). SECURITY: because this is DB-stored argv
 // executed locally, desktops MUST keep the per-device Trust & Run
 // commandSetHash prompt and re-hash whenever the fetched config set changes —
-// never auto-run synced values. `workspace_id` is denormalized from the
-// project server-side on insert (tRPC-only writes, so no trigger needed).
+// never auto-run synced values. `team_id` is denormalized from the
+// board server-side on insert (tRPC-only writes, so no trigger needed).
 export const runConfigs = pgTable(
   `run_configs`,
   {
     id: uuidPk(),
-    projectId: uuid(`project_id`)
+    boardId: uuid(`board_id`)
       .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`)
+      .references(() => boards.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
     // Program + arguments, spawned as-is (no shell). At least one element.
     argv: jsonb().$type<string[]>().notNull(),
@@ -787,8 +787,8 @@ export const runConfigs = pgTable(
     ...timestamps,
   },
   (table) => [
-    unique().on(table.projectId, table.name),
-    index(`idx_run_configs_workspace`).on(table.workspaceId),
+    unique().on(table.boardId, table.name),
+    index(`idx_run_configs_team`).on(table.teamId),
   ]
 )
 
@@ -851,20 +851,20 @@ export const emailDeliveries = pgTable(
 
 // Embeddable feedback-widget configs (server-only, NOT Electric-synced; read
 // via the `widgets` tRPC router). One row = one paste-in snippet: a public
-// key scoped to a destination workspace+project, plus the domain allowlist
+// key scoped to a destination team+board, plus the domain allowlist
 // that gates cross-origin submissions.
 export const widgetConfigs = pgTable(
   `widget_configs`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     // Where FEEDBACK-mode submissions land. NULLABLE (EXP-180): a
     // support-only widget targets no board at all — its tickets go to the
-    // workspace support inbox. `set null` (not cascade): deleting the target
+    // team support inbox. `set null` (not cascade): deleting the target
     // board degrades feedback mode, never deletes the config.
-    projectId: uuid(`project_id`).references(() => projects.id, {
+    boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `set null`,
     }),
     name: varchar({ length: 255 }).notNull(),
@@ -895,7 +895,7 @@ export const widgetConfigs = pgTable(
     }),
     ...timestamps,
   },
-  (table) => [index(`idx_widget_configs_workspace`).on(table.workspaceId)]
+  (table) => [index(`idx_widget_configs_team`).on(table.teamId)]
 )
 
 // One row per widget submission (server-only, NOT synced): the structured
@@ -946,7 +946,7 @@ export const widgetSubmissions = pgTable(
 
 // Helpdesk conversation threads (SERVER-ONLY, never Electric-synced — read
 // via the `helpdesk` tRPC router and the anonymous magic-link routes). A
-// ticket is a STANDALONE workspace-scoped record (EXP-180 — it is no longer
+// ticket is a STANDALONE team-scoped record (EXP-180 — it is no longer
 // backed by an issue; the whole conversation lives in these two tables, and
 // a ticket only touches the issue tracker when a member explicitly escalates
 // it, which files an ordinary issue and links it via linked_issue_id). The
@@ -959,9 +959,9 @@ export const supportThreads = pgTable(
   `support_threads`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
+    teamId: uuid(`team_id`)
       .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+      .references(() => teams.id, { onDelete: `cascade` }),
     title: varchar({ length: 500 }).notNull(),
     // 'open' | 'resolved' — documented varchar (server-only vocabulary in
     // domain.ts, not the contract), same convention as message direction/
@@ -989,7 +989,7 @@ export const supportThreads = pgTable(
     }),
     ...timestamps,
   },
-  (table) => [index(`idx_support_threads_workspace`).on(table.workspaceId)]
+  (table) => [index(`idx_support_threads_team`).on(table.teamId)]
 )
 
 // Individual helpdesk messages. direction: inbound|outbound (inbound = the
@@ -1032,8 +1032,8 @@ export const supportMessages = pgTable(
 
 // What an OAuth-authenticated MCP client may touch (SERVER-ONLY, written by
 // the /auth/consent page). One row per (user, oauth client); re-consenting
-// replaces the selection. `workspaceIds` grants whole workspaces (including
-// projects created later); `projectIds` grants individual projects. A token
+// replaces the selection. `teamIds` grants whole teams (including
+// boards created later); `boardIds` grants individual boards. A token
 // whose (user, client) pair has NO row gets no access — the holder must
 // re-authenticate through the consent page. Session-cookie and personal
 // api-key access to /api/mcp is never grant-scoped (the user's own
@@ -1048,12 +1048,12 @@ export const mcpGrants = pgTable(
     clientId: text(`client_id`)
       .notNull()
       .references(() => oauthApplications.clientId, { onDelete: `cascade` }),
-    allWorkspaces: boolean(`all_workspaces`).notNull().default(false),
-    workspaceIds: jsonb(`workspace_ids`)
+    allTeams: boolean(`all_teams`).notNull().default(false),
+    teamIds: jsonb(`team_ids`)
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    projectIds: jsonb(`project_ids`)
+    boardIds: jsonb(`board_ids`)
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -1066,27 +1066,27 @@ export const mcpGrants = pgTable(
 // Zod schemas
 // ---------------------------------------------------------------------------
 
-export const selectWorkspaceSchema = createSelectSchema(workspaces)
-export const createWorkspaceSchema = createInsertSchema(workspaces).omit({
+export const selectTeamSchema = createSelectSchema(teams)
+export const createTeamSchema = createInsertSchema(teams).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 })
 
-export const selectWorkspaceMemberSchema = createSelectSchema(
-  workspaceMembers,
+export const selectTeamMemberSchema = createSelectSchema(
+  teamMembers,
   {
-    role: workspaceRoleSchema,
+    role: teamRoleSchema,
   }
 )
-export const selectWorkspaceInviteSchema = createSelectSchema(
-  workspaceInvites,
+export const selectTeamInviteSchema = createSelectSchema(
+  teamInvites,
   {
-    role: workspaceRoleSchema,
+    role: teamRoleSchema,
   }
 )
-export const selectProjectSchema = createSelectSchema(projects)
-export const createProjectSchema = createInsertSchema(projects).omit({
+export const selectBoardSchema = createSelectSchema(boards)
+export const createBoardSchema = createInsertSchema(boards).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -1165,10 +1165,10 @@ export const selectWidgetSubmissionSchema = createSelectSchema(
 // Types
 // ---------------------------------------------------------------------------
 
-export type Workspace = InferSelectModel<typeof workspaces>
-export type WorkspaceMember = InferSelectModel<typeof workspaceMembers>
-export type WorkspaceInvite = InferSelectModel<typeof workspaceInvites>
-export type Project = InferSelectModel<typeof projects>
+export type Team = InferSelectModel<typeof teams>
+export type TeamMember = InferSelectModel<typeof teamMembers>
+export type TeamInvite = InferSelectModel<typeof teamInvites>
+export type Board = InferSelectModel<typeof boards>
 export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>
 export type IssueLabel = InferSelectModel<typeof issueLabels>

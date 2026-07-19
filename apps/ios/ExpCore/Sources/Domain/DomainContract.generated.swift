@@ -8,21 +8,21 @@ public enum DomainContract {
     public static let issueStatusDisplayOrder: [String] = ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
-    public static let workspaceRoleValues: [String] = ["owner", "member"]
-    public static let projectIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
+    public static let teamRoleValues: [String] = ["owner", "member"]
+    public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
     public static let commentKindValues: [String] = ["regular"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
 
     public static let codingSessionStaleMs: Int = 7200000
 
-    public static let workspaceRoleOwner: String = "owner"
-    public static let workspaceRoleMember: String = "member"
+    public static let teamRoleOwner: String = "owner"
+    public static let teamRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"
     public static let notificationTypeIssueAssigned: String = "issue_assigned"
     public static let notificationTypeIssueComment: String = "issue_comment"
@@ -50,5 +50,5 @@ public enum DomainContract {
     public static let issueEventTypeLabelRemoved: String = "label_removed"
     public static let issueEventTypePrOpened: String = "pr_opened"
     public static let issueEventTypePrMerged: String = "pr_merged"
-    public static let issueEventTypeProjectMoved: String = "project_moved"
+    public static let issueEventTypeBoardMoved: String = "board_moved"
 }

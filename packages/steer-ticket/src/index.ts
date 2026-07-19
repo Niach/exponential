@@ -18,8 +18,8 @@ export type SteerPerm = `view` | `steer`
 export interface SteerTicketClaims {
   /** userId of the authenticated caller. */
   sub: string
-  /** workspaceId the ticket is scoped to (empty string for control tickets). */
-  ws: string
+  /** teamId the ticket is scoped to (empty string for control tickets). */
+  team: string
   /** Display name, shown in viewer presence. */
   name?: string
   /** Human device label (control tickets). */

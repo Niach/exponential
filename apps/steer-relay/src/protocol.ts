@@ -176,7 +176,7 @@ export type ServerFrame =
   | ({
       t: `start_session`
       issueIds: string[]
-      workspaceId: string
+      teamId: string
       repo: StartRepoGroup
     } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher

@@ -20,7 +20,7 @@ import {
 // A remote start's subject: a single issue (wire-unchanged) or a batch group.
 export type StartSubject =
   | { issueId: string }
-  | { issueIds: string[]; workspaceId: string; repo: StartRepoGroup }
+  | { issueIds: string[]; teamId: string; repo: StartRepoGroup }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this.
@@ -465,7 +465,7 @@ export class Hub {
 
   /** Route a remote "Start on my desktop" to the device's control socket.
    * `subject` is a single issue (wire-unchanged) or a batch group (issueIds +
-   * workspaceId + repo). `options` fields are optional launch options
+   * teamId + repo). `options` fields are optional launch options
    * (EXP-149); undefineds are dropped by JSON.stringify, so an option-less
    * single-issue start stays byte-identical to the pre-options frame. */
   startSession(
@@ -485,7 +485,7 @@ export class Hub {
         : {
             t: `start_session`,
             issueIds: subject.issueIds,
-            workspaceId: subject.workspaceId,
+            teamId: subject.teamId,
             repo: subject.repo,
             ...options,
           }

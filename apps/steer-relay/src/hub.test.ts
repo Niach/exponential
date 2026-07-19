@@ -42,7 +42,7 @@ function claims(overrides: Partial<SteerTicketClaims>): SteerTicketClaims {
   const now = Math.floor(Date.now() / 1000)
   return {
     sub: `user-1`,
-    ws: `ws-1`,
+    team: `team-1`,
     role: `viewer`,
     perm: `view`,
     iat: now,
@@ -223,14 +223,14 @@ describe(`device presence + remote start`, () => {
     const routed = hub.startSession(
       `owner`,
       `dev-1`,
-      { issueIds: [`issue-1`, `issue-2`], workspaceId: `ws-1`, repo },
+      { issueIds: [`issue-1`, `issue-2`], teamId: `team-1`, repo },
       { ultracode: true }
     )
     expect(routed).toEqual({ ok: true })
     expect(desktop.lastFrame(`start_session`)).toEqual({
       t: `start_session`,
       issueIds: [`issue-1`, `issue-2`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
       ultracode: true,
     })
@@ -238,13 +238,13 @@ describe(`device presence + remote start`, () => {
     // Undefined options never reach the batch frame either.
     hub.startSession(`owner`, `dev-1`, {
       issueIds: [`issue-3`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
     })
     expect(desktop.lastFrame(`start_session`)).toEqual({
       t: `start_session`,
       issueIds: [`issue-3`],
-      workspaceId: `ws-1`,
+      teamId: `team-1`,
       repo,
     })
   })
@@ -254,7 +254,7 @@ describe(`device presence + remote start`, () => {
     expect(
       hub.startSession(`owner`, `dev-gone`, {
         issueIds: [`issue-1`, `issue-2`],
-        workspaceId: `ws-1`,
+        teamId: `team-1`,
         repo: {
           repositoryId: `repo-1`,
           fullName: `acme/api`,
