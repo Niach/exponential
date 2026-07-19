@@ -76,7 +76,7 @@ export function LoopMovie() {
           observer.disconnect()
         }
       },
-      { rootMargin: `300px` },
+      { rootMargin: `300px` }
     )
     observer.observe(el)
     return () => observer.disconnect()
@@ -98,7 +98,7 @@ export function LoopMovie() {
           controller.play()
         }
       },
-      { threshold: 0.1 },
+      { threshold: 0.1 }
     )
     observer.observe(el)
     return () => observer.disconnect()
@@ -202,6 +202,17 @@ export function LoopMovie() {
           </button>
         ))}
       </div>
+      {/* On phones the chips collapse to segment bars (loop.css) and this
+          single line narrates the active chapter instead. The chips keep
+          their visually-hidden text, so this stays aria-hidden. */}
+      <p className={`movie-rail-now`} aria-hidden>
+        <span className={`movie-rail-now-label`}>
+          {CHAPTER_META[active].label}
+        </span>
+        <span className={`movie-rail-now-phrase`}>
+          {CHAPTER_META[active].phrase}
+        </span>
+      </p>
     </div>
   )
 }

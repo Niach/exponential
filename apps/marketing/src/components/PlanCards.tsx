@@ -1,120 +1,8 @@
 import { motion } from "motion/react"
 import { Check, Mail, Server } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
-import { LINKS } from "../lib/links"
+import { CLOUD_PLANS, SELF_HOST_PLANS, type CloudPlan } from "../lib/plans"
 import { IcArrow } from "./icons"
-
-type Plan = {
-  name: string
-  amount: string
-  cadence?: string
-  note?: string
-  tagline: string
-  highlight?: boolean
-  enterprise?: boolean
-  features: string[]
-  cta: { label: string; href: string }
-}
-
-/* Cloud tiers — mirrors apps/web/src/lib/billing.ts PLAN_LIMITS and
-   apps/web/src/components/workspace/plan-comparison.tsx. Keep in sync. */
-const cloudPlans: Plan[] = [
-  {
-    name: `Free`,
-    amount: `$0`,
-    cadence: `forever`,
-    tagline: `For you and your side projects.`,
-    features: [
-      `1 seat`,
-      `250 MB storage`,
-      `1 feedback widget`,
-      `All native apps`,
-      `Real-time sync`,
-      `Push & steer`,
-    ],
-    cta: { label: `Sign up free`, href: LINKS.app.login },
-  },
-  {
-    name: `Pro`,
-    amount: `$5`,
-    cadence: `/seat/mo`,
-    note: `· billed yearly`,
-    tagline: `For teams that ship together.`,
-    highlight: true,
-    features: [
-      `Everything in Free`,
-      `5 GB storage`,
-      `3 feedback widgets`,
-      `Helpdesk & support inbox`,
-    ],
-    cta: { label: `Start with Pro`, href: LINKS.app.login },
-  },
-  {
-    name: `Business`,
-    amount: `$10`,
-    cadence: `/seat/mo`,
-    note: `monthly or yearly`,
-    tagline: `For orgs with room to grow.`,
-    features: [
-      `Everything in Pro`,
-      `50 GB storage`,
-      `Unlimited feedback widgets`,
-      `Priority support`,
-    ],
-    cta: { label: `Start with Business`, href: LINKS.app.login },
-  },
-  {
-    name: `Enterprise`,
-    amount: `Let's talk`,
-    cadence: `custom pricing`,
-    tagline: `For companies that need guarantees.`,
-    enterprise: true,
-    features: [
-      `Everything in Business`,
-      `SSO / OIDC — soon`,
-      `SLA with guaranteed response times`,
-      `Dedicated support channel`,
-      `Custom contracts & procurement`,
-      `Security review & DPA`,
-      `Onboarding & migration help`,
-    ],
-    /* No self-serve checkout — sales form on the contact page (EXP-39). */
-    cta: { label: `Contact sales`, href: `/contact/` },
-  },
-]
-
-/* Run-it-yourself tiers — self-host is free & unlimited; Enterprise is
-   contact-sales. Plain, friendly phrasing. */
-const selfHostPlans: (Plan & { selfHost?: boolean })[] = [
-  {
-    name: `Self-hosted`,
-    amount: `Free`,
-    cadence: `your hardware`,
-    tagline: `Free for individuals and small businesses — under 10 people.`,
-    selfHost: true,
-    features: [
-      `Every feature unlocked`,
-      `Unlimited seats & storage`,
-      `One docker compose`,
-      `Source-available (ELv2)`,
-    ],
-    cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
-  },
-  {
-    name: `Enterprise`,
-    amount: `Let's talk`,
-    cadence: `self-hosted, supported`,
-    tagline: `For teams of 10 or more running it in-house.`,
-    enterprise: true,
-    features: [
-      `Everything in self-hosted`,
-      `Prioritized support`,
-      `Deployment & upgrade help`,
-    ],
-    /* Dedicated contact page with the sales form (EXP-39). */
-    cta: { label: `Contact sales`, href: `/contact/` },
-  },
-]
 
 function FeatureList({ features }: { features: string[] }) {
   return (
@@ -129,7 +17,7 @@ function FeatureList({ features }: { features: string[] }) {
   )
 }
 
-function PriceLockup({ plan }: { plan: Plan }) {
+function PriceLockup({ plan }: { plan: CloudPlan }) {
   return (
     <div className="plan-price">
       <span className="plan-amount">{plan.amount}</span>
@@ -148,7 +36,7 @@ export function PlanCards() {
       whileInView="visible"
       viewport={viewportOnce}
     >
-      {cloudPlans.map((p) => (
+      {CLOUD_PLANS.map((p) => (
         <motion.div
           key={p.name}
           className={`plan-card${p.highlight ? ` is-highlight` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
@@ -183,7 +71,7 @@ export function SelfHostCards() {
       whileInView="visible"
       viewport={viewportOnce}
     >
-      {selfHostPlans.map((p) => (
+      {SELF_HOST_PLANS.map((p) => (
         <motion.div
           key={p.name}
           className={`plan-card${p.selfHost ? ` is-selfhost` : ``}${p.enterprise ? ` is-enterprise` : ``}`}

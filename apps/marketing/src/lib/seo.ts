@@ -4,6 +4,8 @@
    The source HTML heads carry ONLY charset/viewport/title/fonts/icons — every
    description/canonical/og:/twitter:/ld+json tag is owned here. */
 
+import { CLOUD_PLANS } from "./plans"
+
 export const SITE_ORIGIN = `https://exponential.at`
 export const SITE_NAME = `Exponential`
 
@@ -41,7 +43,7 @@ const softwareApplication: Record<string, unknown> = {
   "@type": `SoftwareApplication`,
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
-  operatingSystem: `Web, iOS, Android, macOS, Linux`,
+  operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
   description: `An issue tracker with a built-in coding IDE. Assign issues to local AI agents that run in your terminal and open GitHub pull requests.`,
   url: `${SITE_ORIGIN}/`,
   offers: {
@@ -51,45 +53,31 @@ const softwareApplication: Record<string, unknown> = {
   },
 }
 
-/* Pricing Offers mirror the cloud tiers in
-   apps/marketing/src/components/PlanCards.tsx (which itself mirrors
-   apps/web/src/lib/billing.ts). Keep in sync when prices change.
-   Enterprise is deliberately absent — a schema.org Offer needs a numeric
-   price, and Enterprise is contact-sales. */
+/* Pricing Offers derive from the canonical plan module (lib/plans.ts,
+   which mirrors apps/web/src/lib/billing.ts). Enterprise is deliberately
+   absent — a schema.org Offer needs a numeric price, Enterprise is
+   contact-sales, and only plans with a priceNumber make the list. */
 const pricingProduct: Record<string, unknown> = {
   "@context": `https://schema.org`,
   "@type": `Product`,
   name: `${SITE_NAME} — plans`,
   description: `Per-seat pricing for Exponential cloud. Free for individuals; local AI agents on every tier.`,
   brand: { "@type": `Brand`, name: SITE_NAME },
-  offers: [
-    {
+  offers: CLOUD_PLANS.filter((plan) => plan.priceNumber !== undefined).map(
+    (plan) => ({
       "@type": `Offer`,
-      name: `Free`,
-      price: `0`,
+      name: plan.name,
+      price: String(plan.priceNumber),
       priceCurrency: `USD`,
       url: `${SITE_ORIGIN}/pricing/`,
-    },
-    {
-      "@type": `Offer`,
-      name: `Pro`,
-      price: `5`,
-      priceCurrency: `USD`,
-      url: `${SITE_ORIGIN}/pricing/`,
-      description: `Per seat, per month, billed yearly.`,
-    },
-    {
-      "@type": `Offer`,
-      name: `Business`,
-      price: `10`,
-      priceCurrency: `USD`,
-      url: `${SITE_ORIGIN}/pricing/`,
-      description: `Per seat, per month, billed monthly or yearly.`,
-    },
-  ],
+      ...(plan.priceDescription ? { description: plan.priceDescription } : {}),
+    })
+  ),
 }
 
-function breadcrumb(items: { name: string; path: string }[]): Record<string, unknown> {
+function breadcrumb(
+  items: { name: string; path: string }[]
+): Record<string, unknown> {
   return {
     "@context": `https://schema.org`,
     "@type": `BreadcrumbList`,
@@ -106,18 +94,26 @@ export const PAGES: PageSeo[] = [
   {
     path: `/`,
     htmlFile: `index.html`,
-    sources: [`src/HomePage.tsx`, `src/components/HomePricing.tsx`],
+    sources: [
+      `src/HomePage.tsx`,
+      `src/components/HomePricing.tsx`,
+      `src/lib/plans.ts`,
+    ],
     title: `Exponential — The development platform for teams and agents`,
-    description: `Issue tracking with coding agents built in. Feedback in, pull requests out. Native on web, iOS, Android, macOS and Linux. Free for individuals, free to self-host.`,
+    description: `Issue tracking with coding agents built in. Feedback in, pull requests out. Native on web, iOS, Android, macOS, Windows and Linux. Free for individuals, free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },
   {
     path: `/pricing/`,
     htmlFile: `pricing/index.html`,
-    sources: [`src/PricingPage.tsx`, `src/components/PlanCards.tsx`],
+    sources: [
+      `src/PricingPage.tsx`,
+      `src/components/PlanCards.tsx`,
+      `src/lib/plans.ts`,
+    ],
     title: `Pricing — Exponential`,
-    description: `Per-seat pricing: Free for individuals, Pro $5/seat/mo, Business $10/seat/mo, Enterprise with SLA — let's talk. Local AI agents free on every tier. Self-host free and unlimited.`,
+    description: `Per-seat pricing: Free for individuals, Pro $5/seat/mo, Business $10/seat/mo, Enterprise custom — contact sales. Local AI agents free on every tier. Self-host free and unlimited.`,
     ogImage: `/og/og-pricing.png`,
     jsonLd: pricingProduct,
   },

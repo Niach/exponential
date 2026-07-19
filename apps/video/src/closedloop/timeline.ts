@@ -1,23 +1,31 @@
 // closedloop/timeline.ts — scene boundaries, chapter markers (consumed by the
 // marketing player UI), camera keyframes, whip-pan blur, dock-height clock,
 // terminal feed schedule, cursor choreographies and the caption windows.
-// Every frame value is COMPOSITION-GLOBAL. 780 frames @ 30fps (~26s), and the
-// last frame matches the first (camera, FAB, cursor) for a seamless loop.
+// Every frame value is COMPOSITION-GLOBAL. The story runs 780 frames @ 30fps
+// (~26s) and its last frame matches the first (camera, FAB, cursor); an
+// END_HOLD tail of identical resting frames follows (EXP-176) so the Player
+// loop breathes for ~2s before the wrap instead of whip-cutting immediately.
 
-import { interpolate, spring } from "remotion"
-import { CHAPTER_INFO } from "./chapters"
-import { SETTLE, WIN } from "../ships/theme"
-import type { CamKey, CursorKey } from "../ships/rig"
-import { DETAIL_ANCHORS } from "../ships/surfaces/detail"
-import { railIconCenter } from "../ships/surfaces/chrome"
-import { SITE_ANCHORS } from "./surfaces/sitemock"
-import { WIDGET_ANCHORS } from "./surfaces/widgetmock"
-import { START_DIALOG_ANCHORS } from "./surfaces/startdialog"
+import { interpolate, spring } from "remotion";
+import { CHAPTER_INFO } from "./chapters";
+import { SETTLE, WIN } from "../ships/theme";
+import type { CamKey, CursorKey } from "../ships/rig";
+import { DETAIL_ANCHORS } from "../ships/surfaces/detail";
+import { railIconCenter } from "../ships/surfaces/chrome";
+import { SITE_ANCHORS } from "./surfaces/sitemock";
+import { WIDGET_ANCHORS } from "./surfaces/widgetmock";
+import { START_DIALOG_ANCHORS } from "./surfaces/startdialog";
 
-const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
+const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
-export const FPS = 30
-export const DURATION_IN_FRAMES = 780
+export const FPS = 30;
+// The authored story — f779 matches f0 exactly (seamless loop anchor).
+export const STORY_FRAMES = 780;
+// Rest on the closing frame before the loop wraps (EXP-176: "loops too fast").
+// The tail renders identically to f0: camera/cursor/FAB are already at their
+// rest keys and every beat has faded by f778, so only time passes.
+export const END_HOLD = 60;
+export const DURATION_IN_FRAMES = STORY_FRAMES + END_HOLD;
 
 // ── Scenes ────────────────────────────────────────────────────────────────────
 export const SCENE = {
@@ -30,29 +38,31 @@ export const SCENE = {
   diff: 600, // Changes tab — side-by-side diff
   merge: 675, // Reviews rail → two-stage merge → board regroups to Done
   email: 735, // back on acme.shop — the reporter hears back
-  end: DURATION_IN_FRAMES,
-} as const
+  end: STORY_FRAMES, // the END_HOLD tail after this is pure rest
+} as const;
 
 // Chapter markers for the marketing player scrubber — the id/label/phrase
 // metadata lives in chapters.ts (remotion-free, shared with the marketing
 // rail); only the frame mapping is authored here.
-export type Chapter = { id: string; label: string; frame: number }
+export type Chapter = { id: string; label: string; frame: number };
 const CHAPTER_FRAMES: Record<string, number> = {
   feedback: SCENE.site,
   issue: SCENE.board,
   code: SCENE.dialog,
   merge: SCENE.diff,
   shipped: SCENE.email,
-}
+};
 export const CHAPTERS: Chapter[] = CHAPTER_INFO.map(({ id, label }) => {
-  const frame = CHAPTER_FRAMES[id]
-  if (frame === undefined) throw new Error(`chapter ${id} has no frame`)
-  return { id, label, frame }
-})
+  const frame = CHAPTER_FRAMES[id];
+  if (frame === undefined) throw new Error(`chapter ${id} has no frame`);
+  return { id, label, frame };
+});
 
 // ── Camera (single global key list; 1-frame gaps = hard cuts under whip blur) ─
 // EXP-155: every shot reads ~15–20% tighter so the embedded film stays legible
-// at page width. Viewport-in-window bounds for the 1568×980 chassis:
+// at page width. EXP-176: the app shots (S2–S6) gained another ~6% for phone
+// widths — S1/S9 stay untouched so the loop anchor and the checked-in poster
+// (frame 0) remain valid. Viewport-in-window bounds for the 1568×980 chassis:
 // 960/s ≤ x ≤ 1568−960/s and 540/s ≤ y ≤ 980−540/s (deliberately violated
 // only where an edge is meant to pin past the window, e.g. the S6 dock tilt).
 export const CAMERA_KEYS: CamKey[] = [
@@ -62,19 +72,20 @@ export const CAMERA_KEYS: CamKey[] = [
   { f: 46, s: 1.55, x: 920, y: 475 },
   { f: 78, s: 1.55, x: 920, y: 475 },
   // S2 — settle onto the FAB corner / widget panel zone (bottom-right pinned)
-  { f: 98, s: 1.75, x: 1019, y: 671 },
-  { f: 254, s: 1.75, x: 1019, y: 671 },
+  { f: 98, s: 1.85, x: 1049, y: 688 },
+  { f: 254, s: 1.85, x: 1049, y: 688 },
   // S3 — hard cut onto the app board (left/top pinned like the ships framing)
-  { f: 255, s: 1.8, x: 535, y: 347 },
-  { f: 332, s: 1.8, x: 535, y: 347 },
+  { f: 255, s: 1.9, x: 507, y: 331 },
+  { f: 332, s: 1.9, x: 507, y: 331 },
   // S4 — fly to the detail header + properties
-  { f: 356, s: 1.65, x: 905, y: 330 },
-  { f: 408, s: 1.65, x: 905, y: 330 },
+  { f: 356, s: 1.75, x: 915, y: 325 },
+  { f: 408, s: 1.75, x: 915, y: 325 },
   // S5 — dialog centered (bottom clears the caption band)
-  { f: 420, s: 1.7, x: 784, y: 500 },
-  { f: 500, s: 1.7, x: 784, y: 500 },
+  { f: 420, s: 1.8, x: 784, y: 500 },
+  { f: 500, s: 1.8, x: 784, y: 500 },
   // S6 — tilt down onto the dock (window bottom pinned; y keeps the terminal
-  // status line above the screen-space caption band)
+  // status line above the screen-space caption band — this shot has no
+  // headroom for the EXP-176 tighten, so it keeps the EXP-155 framing)
   { f: 518, s: 1.7, x: 610, y: 718 },
   { f: 600, s: 1.7, x: 610, y: 718 },
   // S7 — up onto the diff, slow reading drift (full 1264px pane caps the zoom)
@@ -88,26 +99,31 @@ export const CAMERA_KEYS: CamKey[] = [
   // S9 — hard cut back to the site; settle exactly onto the f0 framing (loop)
   { f: 735, s: 1.16, x: 800, y: 498 },
   { f: 779, s: 1.1, x: 784, y: 490 },
-]
+];
 
 // Whip-pan blur at both hard cuts.
 export const whipBlurAt = (frame: number): number =>
   interpolate(frame, [251, 254, 256, 259], [0, 3, 3, 0], CLAMP) +
-  interpolate(frame, [731, 734, 736, 739], [0, 3, 3, 0], CLAMP)
+  interpolate(frame, [731, 734, 736, 739], [0, 3, 3, 0], CLAMP);
 
 // ── Dock height clock (29 ↔ 240) ─────────────────────────────────────────────
-export const DOCK_COLLAPSE_END = 614
+export const DOCK_COLLAPSE_END = 614;
 
 export const dockHeightAt = (frame: number): number => {
-  if (frame < SCENE.dock) return WIN.dockStrip
+  if (frame < SCENE.dock) return WIN.dockStrip;
   if (frame < SCENE.diff) {
-    const t = spring({ frame: frame - SCENE.dock, fps: 30, config: SETTLE })
-    return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t
+    const t = spring({ frame: frame - SCENE.dock, fps: 30, config: SETTLE });
+    return WIN.dockStrip + (WIN.dockExpanded - WIN.dockStrip) * t;
   }
   if (frame < DOCK_COLLAPSE_END)
-    return interpolate(frame, [SCENE.diff, DOCK_COLLAPSE_END], [WIN.dockExpanded, WIN.dockStrip], CLAMP)
-  return WIN.dockStrip
-}
+    return interpolate(
+      frame,
+      [SCENE.diff, DOCK_COLLAPSE_END],
+      [WIN.dockExpanded, WIN.dockStrip],
+      CLAMP,
+    );
+  return WIN.dockStrip;
+};
 
 // ── Widget beat frames (S1/S2) ────────────────────────────────────────────────
 export const SITE_BEATS = {
@@ -126,7 +142,7 @@ export const SITE_BEATS = {
   sendClick: 216,
   sending: 216,
   success: 232,
-} as const
+} as const;
 
 // ── Board / detail / dialog beats (S3–S5) ─────────────────────────────────────
 export const BOARD_BEATS = {
@@ -139,7 +155,7 @@ export const BOARD_BEATS = {
   startHover: 388,
   startHoverOut: 413,
   startClick: 412,
-} as const
+} as const;
 
 export const DIALOG_BEATS = {
   appear: 420,
@@ -149,25 +165,27 @@ export const DIALOG_BEATS = {
   starting: 472,
   collapse: 482,
   scrimOut: 482,
-} as const
+} as const;
 
 // ── Terminal feed (indices into fixtures.CL_SESSION) ──────────────────────────
-export const FEED_SCHEDULE: number[] = [500, 511, 524, 537, 549, 558, 566, 574, 584, 590]
-export const SESSION_TAB_POP = 497
-export const SESSION_EXIT = 594
-export const PR_AT = 592 // PR chip + board dot + rail badge
-export const SPINNER_BASE = { sec: 41, tokensK: 7.4 } as const
+export const FEED_SCHEDULE: number[] = [
+  500, 511, 524, 537, 549, 558, 566, 574, 584, 590,
+];
+export const SESSION_TAB_POP = 497;
+export const SESSION_EXIT = 594;
+export const PR_AT = 592; // PR chip + board dot + rail badge
+export const SPINNER_BASE = { sec: 41, tokensK: 7.4 } as const;
 
 // ── Coding / merge state frames ───────────────────────────────────────────────
-export const CODING_START = 486 // EXP-151 → In Progress (behind the dialog collapse)
-export const CODING_PILL = { at: 497, out: SESSION_EXIT } as const
+export const CODING_START = 486; // EXP-151 → In Progress (behind the dialog collapse)
+export const CODING_PILL = { at: 497, out: SESSION_EXIT } as const;
 
 export const DIFF_BEATS = {
   tabSwitch: SCENE.diff,
   statsRoll: 605,
   paint: 608,
   fileSelect: 646,
-} as const
+} as const;
 
 export const MERGE_BEATS = {
   railClick: 680,
@@ -181,27 +199,27 @@ export const MERGE_BEATS = {
   rowFadeTo: 726,
   doneAt: 724, // EXP-151 regroups to Done
   regroupEnd: 742,
-} as const
+} as const;
 
 // ── Email beat (S9) ───────────────────────────────────────────────────────────
-export const EMAIL_BEATS = { appear: 742, fade: 766 } as const
+export const EMAIL_BEATS = { appear: 742, fade: 766 } as const;
 
 // ── Cursor choreographies (window-local) ──────────────────────────────────────
-const PAY = SITE_ANCHORS.payButton
-const FAB = SITE_ANCHORS.fab
-const WT = WIDGET_ANCHORS.titleInput
-const WD = WIDGET_ANCHORS.detailsInput
-const WS = WIDGET_ANCHORS.send
+const PAY = SITE_ANCHORS.payButton;
+const FAB = SITE_ANCHORS.fab;
+const WT = WIDGET_ANCHORS.titleInput;
+const WD = WIDGET_ANCHORS.detailsInput;
+const WS = WIDGET_ANCHORS.send;
 const startCoding = {
   x: WIN.rail + WIN.sidebar + DETAIL_ANCHORS.startCoding.x,
   y: WIN.topBar + WIN.dockTabs + DETAIL_ANCHORS.startCoding.y,
-}
-const SD = START_DIALOG_ANCHORS
-const railReviews = railIconCenter("reviews")
-const BOARD_ROW_151 = { x: 174, y: 206 } // sidebar: In Progress header+row, Todo header, EXP-151 first
-const MERGE_BTN = { x: 263, y: 122 }
-const CONFIRM_BTN = { x: 238, y: 122 }
-const LOOP_REST = { x: 900, y: 560 } // cursor position at f0 AND f779 (seamless loop)
+};
+const SD = START_DIALOG_ANCHORS;
+const railReviews = railIconCenter("reviews");
+const BOARD_ROW_151 = { x: 174, y: 206 }; // sidebar: In Progress header+row, Todo header, EXP-151 first
+const MERGE_BTN = { x: 263, y: 122 };
+const CONFIRM_BTN = { x: 238, y: 122 };
+const LOOP_REST = { x: 900, y: 560 }; // cursor position at f0 AND f779 (seamless loop)
 
 // L1 — the visitor: dead clicks → FAB → widget form → send.
 export const CURSOR_SITE_KEYS: CursorKey[] = [
@@ -218,12 +236,19 @@ export const CURSOR_SITE_KEYS: CursorKey[] = [
   { f: 214, x: WS.x, y: WS.y },
   { f: 226, x: WS.x, y: WS.y },
   { f: 240, x: 1430, y: 900 },
-]
+];
 export const CURSOR_SITE = {
   from: 0,
   to: 250,
-  clicks: [SITE_BEATS.payClick1, SITE_BEATS.payClick2, SITE_BEATS.fabClick, SITE_BEATS.titleClick, SITE_BEATS.detailsClick, SITE_BEATS.sendClick],
-} as const
+  clicks: [
+    SITE_BEATS.payClick1,
+    SITE_BEATS.payClick2,
+    SITE_BEATS.fabClick,
+    SITE_BEATS.titleClick,
+    SITE_BEATS.detailsClick,
+    SITE_BEATS.sendClick,
+  ],
+} as const;
 
 // L2 — board pick → Start coding → dialog.
 export const CURSOR_APP1_KEYS: CursorKey[] = [
@@ -240,12 +265,12 @@ export const CURSOR_APP1_KEYS: CursorKey[] = [
   { f: 462, x: SD.startCoding.x, y: SD.startCoding.y },
   { f: 474, x: SD.startCoding.x, y: SD.startCoding.y },
   { f: 486, x: 1240, y: 850 },
-]
+];
 export const CURSOR_APP1 = {
   from: 262,
   to: 486,
   clicks: [BOARD_BEATS.rowClick, BOARD_BEATS.startClick, DIALOG_BEATS.starting],
-} as const
+} as const;
 
 // L3 — rail → two-stage merge.
 export const CURSOR_APP2_KEYS: CursorKey[] = [
@@ -257,19 +282,24 @@ export const CURSOR_APP2_KEYS: CursorKey[] = [
   { f: 704, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
   { f: 712, x: CONFIRM_BTN.x, y: CONFIRM_BTN.y },
   { f: 724, x: 500, y: 560 },
-]
+];
 export const CURSOR_APP2 = {
   from: 668,
   to: 730,
   clicks: [MERGE_BEATS.railClick, MERGE_BEATS.confirmAt, MERGE_BEATS.mergingAt],
-} as const
+} as const;
 
-// L4 — drift back to the loop rest position (matches f0).
+// L4 — drift back to the loop rest position (matches f0), then stay parked
+// through the END_HOLD tail (`to` must cover it or the cursor blinks out).
 export const CURSOR_END_KEYS: CursorKey[] = [
   { f: 740, x: 1240, y: 720 },
   { f: 776, x: LOOP_REST.x, y: LOOP_REST.y },
-]
-export const CURSOR_END = { from: 740, to: 780, clicks: [] as number[] } as const
+];
+export const CURSOR_END = {
+  from: 740,
+  to: DURATION_IN_FRAMES,
+  clicks: [] as number[],
+} as const;
 
 // ── Caption windows ───────────────────────────────────────────────────────────
 export const CAPTIONS = {
@@ -281,4 +311,4 @@ export const CAPTIONS = {
   s7: { in: 606, out: 668 },
   s8: { in: 684, out: 728 },
   s9: { in: 744, out: 764 },
-} as const
+} as const;

@@ -36,20 +36,12 @@
   }
 }
 
-/* ── Home-page pricing strip (HomePricing.tsx) — compact three-up ── */
-.home-plan-grid {
-  grid-template-columns: repeat(3, 1fr);
-  max-width: 960px;
-}
-
-@media (max-width: 720px) {
-  .home-plan-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* ── Home-page pricing strip (HomePricing.tsx) — compact four-up ──
+   The grid reuses .plan-grid-cloud so home and /pricing break identically
+   (4 → 2 @1080px → 1 @640px). */
 .home-pricing-links {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
   margin-top: 28px;
