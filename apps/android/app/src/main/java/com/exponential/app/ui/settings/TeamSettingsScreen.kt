@@ -237,7 +237,7 @@ fun TeamSettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            BoardsSection(state, isOwner, onConfirm = { confirm = it })
+            BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             RepositoriesSection(state, viewModel, isOwner)
             MembersSection(state, isOwner, onConfirm = { confirm = it })
             if (isOwner) InviteSection(state, viewModel, onConfirm = { confirm = it })
@@ -252,6 +252,7 @@ fun TeamSettingsScreen(
 @Composable
 private fun BoardsSection(
     state: TeamSettingsState,
+    viewModel: TeamSettingsViewModel,
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
@@ -301,7 +302,14 @@ private fun BoardsSection(
     if (showCreateBoard) {
         CreateBoardSheet(
             teamId = state.team?.id,
-            onCreated = { showCreateBoard = false },
+            onCreated = {
+                showCreateBoard = false
+                // A board created with an inline repo choice upserts a registry
+                // row server-side, and the registry is tRPC-only (no shape to
+                // sync it back) — without this the Repositories section keeps
+                // saying "No repositories connected" (EXP-187).
+                viewModel.refreshRepos()
+            },
             onDismiss = { showCreateBoard = false },
         )
     }
