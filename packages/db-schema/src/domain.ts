@@ -22,13 +22,13 @@ export const issuePriorityValues = [
   `low`,
 ] as const
 
-export const workspaceRoleValues = [`owner`, `member`] as const
+export const teamRoleValues = [`owner`, `member`] as const
 
-// Curated project icon set (projects.icon) — lucide names on the web; the
+// Curated board icon set (boards.icon) — lucide names on the web; the
 // native clients carry their own per-platform glyph mapping keyed by these
 // values (via the domain contract). NULL icon = clients derive a fallback
 // from publicness/repo presence. Mirrors packages/domain-contract/contract.json.
-export const projectIconValues = [
+export const boardIconValues = [
   `code`,
   `square-kanban`,
   `megaphone`,
@@ -47,13 +47,13 @@ export const projectIconValues = [
   `message-circle`,
 ] as const
 
-// How long a soft-deleted (trashed) project is retained before the purge sweep
+// How long a soft-deleted (trashed) board is retained before the purge sweep
 // hard-deletes it (with all its issues) and reclaims its attachment storage.
 // The single source every client mirrors for the restore-window countdown; the
 // purge time is computed as deletedAt + this, never stored.
-export const PROJECT_TRASH_RETENTION_HOURS = 48
-export const PROJECT_TRASH_RETENTION_MS =
-  PROJECT_TRASH_RETENTION_HOURS * 60 * 60 * 1000
+export const BOARD_TRASH_RETENTION_HOURS = 48
+export const BOARD_TRASH_RETENTION_MS =
+  BOARD_TRASH_RETENTION_HOURS * 60 * 60 * 1000
 
 // How long a `running` coding_sessions row may go without a liveness signal
 // (updated_at — the desktop heartbeats it while the claude child is alive)
@@ -106,7 +106,7 @@ export const notificationTypeValues = [
   `issue_comment`,
   `issue_status_changed`,
   `issue_mention`,
-  // New-issue broadcast to workspace members — currently fired only for
+  // New-issue broadcast to team members — currently fired only for
   // feedback-widget submissions (external reporters have no other signal path).
   `issue_created`,
   // PR lifecycle notifications — fan out to assignee + subscribers so the
@@ -114,7 +114,7 @@ export const notificationTypeValues = [
   `pr_opened`,
   `pr_merged`,
   // Helpdesk: an external reporter replied on a support thread (broadcast to
-  // workspace members, mirroring the issue_created feedback broadcast).
+  // team members, mirroring the issue_created feedback broadcast).
   `support_reply`,
 ] as const
 
@@ -149,13 +149,13 @@ export const issueEventTypeValues = [
   `label_removed`,
   `pr_opened`,
   `pr_merged`,
-  `project_moved`,
+  `board_moved`,
 ] as const
 
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
-export type WorkspaceRole = (typeof workspaceRoleValues)[number]
-export type ProjectIcon = (typeof projectIconValues)[number]
+export type TeamRole = (typeof teamRoleValues)[number]
+export type BoardIcon = (typeof boardIconValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
@@ -169,8 +169,8 @@ export type SupportMessageVisibility =
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
-export const workspaceRoleSchema = z.enum(workspaceRoleValues)
-export const projectIconSchema = z.enum(projectIconValues)
+export const teamRoleSchema = z.enum(teamRoleValues)
+export const boardIconSchema = z.enum(boardIconValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)

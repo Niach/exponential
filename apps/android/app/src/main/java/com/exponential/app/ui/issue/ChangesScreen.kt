@@ -62,7 +62,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
@@ -116,36 +116,36 @@ class ChangesViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Membership resolution for the merge/close controls (mirrors
-    // IssueDetailViewModel): issue → project → workspace + members + auth.
-    private val projectFlow = combine(dbFlow, issue) { db, iss -> db to iss }
+    // IssueDetailViewModel): issue → board → team + members + auth.
+    private val boardFlow = combine(dbFlow, issue) { db, iss -> db to iss }
         .flatMapLatest { (db, iss) ->
             if (db == null || iss == null) flowOf(null)
-            else db.projectDao().observeAll().map { projects -> projects.firstOrNull { it.id == iss.projectId } }
+            else db.boardDao().observeAll().map { boards -> boards.firstOrNull { it.id == iss.boardId } }
         }
-    private val workspaceForProject = combine(dbFlow, projectFlow) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(null)
-            else db.workspaceDao().observeById(project.workspaceId)
+    private val teamForBoard = combine(dbFlow, boardFlow) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(null)
+            else db.teamDao().observeById(board.teamId)
         }
-    private val membersForWorkspace = combine(dbFlow, projectFlow) { db, project -> db to project }
-        .flatMapLatest { (db, project) ->
-            if (db == null || project == null) flowOf(emptyList())
-            else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
+    private val membersForTeam = combine(dbFlow, boardFlow) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.teamMemberDao().observeByTeam(board.teamId)
         }
-    val permissions: StateFlow<WorkspacePermissions> = combine(
-        workspaceForProject,
-        membersForWorkspace,
+    val permissions: StateFlow<TeamPermissions> = combine(
+        teamForBoard,
+        membersForTeam,
         auth.userId,
         auth.isAdmin,
-    ) { workspace, members, userId, isAdmin ->
-        WorkspacePermissions.resolve(
-            workspace = workspace,
+    ) { team, members, userId, isAdmin ->
+        TeamPermissions.resolve(
+            team = team,
             currentUserId = userId,
             isAdmin = isAdmin,
             isMember = userId != null && members.any { it.userId == userId },
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
 
     private val _load = MutableStateFlow<ChangesLoadState>(ChangesLoadState.Loading)
     val load: StateFlow<ChangesLoadState> = _load

@@ -28,7 +28,7 @@ const methodNotAllowed = () =>
 // Session cookies, bearer session tokens, and personal `expu_` api keys are
 // the user's own credentials → full membership access. OAuth2 access tokens
 // (human MCP clients like Claude) resolve through their consent grant and are
-// confined to the workspaces/projects selected on the consent screen.
+// confined to the teams/boards selected on the consent screen.
 async function resolveMcpRequest(
   request: Request
 ): Promise<{ userId: string; access: McpAccess } | null> {

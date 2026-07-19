@@ -24,7 +24,7 @@ export interface RegularCommentRowProps {
   onEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => Promise<void>
-  // Workspace members for the edit composer's @-mention autocomplete.
+  // Team members for the edit composer's @-mention autocomplete.
   users: User[]
 }
 

@@ -51,7 +51,7 @@ pub(crate) fn author_label(author: Option<&User>) -> String {
 
 /// Display label for a resolved `user_id` whose row may be missing: the row's
 /// [`author_label`] when present, else the `Member <LAST4>` fallback (the
-/// server no longer syncs user rows for public-workspace co-members, so an id
+/// server no longer syncs user rows for public-team co-members, so an id
 /// referenced by an issue/comment/event can resolve to no row).
 pub(crate) fn user_label(user_id: &str, user: Option<&User>) -> String {
     match user {
@@ -139,7 +139,7 @@ pub(crate) struct CommentRowProps<'a> {
     pub saving: bool,
     pub now_epoch: i64,
     /// Scopes the body's `@email`/`#IDENT` pill resolution (§4.5).
-    pub workspace_id: Option<&'a str>,
+    pub team_id: Option<&'a str>,
     /// Shared attachment-image cache (auth-gated fetch).
     pub images: &'a Entity<ImageCache>,
 }
@@ -251,12 +251,12 @@ pub(crate) fn comment_row(
                 source,
             )
             .images(props.images.clone());
-            if let Some(workspace_id) = props.workspace_id {
-                let workspace = workspace_id.to_string();
+            if let Some(team_id) = props.team_id {
+                let team = team_id.to_string();
                 view = view
-                    .resolver(RefResolver::from_store(workspace_id))
+                    .resolver(RefResolver::from_store(team_id))
                     .on_open_issue(move |identifier, window, cx| {
-                        open_issue_by_identifier(&workspace, identifier, window, cx);
+                        open_issue_by_identifier(&team, identifier, window, cx);
                     });
             }
             div().mt_0p5().text_sm().child(view).into_any_element()

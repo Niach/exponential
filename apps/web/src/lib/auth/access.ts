@@ -4,23 +4,20 @@
 // predicates below. Low-level data lookups and the member-role assertion still
 // live in `./membership`.
 //
-// v7: workspace-level publicness is gone. Membership (always an explicit
-// invite) is the only capability gate — public feedback boards are read-only
-// for non-members (anonymous reads happen in the shape proxies; writes arrive
-// only via the embedded widget's server-side service). The old
-// public-workspace moderation clamp is deleted with the self-joined-member
-// class it existed for.
+// Membership (always an explicit invite) is the only capability gate —
+// nothing is anonymously readable (EXP-180 removed public boards); anonymous
+// writes arrive only via the embedded widget's server-side service.
 
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { labels } from "@/db/schema"
-import type { WorkspaceRole } from "@/lib/domain"
+import type { TeamRole } from "@/lib/domain"
 import {
-  assertMatchingWorkspaceIds,
-  assertWorkspaceAccess,
-  getIssueWorkspaceContext,
-  getWorkspaceById,
-  getWorkspaceMember,
+  assertMatchingTeamIds,
+  assertTeamAccess,
+  getIssueTeamContext,
+  getTeamById,
+  getTeamMember,
 } from "./membership"
 
 async function getDb() {
@@ -29,40 +26,40 @@ async function getDb() {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace-scoped capabilities
+// Team-scoped capabilities
 // ---------------------------------------------------------------------------
 
 // - `read` / `comment` / `create_issue`: any member.
-// - `mutate_resources`: workspace-level resources (projects, labels, members,
+// - `mutate_resources`: team-level resources (boards, labels, members,
 //   invites) — a member with the required role.
-export type WorkspaceCapability =
+export type TeamCapability =
   | `read`
   | `comment`
   | `create_issue`
   | `mutate_resources`
 
-export async function resolveWorkspaceAccess(
+export async function resolveTeamAccess(
   userId: string,
-  workspaceId: string,
-  capability: WorkspaceCapability = `read`,
-  opts?: { roles?: WorkspaceRole[] }
+  teamId: string,
+  capability: TeamCapability = `read`,
+  opts?: { roles?: TeamRole[] }
 ) {
-  const workspace = await getWorkspaceById(workspaceId)
-  if (!workspace) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  const team = await getTeamById(teamId)
+  if (!team) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })
   }
-  const member = await getWorkspaceMember(userId, workspaceId)
+  const member = await getTeamMember(userId, teamId)
 
   switch (capability) {
     case `read`:
     case `comment`:
     case `create_issue`: {
-      assertWorkspaceAccess(member)
-      return { kind: `member` as const, workspace, member }
+      assertTeamAccess(member)
+      return { kind: `member` as const, team, member }
     }
     case `mutate_resources`: {
-      assertWorkspaceAccess(member, opts?.roles)
-      return { kind: `member` as const, workspace, member }
+      assertTeamAccess(member, opts?.roles)
+      return { kind: `member` as const, team, member }
     }
   }
 }
@@ -71,7 +68,7 @@ export async function resolveWorkspaceAccess(
 // Issue-scoped actions
 // ---------------------------------------------------------------------------
 
-// - `read` / `write` / `delete`: any member of the issue's workspace.
+// - `read` / `write` / `delete`: any member of the issue's team.
 export type IssueAction = `read` | `write` | `delete`
 
 export async function assertIssueAccess(
@@ -79,37 +76,37 @@ export async function assertIssueAccess(
   issueId: string,
   action: IssueAction
 ) {
-  const issueContext = await getIssueWorkspaceContext(issueId)
+  const issueContext = await getIssueTeamContext(issueId)
   switch (action) {
     case `read`: {
-      await resolveWorkspaceAccess(userId, issueContext.workspaceId, `read`)
+      await resolveTeamAccess(userId, issueContext.teamId, `read`)
       return issueContext
     }
     case `write`:
     case `delete`: {
-      const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-      assertWorkspaceAccess(member)
+      const member = await getTeamMember(userId, issueContext.teamId)
+      assertTeamAccess(member)
       return issueContext
     }
   }
 }
 
-// Toggling a label both verifies the label and issue share a workspace and that
+// Toggling a label both verifies the label and issue share a team and that
 // the caller may mutate the issue. Returns both contexts for the caller's write.
-export async function assertIssueLabelWorkspaceMatch(
+export async function assertIssueLabelTeamMatch(
   userId: string,
   issueId: string,
   labelId: string
 ) {
   const db = await getDb()
   const [label] = await db
-    .select({ id: labels.id, workspaceId: labels.workspaceId })
+    .select({ id: labels.id, teamId: labels.teamId })
     .from(labels)
     .where(eq(labels.id, labelId))
     .limit(1)
 
-  const issueContext = await getIssueWorkspaceContext(issueId)
-  assertMatchingWorkspaceIds(issueContext.workspaceId, label?.workspaceId)
+  const issueContext = await getIssueTeamContext(issueId)
+  assertMatchingTeamIds(issueContext.teamId, label?.teamId)
   await assertIssueAccess(userId, issueId, `write`)
 
   return { issue: issueContext, label }

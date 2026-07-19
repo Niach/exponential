@@ -36,8 +36,8 @@ class PartialUpdatePlannerTest {
     fun skipsCompositePrimaryKeyTables() {
         val plan = planPartialUpdate(
             pkColumns = listOf("issue_id", "label_id"),
-            knownColumns = setOf("issue_id", "label_id", "workspace_id"),
-            wireColumns = linkedMapOf("workspace_id" to JsonPrimitive("w1")),
+            knownColumns = setOf("issue_id", "label_id", "team_id"),
+            wireColumns = linkedMapOf("team_id" to JsonPrimitive("w1")),
         )
         assertNull(plan)
     }

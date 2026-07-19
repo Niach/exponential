@@ -38,7 +38,7 @@
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
-//! query), [`projects`], [`workspaces`] (+ members + invites), [`labels`]
+//! query), [`boards`], [`teams`] (+ members + invites), [`labels`]
 //! (+ issueLabels), [`comments`], [`notifications`] — plus [`patch`], the
 //! tri-state omit/null/set field for zod `.nullable().optional()` updates.
 //! Mutation outputs decode the server `txId` for the §4.1 `awaitTxId` gate.
@@ -58,13 +58,14 @@ pub mod accounts;
 pub mod coding_sessions;
 pub mod comments;
 pub mod error;
+pub mod helpdesk;
 pub mod issues;
 pub mod labels;
 pub mod login;
 pub mod notifications;
 pub mod opener;
 pub mod patch;
-pub mod projects;
+pub mod boards;
 pub mod repositories;
 pub mod run_configs;
 pub mod steer;
@@ -72,7 +73,7 @@ pub mod token_store;
 pub mod trpc;
 pub mod trust_store;
 pub mod users;
-pub mod workspaces;
+pub mod teams;
 
 mod encode;
 
@@ -161,11 +162,18 @@ pub fn default_data_dir() -> PathBuf {
 }
 
 /// The per-account sync SQLite path (§5.4):
-/// `{data_dir}/accounts/{account_id}/sync.sqlite`. `account_id` is the
+/// `{data_dir}/accounts/{account_id}/sync-v2.sqlite`. `account_id` is the
 /// filesystem-safe id from [`accounts::account_id_for`].
+///
+/// `-v2` is the EXP-180 rename reset: the store's cached tables/shape names
+/// changed (`workspaces`→`teams`, `projects`→`boards`, `team_id`/`board_id`
+/// columns), so pre-rename files are unusable. The store is a pure cache — a
+/// fresh file just means one cheap resync — so any stale pre-rename DB (plus
+/// its WAL sidecars) is deleted on the way through.
 pub fn account_db_path(data_dir: &std::path::Path, account_id: &str) -> PathBuf {
-    data_dir
-        .join("accounts")
-        .join(account_id)
-        .join("sync.sqlite")
+    let dir = data_dir.join("accounts").join(account_id);
+    for stale in ["sync.sqlite", "sync.sqlite-wal", "sync.sqlite-shm"] {
+        let _ = std::fs::remove_file(dir.join(stale));
+    }
+    dir.join("sync-v2.sqlite")
 }

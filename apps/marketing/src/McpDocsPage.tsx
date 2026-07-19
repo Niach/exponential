@@ -22,29 +22,29 @@ const TOOL_GROUPS: {
   tools: { name: string; desc: string }[]
 }[] = [
   {
-    heading: `Workspaces (teams)`,
+    heading: `Teams`,
     tools: [
-      { name: `exponential_workspaces_list`, desc: `List the teams you belong to.` },
-      { name: `exponential_workspaces_get`, desc: `Get a single team by id.` },
-      { name: `exponential_workspaces_create`, desc: `Create a new team you own.` },
-      { name: `exponential_workspaces_update`, desc: `Rename a team or change its icon (owner only).` },
+      { name: `exponential_teams_list`, desc: `List the teams you belong to.` },
+      { name: `exponential_teams_get`, desc: `Get a single team by id.` },
+      { name: `exponential_teams_create`, desc: `Create a new team you own.` },
+      { name: `exponential_teams_update`, desc: `Rename a team or change its icon (owner only).` },
     ],
   },
   {
-    heading: `Projects`,
+    heading: `Boards`,
     tools: [
-      { name: `exponential_projects_list`, desc: `List projects in one team or across all your teams.` },
-      { name: `exponential_projects_get`, desc: `Get a single project.` },
-      { name: `exponential_projects_create`, desc: `Create a project — optionally a public feedback board, optionally repo-backed.` },
-      { name: `exponential_projects_update`, desc: `Update name, color, icon, publicness, public-board toggles, or archive state.` },
-      { name: `exponential_projects_delete`, desc: `Move a project to the 48-hour trash (owner only).` },
-      { name: `exponential_projects_set_repository`, desc: `Point a project at a different registered repository.` },
+      { name: `exponential_boards_list`, desc: `List boards in one team or across all your teams.` },
+      { name: `exponential_boards_get`, desc: `Get a single board.` },
+      { name: `exponential_boards_create`, desc: `Create a board — optionally repo-backed.` },
+      { name: `exponential_boards_update`, desc: `Update name, color, icon, or archive state.` },
+      { name: `exponential_boards_delete`, desc: `Move a board to the 48-hour trash (owner only).` },
+      { name: `exponential_boards_set_repository`, desc: `Point a board at a different registered repository.` },
     ],
   },
   {
     heading: `Issues`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List and filter issues — project, status, priority, assignee, due dates, title search.` },
+      { name: `exponential_issues_list`, desc: `List and filter issues — board, status, priority, assignee, due dates, title search.` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels and recent comments, by UUID or identifier ("EXP-42").` },
       { name: `exponential_issues_create`, desc: `Create an issue.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields — pass only what changes.` },
@@ -96,7 +96,7 @@ const TOOL_GROUPS: {
   {
     heading: `Repositories & branch diff`,
     tools: [
-      { name: `exponential_repositories_list`, desc: `List a team's registered repositories and the projects they back.` },
+      { name: `exponential_repositories_list`, desc: `List a team's registered repositories and the boards they back.` },
       { name: `exponential_repositories_add`, desc: `Register a GitHub repository ("owner/name") with a team.` },
       { name: `exponential_repositories_branch_diff`, desc: `Diff an issue's branch against the repo's default branch.` },
     ],
@@ -104,7 +104,7 @@ const TOOL_GROUPS: {
   {
     heading: `Run configs`,
     tools: [
-      { name: `exponential_run_configs_list`, desc: `List a project's run configs.` },
+      { name: `exponential_run_configs_list`, desc: `List a board's run configs.` },
       { name: `exponential_run_configs_create`, desc: `Create a named run config — argv, cwd, env (owner only).` },
       { name: `exponential_run_configs_update`, desc: `Update a run config (owner only).` },
       { name: `exponential_run_configs_delete`, desc: `Delete a run config (owner only).` },
@@ -163,7 +163,7 @@ export function McpDocsPage() {
               registers itself (dynamic client registration) and sends you to
               your browser to approve. The consent screen is a{` `}
               <strong>scope picker</strong>: grant the client{` `}
-              <em>everything</em>, specific teams, or specific projects. The
+              <em>everything</em>, specific teams, or specific boards. The
               token it receives is confined to exactly that grant — a client
               with no grant gets nothing. Re-running consent updates the
               grant, so you can widen or narrow access later.
@@ -283,11 +283,9 @@ npx mcp-remote ${LINKS.app.mcp}
           <DocsSection id="tools" num="04" label="Tool reference">
             <h2>Tool reference</h2>
             <p>
-              What a connected client can do, grouped by area. Tool names use
-              {` `}
-              <code>workspace</code> — the API vocabulary for what the UI
-              calls a team. Every call is confined to the OAuth grant&apos;s
-              scope (or the API key&apos;s membership).
+              What a connected client can do, grouped by area. Every call is
+              confined to the OAuth grant&apos;s scope (or the API key&apos;s
+              membership).
             </p>
             {TOOL_GROUPS.map((group) => (
               <div key={group.heading}>
@@ -309,10 +307,10 @@ npx mcp-remote ${LINKS.app.mcp}
 
             <h3>File a bug with labels, from chat</h3>
             <p>
-              &quot;File a bug in the app project: the board drops drag events
+              &quot;File a bug on the app board: it drops drag events
               on narrow viewports. Priority high, label it{` `}
               <em>bug</em>.&quot; The client chains{` `}
-              <code>exponential_projects_list</code> →{` `}
+              <code>exponential_boards_list</code> →{` `}
               <code>exponential_issues_create</code> →{` `}
               <code>exponential_labels_list</code> →{` `}
               <code>exponential_issue_labels_add</code> — and answers with the

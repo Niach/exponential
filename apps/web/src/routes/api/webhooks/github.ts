@@ -118,10 +118,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       ) {
         // A suspended installation can't mint tokens: flag every repo bound to
         // it as inaccessible (the settings badge + the launcher's 412), then
-        // drop the row — its workspace links CASCADE away with it. `unsuspend`
+        // drop the row — its team links CASCADE away with it. `unsuspend`
         // re-inserts above; the flag heals on the next successful mint/list.
         // Invalidate the repo cache BEFORE the delete: the invalidation
-        // resolves the linked workspaces through the installation links,
+        // resolves the linked teams through the installation links,
         // which cascade away with the row.
         await invalidateRepoCacheForInstallation(installation.id)
         await db

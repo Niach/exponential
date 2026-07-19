@@ -32,9 +32,9 @@ type ReposResult = {
   installations?: Array<{ needsReauth?: boolean }>
 }
 
-// Repo-first connect surface shared by workspace settings → Repositories, the
-// onboarding project step, and the create-project dialog. Self-contained: loads
-// the workspace's installable repos (its linked GitHub accounts), offers an
+// Repo-first connect surface shared by team settings → Repositories, the
+// onboarding board step, and the create-board dialog. Self-contained: loads
+// the team's installable repos (its linked GitHub accounts), offers an
 // inline connect when none are linked, and re-detects after the user returns
 // from the GitHub hop (window focus). Calls `onSelect` with the chosen repo.
 //
@@ -43,15 +43,15 @@ type ReposResult = {
 // round-trip) when the instance has no OAuth client secret. "Add more repos"
 // always uses the install page — that's where GitHub keeps repo grants.
 //
-// v4: repo-less projects no longer exist, so there is no skip escape. Every
+// v4: repo-less boards no longer exist, so there is no skip escape. Every
 // surface uses the built-in inline install CTA; `installEmptyState` remains
 // for callers that need a custom App-absent state.
 export function GithubRepoPicker({
-  workspaceId,
+  teamId,
   onSelect,
   installEmptyState,
 }: {
-  workspaceId: string
+  teamId: string
   onSelect: (repo: PickerRepo) => void
   installEmptyState?: ReactNode
 }) {
@@ -64,7 +64,7 @@ export function GithubRepoPicker({
       try {
         setData(
           await trpc.integrations.github.repos.query({
-            workspaceId,
+            teamId,
             ...(force ? { refresh: true } : {}),
           })
         )
@@ -74,7 +74,7 @@ export function GithubRepoPicker({
         setLoading(false)
       }
     },
-    [workspaceId]
+    [teamId]
   )
 
   useEffect(() => {
@@ -125,7 +125,7 @@ export function GithubRepoPicker({
     )
   }
 
-  // Configured but no GitHub account linked to this workspace → inline connect
+  // Configured but no GitHub account linked to this team → inline connect
   // (or the caller's own CTA).
   if (!data.installed) {
     if (installEmptyState) return <>{installEmptyState}</>
@@ -134,7 +134,7 @@ export function GithubRepoPicker({
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <Github className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            Connect a GitHub account to this workspace to pick a repository to
+            Connect a GitHub account to this team to pick a repository to
             code in.
           </span>
         </div>

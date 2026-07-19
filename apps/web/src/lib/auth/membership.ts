@@ -2,19 +2,18 @@ import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import {
   attachments,
-  issueLabels,
   issues,
-  projects,
+  boards,
   users,
-  workspaceMembers,
-  workspaces,
+  teamMembers,
+  teams,
 } from "@/db/schema"
-import type { WorkspaceMember } from "@/db/schema"
-import type { WorkspaceRole } from "@/lib/domain"
+import type { TeamMember } from "@/db/schema"
+import type { TeamRole } from "@/lib/domain"
 
-export type WorkspaceMemberRecord = Pick<
-  WorkspaceMember,
-  `role` | `userId` | `workspaceId`
+export type TeamMemberRecord = Pick<
+  TeamMember,
+  `role` | `userId` | `teamId`
 >
 
 async function getDb() {
@@ -22,14 +21,14 @@ async function getDb() {
   return db
 }
 
-export function assertWorkspaceAccess(
-  member: WorkspaceMemberRecord | undefined,
-  requiredRoles?: WorkspaceRole[]
-): asserts member is WorkspaceMemberRecord {
+export function assertTeamAccess(
+  member: TeamMemberRecord | undefined,
+  requiredRoles?: TeamRole[]
+): asserts member is TeamMemberRecord {
   if (!member) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `Not a member of this workspace`,
+      message: `Not a member of this team`,
     })
   }
 
@@ -41,170 +40,95 @@ export function assertWorkspaceAccess(
   }
 }
 
-// The instance-wide public surface: every unarchived public project
-// (projects.is_public) plus per-toggle sub-lists. Anonymous shape
-// requests resolve against this scope; authed members never do (their where
-// clauses stay membership-derived and byte-identical). Cached per process —
-// invalidated by projects.create/update/delete and bootstrap.
-export type PublicProjectScope = {
-  // All public (is_public, unarchived) project ids.
-  projectIds: string[]
-  // Distinct workspaces hosting at least one public project (the host row's
-  // name/slug must sync for board routing/header).
-  workspaceIds: string[]
-  // Public projects with publicShowComments = true.
-  commentProjectIds: string[]
-  // Public projects with publicShowActivity = true.
-  activityProjectIds: string[]
-}
-
-let publicProjectScopeCache: PublicProjectScope | undefined = undefined
-
-export async function getPublicProjectScope(): Promise<PublicProjectScope> {
-  if (publicProjectScopeCache !== undefined) {
-    return publicProjectScopeCache
-  }
-  const db = await getDb()
-  const rows = await db
-    .select({
-      id: projects.id,
-      workspaceId: projects.workspaceId,
-      publicShowComments: projects.publicShowComments,
-      publicShowActivity: projects.publicShowActivity,
-    })
-    .from(projects)
-    .where(
-      and(
-        eq(projects.isPublic, true),
-        isNull(projects.archivedAt),
-        // Trashed public boards leave the public surface immediately (heals
-        // every anonymous shape scope).
-        isNull(projects.deletedAt)
-      )
-    )
-  publicProjectScopeCache = {
-    projectIds: rows.map((row) => row.id),
-    workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
-    commentProjectIds: rows
-      .filter((row) => row.publicShowComments)
-      .map((row) => row.id),
-    activityProjectIds: rows
-      .filter((row) => row.publicShowActivity)
-      .map((row) => row.id),
-  }
-  return publicProjectScopeCache
-}
-
-export function invalidatePublicProjectCache() {
-  publicProjectScopeCache = undefined
-}
-
-// Label ids used on at least one public project's issues. Uncached: the
-// anonymous labels shape is web-only, low-volume, and a stale list would hide
-// freshly-applied labels; correctness beats the extra query. (The resulting
-// where clause is the one data-driven anonymous clause — acceptable churn for
-// the web collection layer, which recovers from must-refetch. Never reuse this
-// pattern for authed shapes.)
-export async function getPublicLabelIds(): Promise<string[]> {
-  const scope = await getPublicProjectScope()
-  if (scope.projectIds.length === 0) return []
-  const db = await getDb()
-  const rows = await db
-    .selectDistinct({ labelId: issueLabels.labelId })
-    .from(issueLabels)
-    .where(inArray(issueLabels.projectId, scope.projectIds))
-  return rows.map((row) => row.labelId)
-}
-
-// Resolves the set of workspace ids readable by a caller — used by shape
-// proxies. Authed users see only workspaces they have joined; anonymous
-// callers see the workspaces hosting a public feedback board (name/slug only
-// in practice — every other shape scopes anonymous access per-project).
-export async function getReadableWorkspaceIds(
+// Resolves the set of team ids readable by a caller — used by shape
+// proxies. Authed users see only teams they have joined; anonymous
+// callers see nothing (EXP-180 removed the public feedback boards — every
+// shape is member-only, and buildWhereClause([]) yields the impossible-match
+// sentinel).
+export async function getReadableTeamIds(
   userId: string | null
 ): Promise<string[]> {
-  if (userId) return getUserWorkspaceIds(userId)
-  return (await getPublicProjectScope()).workspaceIds
+  if (userId) return getUserTeamIds(userId)
+  return []
 }
 
-export async function getReadableProjectIds(
+export async function getReadableBoardIds(
   userId: string | null
 ): Promise<string[]> {
-  if (userId) return getUserProjectIds(userId)
-  return (await getPublicProjectScope()).projectIds
+  if (userId) return getUserBoardIds(userId)
+  return []
 }
 
 // Resolves the user ids whose full `users` rows the caller may sync via the
-// users shape (and read via users.listByWorkspaceIds). The users table carries
-// EMAILS and NAMES, so this is deliberately tighter than workspace
-// readability: a caller sees co-members of workspaces they have joined, plus
-// themself. Since v7 every membership is an explicit invite (the self-service
-// public join is gone), so no per-workspace exclusion is needed. Anonymous
-// callers get nothing — public-board viewers render a deterministic anonymous
-// handle for every user row that never syncs.
-export async function getReadableUserIdsInWorkspaces(
+// users shape (and read via users.listByTeamIds). The users table carries
+// EMAILS and NAMES, so this is deliberately tighter than team
+// readability: a caller sees co-members of teams they have joined, plus
+// themself. Every membership is an explicit invite (the self-service public
+// join is gone), so no per-team exclusion is needed. Anonymous callers
+// get nothing.
+export async function getReadableUserIdsInTeams(
   userId: string | null
 ): Promise<string[]> {
   if (!userId) return []
   const db = await getDb()
   const membershipRows = await db
-    .select({ workspaceId: workspaceMembers.workspaceId })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
-  const joinedWorkspaceIds = membershipRows.map((row) => row.workspaceId)
-  if (joinedWorkspaceIds.length === 0) return [userId]
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+  const joinedTeamIds = membershipRows.map((row) => row.teamId)
+  if (joinedTeamIds.length === 0) return [userId]
   const rows = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .where(inArray(workspaceMembers.workspaceId, joinedWorkspaceIds))
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(inArray(teamMembers.teamId, joinedTeamIds))
   return [...new Set([userId, ...rows.map((row) => row.userId)])]
 }
 
-export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
+export async function getUserTeamIds(userId: string): Promise<string[]> {
   const db = await getDb()
   const rows = await db
-    .select({ workspaceId: workspaceMembers.workspaceId })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
 
-  return rows.map((row) => row.workspaceId)
+  return rows.map((row) => row.teamId)
 }
 
-export async function getUserProjectIds(userId: string): Promise<string[]> {
-  const workspaceIds = await getUserWorkspaceIds(userId)
+export async function getUserBoardIds(userId: string): Promise<string[]> {
+  const teamIds = await getUserTeamIds(userId)
 
-  if (workspaceIds.length === 0) {
+  if (teamIds.length === 0) {
     return []
   }
 
   const db = await getDb()
   const rows = await db
-    .select({ id: projects.id })
-    .from(projects)
-    // Trashed projects drop out of the authed issues shape scope.
+    .select({ id: boards.id })
+    .from(boards)
+    // Trashed boards drop out of the authed issues shape scope.
     .where(
       and(
-        inArray(projects.workspaceId, workspaceIds),
-        isNull(projects.deletedAt)
+        inArray(boards.teamId, teamIds),
+        isNull(boards.deletedAt)
       )
     )
 
   return rows.map((row) => row.id)
 }
 
-export async function getWorkspaceMember(userId: string, workspaceId: string) {
+export async function getTeamMember(userId: string, teamId: string) {
   const db = await getDb()
   const [member] = await db
     .select({
-      userId: workspaceMembers.userId,
-      workspaceId: workspaceMembers.workspaceId,
-      role: workspaceMembers.role,
+      userId: teamMembers.userId,
+      teamId: teamMembers.teamId,
+      role: teamMembers.role,
     })
-    .from(workspaceMembers)
+    .from(teamMembers)
     .where(
       and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.userId, userId)
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.userId, userId)
       )
     )
     .limit(1)
@@ -212,58 +136,58 @@ export async function getWorkspaceMember(userId: string, workspaceId: string) {
   return member
 }
 
-export async function assertWorkspaceMember(
+export async function assertTeamMember(
   userId: string,
-  workspaceId: string,
-  requiredRoles?: WorkspaceRole[]
+  teamId: string,
+  requiredRoles?: TeamRole[]
 ) {
-  const member = await getWorkspaceMember(userId, workspaceId)
-  assertWorkspaceAccess(member, requiredRoles)
+  const member = await getTeamMember(userId, teamId)
+  assertTeamAccess(member, requiredRoles)
   return member
 }
 
-export async function assertWorkspaceOwner(
+export async function assertTeamOwner(
   userId: string,
-  workspaceId: string
+  teamId: string
 ) {
-  return assertWorkspaceMember(userId, workspaceId, [`owner`])
+  return assertTeamMember(userId, teamId, [`owner`])
 }
 
 // Subject-side membership validation for issue assignment. Unlike
-// assertWorkspaceMember (ACTOR authorization -> FORBIDDEN), an invalid
+// assertTeamMember (ACTOR authorization -> FORBIDDEN), an invalid
 // assignee is bad INPUT -> BAD_REQUEST. Without this check any member could
 // push-notify and auto-subscribe arbitrary users of the instance by assigning
-// them issues in workspaces they don't belong to (cross-tenant notification
+// them issues in teams they don't belong to (cross-tenant notification
 // injection). The message is identical for "user does not exist" and "user is
 // not a member" so the endpoint cannot be used to enumerate account ids.
-export async function assertAssigneeInWorkspace(
+export async function assertAssigneeInTeam(
   assigneeId: string,
-  workspaceId: string
+  teamId: string
 ): Promise<void> {
-  const member = await getWorkspaceMember(assigneeId, workspaceId)
+  const member = await getTeamMember(assigneeId, teamId)
   if (!member) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `Assignee must be a member of this workspace`,
+      message: `Assignee must be a member of this team`,
     })
   }
 }
 
-// EXP-50: solo-workspace default assignment. Returns the user id of the
-// workspace's only human (non-agent) member, or null when the workspace has
+// EXP-50: solo-team default assignment. Returns the user id of the
+// team's only human (non-agent) member, or null when the team has
 // zero or two-plus humans. Agents (widget-helpdesk bots) never count — a
-// personal workspace with a feedback widget still reads as "solo".
+// personal team with a feedback widget still reads as "solo".
 export async function getSoleHumanMemberId(
-  workspaceId: string
+  teamId: string
 ): Promise<string | null> {
   const db = await getDb()
   const rows = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
       and(
-        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(teamMembers.teamId, teamId),
         eq(users.isAgent, false)
       )
     )
@@ -271,53 +195,53 @@ export async function getSoleHumanMemberId(
   return rows.length === 1 ? rows[0].userId : null
 }
 
-export async function getProjectWorkspaceId(projectId: string) {
+export async function getBoardTeamId(boardId: string) {
   const db = await getDb()
-  const [project] = await db
+  const [board] = await db
     .select({
-      id: projects.id,
-      workspaceId: projects.workspaceId,
+      id: boards.id,
+      teamId: boards.teamId,
     })
-    .from(projects)
-    // Trashed projects 404 for every member mutation (issues.create,
-    // projects.update/setRepository via assertProjectMember, widgets retarget,
-    // MCP projects_get). The restore path uses a direct select, not this helper.
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+    .from(boards)
+    // Trashed boards 404 for every member mutation (issues.create,
+    // boards.update/setRepository via assertBoardMember, widgets retarget,
+    // MCP boards_get). The restore path uses a direct select, not this helper.
+    .where(and(eq(boards.id, boardId), isNull(boards.deletedAt)))
     .limit(1)
 
-  if (!project) {
+  if (!board) {
     throw new TRPCError({
       code: `NOT_FOUND`,
-      message: `Project not found`,
+      message: `Board not found`,
     })
   }
 
-  return project
+  return board
 }
 
-export async function assertProjectMember(
+export async function assertBoardMember(
   userId: string,
-  projectId: string,
-  requiredRoles?: WorkspaceRole[]
+  boardId: string,
+  requiredRoles?: TeamRole[]
 ) {
-  const project = await getProjectWorkspaceId(projectId)
-  await assertWorkspaceMember(userId, project.workspaceId, requiredRoles)
-  return project
+  const board = await getBoardTeamId(boardId)
+  await assertTeamMember(userId, board.teamId, requiredRoles)
+  return board
 }
 
-export async function getIssueWorkspaceContext(issueId: string) {
+export async function getIssueTeamContext(issueId: string) {
   const db = await getDb()
   const [issueContext] = await db
     .select({
       issueId: issues.id,
-      projectId: issues.projectId,
-      workspaceId: projects.workspaceId,
+      boardId: issues.boardId,
+      teamId: boards.teamId,
     })
     .from(issues)
-    .innerJoin(projects, eq(issues.projectId, projects.id))
-    // Trashed project ⇒ its issues 404 for all issue/comment/label/subscribe
+    .innerJoin(boards, eq(issues.boardId, boards.id))
+    // Trashed board ⇒ its issues 404 for all issue/comment/label/subscribe
     // reads + mutations (restored automatically on restore).
-    .where(and(eq(issues.id, issueId), isNull(projects.deletedAt)))
+    .where(and(eq(issues.id, issueId), isNull(boards.deletedAt)))
     .limit(1)
 
   if (!issueContext) {
@@ -330,7 +254,7 @@ export async function getIssueWorkspaceContext(issueId: string) {
   return issueContext
 }
 
-export async function getAttachmentWorkspaceContext(attachmentId: string) {
+export async function getAttachmentTeamContext(attachmentId: string) {
   const db = await getDb()
   const [attachmentContext] = await db
     .select({
@@ -338,24 +262,18 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
       issueId: attachments.issueId,
       commentId: attachments.commentId,
       storageKey: attachments.storageKey,
-      workspaceId: projects.workspaceId,
-      projectId: issues.projectId,
+      teamId: boards.teamId,
+      boardId: issues.boardId,
       contentType: attachments.contentType,
       filename: attachments.filename,
       sizeBytes: attachments.sizeBytes,
-      // Public-board read path: anonymous byte reads are allowed for
-      // unarchived public projects (comment attachments only where comments
-      // are public).
-      projectIsPublic: projects.isPublic,
-      projectPublicShowComments: projects.publicShowComments,
-      projectArchivedAt: projects.archivedAt,
     })
     .from(attachments)
     .innerJoin(issues, eq(attachments.issueId, issues.id))
-    .innerJoin(projects, eq(issues.projectId, projects.id))
-    // Trashed project ⇒ block attachment byte reads during the trash window
+    .innerJoin(boards, eq(issues.boardId, boards.id))
+    // Trashed board ⇒ block attachment byte reads during the trash window
     // (restored automatically on restore).
-    .where(and(eq(attachments.id, attachmentId), isNull(projects.deletedAt)))
+    .where(and(eq(attachments.id, attachmentId), isNull(boards.deletedAt)))
     .limit(1)
 
   if (!attachmentContext) {
@@ -368,33 +286,33 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
   return attachmentContext
 }
 
-export async function getWorkspaceById(workspaceId: string) {
+export async function getTeamById(teamId: string) {
   const db = await getDb()
-  const [workspace] = await db
+  const [team] = await db
     .select({
-      id: workspaces.id,
+      id: teams.id,
     })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
+    .from(teams)
+    .where(eq(teams.id, teamId))
     .limit(1)
-  return workspace
+  return team
 }
 
-export function assertMatchingWorkspaceIds(
-  issueWorkspaceId: string | undefined,
-  labelWorkspaceId: string | undefined
+export function assertMatchingTeamIds(
+  issueTeamId: string | undefined,
+  labelTeamId: string | undefined
 ) {
-  if (!issueWorkspaceId || !labelWorkspaceId) {
+  if (!issueTeamId || !labelTeamId) {
     throw new TRPCError({
       code: `NOT_FOUND`,
-      message: `Missing issue or label workspace`,
+      message: `Missing issue or label team`,
     })
   }
 
-  if (issueWorkspaceId !== labelWorkspaceId) {
+  if (issueTeamId !== labelTeamId) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `Issue and label must belong to the same workspace`,
+      message: `Issue and label must belong to the same team`,
     })
   }
 }

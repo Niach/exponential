@@ -2,7 +2,7 @@ package com.exponential.app.ui.components
 
 import com.exponential.app.data.db.UserEntity
 
-// The server no longer syncs user rows for co-members of a public workspace, so a
+// The server no longer syncs user rows for co-members of a public team, so a
 // userId can resolve to no [UserEntity]. Rather than leak a raw id — or render a
 // blank "Someone" that collides for everyone — derive a stable, anonymized
 // pseudonym from the id's tail. Shared by every surface that resolves a userId to

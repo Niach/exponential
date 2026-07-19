@@ -61,7 +61,10 @@ fn initial_snapshot_two_inserts_and_up_to_date() {
         panic!("message 0 must be an insert: {:?}", msgs[0]);
     };
     assert_eq!(key, &RowKey::Single("01J9K0A0X3CB4E5F6G7H8J9K0L".into()));
-    // Values arrive snake_case and stay snake_case.
+    // Values arrive snake_case and stay snake_case. (The shared fixtures
+    // still carry the pre-rename `project_id` wire name — the protocol layer
+    // is column-name-agnostic, so the fixture key is asserted verbatim; the
+    // schema-level rename is covered in tests/store.rs.)
     assert_eq!(
         value.get("project_id").and_then(Value::as_str),
         Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
@@ -164,7 +167,8 @@ fn camel_and_snake_fixtures_normalize_byte_identically() {
         serde_json::to_string(&snake).unwrap()
     );
 
-    // Spot-check the normalization actually happened.
+    // Spot-check the normalization actually happened. (Fixture keys keep the
+    // pre-rename `project_id` wire name — protocol-level, name-agnostic.)
     assert!(snake.contains_key("project_id"));
     assert!(camel.contains_key("project_id"));
     assert!(!camel.contains_key("projectId"));

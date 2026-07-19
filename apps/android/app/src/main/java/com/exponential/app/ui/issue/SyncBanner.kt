@@ -13,12 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.electric.SyncStats
-import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
-// Shape name for workspace membership (SyncManager.launchShape "workspace_members").
-internal const val MEMBERS_SHAPE = "workspace_members"
+// Shape name for team membership (SyncManager.launchShape "team_members").
+internal const val MEMBERS_SHAPE = "team_members"
 
 /**
  * Banner shown above issue content while a viewer's membership is still
@@ -28,12 +28,12 @@ enum class SyncBanner { None, Syncing, Stalled }
 
 /**
  * Show the banner only when the viewer is signed in but NOT yet a resolved
- * member (or admin) AND the workspace_members shape hasn't gone live — i.e. the
+ * member (or admin) AND the team_members shape hasn't gone live — i.e. the
  * membership row simply hasn't landed yet. If that shape is currently erroring,
  * escalate the copy to point at Sync Diagnostics.
  */
 internal fun syncBannerFor(
-    permissions: WorkspacePermissions,
+    permissions: TeamPermissions,
     membersShape: SyncStats.ShapeStatus?,
 ): SyncBanner {
     if (!permissions.isAuthed || permissions.isMember || permissions.isAdmin) return SyncBanner.None

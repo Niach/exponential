@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Send } from "lucide-react"
-import type { Comment, Issue, IssueEvent, Label, Project, User } from "@/db/schema"
+import type { Comment, Issue, IssueEvent, Label, Board, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   commentCollection,
   issueEventCollection,
   labelCollection,
-  projectCollection,
+  boardCollection,
 } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
@@ -51,9 +51,9 @@ export function IssueTimeline({
     query.from({ labels: labelCollection })
   )
 
-  // Project names for project_moved rows (EXP-57).
-  const { data: projects } = useLiveQuery((query) =>
-    query.from({ projects: projectCollection })
+  // Board names for board_moved rows (EXP-57).
+  const { data: boards } = useLiveQuery((query) =>
+    query.from({ boards: boardCollection })
   )
 
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
@@ -61,9 +61,9 @@ export function IssueTimeline({
     () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
     [labels]
   )
-  const projectMap = useMemo(
-    () => new Map((projects ?? []).map((p) => [p.id, p as Project])),
-    [projects]
+  const boardMap = useMemo(
+    () => new Map((boards ?? []).map((p) => [p.id, p as Board])),
+    [boards]
   )
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -140,7 +140,7 @@ export function IssueTimeline({
               event={item.event}
               userMap={userMap}
               labelMap={labelMap}
-              projectMap={projectMap}
+              boardMap={boardMap}
             />
           )
         }

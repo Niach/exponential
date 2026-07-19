@@ -40,7 +40,7 @@ const ICON_SIZES: [u32; 3] = [32, 64, 128];
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const POLL_ROUNDS: usize = 100;
 /// Rounds before "every matching window is iconed" may end the poll: the
-/// window whose `open_workspace_window` spawned us maps a beat AFTER the
+/// window whose `open_shell_window` spawned us maps a beat AFTER the
 /// spawn, and exiting on the sight of older windows' icons would strand it.
 const MIN_ROUNDS: usize = 20;
 
@@ -56,7 +56,7 @@ const RESTAMP_DELAYS: [Duration; 2] = [Duration::from_secs(6), Duration::from_se
 
 /// Fire-and-forget: watch for our X11 windows, stamp `_NET_WM_ICON` on any
 /// that lack it, then re-stamp once GtkIconTheme's rescan throttle has lapsed
-/// (RESTAMP_DELAYS). Call once per `open_workspace_window`; threads are
+/// (RESTAMP_DELAYS). Call once per `open_shell_window`; threads are
 /// idempotent (initial pass skips already-iconed windows) and expire after
 /// ~25s.
 pub fn install() {

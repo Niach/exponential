@@ -17,6 +17,11 @@ class DeepLinkBus @Inject constructor() {
         data class Issue(val id: String) : Target
         data class Invite(val token: String) : Target
 
+        // exponential://support/{threadId} — a support_reply push tap (EXP-180).
+        // Opens the ticket conversation directly (membership-gated server-side,
+        // so it works whichever team of the active account it belongs to).
+        data class SupportThread(val id: String) : Target
+
         // A verified https App Link (EXP-92): carries the web URL's slugs +
         // identifier; AppNavHost resolves them against the local DB of the
         // account matching `host` (falling back to a Custom Tab). `uri` is
@@ -24,7 +29,7 @@ class DeepLinkBus @Inject constructor() {
         data class WebIssueRef(
             val uri: android.net.Uri,
             val host: String,
-            val workspaceSlug: String,
+            val teamSlug: String,
             val identifier: String,
         ) : Target
 
@@ -55,13 +60,17 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.Invite(token)
     }
 
+    fun openSupportThread(id: String) {
+        _target.value = Target.SupportThread(id)
+    }
+
     fun openWebIssueRef(
         uri: android.net.Uri,
         host: String,
-        workspaceSlug: String,
+        teamSlug: String,
         identifier: String,
     ) {
-        _target.value = Target.WebIssueRef(uri, host, workspaceSlug, identifier)
+        _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
     }
 
     fun openGithubConnected() {

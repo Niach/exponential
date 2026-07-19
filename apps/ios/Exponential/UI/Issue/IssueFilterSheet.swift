@@ -125,11 +125,11 @@ struct IssueFilterSheet: View {
                 .padding(.bottom, 4)
 
             let query = labelQuery.trimmingCharacters(in: .whitespaces)
-            let filtered = vm.workspaceLabels.filter {
+            let filtered = vm.teamLabels.filter {
                 query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
             }
             if filtered.isEmpty {
-                Text(vm.workspaceLabels.isEmpty ? "No labels yet" : "No labels match")
+                Text(vm.teamLabels.isEmpty ? "No labels yet" : "No labels match")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .padding(.vertical, 12)

@@ -24,8 +24,8 @@ interface Section {
 interface Contract {
   issueStatus: Section
   issuePriority: Section
-  workspaceRole: Section
-  projectIcon: Section
+  teamRole: Section
+  boardIcon: Section
   commentKind: Section
   notificationType: Section
   prState: Section
@@ -75,7 +75,7 @@ function pascalCase(s: string): string {
 }
 
 // Emits per-value named constants so call sites can reference
-// `DomainContract.workspaceRoleOwner` instead of the bare string literal.
+// `DomainContract.teamRoleOwner` instead of the bare string literal.
 function swiftNamedValues(prefix: string, values: string[]): string {
   return values
     .map(
@@ -127,8 +127,8 @@ ${swiftStringArray("issueStatusValues", contract.issueStatus.values)}
 ${swiftStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${swiftStringArray("projectIconValues", contract.projectIcon.values)}
+${swiftStringArray("teamRoleValues", contract.teamRole.values)}
+${swiftStringArray("boardIconValues", contract.boardIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
@@ -140,7 +140,7 @@ ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
 
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
 
-${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
+${swiftNamedValues("teamRole", contract.teamRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
@@ -157,8 +157,8 @@ ${kotlinStringArray("issueStatusValues", contract.issueStatus.values)}
 ${kotlinStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${kotlinStringArray("projectIconValues", contract.projectIcon.values)}
+${kotlinStringArray("teamRoleValues", contract.teamRole.values)}
+${kotlinStringArray("boardIconValues", contract.boardIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
@@ -170,7 +170,7 @@ ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
 
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
 
-${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
+${kotlinNamedValues("teamRole", contract.teamRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
@@ -189,8 +189,8 @@ ${rustStrSlice("issueStatusValues", contract.issueStatus.values)}
 ${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
-${rustStrSlice("projectIconValues", contract.projectIcon.values)}
+${rustStrSlice("teamRoleValues", contract.teamRole.values)}
+${rustStrSlice("boardIconValues", contract.boardIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
@@ -202,7 +202,7 @@ ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
 
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 
-${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
+${rustNamedValues("teamRole", contract.teamRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}

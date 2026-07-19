@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn camel_to_snake_matches_contract() {
-        assert_eq!(camel_to_snake("projectId"), "project_id");
+        assert_eq!(camel_to_snake("boardId"), "board_id");
         assert_eq!(camel_to_snake("createdAt"), "created_at");
         assert_eq!(camel_to_snake("prMergedAt"), "pr_merged_at");
         // All-lowercase keys pass through untouched (§5.2).

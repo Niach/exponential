@@ -1,8 +1,8 @@
 //! The JetBrains-style run widget (masterplan-v3 §7.5) — a run-config
 //! select + play button on the board screen's top-right toolbar.
 //!
-//! The select lists the active project's `runConfigs.list` (last selection
-//! persisted per project in the per-account [`api::TrustStore`]); the play
+//! The select lists the active board's `runConfigs.list` (last selection
+//! persisted per board in the per-account [`api::TrustStore`]); the play
 //! button launches the selected config as a `TabKind::Run` tab in the bottom
 //! terminal dock and **becomes a stop button** while that tab's child is
 //! alive (stop = SIGTERM → §7.5 grace → SIGKILL; the §6.7 exit edge flips
@@ -11,7 +11,7 @@
 //! **Trust & Run (§7.3.5) — the security boundary, not a nicety.** Run
 //! configs are DB-stored argv executed locally; before ANY launch the bar
 //! compares `command_set_hash` over the full fetched set against the hash
-//! this device last trusted for the project ([`api::TrustStore`]). Untrusted
+//! this device last trusted for the board ([`api::TrustStore`]). Untrusted
 //! (fresh device, or ANY content change — add/edit/foreign author) blocks the
 //! launch behind a modal listing the exact argv/cwd/env of every config in
 //! the set; confirming records the new hash and only then spawns. A broken
@@ -24,11 +24,11 @@
 //! the `runConfigs` router. Members see the list read-only (server enforces;
 //! the UI hides the write affordances).
 //!
-//! Scope rule (§7.5): the widget follows the window's navigation — a project
-//! board or an issue detail resolves to that project; other screens render
+//! Scope rule (§7.5): the widget follows the window's navigation — a board
+//! board or an issue detail resolves to that board; other screens render
 //! nothing (the screens chrome additionally only mounts it on the board).
 //! The clone-root rule is §7.4's: launches resolve cwd against
-//! `<repos_root>/<owner>/<name>` of the project's primary repo.
+//! `<repos_root>/<owner>/<name>` of the board's primary repo.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -71,7 +71,7 @@ enum Load {
     Ready,
 }
 
-/// Background fetch result for one project scope.
+/// Background fetch result for one board scope.
 struct Fetched {
     configs: Result<Vec<RunConfig>, String>,
     persisted_selection: Option<String>,
@@ -83,15 +83,15 @@ pub struct RunBar {
     /// comes from here instead of a per-bar `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
     dock_area: WeakEntity<DockArea>,
-    /// The project scope the loaded state below belongs to.
-    project_id: Option<String>,
+    /// The board scope the loaded state below belongs to.
+    board_id: Option<String>,
     load: Load,
     configs: Vec<RunConfig>,
     error: Option<SharedString>,
-    /// Primary (or sole) linked repo of the scope project — the §7.4 clone
+    /// Primary (or sole) linked repo of the scope board — the §7.4 clone
     /// root. `None` = no repo linked (launch surfaces the link-a-repo helper).
     repo_full_name: Option<String>,
-    /// Selected run-config id (persisted per project, §7.5).
+    /// Selected run-config id (persisted per board, §7.5).
     selected: Option<String>,
     /// Stale-fetch guard.
     generation: u64,
@@ -112,12 +112,12 @@ impl RunBar {
         let repo_resolver = repo_resolver_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            // Scope follows navigation (board/issue-detail → project).
+            // Scope follows navigation (board/issue-detail → board).
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The issue→project join and the default-board resolution both
+            // The issue→board join and the default-board resolution both
             // read the synced collections.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
         ];
@@ -125,7 +125,7 @@ impl RunBar {
             nav,
             repo_resolver,
             dock_area,
-            project_id: None,
+            board_id: None,
             load: Load::Idle,
             configs: Vec::new(),
             error: None,
@@ -138,10 +138,10 @@ impl RunBar {
         }
     }
 
-    /// The §7.5 scope: the window's active project (screen scope with the
+    /// The §7.5 scope: the window's active board (screen scope with the
     /// last-board fallback).
-    fn scope_project_id(&self, cx: &App) -> Option<String> {
-        navigation::active_project_id(&self.nav, cx)
+    fn scope_board_id(&self, cx: &App) -> Option<String> {
+        navigation::active_board_id(&self.nav, cx)
     }
 
     /// Render-time load gate (mirror of the settings panes): scope change
@@ -149,13 +149,13 @@ impl RunBar {
     /// persisted selection.
     fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
-        // workspace, shared by all five trunk/IDE surfaces).
+        // team, shared by all five trunk/IDE surfaces).
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let scope = self.scope_project_id(cx);
-        if scope != self.project_id {
-            self.project_id = scope;
+        let scope = self.scope_board_id(cx);
+        if scope != self.board_id {
+            self.board_id = scope;
             self.load = Load::Idle;
             self.configs.clear();
             self.error = None;
@@ -165,13 +165,13 @@ impl RunBar {
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
         // The §7.4 clone-root repo comes from the shared resolver; wait until it
         // has resolved (its observer re-renders us), then a missing/failed repo
         // is simply `None` (the play button surfaces the link-a-repo helper).
-        let repo_full_name = match self.repo_resolver.read(cx).lookup_project(&project_id) {
+        let repo_full_name = match self.repo_resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Loading => return,
             RepoLookup::Found(repo) => Some(repo.full_name),
             RepoLookup::NotFound | RepoLookup::Error(_) => None,
@@ -188,17 +188,17 @@ impl RunBar {
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
-            let project = project_id.clone();
+            let board = board_id.clone();
             let fetched = cx
                 .background_executor()
                 .spawn(async move {
                     let configs =
-                        api::run_configs::list(&trpc, &project).map_err(|err| err.to_string());
+                        api::run_configs::list(&trpc, &board).map_err(|err| err.to_string());
                     let persisted_selection =
                         TrustStore::open(&TrustStore::default_path(&data_dir, &account.id))
                             .ok()
                             .and_then(|store| {
-                                store.selected_run_config(&project).ok().flatten()
+                                store.selected_run_config(&board).ok().flatten()
                             });
                     Fetched {
                         configs,
@@ -208,7 +208,7 @@ impl RunBar {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation
-                    || this.project_id.as_deref() != Some(project_id.as_str())
+                    || this.board_id.as_deref() != Some(board_id.as_str())
                 {
                     return; // superseded
                 }
@@ -244,14 +244,14 @@ impl RunBar {
         cx.notify();
     }
 
-    /// Dropdown selection: remember per project (§7.5), persisted off-thread.
+    /// Dropdown selection: remember per board (§7.5), persisted off-thread.
     fn select(&mut self, config_id: String, cx: &mut gpui::Context<Self>) {
         if self.selected.as_deref() == Some(config_id.as_str()) {
             return;
         }
         self.selected = Some(config_id.clone());
-        if let (Some(project_id), Some(account)) =
-            (self.project_id.clone(), queries::active_account(cx))
+        if let (Some(board_id), Some(account)) =
+            (self.board_id.clone(), queries::active_account(cx))
         {
             let data_dir = AuthContext::global(cx).data_dir.clone();
             cx.background_executor()
@@ -259,7 +259,7 @@ impl RunBar {
                     let result =
                         TrustStore::open(&TrustStore::default_path(&data_dir, &account.id))
                             .and_then(|store| {
-                                store.set_selected_run_config(&project_id, &config_id)
+                                store.set_selected_run_config(&board_id, &config_id)
                             });
                     if let Err(err) = result {
                         log::warn!("[ui] run bar: persisting selection failed: {err}");
@@ -330,7 +330,7 @@ impl RunBar {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
         let Some(config) = self
@@ -350,14 +350,14 @@ impl RunBar {
         let store_path = TrustStore::default_path(&data_dir, &account.id);
 
         let trusted = TrustStore::open(&store_path)
-            .and_then(|store| store.is_trusted(&device, &project_id, &hash))
+            .and_then(|store| store.is_trusted(&device, &board_id, &hash))
             .unwrap_or(false);
         if trusted {
             if let Err(message) = self.spawn_run_tab(&config, cx) {
                 window.push_notification(Notification::error(message), cx);
             }
         } else {
-            self.open_trust_dialog(config, project_id, hash, device, store_path, window, cx);
+            self.open_trust_dialog(config, board_id, hash, device, store_path, window, cx);
         }
     }
 
@@ -367,7 +367,7 @@ impl RunBar {
     fn open_trust_dialog(
         &mut self,
         config: RunConfig,
-        project_id: String,
+        board_id: String,
         hash: String,
         device_id: String,
         store_path: PathBuf,
@@ -379,7 +379,7 @@ impl RunBar {
         window.open_dialog(cx, move |dialog, _, _| {
             let configs = configs.clone();
             let config = config.clone();
-            let project_id = project_id.clone();
+            let board_id = board_id.clone();
             let hash = hash.clone();
             let device_id = device_id.clone();
             let store_path = store_path.clone();
@@ -397,7 +397,7 @@ impl RunBar {
                         .show_cancel(true)
                         .on_ok(move |_, window, cx| {
                             let record = TrustStore::open(&store_path).and_then(|store| {
-                                store.trust(&device_id, &project_id, &hash)
+                                store.trust(&device_id, &board_id, &hash)
                             });
                             if let Err(err) = record {
                                 // Still run (the user JUST reviewed the set),
@@ -431,7 +431,7 @@ impl RunBar {
     ) -> Result<(), SharedString> {
         let Some(repo) = self.repo_full_name.clone() else {
             return Err(
-                "Link a repository to this project in team settings to run configurations."
+                "Link a repository to this board in team settings to run configurations."
                     .into(),
             );
         };
@@ -510,7 +510,7 @@ impl RunBar {
     // --------------------- create configs with Claude --------------------
 
     /// §7.3 / L24: the ONE MCP-enabled Claude task. Spawns
-    /// `coding::claude_task` at the project's trunk clone with a **scoped
+    /// `coding::claude_task` at the board's trunk clone with a **scoped
     /// `.exp-mcp.json`** (the same expu_ key as a coding session), so Claude
     /// can inspect the repo and create run configs via the
     /// `exponential_run_configs_*` MCP tools. No worktree, no
@@ -518,13 +518,13 @@ impl RunBar {
     /// `.exp-mcp.json` is git-excluded, `0600`, and removed on task exit; the
     /// run bar refetches its configs at that point too.
     fn create_configs_with_claude(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
         let Some(repo) = self.repo_full_name.clone() else {
             window.push_notification(
                 Notification::error(
-                    "Link a repository to this project in team settings first.",
+                    "Link a repository to this board in team settings first.",
                 ),
                 cx,
             );
@@ -578,7 +578,7 @@ impl RunBar {
                     window.push_notification(Notification::error(SharedString::from(message)), cx);
                     return;
                 }
-                let prompt = coding::create_run_configs_prompt(&project_id);
+                let prompt = coding::create_run_configs_prompt(&board_id);
                 let task =
                     coding::claude_task_with_mcp(&settings, &root, &prompt, "Create run configs");
                 let cleanup_path = created_marker.then(|| root.join(coding::MCP_JSON_FILE));
@@ -656,10 +656,10 @@ impl RunBar {
     // ------------------------------ render --------------------------------
 
     fn open_editor(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
-        run_configs_editor::open(project_id, cx.entity().downgrade(), window, cx);
+        run_configs_editor::open(board_id, cx.entity().downgrade(), window, cx);
     }
 
     /// The JetBrains-style run-config select: current selection as the label,
@@ -755,9 +755,9 @@ impl Render for RunBar {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
 
-        // Run controls only when a project scope resolves (the screens chrome
+        // Run controls only when a board scope resolves (the screens chrome
         // additionally mounts this widget on the board only).
-        if self.project_id.is_none() {
+        if self.board_id.is_none() {
             return div().into_any_element();
         }
         let snapshot = self.run_tab_snapshot(cx);
@@ -798,7 +798,7 @@ fn trust_dialog_body(configs: &[RunConfig], cx: &App) -> impl IntoElement {
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(
-                    "Run configurations are stored in the workspace and will execute \
+                    "Run configurations are stored in the team and will execute \
                      as local processes on this machine. Review the exact commands \
                      below — trusting runs them and remembers this set on this device; \
                      any change will ask again.",
@@ -859,15 +859,15 @@ fn trust_dialog_body(configs: &[RunConfig], cx: &App) -> impl IntoElement {
 mod run_configs_editor {
     use super::*;
 
-    /// Open the CRUD dialog for `project_id`. Owner-only for writes (server
+    /// Open the CRUD dialog for `board_id`. Owner-only for writes (server
     /// enforces; the UI hides write affordances for members).
     pub(super) fn open(
-        project_id: String,
+        board_id: String,
         run_bar: WeakEntity<RunBar>,
         window: &mut Window,
         cx: &mut App,
     ) {
-        let view = cx.new(|cx| Editor::new(project_id, run_bar, window, cx));
+        let view = cx.new(|cx| Editor::new(board_id, run_bar, window, cx));
         window.open_dialog(cx, move |dialog, window, _| {
             let height = (window.viewport_size().height * 0.85).min(px(520.));
             dialog
@@ -890,7 +890,7 @@ mod run_configs_editor {
     type ValidatedForm = (String, Vec<String>, Option<String>, BTreeMap<String, String>);
 
     pub(super) struct Editor {
-        project_id: String,
+        board_id: String,
         run_bar: WeakEntity<RunBar>,
         configs: Vec<RunConfig>,
         loaded: bool,
@@ -907,7 +907,7 @@ mod run_configs_editor {
 
     impl Editor {
         fn new(
-            project_id: String,
+            board_id: String,
             run_bar: WeakEntity<RunBar>,
             window: &mut Window,
             cx: &mut gpui::Context<Self>,
@@ -929,14 +929,14 @@ mod run_configs_editor {
             // membership rows.
             let is_owner = Store::global(cx)
                 .collections()
-                .projects
+                .boards
                 .read(cx)
-                .get(&project_id)
-                .map(|project| project.workspace_id.clone())
-                .is_some_and(|workspace_id| is_workspace_owner(cx, &workspace_id));
+                .get(&board_id)
+                .map(|board| board.team_id.clone())
+                .is_some_and(|team_id| is_team_owner(cx, &team_id));
 
             let mut editor = Self {
-                project_id,
+                board_id,
                 run_bar,
                 configs: Vec::new(),
                 loaded: false,
@@ -960,14 +960,14 @@ mod run_configs_editor {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return;
             };
-            let project_id = self.project_id.clone();
+            let board_id = self.board_id.clone();
             self.generation += 1;
             let generation = self.generation;
             let run_bar = self.run_bar.clone();
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { api::run_configs::list(&trpc, &project_id) })
+                    .spawn(async move { api::run_configs::list(&trpc, &board_id) })
                     .await;
                 let _ = this.update(cx, |this, cx| {
                     if this.generation != generation {
@@ -1075,7 +1075,7 @@ mod run_configs_editor {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return;
             };
-            let project_id = self.project_id.clone();
+            let board_id = self.board_id.clone();
             let target = match &self.editing {
                 Some(EditTarget::Existing(id)) => Some(id.clone()),
                 _ => None,
@@ -1098,7 +1098,7 @@ mod run_configs_editor {
                             }
                             None => api::run_configs::create(
                                 &trpc,
-                                &project_id,
+                                &board_id,
                                 &name,
                                 &argv,
                                 cwd.as_deref(),
@@ -1397,7 +1397,7 @@ mod run_configs_editor {
                                     })),
                             )
                             .child(
-                                // L24: hand the empty/unsure project to Claude —
+                                // L24: hand the empty/unsure board to Claude —
                                 // it inspects the repo and creates configs via the
                                 // run-config MCP tools (the ONE MCP-enabled task).
                                 Button::new("run-config-claude")
@@ -1422,19 +1422,19 @@ mod run_configs_editor {
 
     /// `currentMember?.role === 'owner'` over the synced membership rows
     /// (same rule as the settings panes).
-    fn is_workspace_owner(cx: &App, workspace_id: &str) -> bool {
+    fn is_team_owner(cx: &App, team_id: &str) -> bool {
         let Some(me) = queries::active_account(cx) else {
             return false;
         };
         Store::global(cx)
             .collections()
-            .workspace_members
+            .team_members
             .read(cx)
             .iter()
             .any(|member| {
-                member.workspace_id == workspace_id
+                member.team_id == team_id
                     && member.user_id == me.user_id
-                    && member.role.as_deref() == Some(domain::contract::WORKSPACE_ROLE_OWNER)
+                    && member.role.as_deref() == Some(domain::contract::TEAM_ROLE_OWNER)
             })
     }
 }

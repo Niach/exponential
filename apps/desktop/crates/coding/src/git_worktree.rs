@@ -125,7 +125,7 @@ impl std::error::Error for GitError {}
 // ---- pure path/branch composition (unit-tested, no git) ----
 
 /// `<repos_root>/<owner>/<name>` (§7.1). Defense-in-depth: `full_name` comes
-/// from the server (workspace-owner-writable), so each segment is sanitized —
+/// from the server (team-owner-writable), so each segment is sanitized —
 /// traversal (`..`), no-op (`.`/empty) and separator bytes must never let a
 /// crafted repo name escape the repos root ([`sanitize_path_segment`]).
 pub fn clone_path(repos_root: &Path, full_name: &str) -> PathBuf {
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn clone_path_never_escapes_the_repos_root() {
-        // full_name is server data a workspace owner can influence — `..`,
+        // full_name is server data a team owner can influence — `..`,
         // `.`, empty and backslash segments must all stay under the root.
         let root = PathBuf::from("/home/u/Exponential/repos");
         for (full_name, expect) in [

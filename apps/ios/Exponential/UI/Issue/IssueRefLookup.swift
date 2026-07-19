@@ -3,21 +3,21 @@ import ExpUI
 import Foundation
 import GRDB
 
-/// Workspace-scoped `#IDENTIFIER` issue-ref lookups against the local GRDB
+/// Team-scoped `#IDENTIFIER` issue-ref lookups against the local GRDB
 /// store — pill resolution and the #-autocomplete (mirrors the web
-/// `IssueRefProvider`): refs only resolve inside the SAME workspace, so a
-/// same-prefix identifier from another workspace never leaks in.
+/// `IssueRefProvider`): refs only resolve inside the SAME team, so a
+/// same-prefix identifier from another team never leaks in.
 enum IssueRefLookup {
-    /// The workspace an editor's refs resolve against: the workspace of the
-    /// issue being viewed/commented on, or of the project an issue is being
+    /// The team an editor's refs resolve against: the team of the
+    /// issue being viewed/commented on, or of the board an issue is being
     /// created in.
     enum Scope {
         case issue(id: String)
-        case project(id: String)
+        case board(id: String)
     }
 
     /// identifier (e.g. `VER-12`) → local issue id when it resolves inside the
-    /// scope's workspace; nil otherwise (the token stays plain text).
+    /// scope's team; nil otherwise (the token stays plain text).
     static func resolve(
         _ identifier: String,
         scope: Scope,
@@ -26,28 +26,28 @@ enum IssueRefLookup {
     ) -> String? {
         guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
         return (try? pool.read { db -> String? in
-            guard let workspaceId = try workspaceId(for: scope, db: db) else { return nil }
+            guard let teamId = try teamId(for: scope, db: db) else { return nil }
             return try String.fetchOne(
                 db,
                 sql: """
                 SELECT i.id FROM issues i
-                JOIN projects p ON p.id = i.project_id
-                WHERE upper(i.identifier) = ? AND i.archived_at IS NULL AND p.workspace_id = ?
+                JOIN boards p ON p.id = i.board_id
+                WHERE upper(i.identifier) = ? AND i.archived_at IS NULL AND p.team_id = ?
                 """,
-                arguments: [identifier, workspaceId]
+                arguments: [identifier, teamId]
             )
         }) ?? nil
     }
 
-    /// Universal-link resolution (EXP-92): workspace SLUG + identifier → local
+    /// Universal-link resolution (EXP-92): team SLUG + identifier → local
     /// issue id. Unlike the #-ref resolve above: no archived filter (an emailed
-    /// link to an archived issue should still open) and no project-slug
-    /// predicate (identifiers are workspace-unique, and the project slug in an
+    /// link to an archived issue should still open) and no board-slug
+    /// predicate (identifiers are team-unique, and the board slug in an
     /// old link goes stale when an issue moves — the web route also keys on the
     /// identifier alone).
     static func resolve(
         identifier: String,
-        workspaceSlug: String,
+        teamSlug: String,
         db: DatabaseManager,
         accountId: String
     ) -> String? {
@@ -57,11 +57,11 @@ enum IssueRefLookup {
                 db,
                 sql: """
                 SELECT i.id FROM issues i
-                JOIN projects p ON p.id = i.project_id
-                JOIN workspaces w ON w.id = p.workspace_id
+                JOIN boards p ON p.id = i.board_id
+                JOIN teams w ON w.id = p.team_id
                 WHERE upper(i.identifier) = upper(?) AND w.slug = ?
                 """,
-                arguments: [identifier, workspaceSlug]
+                arguments: [identifier, teamSlug]
             )
         }) ?? nil
     }
@@ -90,40 +90,40 @@ enum IssueRefLookup {
             return nil
         }()
         let rows: [Row] = (try? pool.read { db -> [Row] in
-            guard let workspaceId = try workspaceId(for: scope, db: db) else { return [] }
+            guard let teamId = try teamId(for: scope, db: db) else { return [] }
             return try Row.fetchAll(
                 db,
                 sql: """
                 SELECT i.identifier, i.title FROM issues i
-                JOIN projects p ON p.id = i.project_id
-                WHERE p.workspace_id = ? AND i.archived_at IS NULL
+                JOIN boards p ON p.id = i.board_id
+                WHERE p.team_id = ? AND i.archived_at IS NULL
                   AND i.id IS NOT ?
                   AND (i.identifier LIKE ? ESCAPE '\\' OR i.title LIKE ? ESCAPE '\\')
                 ORDER BY i.created_at DESC
                 LIMIT ?
                 """,
-                arguments: [workspaceId, selfIssueId, pattern, pattern, limit]
+                arguments: [teamId, selfIssueId, pattern, pattern, limit]
             )
         }) ?? []
         return rows.map { IssueRefCandidate(identifier: $0["identifier"], title: $0["title"]) }
     }
 
-    private static func workspaceId(for scope: Scope, db: Database) throws -> String? {
+    private static func teamId(for scope: Scope, db: Database) throws -> String? {
         switch scope {
         case .issue(let id):
             return try String.fetchOne(
                 db,
                 sql: """
-                SELECT p.workspace_id FROM issues i
-                JOIN projects p ON p.id = i.project_id
+                SELECT p.team_id FROM issues i
+                JOIN boards p ON p.id = i.board_id
                 WHERE i.id = ?
                 """,
                 arguments: [id]
             )
-        case .project(let id):
+        case .board(let id):
             return try String.fetchOne(
                 db,
-                sql: "SELECT workspace_id FROM projects WHERE id = ?",
+                sql: "SELECT team_id FROM boards WHERE id = ?",
                 arguments: [id]
             )
         }

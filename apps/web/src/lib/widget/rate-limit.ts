@@ -67,8 +67,7 @@ export class TokenBucketLimiter {
   }
 }
 
-// Also reused by the other public-write limiters (public-board issue create,
-// the /api/contact endpoint).
+// Also reused by the other public-write limiter (the /api/contact endpoint).
 export function envInt(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? ``, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback

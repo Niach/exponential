@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-// Landing page after a GitHub App install launched from the in-app project/repo
+// Landing page after a GitHub App install launched from the in-app board/repo
 // dialog (state=dialog). Two very different arrivals share this page, and the
 // mobile one is why EXP-18 exists:
 //  • Desktop popup — opened by the repo picker via window.open(); the opener
@@ -56,7 +56,7 @@ function GithubInstalled() {
           <CardDescription>
             {isPopup
               ? `Returning you to Exponential — you can close this tab if it stays open.`
-              : `Your repositories are now available. Continue to pick one for your project.`}
+              : `Your repositories are now available. Continue to pick one for your board.`}
           </CardDescription>
         </CardHeader>
         <CardContent>

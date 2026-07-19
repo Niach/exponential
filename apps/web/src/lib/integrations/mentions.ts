@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects, workspaceMembers } from "@/db/schema"
+import { issues, boards, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
@@ -15,13 +15,13 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // text). The token contract lives in the client-safe lib/mention-refs.ts so
 // the TipTap pill renderer and autocomplete share the exact same regex.
 
-// Resolve `@email` mentions in a piece of text to the user ids of workspace
+// Resolve `@email` mentions in a piece of text to the user ids of team
 // members (so a mention only fires for someone who can actually see the issue).
 // Case-insensitive on the email.
 export async function resolveMentions(
   tx: Tx,
   text: string,
-  workspaceId: string
+  teamId: string
 ): Promise<string[]> {
   const emails = extractMentionEmails(text)
   if (emails.length === 0) return []
@@ -29,10 +29,10 @@ export async function resolveMentions(
   const rows = await tx
     .select({ id: users.id })
     .from(users)
-    .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
+    .innerJoin(teamMembers, eq(teamMembers.userId, users.id))
     .where(
       and(
-        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(teamMembers.teamId, teamId),
         inArray(sql`lower(${users.email})`, emails)
       )
     )
@@ -41,14 +41,14 @@ export async function resolveMentions(
 }
 
 // Resolve `#IDENTIFIER` issue references (see lib/issue-refs.ts for the token
-// contract) to issues in the same workspace — mirroring resolveMentions, so a
+// contract) to issues in the same team — mirroring resolveMentions, so a
 // reference only counts when the target issue is actually visible there. v1
 // keeps references as plain links (no notification fan-out); this resolver is
 // the anchor point for a future "referenced-in" signal.
 export async function resolveIssueRefs(
   tx: Tx,
   text: string,
-  workspaceId: string
+  teamId: string
 ): Promise<Array<{ id: string; identifier: string }>> {
   const identifiers = extractIssueRefs(text)
   if (identifiers.length === 0) return []
@@ -56,10 +56,10 @@ export async function resolveIssueRefs(
   const rows = await tx
     .select({ id: issues.id, identifier: issues.identifier })
     .from(issues)
-    .innerJoin(projects, eq(projects.id, issues.projectId))
+    .innerJoin(boards, eq(boards.id, issues.boardId))
     .where(
       and(
-        eq(projects.workspaceId, workspaceId),
+        eq(boards.teamId, teamId),
         inArray(issues.identifier, identifiers)
       )
     )

@@ -48,8 +48,8 @@ beforeEach(() => {
 })
 
 describe(`deliverableRecipients — membership guard at the deliver() chokepoint`, () => {
-  it(`drops recipients who are not current workspace members, preserving input order`, async () => {
-    // The workspace_members ⋈ users query returns only the current,
+  it(`drops recipients who are not current team members, preserving input order`, async () => {
+    // The team_members ⋈ users query returns only the current,
     // non-agent members among the candidates — `removed-b` (an ex-member
     // with a stale subscriber row) is absent.
     selectResults.push([{ id: `member-a` }, { id: `member-c` }])

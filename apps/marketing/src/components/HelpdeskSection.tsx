@@ -18,8 +18,9 @@ export function HelpdeskSection() {
             </motion.span>
             <h2 className={`section-title`}>Feedback becomes a conversation.</h2>
             <p className={`section-sub`}>
-              Every report can open an email thread pinned to the issue. You
-              reply from the issue, reporters reply from their inbox.
+              Support requests open email conversations in your team&apos;s
+              shared Support inbox. You reply from there, reporters reply from
+              their inbox — and any ticket becomes an issue in one click.
             </p>
             <span className={`hd-pro`}>
               <span className={`hd-pro-badge`}>Pro</span> Included in the Pro

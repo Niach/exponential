@@ -120,7 +120,7 @@ describe(`mcpGrants.hasAny — user-level MCP-connected existence check (EXP-141
 describe(`mcpGrants.grantAndConsent — consent completes before the grant upsert`, () => {
   it(`accept with an expired/replayed consent code rejects and never rewrites the grant`, async () => {
     h.selectQueue.push([{ clientId: `client-1` }]) // client lookup
-    h.selectQueue.push([]) // member workspaces
+    h.selectQueue.push([]) // member teams
     h.oAuthConsent.mockImplementation(async () => {
       h.callLog.push(`consent`)
       throw new TRPCError({ code: `UNAUTHORIZED`, message: `expired` })
@@ -131,7 +131,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
         clientId: `client-1`,
         consentCode: `code-1`,
         accept: true,
-        allWorkspaces: true,
+        allTeams: true,
       })
     ).rejects.toThrow()
 
@@ -153,7 +153,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
         clientId: `client-1`,
         consentCode: `code-1`,
         accept: true,
-        allWorkspaces: true,
+        allTeams: true,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
@@ -162,16 +162,16 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
 
   it(`accept persists the clamped selection only after consent completes`, async () => {
     h.selectQueue.push([{ clientId: `client-1` }]) // client lookup
-    h.selectQueue.push([{ id: WS1 }, { id: WS2 }]) // member workspaces
-    h.selectQueue.push([{ id: PROJ1, workspaceId: WS2 }]) // project clamp
+    h.selectQueue.push([{ id: WS1 }, { id: WS2 }]) // member teams
+    h.selectQueue.push([{ id: PROJ1, teamId: WS2 }]) // board clamp
 
     const result = await caller().grantAndConsent({
       clientId: `client-1`,
       consentCode: `code-1`,
       accept: true,
-      allWorkspaces: false,
-      workspaceIds: [WS1],
-      projectIds: [PROJ1],
+      allTeams: false,
+      teamIds: [WS1],
+      boardIds: [PROJ1],
     })
 
     expect(result).toEqual({ redirectURI: REDIRECT })
@@ -181,9 +181,9 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
     expect(h.upserts[0]).toMatchObject({
       userId: `actor`,
       clientId: `client-1`,
-      allWorkspaces: false,
-      workspaceIds: [WS1],
-      projectIds: [PROJ1],
+      allTeams: false,
+      teamIds: [WS1],
+      boardIds: [PROJ1],
     })
   })
 
@@ -209,7 +209,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
         clientId: `client-1`,
         consentCode: `code-1`,
         accept: true,
-        allWorkspaces: false,
+        allTeams: false,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
 

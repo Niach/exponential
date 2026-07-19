@@ -26,7 +26,7 @@ if (!existsSync(tracedPkg)) {
   process.exit(0)
 }
 
-// Resolve the real package through the workspace (hoisted to the repo root).
+// Resolve the real package through the team (hoisted to the repo root).
 const sourcePkg = dirname(
   Bun.resolveSync(`react-dom/package.json`, webRoot)
 )

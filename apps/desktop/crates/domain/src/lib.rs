@@ -15,7 +15,7 @@
 //! * [`options`] — the status/priority icon+color option tables mirroring
 //!   `apps/web/src/lib/domain.ts` (§4.7; presentation as data — glyph names +
 //!   color tokens — so this crate stays gpui-free);
-//! * [`board`] — `apps/web/src/lib/project-board.ts` grouping/sorting.
+//! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting.
 //!
 //! gpui-free — headless-testable.
 

@@ -3,7 +3,7 @@ package com.exponential.app.domain
 /**
  * Builds the canonical web-app URL for sharing an issue. Mirrors the web route
  * shape and the iOS `WebLinks` helper:
- *   issue  {base}/w/{workspace}/projects/{project}/issues/{identifier}
+ *   issue  {base}/t/{team}/boards/{board}/issues/{identifier}
  *
  * `base` is the account's instance URL; its trailing slash is trimmed so the
  * joined path never doubles up. All slugs/identifiers are synced locally, so
@@ -13,16 +13,16 @@ package com.exponential.app.domain
 object WebLinks {
     fun issueUrl(
         base: String,
-        workspaceSlug: String,
-        projectSlug: String,
+        teamSlug: String,
+        boardSlug: String,
         identifier: String,
-    ): String = "${base.trimEnd('/')}/w/$workspaceSlug/projects/$projectSlug/issues/$identifier"
+    ): String = "${base.trimEnd('/')}/t/$teamSlug/boards/$boardSlug/issues/$identifier"
 
     /** A web-app URL the native app can render (EXP-92 App Links). */
     sealed interface Parsed {
         data class IssueRef(
-            val workspaceSlug: String,
-            val projectSlug: String,
+            val teamSlug: String,
+            val boardSlug: String,
             val identifier: String,
         ) : Parsed
 
@@ -36,16 +36,16 @@ object WebLinks {
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
      *
-     * The board prefix is accepted as BOTH `/w/…` and `/t/…` (the workspaces →
-     * teams URL rename, EXP-122): the web now emits `/t/`, but `/w/` acceptance
-     * is permanent so old links and older-client-minted URLs keep resolving.
-     * Only the URL segment changed — every code identifier stays `workspace`.
+     * Only the current `/t/{team}/boards/{board}/issues/{id}` form is accepted
+     * (the great rename, EXP-180): the web serves no `/w/` or `/projects/`
+     * routes anymore — those legacy shapes are dead, so parsing them would
+     * claim links the app can no longer resolve.
      */
     fun parsePath(path: String?): Parsed? {
         val parts = path.orEmpty().split('/').filter { it.isNotEmpty() }
         return when {
-            parts.size == 6 && (parts[0] == "w" || parts[0] == "t") &&
-                parts[2] == "projects" && parts[4] == "issues" ->
+            parts.size == 6 && parts[0] == "t" &&
+                parts[2] == "boards" && parts[4] == "issues" ->
                 Parsed.IssueRef(parts[1], parts[3], parts[5])
             parts.size == 2 && parts[0] == "invite" -> Parsed.Invite(parts[1])
             else -> null

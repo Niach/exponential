@@ -1,12 +1,12 @@
 import { loginUser, logoutUser, registerUser } from "./helpers/auth"
 import { expect, test } from "./fixtures"
 
-function getWorkspaceSlug(currentUrl: string) {
-  const [, , workspaceSlug] = new URL(currentUrl).pathname.split(`/`)
-  return workspaceSlug
+function getTeamSlug(currentUrl: string) {
+  const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
+  return teamSlug
 }
 
-test(`registers, bootstraps a workspace, and signs back in`, async ({
+test(`registers, bootstraps a team, and signs back in`, async ({
   app,
   page,
 }) => {
@@ -15,16 +15,16 @@ test(`registers, bootstraps a workspace, and signs back in`, async ({
 
   await registerUser(page, app.owner)
   const main = page.getByRole(`main`)
-  await expect(main.getByText(`No projects yet`)).toBeVisible()
+  await expect(main.getByText(`No boards yet`)).toBeVisible()
   await expect(
-    main.getByText(`Create a project from the sidebar to get started.`)
+    main.getByText(`Create a board from the sidebar to get started.`)
   ).toBeVisible()
 
-  const workspaceSlug = getWorkspaceSlug(page.url())
+  const teamSlug = getTeamSlug(page.url())
 
   await logoutUser(page)
   await loginUser(page, app.owner)
 
-  await expect(page).toHaveURL(new RegExp(`/t/${workspaceSlug}/?$`))
-  await expect(main.getByText(`No projects yet`)).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/t/${teamSlug}/?$`))
+  await expect(main.getByText(`No boards yet`)).toBeVisible()
 })

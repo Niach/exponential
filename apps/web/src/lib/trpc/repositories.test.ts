@@ -15,12 +15,12 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
 })
 
 // The connect gate (the repo must resolve to an installation linked to the
-// target workspace) lives in the integrations router module; stub it so
+// target team) lives in the integrations router module; stub it so
 // connect tests drive it directly.
 vi.mock(`@/lib/trpc/integrations`, () => ({
   assertRepoInstallationAccess: vi.fn(),
   assertCanManageRepos: vi.fn(),
-  isInstallationLinkedToWorkspace: vi.fn(async () => true),
+  isInstallationLinkedToTeam: vi.fn(async () => true),
 }))
 
 import {
@@ -73,9 +73,9 @@ describe(`isForeignKeyViolation`, () => {
 })
 
 describe(`repoInUseMessage`, () => {
-  it(`pluralizes the project count`, () => {
-    expect(repoInUseMessage(1)).toContain(`1 project.`)
-    expect(repoInUseMessage(3)).toContain(`3 projects.`)
+  it(`pluralizes the board count`, () => {
+    expect(repoInUseMessage(1)).toContain(`1 board.`)
+    expect(repoInUseMessage(3)).toContain(`3 boards.`)
   })
 })
 
@@ -273,7 +273,7 @@ describe(`fetchBranchDiff`, () => {
   })
 })
 
-// `add` and `projects.create`'s inline connect both route through this single
+// `add` and `boards.create`'s inline connect both route through this single
 // helper (install-check → upsert → un-archive), so its semantics ARE the shared
 // connect semantics. A minimal fake tx exercises each branch.
 describe(`connectRepositoryInTx`, () => {
@@ -310,7 +310,7 @@ describe(`connectRepositoryInTx`, () => {
     }
   }
 
-  const input = { userId: `u1`, workspaceId: `ws1`, fullName: `acme/app` }
+  const input = { userId: `u1`, teamId: `ws1`, fullName: `acme/app` }
 
   it(`returns the freshly inserted id and persists the resolved installation`, async () => {
     const captured: { values?: Record<string, unknown> } = {}

@@ -27,7 +27,7 @@
 //! a **copyable row** (degrade to copy-paste, never a dead end). The
 //! callback lands via `on_open_urls` → [`crate::oauth::handle_open_urls`].
 //!
-//! The workspace renders this view whenever the session machine is not
+//! The shell renders this view whenever the session machine is not
 //! `Synced` — including `AuthExpired`, the dead-token routing
 //! (never an empty board).
 
@@ -59,8 +59,7 @@ const CLOUD_INSTANCE: &str = "https://next.exponential.at";
 /// The effective cloud instance. The compile-time channel is the default, but
 /// `EXP_INSTANCE_URL` overrides it at runtime so the `dev:desktop*` scripts can
 /// retarget local/staging/prod without a recompile (e.g.
-/// `EXP_INSTANCE_URL=http://localhost:3000`). Crate-visible: the feedback
-/// browser fallback targets the cloud `/feedback` page.
+/// `EXP_INSTANCE_URL=http://localhost:3000`).
 pub(crate) fn cloud_instance() -> String {
     match std::env::var("EXP_INSTANCE_URL") {
         Ok(url) if !url.trim().is_empty() => api::login::normalize_instance_url(&url),

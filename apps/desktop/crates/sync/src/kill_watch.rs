@@ -45,12 +45,12 @@ pub fn session_row_is_ended(row: Option<&CodingSession>) -> bool {
 
 /// Whether an ended row may actually fire the kill (EXP-105 F3). After the
 /// server's staleness sweep DELETEs a live session's row (laptop-suspend
-/// case), any workspace member can resurrect the id via the scoped heartbeat
+/// case), any team member can resurrect the id via the scoped heartbeat
 /// — the server re-inserts with THE SENDER as owner — then flip it to
 /// `ended`, remote-killing a run they never owned. The original owner is
 /// unknowable server-side (the row was deleted), so the desktop enforces it:
 /// a row whose `user_id` differs from the signed-in user's id never fires.
-/// Legit kills (`steer.killSession` by a workspace owner) flip status WITHOUT
+/// Legit kills (`steer.killSession` by a team owner) flip status WITHOUT
 /// changing the row's owner, so they still pass. An unknowable owner on
 /// either side degrades to firing (the server always stamps `user_id`; this
 /// only covers partial/legacy rows).

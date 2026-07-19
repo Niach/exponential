@@ -403,7 +403,7 @@ private fun ActivityFeed(
     // lagged transcript flushes don't retire a pending picker (EXP-174).
     val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
     // Consecutive tool calls collapse into "N tool calls" rows (EXP-97) — a
-    // render-time projection only, the flat feed stays the state.
+    // render-time boardion only, the flat feed stays the state.
     val rows = remember(feed) { groupToolRuns(feed) }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.

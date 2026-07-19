@@ -47,7 +47,7 @@ import {
   buildSeatUpdateItems,
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForUser,
-  findActiveSubscriptionsForWorkspaces,
+  findActiveSubscriptionsForTeams,
   SUBSCRIPTION_UPDATE_BEHAVIOR,
 } from "./creem-subscriptions"
 
@@ -95,7 +95,7 @@ describe(`assertSubscriptionMutable`, () => {
     ).not.toThrow()
   })
 
-  it(`throws when the workspace has no subscription`, () => {
+  it(`throws when the team has no subscription`, () => {
     expect(() => assertSubscriptionMutable(null)).toThrow(
       /no active subscription/
     )
@@ -132,7 +132,7 @@ describe(`SUBSCRIPTION_UPDATE_BEHAVIOR`, () => {
 })
 
 // ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
-// Deleting a workspace/account must not leave a paying ghost subscription in
+// Deleting a team/account must not leave a paying ghost subscription in
 // Creem. The capture helpers run BEFORE the local delete (the FKs make rows
 // unfindable afterwards) and the cancel runs AFTER commit, best-effort.
 
@@ -163,17 +163,17 @@ describe(`cancel-on-delete`, () => {
     }
   })
 
-  describe(`findActiveSubscriptionsForWorkspaces`, () => {
-    it(`returns the workspace's active subscription rows`, async () => {
+  describe(`findActiveSubscriptionsForTeams`, () => {
+    it(`returns the team's active subscription rows`, async () => {
       mocks.selectRows = [{ id: `row-1`, creemSubscriptionId: `sub_1` }]
       await expect(
-        findActiveSubscriptionsForWorkspaces([`ws-1`])
+        findActiveSubscriptionsForTeams([`ws-1`])
       ).resolves.toEqual([{ id: `row-1`, creemSubscriptionId: `sub_1` }])
       expect(mocks.selectCalls.count).toBe(1)
     })
 
-    it(`skips the query entirely for an empty workspace list`, async () => {
-      await expect(findActiveSubscriptionsForWorkspaces([])).resolves.toEqual(
+    it(`skips the query entirely for an empty team list`, async () => {
+      await expect(findActiveSubscriptionsForTeams([])).resolves.toEqual(
         []
       )
       expect(mocks.selectCalls.count).toBe(0)
@@ -182,7 +182,7 @@ describe(`cancel-on-delete`, () => {
     it(`no-ops on self-hosted instances (no billing)`, async () => {
       mocks.cloud.value = false
       await expect(
-        findActiveSubscriptionsForWorkspaces([`ws-1`])
+        findActiveSubscriptionsForTeams([`ws-1`])
       ).resolves.toEqual([])
       expect(mocks.selectCalls.count).toBe(0)
     })

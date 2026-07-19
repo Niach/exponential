@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * The flatten/unflatten between blocks and editor rows must be lossless: a
- * markdown string parsed to blocks, projected to rows, and folded back to blocks
+ * markdown string parsed to blocks, boarded to rows, and folded back to blocks
  * must serialize to the same markdown.
  */
 class EditorRowsTest {

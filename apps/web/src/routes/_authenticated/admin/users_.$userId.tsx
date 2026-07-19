@@ -166,12 +166,12 @@ function AdminUserDetail() {
         <CardHeader>
           <CardTitle className="text-sm">Teams</CardTitle>
           <CardDescription className="text-xs">
-            {detail.workspaces.length}{` `}
-            {detail.workspaces.length === 1 ? `membership` : `memberships`}
+            {detail.teams.length}{` `}
+            {detail.teams.length === 1 ? `membership` : `memberships`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {detail.workspaces.length === 0 ? (
+          {detail.teams.length === 0 ? (
             <p className="text-sm text-muted-foreground">No memberships.</p>
           ) : (
             <div className="rounded-md border">
@@ -181,14 +181,14 @@ function AdminUserDetail() {
                 <div>Plan</div>
                 <div>Member since</div>
               </div>
-              {detail.workspaces.map((ws) => (
+              {detail.teams.map((ws) => (
                 <div
                   key={ws.id}
                   className="flex flex-col md:grid md:grid-cols-[1fr_90px_110px_120px] md:items-center gap-1 md:gap-3 border-b px-3 py-2 last:border-b-0"
                 >
                   <Link
-                    to="/admin/workspaces/$workspaceId"
-                    params={{ workspaceId: ws.id }}
+                    to="/admin/teams/$teamId"
+                    params={{ teamId: ws.id }}
                     className="min-w-0 hover:underline"
                   >
                     <span className="text-sm font-medium truncate block">
@@ -314,7 +314,7 @@ function AdminUserDetail() {
             <DialogTitle>Delete user?</DialogTitle>
             <DialogDescription>
               This permanently removes <strong>{user.email}</strong>. Their
-              sessions, accounts, workspace memberships, and any issues or
+              sessions, accounts, team memberships, and any issues or
               comments they authored will be deleted. This cannot be undone.
             </DialogDescription>
           </DialogHeader>

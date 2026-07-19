@@ -105,12 +105,12 @@ public final class SyncManager: @unchecked Sendable {
     }
 
     /// Cancel + relaunch an account's shape pipeline WITHOUT wiping local
-    /// data. Used after a membership change (e.g. joining the public feedback
-    /// board): every shape's where clause is derived server-side from
-    /// membership, so in-flight live long-polls keep the old scope until they
+    /// data. Used after a membership change (e.g. accepting an invite):
+    /// every shape's where clause is derived server-side from membership,
+    /// so in-flight live long-polls keep the old scope until they
     /// drain (up to ~60s). Relaunching re-requests immediately — Electric
     /// 409s each rotated shape and the client refetches atomically via the
-    /// needs_refetch path, so the new workspace appears in seconds. This is
+    /// needs_refetch path, so the new team appears in seconds. This is
     /// the iOS analog of the web join gate's hard reload.
     public func restartPipeline(accountId: String) async {
         // Reuse the resync guard: a concurrent resync/restart would relaunch
@@ -132,7 +132,7 @@ public final class SyncManager: @unchecked Sendable {
         launchPipeline(accountId: accountId, pool: pool)
     }
 
-    /// Wait up to ~5s for the active account's workspaces shape to land its
+    /// Wait up to ~5s for the active account's teams shape to land its
     /// initial snapshot. Live sync runs automatically — this exists so UI
     /// loading indicators have a meaningful signal to wait on. Resolves the
     /// active account's pool directly via `db.pool(forAccountId:)`.
@@ -142,7 +142,7 @@ public final class SyncManager: @unchecked Sendable {
         let start = Date()
         while Date().timeIntervalSince(start) < 5 {
             let hasData = (try? await pool.read { db in
-                try WorkspaceEntity.fetchCount(db) > 0
+                try TeamEntity.fetchCount(db) > 0
             }) ?? false
             if hasData { return }
             try? await Task.sleep(for: .milliseconds(100))
@@ -217,12 +217,12 @@ public final class SyncManager: @unchecked Sendable {
 
         var tasks: [Task<Void, Never>] = []
         tasks.append(makeShapeTask(
-            name: "workspaces", path: "/api/shapes/workspaces", table: "workspaces",
-            type: WorkspaceEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            name: "teams", path: "/api/shapes/teams", table: "teams",
+            type: TeamEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
-            name: "projects", path: "/api/shapes/projects", table: "projects",
-            type: ProjectEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            name: "boards", path: "/api/shapes/boards", table: "boards",
+            type: BoardEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "issues", path: "/api/shapes/issues", table: "issues",
@@ -241,12 +241,12 @@ public final class SyncManager: @unchecked Sendable {
             type: UserEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
-            name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_members",
-            type: WorkspaceMemberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            name: "team-members", path: "/api/shapes/team-members", table: "team_members",
+            type: TeamMemberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
-            name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invites",
-            type: WorkspaceInviteEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
+            name: "team-invites", path: "/api/shapes/team-invites", table: "team_invites",
+            type: TeamInviteEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "comments", path: "/api/shapes/comments", table: "comments",

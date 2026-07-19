@@ -24,13 +24,12 @@ import androidx.navigation.compose.rememberNavController
 import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomNavBar
-import com.exponential.app.ui.feedback.FeedbackBoardScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
@@ -47,9 +46,11 @@ import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
-import com.exponential.app.ui.settings.WorkspaceSettingsScreen
+import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
+import com.exponential.app.ui.support.SupportScreen
+import com.exponential.app.ui.support.SupportThreadScreen
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
@@ -57,7 +58,8 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · My Work · Reviews · Agents · Search + compose FAB) overlaid
+ * pill (Issues · My Work · Support (helpdesk-gated, EXP-180) · Agents ·
+ * Reviews · Search + compose FAB) overlaid
  * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
@@ -65,7 +67,7 @@ import dagger.hilt.android.EntryPointAccessors
 fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
     val deepLinkBus = applicationDeepLinkBus()
-    val workspaceSelection = applicationWorkspaceSelection()
+    val teamSelection = applicationTeamSelection()
     val webLinkResolver = applicationWebLinkResolver()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val navController = rememberNavController()
@@ -88,6 +90,8 @@ fun AppNavHost() {
                 navController.navigate("issue/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.Invite ->
                 navController.navigate("invite/${target.token}") { launchSingleTop = true }
+            is DeepLinkBus.Target.SupportThread ->
+                navController.navigate("support/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -110,8 +114,8 @@ fun AppNavHost() {
                 }
             is DeepLinkBus.Target.ShareContent -> {
                 // Stash the shared content for the single-screen share composer
-                // to consume (it carries its own inline project selector).
-                workspaceSelection.setPendingShare(target)
+                // to consume (it carries its own inline board selector).
+                teamSelection.setPendingShare(target)
                 navController.navigate("share-compose") { launchSingleTop = true }
             }
             is DeepLinkBus.Target.GithubConnected ->
@@ -179,7 +183,8 @@ fun AppNavHost() {
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
-            val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
+            val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
+            val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
@@ -187,7 +192,8 @@ fun AppNavHost() {
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
-                currentProjectId = currentProjectId,
+                helpdeskEnabled = helpdeskEnabled,
+                currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
             )
         }
@@ -232,10 +238,11 @@ private fun AuthenticatedNav(
     needsOnboarding: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
-    currentProjectId: String?,
+    helpdeskEnabled: Boolean,
+    currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
-    val workspaceSelection = applicationWorkspaceSelection()
+    val teamSelection = applicationTeamSelection()
 
     // NavHost only evaluates startDestination once, so an account switch onto a
     // not-yet-onboarded account (possible when a login was killed mid-wizard)
@@ -251,20 +258,31 @@ private fun AuthenticatedNav(
     }
 
     // (Fresh starts need no auto-push anymore: the Issues tab root IS the
-    // last-opened project — its current-project resolution starts there.)
+    // last-opened board — its current-board resolution starts there.)
 
     // Linear-style floating bottom bar over the top-level routes only; detail
     // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "search", "agents", "personal", "reviews", "project/{projectId}")
-    // The single add-issue affordance: the FAB shows while a project is in
-    // view — the Issues tab root (its resolved current project) or a pushed
-    // project route — so it always targets the project on screen.
-    val composeProjectId = when (currentRoute) {
-        "project/{projectId}" -> backStackEntry?.arguments?.getString("projectId")
-        "home" -> currentProjectId
+        currentRoute in setOf(
+            "home", "search", "agents", "personal", "reviews", "support-inbox", "board/{boardId}",
+        )
+
+    // The Support tab exists only while the flag is on — if it flips off
+    // (team switch, feature disabled) while the Support inbox is up, land
+    // back on Issues instead of stranding a tab-less screen.
+    LaunchedEffect(helpdeskEnabled, currentRoute) {
+        if (!helpdeskEnabled && currentRoute == "support-inbox") {
+            navController.popBackStack("home", inclusive = false)
+        }
+    }
+    // The single add-issue affordance: the FAB shows while a board is in
+    // view — the Issues tab root (its resolved current board) or a pushed
+    // board route — so it always targets the board on screen.
+    val composeBoardId = when (currentRoute) {
+        "board/{boardId}" -> backStackEntry?.arguments?.getString("boardId")
+        "home" -> currentBoardId
         else -> null
     }
 
@@ -286,10 +304,10 @@ private fun AuthenticatedNav(
             )
         }
         composable("home") {
-            // The Issues tab root: the current project's list with the inline
-            // switcher; picking another project swaps it in place (no push).
+            // The Issues tab root: the current board's list with the inline
+            // switcher; picking another board swaps it in place (no push).
             IssueListScreen(
-                projectId = currentProjectId,
+                boardId = currentBoardId,
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
@@ -307,12 +325,28 @@ private fun AuthenticatedNav(
             )
         }
         composable("personal") {
-            // "My Work" — Inbox + My Issues merged into one project-independent
+            // "My Work" — Inbox + My Issues merged into one board-independent
             // personal tab (EXP-58). Notification taps never land here directly
             // (pushes deep-link straight to issue/{id}), so renaming the old
             // "inbox" route is safe.
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                // Support-group taps land on the Support tab (the inbox
+                // ViewModel has already selected the group's team).
+                onOpenSupport = {
+                    navController.navigate("support-inbox") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                },
+            )
+        }
+        composable("support-inbox") {
+            // Support — the team helpdesk inbox, its own bottom-bar
+            // destination (EXP-180); the tab shows only while the active
+            // team's synced helpdesk flag is on.
+            SupportScreen(
+                onOpenThread = { id -> navController.navigate("support/$id") },
             )
         }
         composable("reviews") {
@@ -327,23 +361,10 @@ private fun AuthenticatedNav(
         composable("settings") {
             SettingsScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
-                onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
+                onOpenTeamSettings = { navController.navigate("team-settings") },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
-                onOpenFeedbackBoard = { navController.navigate("feedback-board") },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
-            )
-        }
-        composable("feedback-board") {
-            FeedbackBoardScreen(
-                onBack = { navController.popBackStack() },
-                onOpenBoard = { projectId ->
-                    // Replace the gate with the board's issue list so back
-                    // returns to Settings, not the spent join screen.
-                    navController.navigate("project/$projectId") {
-                        popUpTo("feedback-board") { inclusive = true }
-                    }
-                },
             )
         }
         composable("sync-diagnostics") {
@@ -375,56 +396,66 @@ private fun AuthenticatedNav(
             val accountId = entry.arguments?.getString("accountId").orEmpty()
             ServerDetailScreen(accountId = accountId, onBack = { navController.popBackStack() })
         }
-        composable("workspace-settings") {
-            WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
+        composable("team-settings") {
+            TeamSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("share-compose") {
             // Single-screen share composer: the prefilled create form with the
             // "Share to" destination selector on top (EXP-60). The pending
-            // share lives in the WorkspaceSelection singleton (not route
+            // share lives in the TeamSelection singleton (not route
             // state) so backing out and re-entering re-fills the form; it's
             // consumed exactly once — on a successful create or an explicit
             // discard.
-            val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
+            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
             val shareState by shareVm.state.collectAsStateWithLifecycle()
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
                 sharePrefill = sharePrefill,
-                onSharePrefillConsumed = { workspaceSelection.consumePendingShare() },
+                onSharePrefillConsumed = { teamSelection.consumePendingShare() },
                 shareMode = true,
                 shareGroups = shareState.groups,
-                shareRecentProjectId = shareState.recentProjectId,
+                shareRecentBoardId = shareState.recentBoardId,
                 shareGroupsLoading = shareState.isLoading,
             )
         }
-        composable("project/{projectId}") { entry ->
-            val projectId = entry.arguments?.getString("projectId").orEmpty()
-            // Remembering the opened project drives the share picker's default.
-            LaunchedEffect(projectId) {
-                if (projectId.isNotBlank() && activeAccountId != null) {
-                    workspaceSelection.rememberLastProject(activeAccountId, projectId)
+        composable("board/{boardId}") { entry ->
+            val boardId = entry.arguments?.getString("boardId").orEmpty()
+            // Remembering the opened board drives the share picker's default.
+            LaunchedEffect(boardId) {
+                if (boardId.isNotBlank() && activeAccountId != null) {
+                    teamSelection.rememberLastBoard(activeAccountId, boardId)
                 }
             }
             IssueListScreen(
-                projectId = projectId,
+                boardId = boardId,
                 mode = IssueListMode.Pushed,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
             )
         }
-        composable("project/{projectId}/new") {
-            // The pending share lives in the WorkspaceSelection singleton (not
+        composable("board/{boardId}/new") {
+            // The pending share lives in the TeamSelection singleton (not
             // route state), so backing out of this screen and re-entering
             // re-fills the form. The screen consumes it exactly once — on a
             // successful create or an explicit discard.
-            val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
+            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
                 sharePrefill = sharePrefill,
-                onSharePrefillConsumed = { workspaceSelection.consumePendingShare() },
+                onSharePrefillConsumed = { teamSelection.consumePendingShare() },
+            )
+        }
+        composable("support/{threadId}") {
+            // A support ticket's conversation (EXP-180) — reached from the
+            // Support tab's inbox or a support_reply push tap. The
+            // ViewModel reads threadId from its SavedStateHandle like the
+            // issue-detail route.
+            SupportThreadScreen(
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("issue/{issueId}") { entry ->
@@ -466,9 +497,11 @@ private fun AuthenticatedNav(
             agentsActive = currentRoute == "agents",
             personalActive = currentRoute == "personal",
             reviewsActive = currentRoute == "reviews",
+            supportActive = currentRoute == "support-inbox",
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
-            showsCompose = composeProjectId != null,
+            showsSupport = helpdeskEnabled,
+            showsCompose = composeBoardId != null,
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onSearch = {
                 if (currentRoute != "search") {
@@ -502,8 +535,16 @@ private fun AuthenticatedNav(
                     }
                 }
             },
+            onSupport = {
+                if (currentRoute != "support-inbox") {
+                    navController.navigate("support-inbox") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
             onCompose = {
-                composeProjectId?.let { navController.navigate("project/$it/new") }
+                composeBoardId?.let { navController.navigate("board/$it/new") }
             },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
@@ -520,11 +561,11 @@ private fun applicationDeepLinkBus(): DeepLinkBus {
 }
 
 @Composable
-private fun applicationWorkspaceSelection(): WorkspaceSelection {
+private fun applicationTeamSelection(): TeamSelection {
     val app = LocalContext.current.applicationContext as ExponentialApp
     return EntryPointAccessors
-        .fromApplication(app, WorkspaceSelectionEntryPoint::class.java)
-        .workspaceSelection()
+        .fromApplication(app, TeamSelectionEntryPoint::class.java)
+        .teamSelection()
 }
 
 @Composable
@@ -543,8 +584,8 @@ private interface DeepLinkEntryPoint {
 
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
-private interface WorkspaceSelectionEntryPoint {
-    fun workspaceSelection(): WorkspaceSelection
+private interface TeamSelectionEntryPoint {
+    fun teamSelection(): TeamSelection
 }
 
 @dagger.hilt.EntryPoint

@@ -32,7 +32,7 @@ struct ActiveCompletion {
 
 /// A multi-line input with the §4.6 autocomplete layered on. Build with the
 /// owner's `InputState`; call [`MentionInput::set_source`] with a
-/// workspace-scoped [`crate::markdown::store_completion_source`].
+/// team-scoped [`crate::markdown::store_completion_source`].
 pub struct MentionInput {
     input: Entity<InputState>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -62,7 +62,7 @@ impl MentionInput {
         }
     }
 
-    /// The completion source (re-pointed on issue/workspace change; `None`
+    /// The completion source (re-pointed on issue/team change; `None`
     /// disables the overlay).
     pub fn set_source(&mut self, source: Option<Rc<dyn CompletionSource>>) {
         self.source = source;

@@ -16,7 +16,7 @@ function hasTokenCredentials(request: Request): boolean {
 
 interface ShapeRouteHandlerOptions {
   // userId is null when the request is anonymous. The shape proxy is expected
-  // to return a where clause scoped to public-workspace data in that case.
+  // to return a where clause scoped to public-team data in that case.
   getWhere?: (userId: string | null) => Promise<string | null | undefined>
   table: string
   // If true, anonymous requests are rejected with 401 even when getWhere can

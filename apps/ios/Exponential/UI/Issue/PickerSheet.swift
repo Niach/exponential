@@ -76,16 +76,16 @@ struct AssigneeOption: Identifiable, Hashable {
     )
 }
 
-/// User ids of a workspace's HUMAN members (widget/agent bots excluded), from
-/// the synced `workspace_members ⋈ users` store. A member whose `users` row
+/// User ids of a team's HUMAN members (widget/agent bots excluded), from
+/// the synced `team_members ⋈ users` store. A member whose `users` row
 /// hasn't synced yet is counted as human — conservative, so we never wrongly
-/// hide the assignee picker on a workspace that actually has other people.
+/// hide the assignee picker on a team that actually has other people.
 ///
-/// When this returns exactly one id the workspace is solo: both create + detail
+/// When this returns exactly one id the team is solo: both create + detail
 /// surfaces skip the assignee picker and auto-assign that sole member (EXP-50).
-func humanWorkspaceMemberIds(workspaceId: String, db: Database) throws -> [String] {
-    let members = try WorkspaceMemberEntity
-        .filter(Column("workspace_id") == workspaceId)
+func humanTeamMemberIds(teamId: String, db: Database) throws -> [String] {
+    let members = try TeamMemberEntity
+        .filter(Column("team_id") == teamId)
         .fetchAll(db)
     var ids: [String] = []
     for member in members {

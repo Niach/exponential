@@ -1,7 +1,7 @@
 import Foundation
 
 /// Canonical in-group issue ordering (EXP-38) — the cross-platform contract all
-/// four clients implement with identical semantics (web `lib/project-board.ts`,
+/// four clients implement with identical semantics (web `lib/board-view.ts`,
 /// Android, desktop). Group ORDER itself is unchanged
 /// (`IssueStatus.displayOrder`); this governs order WITHIN a status group:
 ///
@@ -67,7 +67,7 @@ public enum IssueSorting {
         }
         // Shared final tie-break: `number` ascending numerically, nil last.
         // Swift's sort is not stability-guaranteed, so ties must resolve
-        // deterministically (id as the ultimate fallback for cross-project
+        // deterministically (id as the ultimate fallback for cross-board
         // lists where numbers can collide).
         switch (a.number, b.number) {
         case let (na?, nb?) where na != nb:

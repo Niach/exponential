@@ -1,6 +1,6 @@
-//! The project-board screen — web parity target
-//! `apps/web/src/routes/w/$workspaceSlug/projects/$projectSlug/index.tsx`
-//! (masterplan-v3 §4.2 "Project board").
+//! The board-view screen — web parity target
+//! `apps/web/src/routes/t/$teamSlug/boards/$boardSlug/index.tsx`
+//! (masterplan-v3 §4.2 "Board view").
 //!
 //! Composition mirrors the web route: [`IssueFilterBar`] (title row + tabs +
 //! filter popover + active pills) on top, the virtualized [`IssueListView`]
@@ -14,7 +14,7 @@
 //! filter-popover drill-down [`FilterView`] and the label-search
 //! `InputState`. Children get snapshots + callbacks, exactly like the web
 //! component props. The issue list itself re-renders off the synced
-//! collections; this view re-renders on label/project changes for the bar.
+//! collections; this view re-renders on label/board changes for the bar.
 
 use std::rc::Rc;
 
@@ -49,10 +49,10 @@ impl BoardView {
 
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            // The bar reads labels (popover list + pills) and projects
-            // (workspace resolution); the list observes its own collections.
+            // The bar reads labels (popover list + pills) and boards
+            // (team resolution); the list observes its own collections.
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Live label search re-filters the popover's label rows.
             cx.observe(&label_query, |_, _, cx| cx.notify()),
         ];
@@ -115,7 +115,7 @@ impl BoardView {
         cx.notify();
     }
 
-    /// Bar title: the project scope is the sidebar's "All Issues" tool
+    /// Bar title: the board scope is the sidebar's "All Issues" tool
     /// window; My Issues names itself.
     fn title(&self) -> SharedString {
         match &self.query {
@@ -124,37 +124,37 @@ impl BoardView {
         }
     }
 
-    /// Web `canCreate`: the New Issue button shows on project scopes, never
+    /// Web `canCreate`: the New Issue button shows on board scopes, never
     /// on My Issues (web passes `canCreate={false}` there).
     fn can_create(&self) -> bool {
-        matches!(self.query, IssueQuery::Project { .. })
+        matches!(self.query, IssueQuery::Board { .. })
     }
 
-    /// The workspace whose labels feed the popover + pills (web
-    /// `useProjectBoardData` scopes labels by `workspace.id`).
-    fn workspace_id(&self, cx: &App) -> Option<String> {
+    /// The team whose labels feed the popover + pills (web
+    /// `useBoardBoardData` scopes labels by `team.id`).
+    fn team_id(&self, cx: &App) -> Option<String> {
         match &self.query {
             IssueQuery::None => None,
-            IssueQuery::Project { project_id } => Store::global(cx)
+            IssueQuery::Board { board_id } => Store::global(cx)
                 .collections()
-                .projects
+                .boards
                 .read(cx)
-                .get(project_id)
-                .map(|project| project.workspace_id.clone()),
-            IssueQuery::MyIssues { workspace_id, .. } => Some(workspace_id.clone()),
+                .get(board_id)
+                .map(|board| board.team_id.clone()),
+            IssueQuery::MyIssues { team_id, .. } => Some(team_id.clone()),
         }
     }
 }
 
-/// A workspace's labels, sort-order-then-name sorted (settings order — the
+/// A team's labels, sort-order-then-name sorted (settings order — the
 /// web live query has no explicit order; deterministic here).
-fn labels_in_workspace(workspace_id: &str, cx: &App) -> Vec<Label> {
+fn labels_in_team(team_id: &str, cx: &App) -> Vec<Label> {
     let mut out: Vec<Label> = Store::global(cx)
         .collections()
         .labels
         .read(cx)
         .iter()
-        .filter(|label| label.workspace_id == workspace_id)
+        .filter(|label| label.team_id == team_id)
         .cloned()
         .collect();
     out.sort_by(|a, b| {
@@ -169,8 +169,8 @@ fn labels_in_workspace(workspace_id: &str, cx: &App) -> Vec<Label> {
 impl Render for BoardView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self
-            .workspace_id(cx)
-            .map(|workspace_id| labels_in_workspace(&workspace_id, cx))
+            .team_id(cx)
+            .map(|team_id| labels_in_team(&team_id, cx))
             .unwrap_or_default();
 
         let entity = cx.entity().downgrade();

@@ -5,7 +5,7 @@
 //! Structure (the web desktop branch shape: pinned header/footer,
 //! scrollable body — never the old all-scrolling dialog):
 //!
-//! - header row: project pill (color dot + prefix) · `›` · "New issue" · ✕
+//! - header row: board pill (color dot + prefix) · `›` · "New issue" · ✕
 //! - borderless title `Input` (text-lg, web `border-none focus-visible:ring-0`)
 //! - the §4.5 [`crate::markdown::MarkdownEditor`] in a `flex_1` scroll region
 //!   — clipboard-image paste stages `draft://` blocks; submit
@@ -49,41 +49,41 @@ use crate::actions::NewIssue;
 use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
 use crate::markdown::{self, MarkdownEditor};
-use crate::navigation::{active_project_id, nav_for_window, navigate, Screen};
+use crate::navigation::{active_board_id, nav_for_window, navigate, Screen};
 use crate::queries;
 
 /// Register the App-global [`NewIssue`] handler (call once from `ui::init`).
 /// The action is the §3.6 unit action the filter bar dispatches; the target
-/// project is the window's active project (the top-bar picker scope — the
+/// board is the window's active board (the top-bar picker scope — the
 /// All Issues tool window's list).
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewIssue, cx| {
         crate::navigation::on_active_window(cx, |window, cx| {
             let nav = nav_for_window(window, cx);
-            let Some(project_id) = active_project_id(&nav, cx) else {
-                return; // no project in scope — nothing to create into
+            let Some(board_id) = active_board_id(&nav, cx) else {
+                return; // no board in scope — nothing to create into
             };
-            open(window, cx, project_id);
+            open(window, cx, board_id);
         });
     });
 }
 
-/// Open the dialog. Resolves the project row (prefix, color, workspace) off
-/// the synced collections; a no-op when the project is unknown (racing a
+/// Open the dialog. Resolves the board row (prefix, color, team) off
+/// the synced collections; a no-op when the board is unknown (racing a
 /// delete).
-pub fn open(window: &mut Window, cx: &mut App, project_id: String) {
+pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     let collections = Store::global(cx).collections();
-    let Some(project) = collections.projects.read(cx).get(&project_id).cloned() else {
-        log::warn!("[ui] NewIssue for unknown project {project_id}");
+    let Some(board) = collections.boards.read(cx).get(&board_id).cloned() else {
+        log::warn!("[ui] NewIssue for unknown board {board_id}");
         return;
     };
 
     let view = cx.new(|cx| {
         CreateIssueDialogView::new(
-            project.id.clone(),
-            project.workspace_id.clone(),
-            project.prefix.clone().unwrap_or_default(),
-            project.color.clone(),
+            board.id.clone(),
+            board.team_id.clone(),
+            board.prefix.clone().unwrap_or_default(),
+            board.color.clone(),
             window,
             cx,
         )
@@ -116,10 +116,10 @@ pub fn open(window: &mut Window, cx: &mut App, project_id: String) {
 }
 
 pub struct CreateIssueDialogView {
-    project_id: String,
-    workspace_id: String,
-    project_prefix: String,
-    project_color: Option<String>,
+    board_id: String,
+    team_id: String,
+    board_prefix: String,
+    board_color: Option<String>,
 
     title: Entity<InputState>,
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
@@ -128,7 +128,7 @@ pub struct CreateIssueDialogView {
     status: IssueStatus,
     default_status: IssueStatus,
     priority: IssuePriority,
-    /// EXP-50: `Some(member)` when the workspace has exactly one human
+    /// EXP-50: `Some(member)` when the team has exactly one human
     /// member at dialog open — the assignee chip hides and `assignee_id`
     /// defaults (and resets) to that member so the created issue is
     /// optimistically correct.
@@ -148,18 +148,18 @@ pub struct CreateIssueDialogView {
 
 impl CreateIssueDialogView {
     fn new(
-        project_id: String,
-        workspace_id: String,
-        project_prefix: String,
-        project_color: Option<String>,
+        board_id: String,
+        team_id: String,
+        board_prefix: String,
+        board_color: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Issue title"));
         // Shared configured-editor constructor (§4.5): completion + pills
-        // scoped to this workspace, upload staged (`upload_issue = None`).
+        // scoped to this team, upload staged (`upload_issue = None`).
         let description = crate::description_editor::build_editor(
-            Some(workspace_id.clone()),
+            Some(team_id.clone()),
             None,
             "Add description...",
             "",
@@ -213,17 +213,17 @@ impl CreateIssueDialogView {
         // EXP-50: exactly one human member ⇒ no assignment choice — hide the
         // chip and pre-assign them (0 members = membership not synced yet,
         // keep the picker).
-        let members = queries::workspace_users(cx, &workspace_id);
+        let members = queries::team_users(cx, &team_id);
         let solo_member_id = match members.as_slice() {
             [only] => Some(only.id.clone()),
             _ => None,
         };
 
         Self {
-            project_id,
-            workspace_id,
-            project_prefix,
-            project_color,
+            board_id,
+            team_id,
+            board_prefix,
+            board_color,
             title,
             description,
             status: IssueStatus::Backlog,
@@ -288,7 +288,7 @@ impl CreateIssueDialogView {
 
         // Build the exact web mutation input (`create-issue-dialog.tsx`
         // handleSubmit).
-        let mut input = api::issues::IssuesCreateInput::new(self.project_id.clone(), title);
+        let mut input = api::issues::IssuesCreateInput::new(self.board_id.clone(), title);
         input.status = Some(self.status);
         input.priority = Some(self.priority);
         input.assignee_id = self.assignee_id.clone();
@@ -485,9 +485,9 @@ impl CreateIssueDialogView {
     }
 
     /// Web `AssigneePicker`: "Assignee" or the selected member's name;
-    /// options = workspace members + Unassign.
+    /// options = team members + Unassign.
     fn assignee_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let users = queries::workspace_users(cx, &self.workspace_id);
+        let users = queries::team_users(cx, &self.team_id);
         let selected = self
             .assignee_id
             .as_deref()
@@ -506,7 +506,7 @@ impl CreateIssueDialogView {
             )
             .label(label)
             .dropdown_menu(move |menu, _window, cx| {
-                // Member lists grow with the workspace — cap + scroll (EXP-46a).
+                // Member lists grow with the team — cap + scroll (EXP-46a).
                 let mut menu = menu
                     .check_side(Side::Right)
                     .scrollable(true)
@@ -547,7 +547,7 @@ impl CreateIssueDialogView {
     /// names; the menu toggles membership (the web popover multi-toggles
     /// without closing — a dropdown reopens per toggle in v1).
     fn labels_chip(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let labels = queries::workspace_labels(cx, &self.workspace_id);
+        let labels = queries::team_labels(cx, &self.team_id);
         let selected: Vec<&Label> = labels
             .iter()
             .filter(|label| self.selected_label_ids.contains(&label.id))
@@ -573,7 +573,7 @@ impl CreateIssueDialogView {
             )
             .label(label)
             .dropdown_menu(move |menu, _window, cx| {
-                // Label lists grow with the workspace — cap + scroll (EXP-46a).
+                // Label lists grow with the team — cap + scroll (EXP-46a).
                 let mut menu = menu
                     .check_side(Side::Right)
                     .scrollable(true)
@@ -845,13 +845,13 @@ impl Render for CreateIssueDialogView {
         }
 
         let pill_color = self
-            .project_color
+            .board_color
             .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(cx.theme().muted_foreground);
         let closable = !self.submitting;
 
-        // Header: project pill · › · "New issue" · ✕ (web px-5 pt-4 pb-2).
+        // Header: board pill · › · "New issue" · ✕ (web px-5 pt-4 pb-2).
         let header = h_flex()
             .px_5()
             .pt_4()
@@ -876,7 +876,7 @@ impl Render for CreateIssueDialogView {
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(cx.theme().foreground)
                             .child(div().size_2p5().rounded_full().bg(pill_color))
-                            .child(SharedString::from(self.project_prefix.clone())),
+                            .child(SharedString::from(self.board_prefix.clone())),
                     )
                     .child(Icon::new(IconName::ChevronRight).xsmall())
                     .child("New issue"),
@@ -911,7 +911,7 @@ impl Render for CreateIssueDialogView {
             .border_color(cx.theme().border)
             .child(self.status_chip(cx))
             .child(self.priority_chip(cx))
-            // EXP-50: single-member workspaces have no assignment choice —
+            // EXP-50: single-member teams have no assignment choice —
             // the chip hides and the solo member is pre-assigned.
             .when(self.solo_member_id.is_none(), |this| {
                 this.child(self.assignee_chip(cx))
@@ -1059,7 +1059,7 @@ fn rgb_hsla(r: u8, g: u8, b: u8) -> gpui::Hsla {
     .into()
 }
 
-/// `#rrggbb` → Hsla (project/label colors are hex strings).
+/// `#rrggbb` → Hsla (board/label colors are hex strings).
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     let hex = hex.trim().strip_prefix('#')?;
     if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {

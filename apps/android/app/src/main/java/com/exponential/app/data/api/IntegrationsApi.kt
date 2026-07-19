@@ -6,16 +6,16 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // Mirrors apps/web/src/lib/trpc/integrations.ts. Both procedures are
-// query-shaped: `status`/`repos` take an optional `workspaceId` (installations
-// are now claimed per workspace) and `repos` also accepts a `refresh` to bypass
+// query-shaped: `status`/`repos` take an optional `teamId` (installations
+// are now claimed per team) and `repos` also accepts a `refresh` to bypass
 // the server's per-user cache after an install lands. GitHub is server-only —
-// these back the inline connect + repo picker in the onboarding / create-project
+// these back the inline connect + repo picker in the onboarding / create-board
 // flow. `connectUrl` is a mobile-friendly single-consent OAuth authorize URL
-// that claims the GitHub account for the workspace; the connect hop prefers it
+// that claims the GitHub account for the team; the connect hop prefers it
 // over `installUrl` (the App install page, which also grants more repos).
 
 /**
- * One GitHub App installation the workspace has claimed (`installations[]` on
+ * One GitHub App installation the team has claimed (`installations[]` on
  * both `status` and `repos`). Repos are grant-scoped per user now: a link made
  * before the grant model (or whose grants were revoked) returns NO repos and
  * flags `needsReauth` until a member re-runs the OAuth connect flow —
@@ -46,7 +46,7 @@ data class GithubStatusResult(
 /**
  * One repo the user's GitHub App can connect (a web `InstallationRepo` row).
  * `private` is a Kotlin keyword so it's mapped via @SerialName; the extra fields
- * seed the registry row when this repo is connected inline via `projects.create`.
+ * seed the registry row when this repo is connected inline via `boards.create`.
  */
 @Serializable
 data class GithubPickerRepo(
@@ -67,16 +67,16 @@ data class GithubReposResult(
     val installations: List<GithubInstallation> = emptyList(),
 )
 
-// Scopes the query to a workspace (installations are claimed per workspace;
+// Scopes the query to a team (installations are claimed per team;
 // the server requires it).
 @Serializable
 private data class StatusInput(
-    val workspaceId: String,
+    val teamId: String,
 )
 
 @Serializable
 private data class ReposInput(
-    val workspaceId: String,
+    val teamId: String,
     val refresh: Boolean? = null,
     // Marks the caller as a mobile client so the server hands back a
     // mobile-marked installUrl/connectUrl: the post-install page then fires the
@@ -89,32 +89,32 @@ private data class ReposInput(
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun githubStatus(accountId: String, workspaceId: String): GithubStatusResult =
+    suspend fun githubStatus(accountId: String, teamId: String): GithubStatusResult =
         trpc.query(
             accountId,
             path = "integrations.github.status",
-            input = StatusInput(workspaceId = workspaceId),
+            input = StatusInput(teamId = teamId),
             inputSerializer = StatusInput.serializer(),
             outputSerializer = GithubStatusResult.serializer(),
         )
 
     /**
      * `refresh` bypasses the server cache so returning from an install reflects new
-     * repos. `workspaceId` scopes the lookup to the workspace claiming the
+     * repos. `teamId` scopes the lookup to the team claiming the
      * installation. Always sends `platform: "mobile"` so the returned
      * installUrl/connectUrl finishes with the exponential://github-connected deep link
      * instead of staying in the browser.
      */
     suspend fun githubRepos(
         accountId: String,
-        workspaceId: String,
+        teamId: String,
         refresh: Boolean = false,
     ): GithubReposResult =
         trpc.query(
             accountId,
             path = "integrations.github.repos",
             input = ReposInput(
-                workspaceId = workspaceId,
+                teamId = teamId,
                 refresh = if (refresh) true else null,
                 platform = "mobile",
             ),

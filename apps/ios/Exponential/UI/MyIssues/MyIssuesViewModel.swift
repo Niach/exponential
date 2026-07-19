@@ -3,14 +3,14 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// "My Issues" — the fixed cross-project view (masterplan §5a): every issue in
+/// "My Issues" — the fixed cross-board view (masterplan §5a): every issue in
 /// the active account assigned to the signed-in user, grouped by status.
-/// Mirrors `IssueListViewModel`'s GRDB observations minus the project
+/// Mirrors `IssueListViewModel`'s GRDB observations minus the board
 /// predicate; no filter bar / saved views by design (fixed built-in view).
 @MainActor @Observable
 final class MyIssuesViewModel {
     var issues: [IssueEntity] = []
-    var projects: [ProjectEntity] = []
+    var boards: [BoardEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -20,7 +20,7 @@ final class MyIssuesViewModel {
     // `Task {}` loops, and the view re-arms on every appear, so leaked loops
     // would accumulate per push/pop.
     private var issueTask: Task<Void, Never>?
-    private var projectTask: Task<Void, Never>?
+    private var boardTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager, auth: AuthRepository) {
         self.accountId = accountId
@@ -46,14 +46,14 @@ final class MyIssuesViewModel {
             } catch {}
         }
 
-        // Projects resolve each row's project prefix/name (rows span projects).
-        let projectObservation = ValueObservation.tracking { db in
-            try ProjectEntity.fetchAll(db)
+        // Boards resolve each row's board prefix/name (rows span boards).
+        let boardObservation = ValueObservation.tracking { db in
+            try BoardEntity.fetchAll(db)
         }
-        projectTask = Task { [weak self] in
+        boardTask = Task { [weak self] in
             do {
-                for try await projects in projectObservation.values(in: pool) {
-                    self?.projects = projects
+                for try await boards in boardObservation.values(in: pool) {
+                    self?.boards = boards
                 }
             } catch {}
         }
@@ -62,20 +62,20 @@ final class MyIssuesViewModel {
     func stopObserving() {
         issueTask?.cancel()
         issueTask = nil
-        projectTask?.cancel()
-        projectTask = nil
+        boardTask?.cancel()
+        boardTask = nil
     }
 
     func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
         // Canonical in-group ordering (EXP-38) — same comparator as the
-        // project board, so "Assigned to you" matches every other surface.
+        // board board, so "Assigned to you" matches every other surface.
         IssueSorting.sorted(
             issues.filter { IssueStatus.from($0.status) == status },
             status: status
         )
     }
 
-    func project(forId id: String) -> ProjectEntity? {
-        projects.first { $0.id == id }
+    func board(forId id: String) -> BoardEntity? {
+        boards.first { $0.id == id }
     }
 }

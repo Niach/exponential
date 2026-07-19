@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { supportMessages, supportThreads } from "@/db/schema"
 import type { SupportThread } from "@/db/schema"
@@ -16,18 +16,28 @@ export function supportThreadUrl(token: string): string {
   return `${appBaseUrl()}/support/${token}`
 }
 
-// Create the conversation for a (freshly created) ticket issue: the thread
-// row + the reporter's opening inbound message. Returns the minted magic-link
-// token so the caller can embed it in the confirmation email. The token is
-// deterministic (HMAC over the thread id — see lib/helpdesk/token.ts), so it
-// is STABLE for the thread's whole life — every email carries the same link —
-// and nothing secret is stored on the row. Callers are responsible for the
-// Pro gate (assertCanUseHelpdesk) and for checking projects.helpdesk_enabled.
+// The ticket title shown in the inbox: the first line of the reporter's
+// opening message, truncated.
+export function supportTicketTitle(message: string): string {
+  const firstLine = (message.split(`\n`, 1)[0] ?? ``).trim()
+  if (!firstLine) return `Support request`
+  return firstLine.length > 120
+    ? `${firstLine.slice(0, 119).trimEnd()}…`
+    : firstLine
+}
+
+// Create a standalone ticket: the thread row + the reporter's opening inbound
+// message. Returns the minted magic-link token so the caller can embed it in
+// the confirmation email. The token is deterministic (HMAC over the thread id
+// — see lib/helpdesk/token.ts), so it is STABLE for the thread's whole life —
+// every email carries the same link — and nothing secret is stored on the
+// row. Callers are responsible for the Pro gate (assertCanUseHelpdesk) and
+// for checking teams.helpdesk_enabled.
 export async function createSupportThreadInTx(
   tx: Tx,
   args: {
-    issueId: string
-    projectId: string
+    teamId: string
+    title: string
     reporterEmail: string
     reporterName?: string | null
     body: string
@@ -36,8 +46,8 @@ export async function createSupportThreadInTx(
   const [thread] = await tx
     .insert(supportThreads)
     .values({
-      issueId: args.issueId,
-      projectId: args.projectId,
+      teamId: args.teamId,
+      title: args.title,
       reporterEmail: args.reporterEmail,
       reporterName: args.reporterName ?? null,
     })
@@ -45,7 +55,6 @@ export async function createSupportThreadInTx(
 
   await tx.insert(supportMessages).values({
     threadId: thread.id,
-    issueId: args.issueId,
     authorUserId: null,
     direction: `inbound`,
     visibility: `public`,
@@ -72,34 +81,33 @@ export async function findThreadByToken(
   return thread ?? null
 }
 
-// Close-time revocation: the transcript stays readable through the link
-// (losing it would read as data loss), but replies are rejected.
-export async function revokeThreadToken(
-  tx: Tx,
-  threadId: string
-): Promise<void> {
+// Close: resolve the ticket and revoke the magic link in one write — the
+// transcript stays readable through the link (losing it would read as data
+// loss), but replies are rejected.
+export async function closeThreadInTx(tx: Tx, threadId: string): Promise<void> {
   // Explicit updatedAt: the support tables have no update_updated_at trigger,
   // and the member inbox sorts by it — close/reopen must reorder the list.
   await tx
     .update(supportThreads)
-    .set({ tokenRevokedAt: new Date(), updatedAt: new Date() })
+    .set({
+      status: `resolved`,
+      tokenRevokedAt: new Date(),
+      updatedAt: new Date(),
+    })
     .where(
-      and(
-        eq(supportThreads.id, threadId),
-        isNull(supportThreads.tokenRevokedAt)
-      )
+      and(eq(supportThreads.id, threadId), eq(supportThreads.status, `open`))
     )
 }
 
 // Reopen: replies are accepted again through the SAME link (the token never
 // changes; revocation is the only lever).
-export async function reinstateThreadToken(
+export async function reopenThreadInTx(
   tx: Tx,
   threadId: string
 ): Promise<void> {
   await tx
     .update(supportThreads)
-    .set({ tokenRevokedAt: null, updatedAt: new Date() })
+    .set({ status: `open`, tokenRevokedAt: null, updatedAt: new Date() })
     .where(eq(supportThreads.id, threadId))
 }
 

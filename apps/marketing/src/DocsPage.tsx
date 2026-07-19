@@ -27,7 +27,7 @@ export function DocsPage() {
             <h1>Docs</h1>
             <p>
               Everything about Exponential — issue tracking, coding with
-              Claude, feedback boards, the helpdesk, the apps, and the API.
+              Claude, feedback and the helpdesk, the apps, and the API.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href="/docs/getting-started/">
@@ -48,8 +48,8 @@ export function DocsPage() {
               Exponential is an issue tracker that closes the loop:{` `}
               <strong>feedback in, issues on a board, agent-coded pull
               requests out</strong>. User reports arrive through the{` `}
-              <a href="/docs/widget/">embeddable widget</a> or a{` `}
-              <a href="/docs/feedback/">public feedback board</a>, your team
+              <a href="/docs/widget/">embeddable widget</a> or the{` `}
+              <a href="/docs/feedback/">team helpdesk</a>, your team
               triages them as <a href="/docs/issues/">issues</a>, and the{` `}
               <a href="/docs/coding/">desktop IDE hands issues to Claude</a> —
               running locally on your machine — which implements, pushes, and
@@ -82,7 +82,7 @@ export function DocsPage() {
                 <a href="/docs/getting-started/">Getting started</a>.
               </li>
               <li>
-                <strong>Create your first project</strong> with the first-run
+                <strong>Create your first board</strong> with the first-run
                 wizard: pick a name and a short prefix (issues become{` `}
                 <code>EXP-1</code>, <code>EXP-2</code>, …), and connect a
                 GitHub repository if you want coding sessions and PRs.
@@ -130,15 +130,12 @@ export function DocsPage() {
               issues, code, and release notes all live there.
             </p>
             <p>
-              Found a bug or want a feature? Post it on the{` `}
-              <a href="https://app.exponential.at">
-                public feedback board
-              </a>{` `}
-              — it&apos;s a real Exponential feedback project, and reports are
-              triaged (and often fixed by Claude) in the open. You can also use
-              the feedback button in the corner of this very site: it&apos;s
-              the <a href="/docs/widget/">embeddable widget</a>, running for
-              real.
+              Found a bug or want a feature? Hit the feedback button in the
+              corner of this very site — it&apos;s the{` `}
+              <a href="/docs/widget/">embeddable widget</a>, running for real.
+              Your report lands straight on the Exponential team&apos;s own
+              feedback board, where reports are triaged (and often fixed by
+              Claude).
             </p>
           </DocsSection>
         </DocsLayout>

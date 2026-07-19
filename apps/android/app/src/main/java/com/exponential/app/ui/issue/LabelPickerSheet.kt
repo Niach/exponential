@@ -48,7 +48,7 @@ private val SUGGESTED_COLORS = listOf(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LabelPickerSheet(
-    workspaceLabels: List<LabelEntity>,
+    teamLabels: List<LabelEntity>,
     selectedLabelIds: Set<String>,
     onToggle: (String, Boolean) -> Unit,
     onCreate: (String, String) -> Unit,
@@ -67,7 +67,7 @@ fun LabelPickerSheet(
             Text("Labels", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.size(12.dp))
 
-            workspaceLabels.forEach { label ->
+            teamLabels.forEach { label ->
                 val selected = label.id in selectedLabelIds
                 Row(
                     modifier = Modifier

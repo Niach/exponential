@@ -1,7 +1,7 @@
 //! The virtualized issue list — the §4.2/§4.6 board core (web parity target:
 //! `apps/web/src/components/issue-list.tsx` at compact density).
 //!
-//! Structure: the board query (`queries::project_board` / `my_issues`, §4.1)
+//! Structure: the board query (`queries::board_board` / `my_issues`, §4.1)
 //! yields status groups; groups + rows flatten into ONE row vector backing a
 //! `v_virtual_list` (§4.6 — the list can be long; virtualization is
 //! mandatory). Status-group headers collapse (chevron, web parity), empty
@@ -47,7 +47,7 @@ use domain::options::{
     get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
     ISSUE_STATUS_OPTIONS,
 };
-use domain::rows::{Issue, Label, Project, User};
+use domain::rows::{Issue, Label, Board, User};
 use domain::{IssueFilters, IssueStatus};
 
 use crate::icons::{option_icon, ExpIcon};
@@ -102,11 +102,11 @@ pub enum IssueQuery {
     /// Nothing selected yet (renders the syncing skeleton).
     #[default]
     None,
-    /// One project's board (`use-project-board-data`).
-    Project { project_id: String },
-    /// My Issues (`use-my-issues-data`): assignee == me in the workspace.
+    /// One board's view (`use-board-view-data`).
+    Board { board_id: String },
+    /// My Issues (`use-my-issues-data`): assignee == me in the team.
     MyIssues {
-        workspace_id: String,
+        team_id: String,
         user_id: String,
     },
 }
@@ -157,7 +157,7 @@ impl IssueListView {
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -200,13 +200,13 @@ impl IssueListView {
     fn board_data(&self, cx: &App) -> Option<BoardData> {
         match &self.query {
             IssueQuery::None => None,
-            IssueQuery::Project { project_id } => {
-                Some(queries::project_board(cx, project_id, &self.filters))
+            IssueQuery::Board { board_id } => {
+                Some(queries::board_board(cx, board_id, &self.filters))
             }
             IssueQuery::MyIssues {
-                workspace_id,
+                team_id,
                 user_id,
-            } => Some(queries::my_issues(cx, workspace_id, user_id, &self.filters)),
+            } => Some(queries::my_issues(cx, team_id, user_id, &self.filters)),
         }
     }
 
@@ -273,18 +273,18 @@ impl IssueListView {
         cx.notify();
     }
 
-    /// The workspace behind the current query — scopes the bulk bar's
+    /// The team behind the current query — scopes the bulk bar's
     /// assignee/label pickers. `None` (join not synced yet) hides the bar.
-    fn bulk_workspace_id(&self, cx: &App) -> Option<String> {
+    fn bulk_team_id(&self, cx: &App) -> Option<String> {
         let collections = Store::global(cx).collections();
         match &self.query {
             IssueQuery::None => None,
-            IssueQuery::Project { project_id } => collections
-                .projects
+            IssueQuery::Board { board_id } => collections
+                .boards
                 .read(cx)
-                .get(project_id)
-                .map(|project| project.workspace_id.clone()),
-            IssueQuery::MyIssues { workspace_id, .. } => Some(workspace_id.clone()),
+                .get(board_id)
+                .map(|board| board.team_id.clone()),
+            IssueQuery::MyIssues { team_id, .. } => Some(team_id.clone()),
         }
     }
 
@@ -513,7 +513,7 @@ impl IssueListView {
     /// chunks at 200 ids (FIX F4) and lands via the Electric echo.
     fn render_bulk_bar(
         &self,
-        workspace_id: String,
+        team_id: String,
         ids: Vec<String>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -605,7 +605,7 @@ impl IssueListView {
         let assignee_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            let workspace_id = workspace_id.clone();
+            let team_id = team_id.clone();
             Button::new("bulk-assignee")
                 .ghost()
                 .xsmall()
@@ -640,7 +640,7 @@ impl IssueListView {
                                 }
                             }),
                     );
-                    for user in queries::workspace_users(cx, &workspace_id) {
+                    for user in queries::team_users(cx, &team_id) {
                         let name = crate::comments::author_label(Some(&user));
                         let ids = ids.clone();
                         let list = list.clone();
@@ -677,7 +677,7 @@ impl IssueListView {
         let labels_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            let workspace_id = workspace_id.clone();
+            let team_id = team_id.clone();
             Button::new("bulk-labels")
                 .ghost()
                 .xsmall()
@@ -689,7 +689,7 @@ impl IssueListView {
                         .scrollable(true)
                         .max_h(px(320.))
                         .check_side(Side::Right);
-                    let labels = queries::workspace_labels(cx, &workspace_id);
+                    let labels = queries::team_labels(cx, &team_id);
                     if labels.is_empty() {
                         return menu.item(PopupMenuItem::label("No labels in this team"));
                     }
@@ -770,7 +770,7 @@ impl IssueListView {
         // pre-checked (one repo per run is enforced there).
         let start_coding = {
             let ids = ids.clone();
-            let workspace_id = workspace_id.clone();
+            let team_id = team_id.clone();
             Button::new("bulk-start-coding")
                 .ghost()
                 .xsmall()
@@ -781,7 +781,7 @@ impl IssueListView {
                     crate::start_coding_dialog::open_for_selection(
                         window,
                         cx,
-                        workspace_id.clone(),
+                        team_id.clone(),
                         ids.clone(),
                     );
                 })
@@ -1045,12 +1045,12 @@ impl Render for IssueListView {
         self.rows = Rc::new(rows);
 
         // The floating bulk action bar — selected ids snapshotted in visible
-        // list order (workspace resolution can lag the issue rows; the bar
+        // list order (team resolution can lag the issue rows; the bar
         // waits for it, the selection itself does not).
         let bulk_bar = if self.selected.is_empty() {
             None
         } else {
-            self.bulk_workspace_id(cx).map(|workspace_id| {
+            self.bulk_team_id(cx).map(|team_id| {
                 let ids: Vec<String> = data
                     .groups
                     .iter()
@@ -1058,7 +1058,7 @@ impl Render for IssueListView {
                     .filter(|issue| self.selected.contains(&issue.id))
                     .map(|issue| issue.id.clone())
                     .collect();
-                self.render_bulk_bar(workspace_id, ids, cx)
+                self.render_bulk_bar(team_id, ids, cx)
             })
         };
 
@@ -1166,7 +1166,7 @@ fn status_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
 }
 
 /// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
-/// dashed placeholder circle otherwise; menu = Unassign + the workspace's
+/// dashed placeholder circle otherwise; menu = Unassign + the team's
 /// human members (current assignee first — web `orderedUsers`).
 fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let assignee = issue
@@ -1207,15 +1207,15 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     };
 
     let issue_id = issue.id.clone();
-    let project_id = issue.project_id.clone();
+    let board_id = issue.board_id.clone();
     let current = issue.assignee_id.clone();
     trigger.dropdown_menu(move |menu, _window, cx| {
-        // Member lists grow with the workspace — cap + scroll (EXP-46a).
+        // Member lists grow with the team — cap + scroll (EXP-46a).
         // Scrollable ONLY on this top-level dropdown: the same body renders
         // as a context-menu SUBMENU below, where scrollable is unsupported
         // at the pinned gpui-component rev.
         let menu = menu.scrollable(true).max_h(px(320.));
-        assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
+        assignee_menu(menu, &issue_id, &board_id, current.as_deref(), cx)
     })
 }
 
@@ -1223,7 +1223,7 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
 fn assignee_menu(
     menu: PopupMenu,
     issue_id: &str,
-    project_id: &str,
+    board_id: &str,
     current: Option<&str>,
     cx: &App,
 ) -> PopupMenu {
@@ -1240,7 +1240,7 @@ fn assignee_menu(
                 }),
         );
     }
-    for user in assignable_users(project_id, current, cx) {
+    for user in assignable_users(board_id, current, cx) {
         let checked = current == Some(user.id.as_str());
         let name = crate::comments::author_label(Some(&user));
         let issue_id = issue_id.to_string();
@@ -1259,19 +1259,19 @@ fn assignee_menu(
     menu
 }
 
-/// The workspace's human members eligible as assignees (project → workspace →
+/// The team's human members eligible as assignees (board → team →
 /// members ⨝ users, agents hidden — web `people`), current assignee first
 /// (web `orderedUsers`), then name-sorted.
-fn assignable_users(project_id: &str, current: Option<&str>, cx: &App) -> Vec<User> {
+fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User> {
     let collections = Store::global(cx).collections();
-    let Some(project) = collections.projects.read(cx).get(project_id).cloned() else {
+    let Some(board) = collections.boards.read(cx).get(board_id).cloned() else {
         return Vec::new();
     };
     let member_ids: HashSet<String> = collections
-        .workspace_members
+        .team_members
         .read(cx)
         .iter()
-        .filter(|member| member.workspace_id == project.workspace_id)
+        .filter(|member| member.team_id == board.team_id)
         .map(|member| member.user_id.clone())
         .collect();
     let mut users: Vec<User> = collections
@@ -1297,7 +1297,7 @@ fn assignable_users(project_id: &str, current: Option<&str>, cx: &App) -> Vec<Us
 /// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
 /// done / Move to todo, Copy issue ID, Mark as duplicate… / Unmark duplicate,
 /// then Status / Assignee / Priority / Labels /
-/// Move-to-project / Set-due-date submenus, then the Delete-issue confirm
+/// Move-to-board / Set-due-date submenus, then the Delete-issue confirm
 /// submenu. Mutations are the §4.1 un-gated form.
 fn build_row_context_menu(
     menu: PopupMenu,
@@ -1405,7 +1405,7 @@ fn build_row_context_menu(
     // an `Icon`, so the web's avatar degrades to the assignee-row glyph).
     {
         let issue_id = issue.id.clone();
-        let project_id = issue.project_id.clone();
+        let board_id = issue.board_id.clone();
         let current = issue.assignee_id.clone();
         let icon = if current.is_some() {
             Icon::new(IconName::CircleUser)
@@ -1413,7 +1413,7 @@ fn build_row_context_menu(
             Icon::new(IconName::User)
         };
         menu = menu.submenu_with_icon(Some(icon), "Assignee", window, cx, move |menu, _, cx| {
-            assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
+            assignee_menu(menu, &issue_id, &board_id, current.as_deref(), cx)
         });
     }
 
@@ -1443,19 +1443,19 @@ fn build_row_context_menu(
     // Labels submenu (colored dot + name + check, toggle membership).
     {
         let issue_id = issue.id.clone();
-        let project_id = issue.project_id.clone();
+        let board_id = issue.board_id.clone();
         let icon = Icon::from(ExpIcon::Tag);
         menu = menu.submenu_with_icon(Some(icon), "Labels", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
             let collections = Store::global(cx).collections();
-            let Some(project) = collections.projects.read(cx).get(&project_id).cloned() else {
+            let Some(board) = collections.boards.read(cx).get(&board_id).cloned() else {
                 return menu;
             };
             let mut labels: Vec<Label> = collections
                 .labels
                 .read(cx)
                 .iter()
-                .filter(|label| label.workspace_id == project.workspace_id)
+                .filter(|label| label.team_id == board.team_id)
                 .cloned()
                 .collect();
             labels.sort_by(|a, b| {
@@ -1506,19 +1506,19 @@ fn build_row_context_menu(
         });
     }
 
-    // Move to project submenu (EXP-57, web `ProjectSubmenu`): the workspace's
-    // projects with the current one disabled; hidden unless another project
-    // exists. The server renumbers the issue in the target project
+    // Move to board submenu (EXP-57, web `BoardSubmenu`): the team's
+    // boards with the current one disabled; hidden unless another board
+    // exists. The server renumbers the issue in the target board
     // (EXP-42 → ABC-17); the row re-homes on the Electric echo.
-    if !move_target_projects(cx, &issue.project_id).is_empty() {
+    if !move_target_boards(cx, &issue.board_id).is_empty() {
         let issue_id = issue.id.clone();
-        let project_id = issue.project_id.clone();
+        let board_id = issue.board_id.clone();
         menu = menu.submenu_with_icon(
             Some(Icon::from(ExpIcon::SquareKanban)),
-            "Move to project",
+            "Move to board",
             window,
             cx,
-            move |menu, _, cx| move_to_project_menu(menu, &issue_id, &project_id, cx),
+            move |menu, _, cx| move_to_board_menu(menu, &issue_id, &board_id, cx),
         );
     }
 
@@ -1605,47 +1605,47 @@ fn due_date_presets(today: chrono::NaiveDate) -> [(&'static str, chrono::NaiveDa
     ]
 }
 
-/// The move-to-project submenu's target list (EXP-57): the issue's
-/// workspace's projects in the shared sidebar order — empty (submenu hidden,
-/// web `projects.length > 1` gate) unless a move target exists.
-pub(crate) fn move_target_projects(cx: &App, project_id: &str) -> Vec<Project> {
+/// The move-to-board submenu's target list (EXP-57): the issue's
+/// team's boards in the shared sidebar order — empty (submenu hidden,
+/// web `boards.length > 1` gate) unless a move target exists.
+pub(crate) fn move_target_boards(cx: &App, board_id: &str) -> Vec<Board> {
     let collections = Store::global(cx).collections();
-    let Some(workspace_id) = collections
-        .projects
+    let Some(team_id) = collections
+        .boards
         .read(cx)
-        .get(project_id)
-        .map(|project| project.workspace_id.clone())
+        .get(board_id)
+        .map(|board| board.team_id.clone())
     else {
         return Vec::new();
     };
-    let projects = collections.projects_in_workspace(&workspace_id, cx);
-    if projects.len() < 2 {
+    let boards = collections.boards_in_team(&team_id, cx);
+    if boards.len() < 2 {
         return Vec::new();
     }
-    projects
+    boards
 }
 
-/// The shared move-to-project menu body (row context submenu + the detail's
-/// actions menu, EXP-57): colored dot + name per project (the Labels submenu
-/// row pattern), current project checked + disabled; picking another fires
+/// The shared move-to-board menu body (row context submenu + the detail's
+/// actions menu, EXP-57): colored dot + name per board (the Labels submenu
+/// row pattern), current board checked + disabled; picking another fires
 /// `issues.move`.
-pub(crate) fn move_to_project_menu(
+pub(crate) fn move_to_board_menu(
     menu: PopupMenu,
     issue_id: &str,
-    project_id: &str,
+    board_id: &str,
     cx: &App,
 ) -> PopupMenu {
     let mut menu = menu.check_side(Side::Right);
-    for project in move_target_projects(cx, project_id) {
-        let is_current = project.id == project_id;
-        let dot = project
+    for board in move_target_boards(cx, board_id) {
+        let is_current = board.id == board_id;
+        let dot = board
             .color
             .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-        let name = SharedString::from(project.name.clone());
+        let name = SharedString::from(board.name.clone());
         let issue_id = issue_id.to_string();
-        let target_id = project.id.clone();
+        let target_id = board.id.clone();
         menu = menu.item(
             PopupMenuItem::element(move |_, cx| {
                 h_flex()
@@ -1670,15 +1670,15 @@ pub(crate) fn move_to_project_menu(
 
 /// §4.1 un-gated `issues.move` on a background thread (EXP-57): the issue
 /// re-homes (and renumbers, EXP-42 → ABC-17) on the Electric echo.
-pub(crate) fn spawn_issue_move(cx: &mut App, issue_id: String, project_id: String) {
+pub(crate) fn spawn_issue_move(cx: &mut App, issue_id: String, board_id: String) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.move skipped: no signed-in account");
         return;
     };
     cx.background_executor()
         .spawn(async move {
-            if let Err(err) = api::issues::issues_move(&trpc, &issue_id, &project_id) {
-                log::warn!("[ui] issues.move({issue_id} -> {project_id}) failed: {err}");
+            if let Err(err) = api::issues::issues_move(&trpc, &issue_id, &board_id) {
+                log::warn!("[ui] issues.move({issue_id} -> {board_id}) failed: {err}");
             }
         })
         .detach();
@@ -1733,7 +1733,7 @@ fn spawn_issue_update(cx: &mut App, input: api::issues::IssuesUpdateInput) {
         .detach();
 }
 
-/// `#rrggbb` → Hsla (label/project colors are stored as hex strings; shared
+/// `#rrggbb` → Hsla (label/board colors are stored as hex strings; shared
 /// by the board pills, filter popover and search rows).
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     let hex = hex.trim().strip_prefix('#')?;

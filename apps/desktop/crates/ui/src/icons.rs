@@ -1,4 +1,4 @@
-//! `ExpIcon` — the project-local Lucide icon set (masterplan-v3 §4.7).
+//! `ExpIcon` — the board-local Lucide icon set (masterplan-v3 §4.7).
 //!
 //! gpui-component's bundled `IconName` misses several glyphs the option
 //! tables need (`circle`, `circle-dashed`, `timer`, `signal-*`, …), so the
@@ -18,7 +18,7 @@ use gpui_component::{ActiveTheme as _, Icon, IconNamed};
 use gpui_component_macros::icon_named;
 
 use domain::options::{ColorToken, IconGlyph, IssueOption};
-use domain::rows::Project;
+use domain::rows::Board;
 
 // Generates `pub enum ExpIcon { CalendarDays, Circle, CircleCheck, … }` from
 // the SVG files (path relative to this crate's CARGO_MANIFEST_DIR).
@@ -70,11 +70,11 @@ pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
     glyph_icon(option.icon).text_color(token_color(option.color, cx))
 }
 
-/// One curated icon name (`domain::contract::PROJECT_ICON_VALUES`) → its glyph.
+/// One curated icon name (`domain::contract::BOARD_ICON_VALUES`) → its glyph.
 /// The bundled Lucide set doesn't ship every curated name, so several map to the
 /// closest available glyph (collisions are fine — the stored name is the source
 /// of truth). An unknown/uncurated name yields `None`.
-fn project_icon_glyph(name: &str) -> Option<ExpIcon> {
+fn board_icon_glyph(name: &str) -> Option<ExpIcon> {
     let glyph = match name {
         "code" => ExpIcon::Code,
         "square-kanban" => ExpIcon::SquareKanban,
@@ -98,44 +98,36 @@ fn project_icon_glyph(name: &str) -> Option<ExpIcon> {
 }
 
 /// The glyph of a raw curated icon name, falling back to the code glyph for an
-/// unknown name (used by the create-project template cards, where there's no
-/// `Project` yet — every template ships a known curated icon).
-pub fn project_icon_name_glyph(name: &str) -> Icon {
-    project_icon_glyph(name)
+/// unknown name (used by the create-board icon picker, where there's no
+/// `Board` yet — every curated name resolves).
+pub fn board_icon_name_glyph(name: &str) -> Icon {
+    board_icon_glyph(name)
         .map(Icon::from)
         .unwrap_or_else(|| Icon::from(ExpIcon::Code))
 }
 
-/// A project's fallback glyph when it carries no stored `icon`: a public board
-/// gets the megaphone, a repo-backed board the code brackets, and a plain board
-/// a kanban. The drop migration backfills `icon`, so this is a cosmetic safety
-/// net for rows synced before the backfill.
-fn project_fallback_glyph(project: &Project) -> ExpIcon {
-    if project.is_public.unwrap_or(false) {
-        ExpIcon::Megaphone
-    } else if project.repository_id.is_some() {
+/// A board's fallback glyph when it carries no stored `icon`: a repo-backed
+/// board gets the code brackets, a plain one a kanban. The drop migration
+/// backfills `icon`, so this is a cosmetic safety net for rows synced before
+/// the backfill.
+fn board_fallback_glyph(board: &Board) -> ExpIcon {
+    if board.repository_id.is_some() {
         ExpIcon::Code
     } else {
         ExpIcon::SquareKanban
     }
 }
 
-/// A project row's rendered glyph: the stored curated `icon` when present and
-/// known, otherwise the attribute-derived fallback (`is_public`/repo columns
-/// drive behavior; the glyph is cosmetic).
-pub fn project_icon(project: &Project) -> Icon {
-    project
+/// A board row's rendered glyph: the stored curated `icon` when present and
+/// known, otherwise the attribute-derived fallback (the repo column drives
+/// behavior; the glyph is cosmetic).
+pub fn board_icon(board: &Board) -> Icon {
+    board
         .icon
         .as_deref()
-        .and_then(project_icon_glyph)
+        .and_then(board_icon_glyph)
         .map(Icon::from)
-        .unwrap_or_else(|| Icon::from(project_fallback_glyph(project)))
-}
-
-/// The public-board marker glyph (a globe) — appended next to feedback-board
-/// projects, which are readable by anyone with the link.
-pub fn public_board_icon() -> Icon {
-    Icon::from(ExpIcon::Globe)
+        .unwrap_or_else(|| Icon::from(board_fallback_glyph(board)))
 }
 
 #[cfg(test)]

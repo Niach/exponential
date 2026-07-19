@@ -15,17 +15,17 @@ final class IssueDetailViewModel {
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
-    /// The issue's project — carries `workspaceId` + `repositoryId` so the repo
+    /// The issue's board — carries `teamId` + `repositoryId` so the repo
     /// name chip can resolve the backing repo (masterplan §6, R4).
-    var project: ProjectEntity?
-    /// The issue's workspace — needed (with the project + issue identifier) to
+    var board: BoardEntity?
+    /// The issue's team — needed (with the board + issue identifier) to
     /// build the shareable web URL.
-    var workspace: WorkspaceEntity?
-    /// Every synced project (all workspaces) — filtered to the issue's
-    /// workspace by `moveTargetProjects` for the "Move to project" picker
-    /// (EXP-57). Trashed projects never reach the local store (the projects
+    var team: TeamEntity?
+    /// Every synced board (all teams) — filtered to the issue's
+    /// team by `moveTargetBoards` for the "Move to board" picker
+    /// (EXP-57). Trashed boards never reach the local store (the boards
     /// shape filters `deleted_at IS NULL` server-side).
-    var projects: [ProjectEntity] = []
+    var boards: [BoardEntity] = []
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -36,15 +36,15 @@ final class IssueDetailViewModel {
     let editor = IssueEditorModel()
     var saving = false
     var error: String?
-    var permissions: WorkspacePermissions = .denied
+    var permissions: TeamPermissions = .denied
     // True while a signed-in viewer looks like a non-member ONLY because the
-    // workspace_members shape hasn't synced yet (drives a "Syncing workspace…"
+    // team_members shape hasn't synced yet (drives a "Syncing team…"
     // banner rather than silently rendering the issue read-only).
     var permissionsPending = false
     var isSubscribed = false
-    /// True when the issue's workspace has exactly one human member: the
+    /// True when the issue's team has exactly one human member: the
     /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
-    var singleMemberWorkspace = false
+    var singleMemberTeam = false
 
     private let accountId: String
     private let issueId: String
@@ -91,7 +91,7 @@ final class IssueDetailViewModel {
         editor.issueRefResolver = { [weak self] identifier in
             self?.resolveIssueRef(identifier)
         }
-        // Typing `#` offers same-workspace issues; selecting one inserts the
+        // Typing `#` offers same-team issues; selecting one inserts the
         // plain `#IDENTIFIER` interchange token.
         editor.issueRefSearch = { [weak self] query in
             self?.searchIssueRefs(query) ?? []
@@ -99,14 +99,14 @@ final class IssueDetailViewModel {
     }
 
     /// identifier (e.g. `VER-12`) → local issue id, from the synced GRDB store
-    /// (same workspace only). Synchronous lookup; nil when unknown (token
+    /// (same team only). Synchronous lookup; nil when unknown (token
     /// stays plain).
     func resolveIssueRef(_ identifier: String) -> String? {
         IssueRefLookup.resolve(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)
     }
 
     /// Issues offered by the description editor's #-autocomplete
-    /// (workspace-scoped; identifier + title substring match).
+    /// (team-scoped; identifier + title substring match).
     func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
         IssueRefLookup.search(query, scope: .issue(id: issueId), db: db, accountId: accountId)
     }
@@ -148,7 +148,7 @@ final class IssueDetailViewModel {
                         self.editor.applyRemote(markdown: remoteText, baseURL: self.baseURL)
                     }
                     self.refreshPermissions(for: issue)
-                    self.refreshProject(issue: issue, pool: pool)
+                    self.refreshBoard(issue: issue, pool: pool)
                     self.refreshDuplicateOf(issue: issue, pool: pool)
                 }
             }
@@ -174,11 +174,11 @@ final class IssueDetailViewModel {
                 }
             }
 
-            // Workspace projects for the "Move to project" picker (EXP-57).
-            let projectObs = ValueObservation.tracking { db in try ProjectEntity.fetchAll(db) }
+            // Team boards for the "Move to board" picker (EXP-57).
+            let boardObs = ValueObservation.tracking { db in try BoardEntity.fetchAll(db) }
             Task {
-                for try await projects in projectObs.values(in: pool) {
-                    self.projects = projects
+                for try await boards in boardObs.values(in: pool) {
+                    self.boards = boards
                 }
             }
 
@@ -217,13 +217,13 @@ final class IssueDetailViewModel {
             // Recompute permissions when membership or the members-shape sync
             // state changes. The issue row observed above may not change again
             // after the members shape snapshots in, so without this the "Syncing
-            // workspace…" banner would stick and the issue would stay read-only
+            // team…" banner would stick and the issue would stay read-only
             // until the view is remounted. Tracks the two regions the
-            // computation reads: the workspace_members table and the
-            // "workspace-members" offset row (isLive).
+            // computation reads: the team_members table and the
+            // "team-members" offset row (isLive).
             let membersObs = ValueObservation.tracking { db -> (Int, Bool) in
-                let count = try WorkspaceMemberEntity.fetchCount(db)
-                let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+                let count = try TeamMemberEntity.fetchCount(db)
+                let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
                 return (count, live)
             }
             Task {
@@ -273,25 +273,25 @@ final class IssueDetailViewModel {
         return users.first { $0.id == id }
     }
 
-    /// Same-workspace projects the issue can move to (EXP-57): the current
-    /// project and archived boards are excluded; name-sorted. Empty on a
-    /// single-project workspace — the "Move to project" action hides then.
-    var moveTargetProjects: [ProjectEntity] {
-        guard let issue, let workspaceId = project?.workspaceId else { return [] }
-        return projects
-            .filter { $0.workspaceId == workspaceId && $0.id != issue.projectId && $0.archivedAt == nil }
+    /// Same-team boards the issue can move to (EXP-57): the current
+    /// board and archived boards are excluded; name-sorted. Empty on a
+    /// single-board team — the "Move to board" action hides then.
+    var moveTargetBoards: [BoardEntity] {
+        guard let issue, let teamId = board?.teamId else { return [] }
+        return boards
+            .filter { $0.teamId == teamId && $0.id != issue.boardId && $0.archivedAt == nil }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    /// Move the issue to another project in the same workspace (EXP-57). The
+    /// Move the issue to another board in the same team (EXP-57). The
     /// issue keeps its id — the detail view's by-id observation stays valid —
-    /// but the server renumbers it in the target project; the new
-    /// projectId/identifier arrive via Electric sync (standard mutation
+    /// but the server renumbers it in the target board; the new
+    /// boardId/identifier arrive via Electric sync (standard mutation
     /// pattern — no local optimistic write).
-    func moveToProject(_ projectId: String) async {
-        guard let issue, issue.projectId != projectId else { return }
+    func moveToBoard(_ boardId: String) async {
+        guard let issue, issue.boardId != boardId else { return }
         do {
-            try await issuesApi.move(accountId: accountId, id: issue.id, projectId: projectId)
+            try await issuesApi.move(accountId: accountId, id: issue.id, boardId: boardId)
         } catch {
             self.error = error.localizedDescription
         }
@@ -424,14 +424,14 @@ final class IssueDetailViewModel {
         }
     }
 
-    /// Create a workspace label and assign it to this issue in one step
+    /// Create a team label and assign it to this issue in one step
     /// (parity with Android's createAndAssignLabel).
     func createAndAssignLabel(name: String, color: String) async {
-        guard let issue, let workspaceId = project?.workspaceId else { return }
+        guard let issue, let teamId = board?.teamId else { return }
         do {
             let labelId = try await labelsApi.create(
                 accountId: accountId,
-                CreateLabelInput(name: name, color: color, workspaceId: workspaceId)
+                CreateLabelInput(name: name, color: color, teamId: teamId)
             )
             try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
         } catch {
@@ -474,20 +474,20 @@ final class IssueDetailViewModel {
     }
 
     /// Candidate canonical issues for the duplicate picker: every other issue
-    /// in the same workspace (across projects), newest first. One-shot read —
+    /// in the same team (across boards), newest first. One-shot read —
     /// the picker is transient.
     func duplicateCandidates() async -> [IssueEntity] {
         guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
         let issueId = issue.id
-        let projectId = issue.projectId
+        let boardId = issue.boardId
         let result: [IssueEntity]? = try? await pool.read { db in
-            guard let project = try ProjectEntity.fetchOne(db, key: projectId) else { return [] }
-            let workspaceProjectIds = try ProjectEntity
-                .filter(Column("workspace_id") == project.workspaceId)
+            guard let board = try BoardEntity.fetchOne(db, key: boardId) else { return [] }
+            let teamBoardIds = try BoardEntity
+                .filter(Column("team_id") == board.teamId)
                 .fetchAll(db)
                 .map(\.id)
             return try IssueEntity
-                .filter(workspaceProjectIds.contains(Column("project_id")))
+                .filter(teamBoardIds.contains(Column("board_id")))
                 .fetchAll(db)
                 .filter { $0.id != issueId && $0.archivedAt == nil }
                 .sorted { $0.updatedAt > $1.updatedAt }
@@ -496,35 +496,35 @@ final class IssueDetailViewModel {
     }
 
     /// Candidate issues for the unified Start-coding sheet (EXP-156): every
-    /// eligible issue in the current issue's workspace, the current issue pinned
+    /// eligible issue in the current issue's team, the current issue pinned
     /// first (pre-checked) and the rest by recency. Eligibility = the issue's
-    /// project is repo-backed and not archived, the issue isn't archived, its
+    /// board is repo-backed and not archived, the issue isn't archived, its
     /// status isn't terminal (done/cancelled/duplicate) and its PR isn't merged.
     /// The CURRENT issue is exempt from the issue-level checks (archived /
     /// terminal / merged) so it always appears — you opened the card from it.
-    /// One-shot read; the sheet is transient. (Trashed projects never reach the
+    /// One-shot read; the sheet is transient. (Trashed boards never reach the
     /// local store, so "not deleted" is implicit.)
     func startCodingCandidates() async -> [StartCodingSheet.IssueOption] {
         guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
         let currentId = issue.id
-        let currentProjectId = issue.projectId
+        let currentBoardId = issue.boardId
         let result: [StartCodingSheet.IssueOption]? = try? await pool.read { db in
-            guard let current = try ProjectEntity.fetchOne(db, key: currentProjectId) else { return [] }
-            let projects = try ProjectEntity
-                .filter(Column("workspace_id") == current.workspaceId)
+            guard let current = try BoardEntity.fetchOne(db, key: currentBoardId) else { return [] }
+            let boards = try BoardEntity
+                .filter(Column("team_id") == current.teamId)
                 .fetchAll(db)
-            // projectId → repositoryId for repo-backed projects. `repoActive` is
+            // boardId → repositoryId for repo-backed boards. `repoActive` is
             // the normal eligibility set (non-archived); `repoAny` also holds
-            // archived repo-backed projects so the current issue on an archived
+            // archived repo-backed boards so the current issue on an archived
             // board can still be force-included (parity with the desktop
-            // dialog). A repo-LESS project is in neither map.
+            // dialog). A repo-LESS board is in neither map.
             var repoActive: [String: String] = [:]
             var repoAny: [String: String] = [:]
-            for project in projects {
-                guard let repoId = project.repositoryId else { continue }
-                repoAny[project.id] = repoId
-                if project.archivedAt == nil {
-                    repoActive[project.id] = repoId
+            for board in boards {
+                guard let repoId = board.repositoryId else { continue }
+                repoAny[board.id] = repoId
+                if board.archivedAt == nil {
+                    repoActive[board.id] = repoId
                 }
             }
             let terminal: Set<String> = [
@@ -533,18 +533,18 @@ final class IssueDetailViewModel {
                 IssueStatus.duplicate.rawValue,
             ]
             let rows = try IssueEntity
-                .filter(Array(repoAny.keys).contains(Column("project_id")))
+                .filter(Array(repoAny.keys).contains(Column("board_id")))
                 .fetchAll(db)
                 .filter { row in
-                    // The current issue is force-included as long as its project
+                    // The current issue is force-included as long as its board
                     // is repo-backed (archived OK) — exempt from the archived /
                     // terminal / merged rules so a checked pre-seed is never a
                     // stray. A repo-LESS current issue isn't in repoAny and
                     // correctly stays out of the pool entirely.
                     if row.id == currentId {
-                        return repoAny[row.projectId] != nil
+                        return repoAny[row.boardId] != nil
                     }
-                    guard repoActive[row.projectId] != nil else { return false }
+                    guard repoActive[row.boardId] != nil else { return false }
                     if row.archivedAt != nil { return false }
                     if terminal.contains(row.status) { return false }
                     if row.prState == DomainContract.prStateMerged { return false }
@@ -560,7 +560,7 @@ final class IssueDetailViewModel {
                     id: row.id,
                     identifier: row.identifier,
                     title: row.title,
-                    repositoryId: repoAny[row.projectId],
+                    repositoryId: repoAny[row.boardId],
                     status: row.status,
                     priority: row.priority
                 )
@@ -569,10 +569,10 @@ final class IssueDetailViewModel {
         return result ?? []
     }
 
-    private func refreshProject(issue: IssueEntity, pool: DatabasePool) {
-        guard project?.id != issue.projectId else { return }
-        project = (try? pool.read { db in
-            try ProjectEntity.fetchOne(db, key: issue.projectId)
+    private func refreshBoard(issue: IssueEntity, pool: DatabasePool) {
+        guard board?.id != issue.boardId else { return }
+        board = (try? pool.read { db in
+            try BoardEntity.fetchOne(db, key: issue.boardId)
         }) ?? nil
     }
 
@@ -614,42 +614,42 @@ final class IssueDetailViewModel {
 
     private func refreshPermissions(for issue: IssueEntity) {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let (workspace, membersLive): (WorkspaceEntity?, Bool) = (try? pool.read { db -> (WorkspaceEntity?, Bool) in
-            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
-            let ws = try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
-            let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+        let (team, membersLive): (TeamEntity?, Bool) = (try? pool.read { db -> (TeamEntity?, Bool) in
+            let board = try BoardEntity.fetchOne(db, key: issue.boardId)
+            let ws = try board.flatMap { try TeamEntity.fetchOne(db, key: $0.teamId) }
+            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
             return (ws, live)
         }) ?? (nil, false)
-        self.workspace = workspace
-        permissions = WorkspacePermissions.resolve(
-            workspace: workspace,
+        self.team = team
+        permissions = TeamPermissions.resolve(
+            team: team,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
             dbPool: pool
         )
         permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
-        if let workspace {
+        if let team {
             let humanIds = (try? pool.read { db in
-                try humanWorkspaceMemberIds(workspaceId: workspace.id, db: db)
+                try humanTeamMemberIds(teamId: team.id, db: db)
             }) ?? []
-            singleMemberWorkspace = humanIds.count == 1
+            singleMemberTeam = humanIds.count == 1
         } else {
-            singleMemberWorkspace = false
+            singleMemberTeam = false
         }
     }
 
     // MARK: - Share
 
-    /// The shareable web URL for this issue, once the workspace, project and
+    /// The shareable web URL for this issue, once the team, board and
     /// issue identifier are all resolved locally. Nil until then (or if the
     /// instance URL is unknown).
     var shareURL: URL? {
-        guard let workspace, let project, let identifier = issue?.identifier, !identifier.isEmpty
+        guard let team, let board, let identifier = issue?.identifier, !identifier.isEmpty
         else { return nil }
         return WebLinks.issue(
             instanceUrl: instanceUrl,
-            workspaceSlug: workspace.slug,
-            projectSlug: project.slug,
+            teamSlug: team.slug,
+            boardSlug: board.slug,
             identifier: identifier
         )
     }

@@ -7,21 +7,21 @@ object DomainContract {
     val issueStatusDisplayOrder: List<String> = listOf("in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate")
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
-    val workspaceRoleValues: List<String> = listOf("owner", "member")
-    val projectIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
+    val teamRoleValues: List<String> = listOf("owner", "member")
+    val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
     val commentKindValues: List<String> = listOf("regular")
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "project_moved")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
 
     const val codingSessionStaleMs: Long = 7200000L
 
-    const val workspaceRoleOwner: String = "owner"
-    const val workspaceRoleMember: String = "member"
+    const val teamRoleOwner: String = "owner"
+    const val teamRoleMember: String = "member"
     const val commentKindRegular: String = "regular"
     const val notificationTypeIssueAssigned: String = "issue_assigned"
     const val notificationTypeIssueComment: String = "issue_comment"
@@ -49,5 +49,5 @@ object DomainContract {
     const val issueEventTypeLabelRemoved: String = "label_removed"
     const val issueEventTypePrOpened: String = "pr_opened"
     const val issueEventTypePrMerged: String = "pr_merged"
-    const val issueEventTypeProjectMoved: String = "project_moved"
+    const val issueEventTypeBoardMoved: String = "board_moved"
 }

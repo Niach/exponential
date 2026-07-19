@@ -13,7 +13,7 @@
 //!   desktop-side (defense in depth — never trust the fetched row);
 //! - [`run_spawn_spec`] — the §7.4 `SpawnSpec` builder (program = `argv[0]`,
 //!   args = `argv[1..]`, blocked env keys stripped client-side too);
-//! - [`run_root`] — the root rule (v4 §4.6): ALWAYS the project's trunk clone
+//! - [`run_root`] — the root rule (v4 §4.6): ALWAYS the board's trunk clone
 //!   root `<repos_root>/<owner>/<name>` (the run bar is trunk-only — no
 //!   active-worktree branch); [`shell_cwd`] — the `+` shell-tab cwd rule
 //!   (trunk root when it exists on disk, else `$HOME`);
@@ -120,7 +120,7 @@ pub fn run_spawn_spec(config: &RunConfig, root: &Path) -> Result<SpawnSpec, Stri
     Ok(spec)
 }
 
-/// Root rule (v4 §4.6): run configs ALWAYS resolve against the project's
+/// Root rule (v4 §4.6): run configs ALWAYS resolve against the board's
 /// **trunk** clone root (`<repos_root>/<owner>/<name>`) — never an issue
 /// worktree. Running something inside a worktree is a power move done from a
 /// worktree shell tab, not from the run bar (v4 §4.2: the run bar is
@@ -131,9 +131,9 @@ pub fn run_root(repos_root: &Path, repo_full_name: &str) -> PathBuf {
 
 /// `+` shell-tab cwd rule (v4 §4.6): open at the **trunk** clone root when it
 /// exists on disk, else `None` → the caller's `$HOME` fallback ("`$HOME` only
-/// while the clone doesn't exist yet or on non-project screens"). `trunk_root`
-/// is `None` off a project screen (no trunk to point at); `Some(root)` on a
-/// project screen, where the clone may or may not have finished cloning yet —
+/// while the clone doesn't exist yet or on non-board screens"). `trunk_root`
+/// is `None` off a board screen (no trunk to point at); `Some(root)` on a
+/// board screen, where the clone may or may not have finished cloning yet —
 /// an absent directory degrades to `$HOME` rather than spawning the shell in a
 /// path that isn't there.
 pub fn shell_cwd(trunk_root: Option<PathBuf>) -> Option<PathBuf> {
@@ -366,7 +366,7 @@ mod tests {
     fn config(name: &str, argv: &[&str], cwd: Option<&str>) -> RunConfig {
         RunConfig {
             id: "rc-1".to_string(),
-            project_id: "proj-1".to_string(),
+            board_id: "proj-1".to_string(),
             name: name.to_string(),
             argv: argv.iter().map(|s| s.to_string()).collect(),
             cwd: cwd.map(str::to_string),
@@ -461,9 +461,9 @@ mod tests {
 
     #[test]
     fn shell_cwd_uses_trunk_only_when_it_exists() {
-        // Off a project screen → no trunk to point at → $HOME (None).
+        // Off a board screen → no trunk to point at → $HOME (None).
         assert_eq!(shell_cwd(None), None);
-        // Project screen but the clone hasn't landed yet → $HOME (None).
+        // Board screen but the clone hasn't landed yet → $HOME (None).
         assert_eq!(
             shell_cwd(Some(PathBuf::from("/repos/acme/does-not-exist"))),
             None

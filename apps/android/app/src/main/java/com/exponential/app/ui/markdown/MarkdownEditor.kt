@@ -54,7 +54,7 @@ fun MarkdownEditor(
     // shared into the app). Keyed by the same `draft://` placeholder that appears
     // in the markdown so the tiles render before the host uploads them.
     initialPendingImages: Map<String, Uri> = emptyMap(),
-    // Workspace members offered by @mention autocomplete (agents excluded by the
+    // Team members offered by @mention autocomplete (agents excluded by the
     // caller). Empty disables the affordance.
     mentionMembers: List<MentionMember> = emptyList(),
     // Reports whether any field of this editor holds focus. Lets the host gate a
@@ -211,7 +211,7 @@ private suspend fun seedPendingPreviews(
     }
 }
 
-/** A workspace member offered by @mention autocomplete. */
+/** A team member offered by @mention autocomplete. */
 data class MentionMember(val name: String, val email: String)
 
 /** Pull `text` out of `{ "text": "..." }` issue description JSON; tolerate plain markdown. */

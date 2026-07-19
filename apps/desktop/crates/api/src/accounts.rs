@@ -34,7 +34,7 @@ use crate::TokenProvider;
 pub struct Account {
     /// Stable id derived from (instance URL, user id) —
     /// [`account_id_for`]. Filesystem-safe: it names the per-account dirs
-    /// (`accounts/{id}/sync.sqlite`) and token files.
+    /// (`accounts/{id}/sync-v2.sqlite`) and token files.
     pub id: String,
     /// Normalized instance base URL (`https://app.exponential.at`).
     pub instance_url: String,

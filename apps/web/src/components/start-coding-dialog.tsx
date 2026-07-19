@@ -6,7 +6,7 @@ import type { CodingSession, Issue } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -89,7 +89,7 @@ export function StartCodingDialog({
   onOpenChange,
   devices,
   starting,
-  workspaceId,
+  teamId,
   initialIssueIds,
   initialDeviceId,
   onStart,
@@ -98,7 +98,7 @@ export function StartCodingDialog({
   onOpenChange: (open: boolean) => void
   devices: SteerDevice[]
   starting: boolean
-  workspaceId: string
+  teamId: string
   /** Issues to pre-check when the dialog opens (e.g. the issue detail's issue). */
   initialIssueIds?: string[]
   /** Device to pre-select — wins over the first online desktop. */
@@ -120,24 +120,24 @@ export function StartCodingDialog({
   // defaults so a later selection-count crossing won't stomp their choice.
   const touchedRef = useRef(false)
 
-  // Codeable issues live in projects that HAVE a repo — coding gates on repo
-  // presence (project type is irrelevant). Sorted ids keep the dep string
+  // Codeable issues live in boards that HAVE a repo — coding gates on repo
+  // presence (board type is irrelevant). Sorted ids keep the dep string
   // stable so the same set never churns the query.
-  const projects = useWorkspaceProjects(workspaceId)
-  const repoProjectIds = useMemo(() => {
-    const ids = projects.filter((p) => p.repositoryId).map((p) => p.id)
+  const boards = useTeamBoards(teamId)
+  const repoBoardIds = useMemo(() => {
+    const ids = boards.filter((p) => p.repositoryId).map((p) => p.id)
     ids.sort()
     return ids
-  }, [projects])
+  }, [boards])
 
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      open && repoProjectIds.length > 0
+      open && repoBoardIds.length > 0
         ? query
             .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.projectId, repoProjectIds))
+            .where(({ issues }) => inArray(issues.boardId, repoBoardIds))
         : undefined,
-    [open, repoProjectIds.join(`,`)]
+    [open, repoBoardIds.join(`,`)]
   )
 
   const { data: runningRows } = useLiveQuery(
@@ -146,10 +146,10 @@ export function StartCodingDialog({
         ? query
             .from({ s: codingSessionCollection })
             .where(({ s }) =>
-              and(eq(s.workspaceId, workspaceId), eq(s.status, `running`))
+              and(eq(s.teamId, teamId), eq(s.status, `running`))
             )
         : undefined,
-    [open, workspaceId]
+    [open, teamId]
   )
 
   // Staleness guard (EXP-153): a heartbeat-dead `running` row must not keep
@@ -163,7 +163,7 @@ export function StartCodingDialog({
     return set
   }, [runningRows, now])
 
-  // Every repo-project issue, for looking up already-checked rows (a pre-checked
+  // Every repo-board issue, for looking up already-checked rows (a pre-checked
   // issue may not itself be "codeable", e.g. a done issue started from detail).
   const allById = useMemo(
     () => new Map(((issueRows ?? []) as Issue[]).map((i) => [i.id, i])),
@@ -201,20 +201,20 @@ export function StartCodingDialog({
   )
 
   // A batch run is ONE repository (the server enforces same-repo across the
-  // linked PR) — resolve each checked issue's repo via its project and block a
+  // linked PR) — resolve each checked issue's repo via its board and block a
   // cross-repo selection client-side.
-  const projectRepoById = useMemo(
-    () => new Map(projects.map((p) => [p.id, p.repositoryId])),
-    [projects]
+  const boardRepoById = useMemo(
+    () => new Map(boards.map((p) => [p.id, p.repositoryId])),
+    [boards]
   )
   const checkedRepoIds = useMemo(() => {
     const set = new Set<string>()
     for (const issue of checkedIssues) {
-      const repoId = projectRepoById.get(issue.projectId)
+      const repoId = boardRepoById.get(issue.boardId)
       if (repoId) set.add(repoId)
     }
     return set
-  }, [checkedIssues, projectRepoById])
+  }, [checkedIssues, boardRepoById])
 
   const searchMatches = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -339,7 +339,7 @@ export function StartCodingDialog({
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {search.trim()
                     ? `No issues match "${search}"`
-                    : `No codeable issues in repo-backed projects.`}
+                    : `No codeable issues in repo-backed boards.`}
                 </div>
               ) : (
                 pickerRows.map((issue) => {

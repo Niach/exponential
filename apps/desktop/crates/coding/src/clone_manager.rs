@@ -1,11 +1,11 @@
-//! Trunk clone lifecycle: auto-clone on project open, background auto-sync,
+//! Trunk clone lifecycle: auto-clone on board open, background auto-sync,
 //! and push/publish — all against the **trunk** clone
 //! (`<repos_root>/<owner>/<name>`), reusing [`crate::git_worktree`]'s
 //! `clone_path` / [`TokenUrl`] redaction. This module is the ONE transport
 //! layer — every network git op on the trunk routes through here.
 //!
 //! Contract:
-//! * **Auto-clone on project open** when `<clone>/.git` is missing: mint a JIT
+//! * **Auto-clone on board open** when `<clone>/.git` is missing: mint a JIT
 //!   token, clone, then a fetch. Progress surfaces via [`CloneEvent`] (parsed
 //!   from `git clone --progress` stderr → the git-bar chip). `git clone`
 //!   streams progress on stderr with `\r`-overwritten phase lines, so [`ensure`]
@@ -52,11 +52,11 @@ use crate::git_worktree::{clone_path, run_git, GitError, TokenUrl};
 use crate::trunk_state;
 
 /// Background auto-sync cadence: the GitBar's timer runs [`auto_sync`] this
-/// often while a project with a cloned trunk is open.
+/// often while a board with a cloned trunk is open.
 pub const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(120);
 
 /// Freshness debounce: focus- and timer-triggered auto-syncs coalesce to at
-/// most one per minute ([`should_fetch`]). Project-open and post-transport
+/// most one per minute ([`should_fetch`]). Board-open and post-transport
 /// fetches are not debounced.
 pub const FETCH_DEBOUNCE: Duration = Duration::from_secs(60);
 
@@ -218,7 +218,7 @@ pub fn ensure(
     let clone = clone_path(repos_root, full_name);
     if clone.join(".git").exists() {
         // Reuse — §7.1 idempotent relaunch. Best-effort ambient-auth install
-        // (EXP-73): heals a pre-existing token-embedded origin at project
+        // (EXP-73): heals a pre-existing token-embedded origin at board
         // open; a failure here must not fail the reuse (the next network op
         // installs auth itself).
         let _ = git_credentials::ensure(&clone, url, expires_at);

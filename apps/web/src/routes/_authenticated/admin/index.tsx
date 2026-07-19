@@ -79,7 +79,7 @@ function AdminOverview() {
   const { overview } = Route.useLoaderData()
   const { totals } = overview
   const signupTotal = overview.signupsByDay.reduce((s, r) => s + r.count, 0)
-  const wsTotal = overview.workspacesByDay.reduce((s, r) => s + r.count, 0)
+  const wsTotal = overview.teamsByDay.reduce((s, r) => s + r.count, 0)
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
@@ -92,11 +92,11 @@ function AdminOverview() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Users" value={String(totals.users)} />
-        <StatCard label="Teams" value={String(totals.workspaces)} />
+        <StatCard label="Teams" value={String(totals.teams)} />
         <StatCard
           label="Issues"
           value={String(totals.issues)}
-          hint={`${totals.projects} projects`}
+          hint={`${totals.boards} boards`}
         />
         <StatCard label="Storage" value={formatStorageMb(totals.storageMb)} />
         <StatCard
@@ -133,7 +133,7 @@ function AdminOverview() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <DayBars rows={overview.workspacesByDay} />
+            <DayBars rows={overview.teamsByDay} />
           </CardContent>
         </Card>
       </div>

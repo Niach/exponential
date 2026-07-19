@@ -1,6 +1,6 @@
 //! Active-filter pills — web parity target
 //! `apps/web/src/components/active-filter-pills.tsx` (masterplan-v3 §4.2
-//! "Project board": "`ActiveFilterPills` (`Tag` chips with an ✕) below").
+//! "Board view": "`ActiveFilterPills` (`Tag` chips with an ✕) below").
 //!
 //! One removable outline pill per active filter value — status pills carry
 //! the colored status glyph, priority pills the priority glyph, label pills

@@ -1,6 +1,6 @@
 import Foundation
 
-// The server no longer syncs `users` rows for co-members of a public workspace
+// The server no longer syncs `users` rows for co-members of a public team
 // (their profile stays server-side). When a userId can't be resolved to a
 // synced row we still want a stable, non-identifying label instead of "Unknown"
 // or a raw id — mirror that everywhere a member is shown.

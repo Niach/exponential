@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import com.exponential.app.data.db.WorkspaceEntity
+import com.exponential.app.data.db.TeamEntity
 
 /**
  * Up-to-two-letter initials derived from a display name or email. Unifies the
@@ -68,18 +68,18 @@ fun InitialsAvatar(
 }
 
 /**
- * Rounded-square workspace monogram (iOS `WorkspaceAvatar`). Shows the
- * `iconUrl` image when set, else the first letter of the workspace name on a
+ * Rounded-square team monogram (iOS `TeamAvatar`). Shows the
+ * `iconUrl` image when set, else the first letter of the team name on a
  * tinted chip. Replaces the copy that lived in the now-deleted AppDrawer.
  */
 @Composable
-fun WorkspaceAvatar(
-    workspace: WorkspaceEntity?,
+fun TeamAvatar(
+    team: TeamEntity?,
     modifier: Modifier = Modifier,
     size: Dp = 28.dp,
 ) {
-    val initial = (workspace?.name?.firstOrNull()?.toString() ?: "?").uppercase()
-    val url = workspace?.iconUrl?.takeIf { it.isNotBlank() }
+    val initial = (team?.name?.firstOrNull()?.toString() ?: "?").uppercase()
+    val url = team?.iconUrl?.takeIf { it.isNotBlank() }
     val shape = RoundedCornerShape(size / 4)
     Box(
         modifier = modifier

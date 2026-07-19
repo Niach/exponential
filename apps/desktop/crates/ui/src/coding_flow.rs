@@ -58,7 +58,7 @@ use coding::{
 use crate::queries;
 use crate::session::AuthContext;
 use crate::terminal_dock::TerminalDockPanel;
-use crate::workspace::Workspace;
+use crate::shell::Shell;
 
 // ---------------------------------------------------------------------------
 // CodingHub — settings + doctor (§7.7)
@@ -550,22 +550,22 @@ impl TokenRefreshers {
     }
 }
 
-/// The synced project row backing `issue_id`, if both are in the collections.
+/// The synced board row backing `issue_id`, if both are in the collections.
 /// Used by the header affordance to decide whether Start coding even applies
-/// (a repo-less non-dev board never codes) and by the §P7 activity gating.
-pub(crate) fn issue_project(issue_id: &str, cx: &App) -> Option<domain::rows::Project> {
+/// (a repo-less board never codes) and by the §P7 activity gating.
+pub(crate) fn issue_board(issue_id: &str, cx: &App) -> Option<domain::rows::Board> {
     let store = Store::global(cx);
-    let project_id = store
+    let board_id = store
         .collections()
         .issues
         .read(cx)
         .get(issue_id)
-        .map(|issue| issue.project_id.clone())?;
+        .map(|issue| issue.board_id.clone())?;
     store
         .collections()
-        .projects
+        .boards
         .read(cx)
-        .get(&project_id)
+        .get(&board_id)
         .cloned()
 }
 
@@ -573,18 +573,18 @@ pub(crate) fn issue_project(issue_id: &str, cx: &App) -> Option<domain::rows::Pr
 // Window plumbing — this window's TerminalManager (§06 dock)
 // ---------------------------------------------------------------------------
 
-/// Resolve THIS window's bottom terminal dock manager: `Root` → [`Workspace`]
+/// Resolve THIS window's bottom terminal dock manager: `Root` → [`Shell`]
 /// → `DockArea` → bottom `Dock` → the registered [`TerminalDockPanel`].
-/// `None` on non-workspace windows (login) — the caller surfaces an error.
+/// `None` on non-shell windows (login) — the caller surfaces an error.
 pub fn window_terminal_manager(window: &Window, cx: &App) -> Option<Entity<TerminalManager>> {
     let root = window.root::<gpui_component::Root>().flatten()?;
-    let workspace = root
+    let team = root
         .read(cx)
         .view()
         .clone()
-        .downcast::<Workspace>()
+        .downcast::<Shell>()
         .ok()?;
-    let dock_area = workspace.read(cx).dock_area().clone();
+    let dock_area = team.read(cx).dock_area().clone();
     let bottom = dock_area.read(cx).bottom_dock()?.clone();
     let panel = find_terminal_dock(bottom.read(cx).panel())?;
     Some(panel.read(cx).manager().clone())
@@ -599,7 +599,7 @@ fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
             .find_map(|panel| panel.view().downcast::<TerminalDockPanel>().ok()),
         DockItem::Panel { view, .. } => view.view().downcast::<TerminalDockPanel>().ok(),
         DockItem::Split { items, .. } => items.iter().find_map(find_terminal_dock),
-        // Tiles never host the terminal dock (workspace layout never creates
+        // Tiles never host the terminal dock (team layout never creates
         // them); skipping is safe — the caller degrades to an error surface.
         _ => None,
     }
@@ -924,7 +924,7 @@ impl StartCodingControl {
             RepoProbe::Idle | RepoProbe::Loading => Some("Checking linked repository…".into()),
             // §7.1's exact helper copy for the repo-less state.
             RepoProbe::Ready(None) => {
-                Some("Link a repository to this project in team settings.".into())
+                Some("Link a repository to this board in team settings.".into())
             }
             RepoProbe::Ready(Some(_)) => None,
             // A probe transport error never falsely blocks — the
@@ -946,13 +946,12 @@ impl Render for StartCodingControl {
         let Some(issue_id) = self.issue_id.clone() else {
             return div().into_any_element();
         };
-        // Coding gates purely on repository presence, never on type: a
-        // repo-less board (any type) shows NO Start-coding affordance, while any
-        // repo-backed board (incl. the dogfood public feedback board) keeps the
-        // button. Hidden here before the probe so it never fetches.
-        let project = issue_project(&issue_id, cx);
-        if let Some(project) = &project {
-            if project.repository_id.is_none() {
+        // Coding gates purely on repository presence: a repo-less board
+        // shows NO Start-coding affordance, while any repo-backed board
+        // keeps the button. Hidden here before the probe so it never fetches.
+        let board = issue_board(&issue_id, cx);
+        if let Some(board) = &board {
+            if board.repository_id.is_none() {
                 return div().into_any_element();
             }
         }

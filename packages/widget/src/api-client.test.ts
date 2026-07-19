@@ -88,7 +88,7 @@ describe(`submitFeedback response parsing`, () => {
     })
   })
 
-  it(`returns url: null when the server sends an explicit null (non-public project)`, async () => {
+  it(`returns url: null when the server sends an explicit null (the current contract)`, async () => {
     mockFetchJson({ ok: true, issueId: `id-1`, identifier: `EXP-7`, url: null })
     expect(await submit(makeState())).toEqual({
       ok: true,

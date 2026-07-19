@@ -35,13 +35,13 @@ use gpui_component::{
 use terminal::{TabId, TerminalManager};
 
 use crate::navigation::{self, Screen};
-use crate::workspace::Workspace;
+use crate::shell::Shell;
 
 /// Cascade offset so stacked undocks don't open exactly on top of each other.
 const CASCADE_STEP: f32 = 24.;
 static UNDOCK_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 
-/// One undocked terminal-tab window: the handle plus the workspace window
+/// One undocked terminal-tab window: the handle plus the shell window
 /// whose `TerminalManager` owns the tab (reattach target; when that owner
 /// closes, this window closes with it — the manager dies with the owner's
 /// dock panel).
@@ -111,37 +111,37 @@ fn unregister_screen(screen: &Screen, cx: &mut App) {
     }
 }
 
-/// Whether the window's root view is a [`Workspace`] shell (as opposed to an
+/// Whether the window's root view is a [`Shell`] shell (as opposed to an
 /// undocked panel window or a mid-teardown handle).
-fn is_workspace_window(handle: AnyWindowHandle, cx: &App) -> bool {
+fn is_team_window(handle: AnyWindowHandle, cx: &App) -> bool {
     handle
         .downcast::<Root>()
         .and_then(|root| root.read(cx).ok())
-        .is_some_and(|root| root.view().clone().downcast::<Workspace>().is_ok())
+        .is_some_and(|root| root.view().clone().downcast::<Shell>().is_ok())
 }
 
-/// The workspace window a reattach should target: the originating window when
-/// it is still alive, else any remaining workspace window.
-pub(crate) fn find_workspace_window(
+/// The shell window a reattach should target: the originating window when
+/// it is still alive, else any remaining shell window.
+pub(crate) fn find_team_window(
     preferred: Option<AnyWindowHandle>,
     cx: &App,
 ) -> Option<AnyWindowHandle> {
     if let Some(handle) = preferred {
-        if is_workspace_window(handle, cx) {
+        if is_team_window(handle, cx) {
             return Some(handle);
         }
     }
     cx.windows()
         .into_iter()
-        .find(|handle| is_workspace_window(*handle, cx))
+        .find(|handle| is_team_window(*handle, cx))
 }
 
-/// Workspace-window release hook (called after `windows_open` decrements):
+/// Shell-window release hook (called after `windows_open` decrements):
 /// close this owner's undocked terminal windows (their manager died with the
-/// owner's dock panel), and when NO workspace window remains, close every
+/// owner's dock panel), and when NO shell window remains, close every
 /// undocked window — there is nothing left to reattach to, and on non-macOS
 /// the app is about to quit.
-pub(crate) fn on_workspace_released(released: WindowId, cx: &mut App) {
+pub(crate) fn on_shell_released(released: WindowId, cx: &mut App) {
     let Some(state) = state(cx) else { return };
 
     let orphaned: Vec<AnyWindowHandle> = state
@@ -153,7 +153,7 @@ pub(crate) fn on_workspace_released(released: WindowId, cx: &mut App) {
         .collect();
     close_windows(orphaned, cx);
 
-    if find_workspace_window(None, cx).is_some() {
+    if find_team_window(None, cx).is_some() {
         return;
     }
     let remaining: Vec<AnyWindowHandle> = {
@@ -179,7 +179,7 @@ fn close_windows(handles: Vec<AnyWindowHandle>, cx: &mut App) {
     }
 }
 
-/// Shared `WindowOptions` for undocked windows — mirrors the workspace
+/// Shared `WindowOptions` for undocked windows — mirrors the team
 /// window's options (`app/src/windows.rs`) at a smaller default size.
 fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> WindowOptions {
     let ordinal = UNDOCK_ORDINAL.fetch_add(1, Ordering::SeqCst);
@@ -191,7 +191,7 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(480.), px(320.))),
         kind: WindowKind::Normal,
-        // Match the workspace window's Wayland app_id / X11 WM_CLASS so
+        // Match the shell window's Wayland app_id / X11 WM_CLASS so
         // undocked windows also pick up the `.desktop` taskbar icon (EXP-68).
         app_id: Some(CHANNEL_APP_ID.to_string()),
         // Linux: server-side decorations, same rationale as the main window.
@@ -282,7 +282,7 @@ impl UndockedScreenWindow {
             });
         }
 
-        // Scope the fresh window like the origin (workspace/project + the
+        // Scope the fresh window like the origin (team/board + the
         // screen itself) so git bar / shell cwd / SC file scope resolve.
         navigation::seed_window_scope(window, cx, origin.window_id(), screen.clone());
 
@@ -292,7 +292,7 @@ impl UndockedScreenWindow {
         cx.on_release(move |this, cx| {
             // Reattach/close unmounts this window's own issue detail without
             // a blur — flush a pending description edit first (EXP-68), the
-            // same contract as ScreensPanel's tab-close/workspace-switch.
+            // same contract as ScreensPanel's tab-close/team-switch.
             if let Ok(detail) = this
                 .content
                 .clone()
@@ -302,7 +302,7 @@ impl UndockedScreenWindow {
             }
             unregister_screen(&this.screen, cx);
             // The content views lazily created this window's registries
-            // (nav / repo resolver / rail) — mirror the Workspace teardown.
+            // (nav / repo resolver / rail) — mirror the Shell teardown.
             navigation::remove_window(window_id, cx);
             crate::repo_resolver::remove_window(window_id, cx);
             crate::sidebar::remove_window(window_id, cx);
@@ -318,7 +318,7 @@ impl UndockedScreenWindow {
         }
     }
 
-    /// Move the screen back into a workspace window as a regular tab, then
+    /// Move the screen back into a shell window as a regular tab, then
     /// close this window. Deferred: cross-window updates from inside a
     /// window update silently no-op otherwise.
     fn reattach(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -326,7 +326,7 @@ impl UndockedScreenWindow {
         let origin = self.origin;
         let this_window = window.window_handle();
         cx.defer(move |cx| {
-            if let Some(target) = find_workspace_window(Some(origin), cx) {
+            if let Some(target) = find_team_window(Some(origin), cx) {
                 let _ = target.update(cx, |_, window, cx| {
                     navigation::navigate(window, cx, screen.clone());
                     window.activate_window();
@@ -374,7 +374,7 @@ impl Render for UndockedScreenWindow {
             .child(div().text_sm().child(title))
             .child(div().flex_1());
 
-        // Root overlay layers — same composition rule as `Workspace::render`:
+        // Root overlay layers — same composition rule as `Shell::render`:
         // without them, `window.open_dialog` (issue delete confirm, image
         // preview) would silently never paint in this window.
         let sheet_layer = Root::render_sheet_layer(window, cx);
@@ -467,12 +467,12 @@ pub(crate) fn restore_tab_in_owner(
 ) {
     cx.defer(move |cx| {
         let _ = owner.update(cx, |_, window, cx| {
-            if let Some(workspace) = window
+            if let Some(team) = window
                 .root::<Root>()
                 .flatten()
-                .and_then(|root| root.read(cx).view().clone().downcast::<Workspace>().ok())
+                .and_then(|root| root.read(cx).view().clone().downcast::<Shell>().ok())
             {
-                let dock_area = workspace.read(cx).dock_area().clone();
+                let dock_area = team.read(cx).dock_area().clone();
                 if let Some(dock) = dock_area.read(cx).bottom_dock().cloned() {
                     if !dock.read(cx).is_open() {
                         dock.update(cx, |dock, cx| dock.set_open(true, window, cx));

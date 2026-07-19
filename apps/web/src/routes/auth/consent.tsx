@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
 // endpoint lands here (prompt=consent is forced server-side) with a
-// consent_code; "Allow" persists the workspace/project grant and completes
+// consent_code; "Allow" persists the team/board grant and completes
 // the better-auth consent, which returns the MCP client's callback URL.
 
 interface ConsentSearch {
@@ -39,27 +39,27 @@ export const Route = createFileRoute(`/auth/consent`)({
   },
 })
 
-interface ScopeWorkspace {
+interface ScopeTeam {
   id: string
   name: string
   slug: string
-  projects: Array<{ id: string; name: string; prefix: string; icon: string | null }>
+  boards: Array<{ id: string; name: string; prefix: string; icon: string | null }>
 }
 
 function ConsentPage() {
   const { consent_code: consentCode, client_id: clientId } = Route.useSearch()
 
   const [clientName, setClientName] = useState<string | null>(null)
-  const [tree, setTree] = useState<Array<ScopeWorkspace> | null>(null)
+  const [tree, setTree] = useState<Array<ScopeTeam> | null>(null)
   const [loadError, setLoadError] = useState(``)
   const [error, setError] = useState(``)
   const [pending, setPending] = useState<`allow` | `deny` | null>(null)
 
-  const [allWorkspaces, setAllWorkspaces] = useState(true)
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState<Set<string>>(
+  const [allTeams, setAllTeams] = useState(true)
+  const [selectedTeams, setSelectedTeams] = useState<Set<string>>(
     () => new Set()
   )
-  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(
+  const [selectedBoards, setSelectedBoards] = useState<Set<string>>(
     () => new Set()
   )
 
@@ -73,7 +73,7 @@ function ConsentPage() {
       .then(([info, scopes]) => {
         if (cancelled) return
         setClientName(info.name)
-        setTree(scopes.workspaces)
+        setTree(scopes.teams)
       })
       .catch((e: unknown) => {
         if (cancelled) return
@@ -87,19 +87,19 @@ function ConsentPage() {
   }, [clientId])
 
   const hasSelection =
-    allWorkspaces || selectedWorkspaces.size > 0 || selectedProjects.size > 0
+    allTeams || selectedTeams.size > 0 || selectedBoards.size > 0
 
-  // Projects inside a fully-selected workspace are covered by the workspace
+  // Boards inside a fully-selected team are covered by the team
   // grant — don't send them individually.
-  const effectiveProjectIds = useMemo(() => {
+  const effectiveBoardIds = useMemo(() => {
     if (!tree) return []
     const covered = new Set(
       tree
-        .filter((w) => selectedWorkspaces.has(w.id))
-        .flatMap((w) => w.projects.map((p) => p.id))
+        .filter((w) => selectedTeams.has(w.id))
+        .flatMap((w) => w.boards.map((p) => p.id))
     )
-    return [...selectedProjects].filter((id) => !covered.has(id))
-  }, [tree, selectedWorkspaces, selectedProjects])
+    return [...selectedBoards].filter((id) => !covered.has(id))
+  }, [tree, selectedTeams, selectedBoards])
 
   const respond = async (accept: boolean) => {
     if (!clientId || !consentCode) return
@@ -110,9 +110,9 @@ function ConsentPage() {
         clientId,
         consentCode,
         accept,
-        allWorkspaces,
-        workspaceIds: allWorkspaces ? [] : [...selectedWorkspaces],
-        projectIds: allWorkspaces ? [] : effectiveProjectIds,
+        allTeams,
+        teamIds: allTeams ? [] : [...selectedTeams],
+        boardIds: allTeams ? [] : effectiveBoardIds,
       })
       window.location.href = redirectURI
     } catch (e) {
@@ -154,84 +154,84 @@ function ConsentPage() {
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3 rounded-md border p-3">
             <div className="space-y-0.5">
-              <Label htmlFor="all-workspaces">Everything</Label>
+              <Label htmlFor="all-teams">Everything</Label>
               <p className="text-xs text-muted-foreground">
-                All teams and projects, including ones created later.
+                All teams and boards, including ones created later.
               </p>
             </div>
             <Switch
-              id="all-workspaces"
-              checked={allWorkspaces}
-              onCheckedChange={(checked) => setAllWorkspaces(checked === true)}
+              id="all-teams"
+              checked={allTeams}
+              onCheckedChange={(checked) => setAllTeams(checked === true)}
             />
           </div>
 
-          {!allWorkspaces && (
+          {!allTeams && (
             <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
               {tree.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   You aren&apos;t a member of any team yet.
                 </p>
               )}
-              {tree.map((workspace) => {
-                const wholeWorkspace = selectedWorkspaces.has(workspace.id)
+              {tree.map((team) => {
+                const wholeTeam = selectedTeams.has(team.id)
                 return (
-                  <div key={workspace.id} className="space-y-1.5">
+                  <div key={team.id} className="space-y-1.5">
                     <div className="flex items-center gap-2">
                       <Checkbox
-                        id={`ws-${workspace.id}`}
-                        checked={wholeWorkspace}
+                        id={`ws-${team.id}`}
+                        checked={wholeTeam}
                         onCheckedChange={(checked) => {
-                          setSelectedWorkspaces((prev) => {
+                          setSelectedTeams((prev) => {
                             const next = new Set(prev)
-                            if (checked === true) next.add(workspace.id)
-                            else next.delete(workspace.id)
+                            if (checked === true) next.add(team.id)
+                            else next.delete(team.id)
                             return next
                           })
                         }}
                       />
                       <Label
-                        htmlFor={`ws-${workspace.id}`}
+                        htmlFor={`ws-${team.id}`}
                         className="font-medium"
                       >
-                        {workspace.name}
+                        {team.name}
                       </Label>
                       <span className="text-xs text-muted-foreground">
                         whole team
                       </span>
                     </div>
                     <div className="ml-6 space-y-1">
-                      {workspace.projects.map((project) => (
-                        <div key={project.id} className="flex items-center gap-2">
+                      {team.boards.map((board) => (
+                        <div key={board.id} className="flex items-center gap-2">
                           <Checkbox
-                            id={`proj-${project.id}`}
-                            disabled={wholeWorkspace}
+                            id={`proj-${board.id}`}
+                            disabled={wholeTeam}
                             checked={
-                              wholeWorkspace || selectedProjects.has(project.id)
+                              wholeTeam || selectedBoards.has(board.id)
                             }
                             onCheckedChange={(checked) => {
-                              setSelectedProjects((prev) => {
+                              setSelectedBoards((prev) => {
                                 const next = new Set(prev)
-                                if (checked === true) next.add(project.id)
-                                else next.delete(project.id)
+                                if (checked === true) next.add(board.id)
+                                else next.delete(board.id)
                                 return next
                               })
                             }}
                           />
                           <Label
-                            htmlFor={`proj-${project.id}`}
+                            htmlFor={`proj-${board.id}`}
                             className="font-normal"
                           >
-                            {project.name}
+                            {board.name}
                             <span className="ml-1.5 text-xs text-muted-foreground">
-                              {project.prefix}
+                              {board.prefix}
                             </span>
                           </Label>
                         </div>
                       ))}
-                      {workspace.projects.length === 0 && (
+                      {team.boards.length === 0 && (
                         <p className="text-xs text-muted-foreground">
-                          No projects yet.
+                          No boards yet.
                         </p>
                       )}
                     </div>
@@ -243,7 +243,7 @@ function ConsentPage() {
 
           <p className="text-xs text-muted-foreground">
             The client acts as you within the selected scope: reading and
-            managing issues, comments, and projects. You can change the
+            managing issues, comments, and boards. You can change the
             selection any time by re-authenticating.
           </p>
 

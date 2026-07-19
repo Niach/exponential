@@ -87,7 +87,7 @@ export function AppsDocsPage() {
             </p>
             <ul>
               <li>
-                <strong>Issues</strong> — the project boards: triage, edit,
+                <strong>Issues</strong> — your boards: triage, edit,
                 filter, comment.
               </li>
               <li>
@@ -105,7 +105,7 @@ export function AppsDocsPage() {
             <p>
               The compose button floats over every tab — capture an issue the
               moment you think of it. Full onboarding runs on mobile too:
-              create projects, connect GitHub, and manage repos without ever
+              create boards, connect GitHub, and manage repos without ever
               opening a laptop.
             </p>
 

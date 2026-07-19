@@ -74,12 +74,12 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             complete(callback, cx);
             continue;
         }
-        if let Some(token) = crate::join_workspace::parse_invite_deep_link(&url) {
+        if let Some(token) = crate::join_team::parse_invite_deep_link(&url) {
             // Open the accept card directly (§4.2 path 1). Requires a signed
             // in session — the dialog itself renders the sign-in nudge.
             if let Some(window) = crate::navigation::active_or_primary_window(cx) {
                 let _ = window.update(cx, |_, window, cx| {
-                    crate::join_workspace::open(window, cx, Some(token));
+                    crate::join_team::open(window, cx, Some(token));
                 });
             }
             continue;
@@ -94,7 +94,7 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
 
 /// `exponential://issue/<IDENTIFIER>` → `Some(identifier)` (e.g. `EXP-42` —
 /// the EXP-4 deep-link form; mirror of
-/// [`crate::join_workspace::parse_invite_deep_link`]).
+/// [`crate::join_team::parse_invite_deep_link`]).
 pub(crate) fn parse_issue_deep_link(url: &str) -> Option<String> {
     let prefix = format!("{}://issue/", api::login::OAUTH_CALLBACK_SCHEME);
     let rest = url.strip_prefix(prefix.as_str())?;
@@ -107,7 +107,7 @@ pub(crate) fn parse_issue_deep_link(url: &str) -> Option<String> {
 }
 
 /// Resolve an issue deep link and navigate to its detail. Unlike the
-/// workspace-scoped `#IDENT` pill path
+/// team-scoped `#IDENT` pill path
 /// (`description_editor::open_issue_by_identifier`), a deep link carries only
 /// the identifier — so it resolves case-insensitively across ALL synced
 /// issues. Unknown / not-yet-synced identifiers log and no-op, consistent

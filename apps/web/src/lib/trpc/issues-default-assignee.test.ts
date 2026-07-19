@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Locks the EXP-50 server half: issues.create in a SOLO workspace (exactly one
+// Locks the EXP-50 server half: issues.create in a SOLO team (exactly one
 // human member) defaults an omitted/null assigneeId to that member; an
-// explicit assignee always wins; multi-member workspaces keep the unassigned
+// explicit assignee always wins; multi-member teams keep the unassigned
 // default. Mirrors issues-assignee.test.ts's mocking, but with a functional
 // transaction mock so the inserted values are observable.
 
@@ -17,22 +17,22 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
+vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/workspace-membership")>()
+    await importOriginal<typeof import("@/lib/team-membership")>()
   return {
     ...actual,
-    getProjectWorkspaceId: vi.fn(async () => ({
+    getBoardTeamId: vi.fn(async () => ({
       id: `proj-1`,
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
     })),
-    resolveWorkspaceAccess: vi.fn(async () => ({
+    resolveTeamAccess: vi.fn(async () => ({
       kind: `member`,
-      workspace: { id: `ws-1` },
-      member: { role: `member`, userId: `actor`, workspaceId: `ws-1` },
+      team: { id: `ws-1` },
+      member: { role: `member`, userId: `actor`, teamId: `ws-1` },
     })),
     // Explicit-assignee validation is covered by issues-assignee.test.ts.
-    assertAssigneeInWorkspace: vi.fn(async () => undefined),
+    assertAssigneeInTeam: vi.fn(async () => undefined),
     getSoleHumanMemberId: h.getSoleHumanMemberId,
   }
 })
@@ -52,7 +52,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: vi.fn(),
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
-  resolveProjectRepository: vi.fn(),
+  resolveBoardRepository: vi.fn(),
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),
@@ -79,7 +79,7 @@ vi.mock(`@/lib/integrations/activity`, () => ({
 
 import { issuesRouter } from "@/lib/trpc/issues"
 
-const PROJECT_ID = `11111111-1111-4111-8111-111111111111`
+const BOARD_ID = `11111111-1111-4111-8111-111111111111`
 const ISSUE_ID = `22222222-2222-4222-8222-222222222222`
 
 // Functional transaction mock: records inserted issue values and returns a
@@ -112,7 +112,7 @@ const caller = issuesRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
-describe(`issues.create solo-workspace default assignment (EXP-50)`, () => {
+describe(`issues.create solo-team default assignment (EXP-50)`, () => {
   beforeEach(() => {
     insertedIssues.length = 0
     h.getSoleHumanMemberId.mockClear()
@@ -125,7 +125,7 @@ describe(`issues.create solo-workspace default assignment (EXP-50)`, () => {
   it(`defaults an omitted assignee to the sole human member`, async () => {
     h.getSoleHumanMemberId.mockResolvedValue(`actor`)
 
-    const result = await caller.create({ projectId: PROJECT_ID, title: `Solo` })
+    const result = await caller.create({ boardId: BOARD_ID, title: `Solo` })
 
     expect(h.getSoleHumanMemberId).toHaveBeenCalledWith(`ws-1`)
     expect(insertedIssues[0]?.assigneeId).toBe(`actor`)
@@ -149,7 +149,7 @@ describe(`issues.create solo-workspace default assignment (EXP-50)`, () => {
     h.getSoleHumanMemberId.mockResolvedValue(`actor`)
 
     await caller.create({
-      projectId: PROJECT_ID,
+      boardId: BOARD_ID,
       title: `Solo null`,
       assigneeId: null,
     })
@@ -157,9 +157,9 @@ describe(`issues.create solo-workspace default assignment (EXP-50)`, () => {
     expect(insertedIssues[0]?.assigneeId).toBe(`actor`)
   })
 
-  it(`leaves multi-member workspaces unassigned`, async () => {
+  it(`leaves multi-member teams unassigned`, async () => {
     const result = await caller.create({
-      projectId: PROJECT_ID,
+      boardId: BOARD_ID,
       title: `Team`,
     })
 
@@ -178,7 +178,7 @@ describe(`issues.create solo-workspace default assignment (EXP-50)`, () => {
     h.getSoleHumanMemberId.mockResolvedValue(`someone-else`)
 
     await caller.create({
-      projectId: PROJECT_ID,
+      boardId: BOARD_ID,
       title: `Explicit`,
       assigneeId: `chosen`,
     })

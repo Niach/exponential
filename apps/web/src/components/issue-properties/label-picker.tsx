@@ -26,14 +26,14 @@ import type { Label } from "@/db/schema"
 
 interface LabelPickerProps {
   disabled?: boolean
-  workspaceId: string
+  teamId: string
   selectedLabelIds: string[]
   onToggle: (labelId: string) => void
 }
 
 export function LabelPicker({
   disabled,
-  workspaceId,
+  teamId,
   selectedLabelIds,
   onToggle,
 }: LabelPickerProps) {
@@ -45,13 +45,13 @@ export function LabelPicker({
 
   const { data: labels } = useLiveQuery(
     (q) =>
-      workspaceId
+      teamId
         ? q
             .from({ labels: labelCollection })
-            .where(({ labels }) => eq(labels.workspaceId, workspaceId))
+            .where(({ labels }) => eq(labels.teamId, teamId))
             .orderBy(({ labels }) => labels.sortOrder)
         : undefined,
-    [workspaceId]
+    [teamId]
   )
 
   const selectedLabels = (labels ?? []).filter((l: Label) =>
@@ -63,7 +63,7 @@ export function LabelPicker({
     setCreating(true)
     try {
       const { txId, label } = await trpc.labels.create.mutate({
-        workspaceId,
+        teamId,
         name: newName.trim(),
         color: newColor,
       })

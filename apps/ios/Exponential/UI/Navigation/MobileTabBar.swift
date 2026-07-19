@@ -1,11 +1,13 @@
 import ExpUI
 import SwiftUI
 
-/// Linear-style floating bottom navigation: a glass pill with the five
-/// top-level destinations (Issues, My Work — with an unread dot — Agents —
-/// with a running-session dot — Reviews — its own entry per EXP-147, ordered
-/// after Agents per EXP-152 — and Search; base order per EXP-81) plus a
-/// detached circular compose button on the right. Attached via `.overlay(alignment: .bottom)` so content
+/// Linear-style floating bottom navigation: a glass pill with the top-level
+/// destinations (Issues, My Work — with an unread dot — Support — the team
+/// helpdesk inbox, present only while the active team's helpdesk flag is on
+/// (EXP-180) — Agents — with a running-session dot — Reviews — its own entry
+/// per EXP-147, ordered after Agents per EXP-152 — and Search; base order per
+/// EXP-81) plus a detached circular compose button on the right. Attached via
+/// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
@@ -14,14 +16,17 @@ struct MobileTabBar: View {
     let agentsActive: Bool
     let myWorkActive: Bool
     let reviewsActive: Bool
+    let supportActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
+    let showsSupport: Bool
     let showsCompose: Bool
     let onIssues: () -> Void
     let onSearch: () -> Void
     let onAgents: () -> Void
     let onMyWork: () -> Void
     let onReviews: () -> Void
+    let onSupport: () -> Void
     let onCompose: () -> Void
 
     /// SF Symbols has no robot-head glyph, so the Agents tab draws a bundled
@@ -33,7 +38,10 @@ struct MobileTabBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 4) {
+            // Six tabs (helpdesk on) must still fit a 375pt screen (SE/mini)
+            // beside the compose circle: drop the inter-tab spacing and pull
+            // the outer padding in — the 44pt touch targets stay intact.
+            HStack(spacing: showsSupport ? 0 : 4) {
                 tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
                 // EXP-58: the Inbox tab became My Work (Inbox + My Issues
@@ -47,6 +55,18 @@ struct MobileTabBar: View {
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
+                // Support (EXP-180): the team helpdesk inbox — the web
+                // sidebar's LifeBuoy entry. Present only while the active
+                // team's synced helpdesk flag is on.
+                if showsSupport {
+                    tab(
+                        glyph: .system("lifepreserver"),
+                        label: "Support",
+                        active: supportActive,
+                        action: onSupport
+                    )
+                    .accessibilityIdentifier("tab-support")
+                }
                 tab(
                     glyph: .asset("tab-robot"),
                     label: "Agents",
@@ -94,7 +114,7 @@ struct MobileTabBar: View {
                 .accessibilityIdentifier("compose-button")
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, showsSupport ? 12 : 20)
         .padding(.top, 8)
         .padding(.bottom, 4)
     }
@@ -109,8 +129,9 @@ struct MobileTabBar: View {
     ) -> some View {
         Button(action: action) {
             glyphImage(glyph, active: active)
-                // 44pt (HIG minimum) instead of the old 56pt: five tabs + the
-                // compose circle must fit a 375pt screen (SE/mini).
+                // 44pt (HIG minimum) instead of the old 56pt: up to six tabs
+                // (Support present) + the compose circle must fit a 375pt
+                // screen (SE/mini) — see the spacing/padding trims in `body`.
                 .frame(width: 44, height: 42)
                 .overlay(alignment: .topTrailing) {
                     if badge {

@@ -2,13 +2,13 @@ import { createServerFn } from "@tanstack/react-start"
 
 export type FeedbackWidgetConfig = {
   // Origin-relative loader URL (cloud-only — self-hosted instances never
-  // embed the widget; their FeedbackButton redirects to the cloud instead).
+  // embed the cloud widget, its expw_ key is domain-allowlisted; without a
+  // widget the sidebar FeedbackButton simply doesn't render).
   scriptUrl: string
   widgetKey: string
 }
 
 export type RuntimeConfig = {
-  publicFeedbackUrl: string | null
   isCloud: boolean
   creemProProductId: string | null
   creemBusinessProductId: string | null
@@ -18,22 +18,8 @@ export type RuntimeConfig = {
 
 export function buildRuntimeConfig(): RuntimeConfig {
   const isCloud = process.env.SELF_HOSTED !== `true`
-  const raw = process.env.PUBLIC_FEEDBACK_URL?.trim()
-
-  // Self-hosted instances do NOT embed the cloud widget (its expw_ key is
-  // domain-allowlisted to the cloud): their FeedbackButton redirects to the
-  // cloud feedback board instead. PUBLIC_FEEDBACK_URL overrides the default
-  // cloud target. On cloud the widget key is resolved from the
-  // bootstrap-created dogfood config (see getRuntimeConfig).
-  const publicFeedbackUrl =
-    raw && raw.length > 0
-      ? raw.replace(/\/$/, ``)
-      : isCloud
-        ? null
-        : `https://app.exponential.at`
 
   return {
-    publicFeedbackUrl,
     isCloud,
     creemProProductId: isCloud
       ? (process.env.CREEM_PRO_PRODUCT_ID ?? null)

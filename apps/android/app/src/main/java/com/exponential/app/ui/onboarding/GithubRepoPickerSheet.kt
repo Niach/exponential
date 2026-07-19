@@ -61,12 +61,12 @@ import com.exponential.app.ui.theme.glassRow
 // exponential://github-connected, which closes the tab, returns here, and re-fetches
 // (see GithubRepoPickerViewModel). Returning any other way (older server, tab
 // dismissed by hand) still re-queries on lifecycle RESUME. The repo is connected
-// server-side by `projects.create`'s `repository: { fullName }` path.
+// server-side by `boards.create`'s `repository: { fullName }` path.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GithubRepoPickerSheet(
     accountId: String,
-    workspaceId: String,
+    teamId: String,
     onPick: (GithubPickerRepo) -> Unit,
     onDismiss: () -> Unit,
     viewModel: GithubRepoPickerViewModel = hiltViewModel(),
@@ -79,8 +79,8 @@ fun GithubRepoPickerSheet(
     // (new repos granted) refreshes without a manual tap. The first load isn't a
     // forced refresh; later resumes bypass the server cache.
     var hasLoaded by remember { mutableStateOf(false) }
-    LifecycleResumeEffect(accountId, workspaceId) {
-        viewModel.load(accountId, workspaceId, refresh = hasLoaded)
+    LifecycleResumeEffect(accountId, teamId) {
+        viewModel.load(accountId, teamId, refresh = hasLoaded)
         hasLoaded = true
         onPauseOrDispose {}
     }
@@ -123,7 +123,7 @@ fun GithubRepoPickerSheet(
                         message = "Connect the Exponential GitHub App to pick a repository. " +
                             "You'll be brought back here when it's done.",
                         buttonLabel = "Connect GitHub",
-                        onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
+                        onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
                     )
                 }
                 // Grant-scoped repos (see GithubInstallation): a pre-grant link —
@@ -139,7 +139,7 @@ fun GithubRepoPickerSheet(
                         message = "Reconnect GitHub to load your repositories — we only " +
                             "list repos you can access. You'll be brought back here when it's done.",
                         buttonLabel = "Reconnect GitHub",
-                        onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
+                        onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
                     )
                 }
                 else -> installedRepoItems(
@@ -205,7 +205,7 @@ private fun ConnectPrompt(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         // Prefer the single-consent OAuth connect URL that claims the account for
-        // the workspace AND captures the repo grants (the install page doesn't);
+        // the team AND captures the repo grants (the install page doesn't);
         // fall back to the App install page on older servers.
         val connectUrl = data.connectUrl ?: data.installUrl
         Button(

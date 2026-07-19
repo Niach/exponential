@@ -150,7 +150,7 @@ fun BlockTextField(
     }
 
     // #issue-ref autocomplete (masterplan §5e): detect an in-progress `#query`
-    // before the caret and offer same-workspace issues from [LocalIssueRefs]
+    // before the caret and offer same-team issues from [LocalIssueRefs]
     // (identifier + title substring, newest first, empty query = most recent —
     // web IssueRefProvider.search parity). Tapping inserts the plain
     // `#IDENTIFIER ` interchange token, never a custom span, so the GFM

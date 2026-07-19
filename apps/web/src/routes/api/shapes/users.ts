@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getReadableUserIdsInWorkspaces,
-} from "@/lib/workspace-membership"
+  getReadableUserIdsInTeams,
+} from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 export const Route = createFileRoute(`/api/shapes/users`)({
@@ -26,11 +26,11 @@ export const Route = createFileRoute(`/api/shapes/users`)({
           `updated_at`,
         ],
         // The users shape syncs FULL rows (including email), so its scope is
-        // membership-only: co-members of workspaces the caller has joined.
-        // Public-workspace viewers who aren't members get no user rows —
-        // see getReadableUserIdsInWorkspaces for the rationale.
+        // membership-only: co-members of teams the caller has joined.
+        // Public-team viewers who aren't members get no user rows —
+        // see getReadableUserIdsInTeams for the rationale.
         getWhere: async (userId) => {
-          const sharedUserIds = await getReadableUserIdsInWorkspaces(userId)
+          const sharedUserIds = await getReadableUserIdsInTeams(userId)
           return buildWhereClause(`id`, sharedUserIds)
         },
       }),

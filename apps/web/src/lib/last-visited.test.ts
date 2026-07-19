@@ -39,39 +39,39 @@ describe(`last-visited persistence`, () => {
     expect(readLastVisited()).toBeNull()
   })
 
-  it(`round-trips a workspace + project visit`, () => {
+  it(`round-trips a team + board visit`, () => {
     rememberLastVisited(`acme`, `frontend`)
     expect(readLastVisited()).toEqual({
-      workspaceSlug: `acme`,
-      projectSlug: `frontend`,
+      teamSlug: `acme`,
+      boardSlug: `frontend`,
     })
   })
 
-  it(`keeps the stored project on a workspace-level visit to the same workspace`, () => {
+  it(`keeps the stored board on a team-level visit to the same team`, () => {
     rememberLastVisited(`acme`, `frontend`)
-    // Detour through Inbox / My Issues — no project in the URL.
+    // Detour through Inbox / My Issues — no board in the URL.
     rememberLastVisited(`acme`)
     expect(readLastVisited()).toEqual({
-      workspaceSlug: `acme`,
-      projectSlug: `frontend`,
+      teamSlug: `acme`,
+      boardSlug: `frontend`,
     })
   })
 
-  it(`drops the project when the workspace changes without a project`, () => {
+  it(`drops the board when the team changes without a board`, () => {
     rememberLastVisited(`acme`, `frontend`)
     rememberLastVisited(`other`)
     expect(readLastVisited()).toEqual({
-      workspaceSlug: `other`,
-      projectSlug: undefined,
+      teamSlug: `other`,
+      boardSlug: undefined,
     })
   })
 
-  it(`overwrites the project on a project visit in another workspace`, () => {
+  it(`overwrites the board on a board visit in another team`, () => {
     rememberLastVisited(`acme`, `frontend`)
     rememberLastVisited(`other`, `backend`)
     expect(readLastVisited()).toEqual({
-      workspaceSlug: `other`,
-      projectSlug: `backend`,
+      teamSlug: `other`,
+      boardSlug: `backend`,
     })
   })
 
@@ -87,27 +87,27 @@ describe(`last-visited persistence`, () => {
     expect(readLastVisited()).toBeNull()
   })
 
-  it(`treats entries without a workspace slug as absent`, () => {
+  it(`treats entries without a team slug as absent`, () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ projectSlug: `frontend` })
+      JSON.stringify({ boardSlug: `frontend` })
     )
     expect(readLastVisited()).toBeNull()
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ workspaceSlug: `` })
+      JSON.stringify({ teamSlug: `` })
     )
     expect(readLastVisited()).toBeNull()
   })
 
-  it(`ignores non-string project slugs`, () => {
+  it(`ignores non-string board slugs`, () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ workspaceSlug: `acme`, projectSlug: 42 })
+      JSON.stringify({ teamSlug: `acme`, boardSlug: 42 })
     )
     expect(readLastVisited()).toEqual({
-      workspaceSlug: `acme`,
-      projectSlug: undefined,
+      teamSlug: `acme`,
+      boardSlug: undefined,
     })
   })
 })

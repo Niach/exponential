@@ -206,13 +206,13 @@ pub enum ServerFrame {
         /// Exactly one of `issue_id` / `issue_ids` is set on a conforming
         /// frame (guarded in `control_channel::remote_start_from_frame`): a
         /// single-issue start carries `issue_id`; a batch start (EXP-106)
-        /// carries `issue_ids` + `workspace_id` + `repo`.
+        /// carries `issue_ids` + `team_id` + `repo`.
         #[serde(default)]
         issue_id: Option<String>,
         #[serde(default)]
         issue_ids: Option<Vec<String>>,
         #[serde(default)]
-        workspace_id: Option<String>,
+        team_id: Option<String>,
         #[serde(default)]
         repo: Option<StartRepoGroup>,
         /// Launch options (EXP-149) — absent on frames from clients that
@@ -553,7 +553,7 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: Some("issue-9".into()),
                 issue_ids: None,
-                workspace_id: None,
+                team_id: None,
                 repo: None,
                 model: None,
                 effort: None,
@@ -575,7 +575,7 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: Some("issue-9".into()),
                 issue_ids: None,
-                workspace_id: None,
+                team_id: None,
                 repo: None,
                 model: Some("opus".into()),
                 effort: Some(String::new()),
@@ -587,16 +587,16 @@ mod tests {
 
     #[test]
     fn start_session_deserializes_batch_frame_with_options() {
-        // EXP-106 batch start: issueIds + workspaceId + repo, options spread.
+        // EXP-106 batch start: issueIds + teamId + repo, options spread.
         assert_eq!(
             ServerFrame::parse(
-                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"workspaceId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"},"model":"opus","effort":"high","ultracode":true,"planMode":false}"#
+                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"teamId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"},"model":"opus","effort":"high","ultracode":true,"planMode":false}"#
             )
             .unwrap(),
             ServerFrame::StartSession {
                 issue_id: None,
                 issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
-                workspace_id: Some("ws-7".into()),
+                team_id: Some("ws-7".into()),
                 repo: Some(StartRepoGroup {
                     repository_id: "repo-1".into(),
                     full_name: "acme/api".into(),
@@ -616,13 +616,13 @@ mod tests {
         // option arrives None, the subject fields stay populated.
         assert_eq!(
             ServerFrame::parse(
-                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"workspaceId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"}}"#
+                r#"{"t":"start_session","issueIds":["issue-1","issue-2"],"teamId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"}}"#
             )
             .unwrap(),
             ServerFrame::StartSession {
                 issue_id: None,
                 issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
-                workspace_id: Some("ws-7".into()),
+                team_id: Some("ws-7".into()),
                 repo: Some(StartRepoGroup {
                     repository_id: "repo-1".into(),
                     full_name: "acme/api".into(),

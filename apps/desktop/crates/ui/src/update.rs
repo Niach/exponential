@@ -3,7 +3,7 @@
 //! The app hits the GitHub Releases API at launch and then every
 //! [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when the
 //! latest published `desktop-v*` release is newer than the compiled version it
-//! flips a global that the [`crate::workspace::Workspace`] shell renders as a
+//! flips a global that the [`crate::shell::Shell`] shell renders as a
 //! dismissible banner. The old launch-only, daily-debounced check meant a
 //! long-running IDE (or one sharing its stamp file with dev runs) effectively
 //! NEVER reported an update (EXP-68) — with near-daily releases the banner
@@ -63,7 +63,7 @@ const CHANNEL_CHECKS_UPDATES: bool = true;
 const CHANNEL_CHECKS_UPDATES: bool = false;
 
 /// The version this binary was compiled at. Release CI injects the real tag
-/// version via `EXP_DESKTOP_VERSION` (the workspace `Cargo.toml` version is a
+/// version via `EXP_DESKTOP_VERSION` (the team `Cargo.toml` version is a
 /// static `0.1.0` placeholder that would never advance); local/dev builds fall
 /// back to it, which simply means the comparison always reports an update
 /// available off a real release — harmless in dev.
@@ -124,7 +124,7 @@ pub enum UpdatePhase {
 }
 
 /// Shell-observed update state. Lives behind a gpui global so the check task
-/// (which only has an `App`) and the per-window `Workspace` render both reach
+/// (which only has an `App`) and the per-window `Shell` render both reach
 /// the same entity.
 #[derive(Default)]
 pub struct UpdateState {
@@ -421,7 +421,7 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(10))
         .build();
-    // `into_string` + `serde_json` rather than `into_json` — the workspace
+    // `into_string` + `serde_json` rather than `into_json` — the team
     // `ureq` is built without the `json` feature (image_paste.rs relies on the
     // same), so decode the body ourselves.
     let body = agent

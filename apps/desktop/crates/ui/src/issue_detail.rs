@@ -2,7 +2,7 @@
 //! `apps/web/src/components/issue-detail-view.tsx` at compact density).
 //!
 //! Layout mirrors the web's desktop branch exactly: a breadcrumb header
-//! (project → identifier → title, with the subscribe toggle + `…` actions
+//! (board → identifier → title, with the subscribe toggle + `…` actions
 //! menu on the right), the duplicate-of banner, then a two-pane body — left:
 //! borderless title input (save-on-blur) + description + attachment rail +
 //! coding-now presence strip + PR section + timeline, all in one scroll;
@@ -234,7 +234,7 @@ impl IssueDetailView {
             },
         ));
         // Header affordances read these directly.
-        subscriptions.push(cx.observe(&collections.projects, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
@@ -459,7 +459,7 @@ impl IssueDetailView {
     /// The editor saves on blur, but tab/view switches tear the editor's
     /// element out of the tree without a blur ever firing — the keystrokes
     /// only live in the seam's markdown mirror. Every path that re-points or
-    /// hides this view (issue switch, center-tab close / undock, workspace
+    /// hides this view (issue switch, center-tab close / undock, team
     /// switch) routes through here first. Same normalize + dedupe as the
     /// editor's `on_save` hook, so a clean editor is a no-op.
     pub(crate) fn flush_description(&self, cx: &mut App) {
@@ -561,13 +561,13 @@ impl IssueDetailView {
         };
         let data = match &query {
             IssueQuery::None => return None,
-            IssueQuery::Project { project_id } => {
-                queries::project_board(cx, project_id, &filters)
+            IssueQuery::Board { board_id } => {
+                queries::board_board(cx, board_id, &filters)
             }
             IssueQuery::MyIssues {
-                workspace_id,
+                team_id,
                 user_id,
-            } => queries::my_issues(cx, workspace_id, user_id, &filters),
+            } => queries::my_issues(cx, team_id, user_id, &filters),
         };
         let ids = domain::board::flatten_group_issue_ids(&data.groups);
         let position = ids.iter().position(|id| *id == issue.id)?;
@@ -655,7 +655,7 @@ impl IssueDetailView {
     /// merged in to save vertical space): the actions right-aligned. The
     /// §4.8 Details · Changes segments are gone (EXP-179 — web dropped its
     /// changes tab in EXP-157; branch diffs live in Source Control). The
-    /// breadcrumb trail lives in the TOP BAR (project picker › identifier ›
+    /// breadcrumb trail lives in the TOP BAR (board picker › identifier ›
     /// title) and the center tab already shows the identifier (EXP-65
     /// follow-up: the identifier here was redundant).
     fn render_breadcrumb(
@@ -733,7 +733,7 @@ impl IssueDetailView {
     }
 
     /// The `…` actions menu (web L361-398): always present (EXP-59) with the
-    /// Move-to-project submenu (EXP-57 — hidden without a move target; the
+    /// Move-to-board submenu (EXP-57 — hidden without a move target; the
     /// detail tab keys on the stable issue UUID, so no navigation is needed
     /// when the identifier renumbers) and the destructive Delete-issue
     /// confirm submenu — the issue-row context menu's patterns — plus Unmark
@@ -749,9 +749,9 @@ impl IssueDetailView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
-        let project_id = issue.project_id.clone();
+        let board_id = issue.board_id.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
-        let can_move = !crate::issue_list::move_target_projects(cx, &project_id).is_empty();
+        let can_move = !crate::issue_list::move_target_boards(cx, &board_id).is_empty();
         // Update-from-main context (EXP-179, ex-Changes-tab §4.9 action):
         // resolved repo + a worktree on disk. Blocked while a session runs —
         // a second `claude` in the same worktree would supersede the session
@@ -804,17 +804,17 @@ impl IssueDetailView {
                 }
                 if can_move {
                     let issue_id = issue_id.clone();
-                    let project_id = project_id.clone();
+                    let board_id = board_id.clone();
                     menu = menu.submenu_with_icon(
                         Some(Icon::from(ExpIcon::SquareKanban)),
-                        "Move to project",
+                        "Move to board",
                         window,
                         cx,
                         move |menu, _, cx| {
-                            crate::issue_list::move_to_project_menu(
+                            crate::issue_list::move_to_board_menu(
                                 menu,
                                 &issue_id,
-                                &project_id,
+                                &board_id,
                                 cx,
                             )
                         },

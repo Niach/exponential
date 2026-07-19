@@ -1,14 +1,16 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   emailDeliveries,
   issueSubscribers,
   issues,
-  projects,
+  boards,
+  supportMessages,
+  supportThreads,
   users,
   widgetSubmissions,
-  workspaceMembers,
-  workspaces,
+  teamMembers,
+  teams,
 } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
 import { emailEnabled, sendReporterResolutionEmail } from "@/lib/email"
@@ -28,9 +30,9 @@ interface IssueMeta {
   id: string
   identifier: string
   title: string
-  workspaceId: string
-  workspaceSlug: string
-  projectSlug: string
+  teamId: string
+  teamSlug: string
+  boardSlug: string
   assigneeId: string | null
 }
 
@@ -40,14 +42,14 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       id: issues.id,
       identifier: issues.identifier,
       title: issues.title,
-      workspaceId: projects.workspaceId,
-      workspaceSlug: workspaces.slug,
-      projectSlug: projects.slug,
+      teamId: boards.teamId,
+      teamSlug: teams.slug,
+      boardSlug: boards.slug,
       assigneeId: issues.assigneeId,
     })
     .from(issues)
-    .innerJoin(projects, eq(projects.id, issues.projectId))
-    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .innerJoin(teams, eq(teams.id, boards.teamId))
     .where(eq(issues.id, issueId))
     .limit(1)
   return row ?? null
@@ -62,24 +64,24 @@ async function actorName(actorUserId: string): Promise<string> {
   return actor?.name || actor?.email || `Someone`
 }
 
-// Keep only recipients who are CURRENT members of the issue's workspace and
+// Keep only recipients who are CURRENT members of the issue's team and
 // not agents (the widget-helpdesk bot has no inbox). The membership check is
 // the security boundary: subscriber/assignee rows can be stale after a member
 // is removed, and private issue content must never fan out to an ex-member.
 // Exported for tests.
 export async function deliverableRecipients(
-  workspaceId: string,
+  teamId: string,
   userIds: string[]
 ): Promise<string[]> {
   if (userIds.length === 0) return []
   const rows = await db
-    .select({ id: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .select({ id: teamMembers.userId })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
       and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        inArray(workspaceMembers.userId, userIds),
+        eq(teamMembers.teamId, teamId),
+        inArray(teamMembers.userId, userIds),
         eq(users.isAgent, false)
       )
     )
@@ -118,7 +120,7 @@ async function subscriberRecipients(
 // later into one email per user, so a notification read in time (the push did
 // its job) never produces an email. Push and email are free delivery channels
 // — neither is plan-gated. Recipients are de-duped, filtered to CURRENT
-// workspace members, and bot-filtered.
+// team members, and bot-filtered.
 //
 // Idempotency: the fire-and-forget callers can run twice for one logical event
 // (e.g. concurrent comment creations fanning out to the same subscribers), and
@@ -142,7 +144,7 @@ async function deliver(args: {
   title: string
   body: string | null
 }): Promise<void> {
-  const recipients = await deliverableRecipients(args.issue.workspaceId, [
+  const recipients = await deliverableRecipients(args.issue.teamId, [
     ...new Set(args.recipientIds),
   ])
   if (recipients.length === 0) return
@@ -231,7 +233,7 @@ export function fireAndForgetAssignmentNotify(args: {
 }
 
 /**
- * Notify every human member of the issue's workspace that a new issue landed
+ * Notify every human member of the issue's team that a new issue landed
  * (EXP-53: widget feedback submissions). There is no actor to exclude — the
  * creator is the isAgent widget-helpdesk bot, which deliver()'s membership
  * filter drops anyway. Writes `issue_created` rows + push; email follows via
@@ -244,9 +246,9 @@ export function fireAndForgetNewIssueNotify(args: { issueId: string }): void {
       if (!issue) return
 
       const memberRows = await db
-        .select({ userId: workspaceMembers.userId })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, issue.teamId))
       if (memberRows.length === 0) return
 
       await deliver({
@@ -456,48 +458,135 @@ export function fireAndForgetPrNotify(args: {
   })()
 }
 
+// Issue-less sibling of deliver(): the fan-out for events that have no
+// backing issue (standalone helpdesk tickets). Same dedupe-insert shape with
+// `issue_id IS NULL` (the trigger-denormalized board_id stays NULL too, so
+// the notifications shape's `board_id IS NULL` arm keeps these rows synced)
+// and the same push-first delivery; the push payload carries no issue keys —
+// natives route on `type` alone. The row DOES carry the team id (synced) so
+// every client's inbox can route the notification to the right team's
+// Support surface.
+async function deliverToTeam(args: {
+  teamId: string
+  recipientIds: string[]
+  type: NotificationType
+  title: string
+  body: string | null
+  pushData: Record<string, string>
+}): Promise<void> {
+  const recipients = await deliverableRecipients(args.teamId, [
+    ...new Set(args.recipientIds),
+  ])
+  if (recipients.length === 0) return
+
+  const now = new Date()
+
+  const inserted = await db.execute(sql`
+    insert into notifications (user_id, issue_id, team_id, type, title, body, pushed_at)
+    select
+      r.user_id,
+      null,
+      ${args.teamId}::uuid,
+      ${args.type}::notification_type,
+      ${args.title},
+      ${args.body},
+      ${now}::timestamptz
+    from unnest(${sql.param(recipients)}::text[]) as r(user_id)
+    where not exists (
+      select 1
+      from notifications existing
+      where existing.user_id = r.user_id
+        and existing.issue_id is null
+        and existing.type = ${args.type}::notification_type
+        and existing.title = ${args.title}
+        and existing.body is not distinct from ${args.body}::text
+        and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
+    )
+    returning id, user_id
+  `)
+  const delivered = inserted.rows.map((row) => ({
+    userId: row.user_id as string,
+  }))
+  if (delivered.length === 0) return
+
+  await Promise.all(
+    delivered.map((d) =>
+      sendToUser(d.userId, {
+        title: args.title,
+        body: args.body ?? args.title,
+        data: { type: args.type, ...args.pushData },
+      }).catch((err) => {
+        console.error(`[notify] push to ${d.userId} failed:`, err)
+      })
+    )
+  )
+}
+
 /**
- * Helpdesk: an external reporter replied on a support thread. Broadcast to
- * every human workspace member (mirroring fireAndForgetNewIssueNotify — the
- * inbox is a shared surface and there is no actor to exclude). The preview is
- * reporter-authored UNTRUSTED text: deliver() writes it as a plain string and
- * the digest email escapes bodies, so no extra sanitizing is needed here
- * beyond truncation.
+ * Helpdesk: a new ticket arrived or the external reporter replied. Broadcast
+ * to every human team member (the support inbox is a shared surface and
+ * there is no actor to exclude). The preview is reporter-authored UNTRUSTED
+ * text: it is written as a plain string and the digest email escapes bodies,
+ * so no extra sanitizing is needed here beyond truncation.
  */
-export function fireAndForgetSupportNotify(args: {
-  issueId: string
-  reporterName: string | null
-  reporterEmail: string
-  messageBody: string
+export function fireAndForgetSupportThreadNotify(args: {
+  threadId: string
+  kind: `created` | `reply`
 }): void {
   void (async () => {
     try {
-      const issue = await loadIssueMeta(args.issueId)
-      if (!issue) return
+      const [thread] = await db
+        .select({
+          id: supportThreads.id,
+          teamId: supportThreads.teamId,
+          title: supportThreads.title,
+          reporterName: supportThreads.reporterName,
+          reporterEmail: supportThreads.reporterEmail,
+        })
+        .from(supportThreads)
+        .where(eq(supportThreads.id, args.threadId))
+        .limit(1)
+      if (!thread) return
 
       const memberRows = await db
-        .select({ userId: workspaceMembers.userId })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, thread.teamId))
       if (memberRows.length === 0) return
 
-      const who = args.reporterName || args.reporterEmail
-      const previewSource = args.messageBody.trim()
+      // Preview: the latest public inbound message (the reporter's words).
+      const [latest] = await db
+        .select({ body: supportMessages.body })
+        .from(supportMessages)
+        .where(
+          and(
+            eq(supportMessages.threadId, thread.id),
+            eq(supportMessages.direction, `inbound`),
+            eq(supportMessages.visibility, `public`)
+          )
+        )
+        .orderBy(desc(supportMessages.createdAt))
+        .limit(1)
+      const previewSource = (latest?.body ?? thread.title).trim()
       const preview =
         previewSource.length > 140
           ? `${previewSource.slice(0, 139)}…`
           : previewSource
 
-      await deliver({
-        issue,
+      const who = thread.reporterName || thread.reporterEmail
+      await deliverToTeam({
+        teamId: thread.teamId,
         recipientIds: memberRows.map((row) => row.userId),
         type: `support_reply`,
-        pushType: `support_reply`,
-        title: `${who} replied on ${issue.identifier}`,
-        body: preview || issue.title,
+        title:
+          args.kind === `created`
+            ? `New support ticket from ${who}`
+            : `${who} replied on a support ticket`,
+        body: preview || thread.title,
+        pushData: { threadId: thread.id },
       })
     } catch (err) {
-      console.error(`[notify] support reply failed:`, err)
+      console.error(`[notify] support ${args.kind} failed:`, err)
     }
   })()
 }

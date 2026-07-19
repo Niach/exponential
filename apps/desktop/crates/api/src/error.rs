@@ -129,11 +129,11 @@ mod tests {
 
     #[test]
     fn http_error_extracts_trpc_message() {
-        let body = r#"{"error":{"message":"You are not a member of this workspace","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#;
+        let body = r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#;
         match http_error(403, body) {
             ApiError::Http { status, message } => {
                 assert_eq!(status, 403);
-                assert_eq!(message, "You are not a member of this workspace");
+                assert_eq!(message, "You are not a member of this team");
             }
             other => panic!("expected Http, got {other:?}"),
         }

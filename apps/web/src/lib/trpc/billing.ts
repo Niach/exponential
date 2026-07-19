@@ -6,24 +6,24 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { creem_subscriptions } from "@/db/schema"
 import {
-  countOwnedWorkspaces,
+  countOwnedTeams,
   getUserPlan,
-  getWorkspacePlan,
-  getWorkspaceUsage,
-  FREE_OWNED_WORKSPACES_CAP,
+  getTeamPlan,
+  getTeamUsage,
+  FREE_OWNED_TEAMS_CAP,
   type PlanTier,
 } from "@/lib/billing"
 import {
   assertSubscriptionMutable,
-  getActiveWorkspaceSubscription,
+  getActiveTeamSubscription,
   updateCreemSubscriptionSeats,
   upgradeCreemSubscriptionProduct,
 } from "@/lib/billing/creem-subscriptions"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
-import { resolveWorkspaceAccess } from "@/lib/workspace-membership"
+import { resolveTeamAccess } from "@/lib/team-membership"
 
 // The Creem product ids we allow a seat checkout to target. Gating here stops a
-// caller from binding an arbitrary Creem product to a workspace they own.
+// caller from binding an arbitrary Creem product to a team they own.
 function allowedProductIds(): Set<string> {
   return new Set(
     [
@@ -50,8 +50,8 @@ function assertBillingConfigured(): void {
 }
 
 export const billingRouter = router({
-  workspacePlan: authedProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+  teamPlan: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!isCloudInstance()) {
         return {
@@ -66,13 +66,13 @@ export const billingRouter = router({
         }
       }
 
-      // Only someone who can read the workspace may see its plan/usage.
-      await resolveWorkspaceAccess(ctx.session.user.id, input.workspaceId)
+      // Only someone who can read the team may see its plan/usage.
+      await resolveTeamAccess(ctx.session.user.id, input.teamId)
 
       const [planData, usage, subscription] = await Promise.all([
-        getWorkspacePlan(input.workspaceId),
-        getWorkspaceUsage(input.workspaceId),
-        getActiveWorkspaceSubscription(input.workspaceId),
+        getTeamPlan(input.teamId),
+        getTeamUsage(input.teamId),
+        getActiveTeamSubscription(input.teamId),
       ])
 
       return {
@@ -92,15 +92,15 @@ export const billingRouter = router({
       }
     }),
 
-  // Create a per-seat Creem checkout bound to a workspace. Only the workspace
-  // owner may buy seats for it. We pass `units: seats` + metadata (workspaceId,
+  // Create a per-seat Creem checkout bound to a team. Only the team
+  // owner may buy seats for it. We pass `units: seats` + metadata (teamId,
   // seats, referenceId) so the Creem plugin's webhook persistence binds the row
   // to the user (referenceId) while our onCheckoutCompleted/onGrantAccess hooks
-  // bind it to the workspace + seat count (lib/billing/creem-binding.ts).
+  // bind it to the team + seat count (lib/billing/creem-binding.ts).
   createSeatCheckout: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         productId: z.string().min(1),
         seats: z.number().int().positive().max(1000),
         // Absolute URL Creem redirects to after payment. Defaults to the
@@ -118,23 +118,23 @@ export const billingRouter = router({
         })
       }
 
-      // Only the workspace owner may purchase seats for it.
-      await resolveWorkspaceAccess(
+      // Only the team owner may purchase seats for it.
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`,
         { roles: [`owner`] }
       )
 
-      // A workspace holds exactly ONE subscription. A second checkout would
+      // A team holds exactly ONE subscription. A second checkout would
       // stack a second full-price subscription on top of the existing one
       // (pay-twice bug) — seat and plan changes mutate the existing
       // subscription via updateSeats/changePlan instead.
-      const existing = await getActiveWorkspaceSubscription(input.workspaceId)
+      const existing = await getActiveTeamSubscription(input.teamId)
       if (existing) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This workspace already has an active subscription — adjust seats or switch plans instead`,
+          message: `This team already has an active subscription — adjust seats or switch plans instead`,
         })
       }
 
@@ -153,11 +153,11 @@ export const billingRouter = router({
           customer: { email: ctx.session.user.email ?? undefined },
           successUrl,
           // referenceId → the plugin's webhook persistence keys the row to this
-          // user; workspaceId + seats → our binding hooks key it to the
-          // workspace. Both survive Creem's metadata round-trip.
+          // user; teamId + seats → our binding hooks key it to the
+          // team. Both survive Creem's metadata round-trip.
           metadata: {
             referenceId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
+            teamId: input.teamId,
             seats: input.seats,
           },
         }
@@ -166,7 +166,7 @@ export const billingRouter = router({
       return { url }
     }),
 
-  // Change the seat count on the workspace's EXISTING subscription — the fix
+  // Change the seat count on the team's EXISTING subscription — the fix
   // for the pay-twice bug: mutating the subscription (Creem `units`) never
   // creates a second one. With `proration-none` (see creem-subscriptions.ts
   // for why) the new seats are usable immediately and the next renewal
@@ -174,23 +174,23 @@ export const billingRouter = router({
   updateSeats: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         seats: z.number().int().positive().max(1000),
       })
     )
     .mutation(async ({ ctx, input }) => {
       assertBillingConfigured()
 
-      // Same gate as buying seats: workspace owner only.
-      await resolveWorkspaceAccess(
+      // Same gate as buying seats: team owner only.
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`,
         { roles: [`owner`] }
       )
 
-      const subscription = await getActiveWorkspaceSubscription(
-        input.workspaceId
+      const subscription = await getActiveTeamSubscription(
+        input.teamId
       )
       assertSubscriptionMutable(subscription)
       if (subscription.seats === input.seats) {
@@ -212,13 +212,13 @@ export const billingRouter = router({
       return { seats }
     }),
 
-  // Switch the workspace's existing subscription to a different product
+  // Switch the team's existing subscription to a different product
   // (Pro ↔ Business, monthly ↔ yearly) via Creem's upgrade endpoint — same
-  // one-subscription-per-workspace rule as updateSeats.
+  // one-subscription-per-team rule as updateSeats.
   changePlan: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         productId: z.string().min(1),
       })
     )
@@ -231,21 +231,21 @@ export const billingRouter = router({
         })
       }
 
-      await resolveWorkspaceAccess(
+      await resolveTeamAccess(
         ctx.session.user.id,
-        input.workspaceId,
+        input.teamId,
         `mutate_resources`,
         { roles: [`owner`] }
       )
 
-      const subscription = await getActiveWorkspaceSubscription(
-        input.workspaceId
+      const subscription = await getActiveTeamSubscription(
+        input.teamId
       )
       assertSubscriptionMutable(subscription)
       if (subscription.productId === input.productId) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `The workspace is already on this plan`,
+          message: `The team is already on this plan`,
         })
       }
 
@@ -263,22 +263,22 @@ export const billingRouter = router({
       return { productId: input.productId }
     }),
 
-  // User-scoped plan + owned-workspace usage, for pre-gating workspace
+  // User-scoped plan + owned-team usage, for pre-gating team
   // creation. `limit` is the invisible free-tier abuse cap (10 owned
-  // workspaces); paid users are uncapped → null (Infinity→null convention).
+  // teams); paid users are uncapped → null (Infinity→null convention).
   userPlan: authedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id
     if (!isCloudInstance()) {
-      return { plan: `unlimited` as PlanTier, ownedWorkspaces: 0, limit: null }
+      return { plan: `unlimited` as PlanTier, ownedTeams: 0, limit: null }
     }
-    const [{ plan }, ownedWorkspaces] = await Promise.all([
+    const [{ plan }, ownedTeams] = await Promise.all([
       getUserPlan(userId),
-      countOwnedWorkspaces(userId),
+      countOwnedTeams(userId),
     ])
     return {
       plan,
-      ownedWorkspaces,
-      limit: plan === `free` ? FREE_OWNED_WORKSPACES_CAP : null,
+      ownedTeams,
+      limit: plan === `free` ? FREE_OWNED_TEAMS_CAP : null,
     }
   }),
 })

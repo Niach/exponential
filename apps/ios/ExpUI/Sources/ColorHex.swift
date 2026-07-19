@@ -1,8 +1,8 @@
 import SwiftUI
 
 extension Color {
-    /// Best-effort `#rrggbb` parsing for project/label accent colors. Accepts an
-    /// optional string (project/label colors can be nil) and tolerates a leading
+    /// Best-effort `#rrggbb` parsing for board/label accent colors. Accepts an
+    /// optional string (board/label colors can be nil) and tolerates a leading
     /// `#` plus surrounding whitespace; returns nil for anything that isn't a
     /// 6-digit hex so callers can fall back (`Color(hex:) ?? .gray`).
     public init?(hex: String?) {

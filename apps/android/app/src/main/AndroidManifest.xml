@@ -57,6 +57,14 @@
                 <data android:scheme="exponential" android:host="invite" />
             </intent-filter>
 
+            <!-- support_reply push taps (EXP-180): the ticket conversation. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="exponential" android:host="support" />
+            </intent-filter>
+
             <!-- App Links (EXP-92): verified https links open the app instead of
                  the mobile web. Host is per-flavor (production app.exponential.at,
                  staging next.exponential.at); verification needs the host to serve
@@ -70,11 +78,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${appLinkHost}" />
-                <!-- Both board prefixes are claimed: the web moved /w/ → /t/
-                     (workspaces → teams rename, EXP-122) but /w/ stays valid
-                     permanently for old links. -->
-                <data android:pathPattern="/w/.*/projects/.*/issues/.*" />
-                <data android:pathPattern="/t/.*/projects/.*/issues/.*" />
+                <!-- Only the current /t/{team}/boards/{board}/issues/{id} form
+                     is claimed (the great rename, EXP-180): the legacy /w/ and
+                     /projects/ routes are dead on the web (no redirects), so
+                     claiming them would swallow links nothing can render. -->
+                <data android:pathPattern="/t/.*/boards/.*/issues/.*" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

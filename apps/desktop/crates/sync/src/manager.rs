@@ -7,7 +7,7 @@
 //! account set:
 //!
 //! * **login / token refresh** → [`SyncManager::start_account`] spawns the 15
-//!   threads against `{data_dir}/accounts/{id}/sync.sqlite`;
+//!   threads against `{data_dir}/accounts/{id}/sync-v2.sqlite`;
 //! * **logout** → [`SyncManager::stop_account`] flips the shared stop flag and
 //!   joins within a short grace window; the SQLite DB stays on disk for
 //!   offline resume ("Delete local data" is a separate, explicit action);
@@ -50,7 +50,7 @@ pub struct AccountSyncConfig {
     /// Normalized instance base URL (`https://app.exponential.at`).
     pub base_url: String,
     /// Full path of the per-account SQLite file (§5.4):
-    /// `{data_dir}/accounts/{account_id}/sync.sqlite`.
+    /// `{data_dir}/accounts/{account_id}/sync-v2.sqlite`.
     pub db_path: PathBuf,
     /// Call-time session-token access (§5.7) — never captured once.
     pub token: TokenFn,
@@ -264,8 +264,8 @@ impl SyncManager {
             .map(|p| Arc::clone(&p.store))
     }
 
-    /// Port of iOS "wait up to ~5s for the workspaces shape to land" (§5.10):
-    /// block until the account's `workspaces` shape reaches head (its first
+    /// Port of iOS "wait up to ~5s for the teams shape to land" (§5.10):
+    /// block until the account's `teams` shape reaches head (its first
     /// `up-to-date`), so the app shell can show a spinner until the first
     /// board is renderable rather than an empty state. Returns `false` on
     /// timeout or when no pipeline/store exists.
@@ -275,7 +275,7 @@ impl SyncManager {
         };
         let deadline = Instant::now() + timeout;
         loop {
-            if let Ok(Some(state)) = store.shape_state("workspaces") {
+            if let Ok(Some(state)) = store.shape_state("teams") {
                 if state.is_live {
                     return true;
                 }

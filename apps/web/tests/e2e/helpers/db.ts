@@ -1,7 +1,7 @@
 import { inArray, like, sql } from "drizzle-orm"
 import { users, verifications } from "../../../src/db/auth-schema"
 import { db } from "../../../src/db/connection"
-import { workspaceMembers, workspaces } from "../../../src/db/schema"
+import { teamMembers, teams } from "../../../src/db/schema"
 
 function getElectricBaseUrl() {
   return process.env.ELECTRIC_URL || `http://localhost:30000`
@@ -71,16 +71,16 @@ export async function cleanupNamespace(emailPrefix: string) {
 
   const userIds = testUsers.map((user) => user.id)
   const memberships = await db
-    .select({ workspaceId: workspaceMembers.workspaceId })
-    .from(workspaceMembers)
-    .where(inArray(workspaceMembers.userId, userIds))
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(inArray(teamMembers.userId, userIds))
 
-  const workspaceIds = [
-    ...new Set(memberships.map((membership) => membership.workspaceId)),
+  const teamIds = [
+    ...new Set(memberships.map((membership) => membership.teamId)),
   ]
 
-  if (workspaceIds.length > 0) {
-    await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
+  if (teamIds.length > 0) {
+    await db.delete(teams).where(inArray(teams.id, teamIds))
   }
 
   await db.delete(users).where(inArray(users.id, userIds))

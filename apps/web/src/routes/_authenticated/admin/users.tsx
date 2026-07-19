@@ -183,8 +183,8 @@ function AdminUsers() {
               {/* Mobile: meta row beneath the avatar row */}
               <div className="flex md:hidden items-center gap-2 text-xs text-muted-foreground pl-11">
                 <span>
-                  {user.workspaceCount}{` `}
-                  {user.workspaceCount === 1 ? `team` : `teams`}
+                  {user.teamCount}{` `}
+                  {user.teamCount === 1 ? `team` : `teams`}
                 </span>
                 <span aria-hidden>·</span>
                 <span>active {formatRelative(user.lastActiveAt)}</span>
@@ -216,7 +216,7 @@ function AdminUsers() {
                 )}
               </div>
               <div className="hidden md:block text-sm tabular-nums">
-                {user.workspaceCount}
+                {user.teamCount}
               </div>
               <div
                 className="hidden md:block text-xs text-muted-foreground"
@@ -269,7 +269,7 @@ function AdminUsers() {
             <DialogTitle>Delete user?</DialogTitle>
             <DialogDescription>
               This permanently removes <strong>{confirmDelete?.email}</strong>.
-              Their sessions, accounts, workspace memberships, and any issues
+              Their sessions, accounts, team memberships, and any issues
               or comments they authored will be deleted. This cannot be undone.
             </DialogDescription>
           </DialogHeader>

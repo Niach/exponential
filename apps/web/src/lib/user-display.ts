@@ -1,5 +1,5 @@
 // Display-name resolution for user references. The users shape only syncs
-// co-members of PRIVATE workspaces the viewer has joined — on public boards
+// co-members of PRIVATE teams the viewer has joined — on public boards
 // (and for any other unsynced user) the row is absent by design, so every
 // render site needs a fallback that (a) never leaks the raw user id and
 // (b) stays deterministic, so the same person reads as the same handle across

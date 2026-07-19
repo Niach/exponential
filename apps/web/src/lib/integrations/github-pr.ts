@@ -13,12 +13,12 @@ export interface PullFile {
 
 // Server-side repo token for GitHub calls (PR create, diff, merge poll): a
 // short-lived **GitHub App installation token** scoped to `repo`. Migrated off
-// the per-user OAuth token. `workspaceId`/`actorUserId` are accepted (so the
+// the per-user OAuth token. `teamId`/`actorUserId` are accepted (so the
 // call sites don't change) but no longer used — the App resolves the repo's
 // installation directly. Null when the App isn't installed on that repo.
 export async function resolveRepoToken(opts: {
   actorUserId?: string | null
-  workspaceId?: string
+  teamId?: string
   repo: string
 }): Promise<string | null> {
   return resolveRepoInstallationToken(opts.repo)
@@ -193,7 +193,7 @@ export interface OpenPull {
 }
 
 // List a repository's open pull requests. The Reviews queue shows every open
-// PR of a workspace's repos — PRs opened outside the issue flow have no
+// PR of a team's repos — PRs opened outside the issue flow have no
 // issues row to sync from, so they must come straight from GitHub. Token
 // priority mirrors fetchPullFiles: App installation token, then the optional
 // GITHUB_TOKEN env, then unauthenticated (public repos only).

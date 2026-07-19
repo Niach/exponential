@@ -1,8 +1,8 @@
 //! Window management (masterplan-v3 §3.6 "Multi-window").
 //!
-//! `open_workspace_window` is callable N times; every window gets its own
-//! `Root → Workspace → DockArea` but they all read the same global `Store`
-//! and `Theme`. Window close drops that window's entities (the Workspace
+//! `open_shell_window` is callable N times; every window gets its own
+//! `Root → Shell → DockArea` but they all read the same global `Store`
+//! and `Theme`. Window close drops that window's entities (the Shell
 //! decrements the shared window counter on release).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,7 +17,7 @@ static WINDOW_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 /// Cascade offset so a second window doesn't open exactly over the first.
 const CASCADE_STEP: f32 = 24.;
 
-pub fn open_workspace_window(cx: &mut App) {
+pub fn open_shell_window(cx: &mut App) {
     let ordinal = WINDOW_ORDINAL.fetch_add(1, Ordering::SeqCst);
 
     // X11 taskbar-icon fallback (EXP-79): stamp _NET_WM_ICON on the window
@@ -61,10 +61,10 @@ pub fn open_workspace_window(cx: &mut App) {
         };
 
         let window = cx.open_window(options, move |window, cx| {
-            let workspace = cx.new(|cx| ui::Workspace::new(ordinal, window, cx));
+            let shell = cx.new(|cx| ui::Shell::new(ordinal, window, cx));
             // Root MUST be the first view of every window (§3.3) — it hosts
             // the Dialog/Sheet/Popover/Notification overlay layers.
-            cx.new(|cx| Root::new(workspace, window, cx))
+            cx.new(|cx| Root::new(shell, window, cx))
         })?;
 
         window.update(cx, |_, window, cx| {

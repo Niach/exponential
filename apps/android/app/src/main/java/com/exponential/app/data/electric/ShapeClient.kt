@@ -194,10 +194,10 @@ class ShapeClient<T : Any>(
                     socketTimeoutMillis = REQUEST_TIMEOUT_MS
                 }
                 // Authenticate the shape request so the server scopes data to
-                // this user (not just public workspaces). Mirrors TrpcClient /
+                // this user (not just public teams). Mirrors TrpcClient /
                 // AuthApi / IssueImagesApi. Without this, every shape polled
                 // anonymously and only public rows synced — the root cause of
-                // missing workspaces/projects and the 401 on workspace_invites.
+                // missing teams/boards and the 401 on team_invites.
                 header("Authorization", "Bearer $token")
                 if (isInitial) {
                     parameter("offset", INITIAL_OFFSET)

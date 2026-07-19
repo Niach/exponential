@@ -124,7 +124,7 @@ export function McpSetupTabs() {
             <li>Paste the URL below and click Add.</li>
             <li>
               Click Connect — the browser OAuth flow lets you pick which teams
-              and projects to share.
+              and boards to share.
             </li>
           </Steps>
           <Snippet text={endpoint} copyLabel="Copy URL" />
@@ -187,7 +187,7 @@ export function McpSetupTabs() {
         <TabsContent value="cursor" className="space-y-3">
           <Steps>
             <li>
-              Add this to <code>~/.cursor/mcp.json</code> (or a project&apos;s{` `}
+              Add this to <code>~/.cursor/mcp.json</code> (or a board&apos;s{` `}
               <code>.cursor/mcp.json</code>):
             </li>
           </Steps>
@@ -233,7 +233,7 @@ export function McpSetupTabs() {
         </TabsContent>
       </Tabs>
       <Note>
-        Signing in via OAuth lets you scope access per team/project; personal
+        Signing in via OAuth lets you scope access per team/board; personal
         API keys (Bearer expu_…) work for headless use.
       </Note>
     </div>

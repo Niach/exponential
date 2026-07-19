@@ -169,18 +169,18 @@ fn ws_url(port: u16, ticket: &str) -> String {
 
 fn publisher_claims() -> String {
     format!(
-        r#"{{"sub":"user-int","ws":"ws-int","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
+        r#"{{"sub":"user-int","team":"team-int","sessionId":"{SESSION_ID}","role":"publisher","perm":"steer"}}"#
     )
 }
 
 fn viewer_claims() -> String {
     format!(
-        r#"{{"sub":"viewer-int","ws":"ws-int","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
+        r#"{{"sub":"viewer-int","team":"team-int","name":"Phone","sessionId":"{SESSION_ID}","role":"viewer","perm":"steer"}}"#
     )
 }
 
 const CONTROL_CLAIMS: &str =
-    r#"{"sub":"user-int","ws":"","deviceLabel":"IntTestBox","role":"control","perm":"steer"}"#;
+    r#"{"sub":"user-int","team":"","deviceLabel":"IntTestBox","role":"control","perm":"steer"}"#;
 
 // ---------------------------------------------------------------------------
 // Test doubles over the production traits
@@ -480,11 +480,11 @@ fn full_protocol_flow_against_the_real_relay() {
         assert_eq!(start.plan_mode, Some(true));
     }
 
-    // Batch start (EXP-106): issueIds + workspaceId + repo ride the same
+    // Batch start (EXP-106): issueIds + teamId + repo ride the same
     // /start route → the frame's `RemoteStartSubject::Batch` lands on our
     // socket. (The relay's batch /start support lands concurrently — this
     // case exercises the frozen wire contract end-to-end.)
-    let batch_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueIds":["issue-b1","issue-b2"],"workspaceId":"ws-b","repo":{"repositoryId":"repo-b","fullName":"acme/api","defaultBranch":"main"},"model":"sonnet","effort":"high","ultracode":true,"planMode":false}"#;
+    let batch_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueIds":["issue-b1","issue-b2"],"teamId":"ws-b","repo":{"repositoryId":"repo-b","fullName":"acme/api","defaultBranch":"main"},"model":"sonnet","effort":"high","ultracode":true,"planMode":false}"#;
     let response = http_request(
         relay.port,
         "POST",
@@ -511,7 +511,7 @@ fn full_protocol_flow_against_the_real_relay() {
             .unwrap();
         let steer::RemoteStartSubject::Batch {
             issue_ids,
-            workspace_id,
+            team_id,
             repo,
         } = &start.subject
         else {
@@ -521,7 +521,7 @@ fn full_protocol_flow_against_the_real_relay() {
             issue_ids.as_slice(),
             ["issue-b1".to_string(), "issue-b2".to_string()]
         );
-        assert_eq!(workspace_id, "ws-b");
+        assert_eq!(team_id, "ws-b");
         assert_eq!(
             repo,
             &steer::StartRepoGroup {

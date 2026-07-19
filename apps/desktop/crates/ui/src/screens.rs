@@ -8,8 +8,8 @@
 //! [`Navigation`] state. The heavyweight views (issue detail, file viewer,
 //! …) stay single instances re-pointed on tab switch — tabs remember *what*
 //! is open, not per-tab view state. Closing the active tab activates its
-//! neighbor; closing the last shows the empty state. A workspace switch
-//! drops all tabs (they are workspace-scoped).
+//! neighbor; closing the last shows the empty state. A team switch
+//! drops all tabs (they are team-scoped).
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
@@ -26,11 +26,11 @@ use gpui_component::{
 };
 use sync::Store;
 
-use crate::actions::NewProject;
+use crate::actions::NewBoard;
 use crate::icons::ExpIcon;
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
-    active_workspace_id, nav_for_window, resolved_screen, screen_title, set_screen, shapes_ready,
+    active_team_id, nav_for_window, resolved_screen, screen_title, set_screen, shapes_ready,
     Navigation, Screen,
 };
 
@@ -67,6 +67,12 @@ pub(crate) fn build_screen_content(
         Screen::SourceControl => cx
             .new(|cx| crate::source_control::SourceControlView::new(window, cx))
             .into(),
+        Screen::SupportThread { thread_id } => {
+            let view = cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
+            let thread_id = thread_id.clone();
+            view.update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
+            view.into()
+        }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         Screen::Account => cx.new(|cx| crate::settings::AccountView::new(window, cx)).into(),
     }
@@ -80,11 +86,14 @@ pub struct ScreensPanel {
     account: Entity<crate::settings::AccountView>,
     source_control: Entity<crate::source_control::SourceControlView>,
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
+    /// One shared support-thread view, re-pointed on tab switch (EXP-180 —
+    /// same single-instance model as the issue detail).
+    support_thread: Entity<crate::support_thread::SupportThreadView>,
     /// Open tabs in strip order — every [`Screen`] value is one tab identity
     /// (several issues / files at once; SC/settings/account dedupe).
     tabs: Vec<Screen>,
-    /// The workspace the tabs belong to — a switch drops them.
-    tabs_workspace: Option<String>,
+    /// The team the tabs belong to — a switch drops them.
+    tabs_team: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -97,6 +106,8 @@ impl ScreensPanel {
         let account = cx.new(|cx| crate::settings::AccountView::new(window, cx));
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
+        let support_thread =
+            cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         let nav = nav_for_window(window, cx);
 
         let mut subscriptions = Vec::new();
@@ -108,7 +119,7 @@ impl ScreensPanel {
         }));
         let collections = Store::global(cx).collections().clone();
         subscriptions.push(cx.observe_in(
-            &collections.workspaces,
+            &collections.teams,
             window,
             |this, _, window, cx| {
                 this.sync_tabs(window, cx);
@@ -117,7 +128,7 @@ impl ScreensPanel {
         ));
         // Tab titles join issue identifiers live.
         subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
-        subscriptions.push(cx.observe(&collections.projects, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe_in(
             &Store::global(cx).state(),
             window,
@@ -135,15 +146,16 @@ impl ScreensPanel {
             account,
             source_control,
             file_viewer,
+            support_thread,
             tabs: Vec::new(),
-            tabs_workspace: None,
+            tabs_team: None,
             _subscriptions: subscriptions,
         };
         this.sync_tabs(window, cx);
         this
     }
 
-    /// Reconcile tabs with the navigation state: drop tabs on a workspace
+    /// Reconcile tabs with the navigation state: drop tabs on a team
     /// switch, open (or keep) a tab for the active screen, and re-point the
     /// shared views at it. Runs in observers (never mid-render).
     fn sync_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -151,13 +163,13 @@ impl ScreensPanel {
         // displaced — consume the marker so that tab's identity swaps instead
         // of a new tab opening per step.
         let replaced = crate::navigation::take_replaced_screen(&self.nav, cx);
-        let workspace = active_workspace_id(&self.nav, cx);
-        if workspace != self.tabs_workspace {
+        let team = active_team_id(&self.nav, cx);
+        if team != self.tabs_team {
             // Dropping the tabs tears the issue detail down without a blur —
             // flush a pending description edit first (EXP-68).
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
-            self.tabs_workspace = workspace;
+            self.tabs_team = team;
             self.tabs.clear();
         }
         let Some(screen) = resolved_screen(&self.nav, cx) else {
@@ -180,6 +192,11 @@ impl ScreensPanel {
             Screen::FileViewer { path } => {
                 self.file_viewer
                     .update(cx, |viewer, cx| viewer.set_path(path, cx));
+            }
+            Screen::SupportThread { thread_id } => {
+                // Re-pointing also restarts the 15s poll on tab reactivation.
+                self.support_thread
+                    .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             }
             _ => {}
         }
@@ -274,7 +291,7 @@ impl ScreensPanel {
             }))
     }
 
-    /// §4.1: while the workspace/projects shapes have not caught up, render a
+    /// §4.1: while the team/boards shapes have not caught up, render a
     /// skeleton — never a wrong empty state.
     fn render_syncing(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
@@ -287,20 +304,20 @@ impl ScreensPanel {
             .into_any_element()
     }
 
-    /// Nothing open: point at the sidebar (or at project creation when the
-    /// workspace has none — projects may be dev/task/feedback boards, v7).
+    /// Nothing open: point at the sidebar (or at board creation when the
+    /// team has none).
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let active_workspace = active_workspace_id(&self.nav, cx);
-        let has_projects = active_workspace
+        let active_team = active_team_id(&self.nav, cx);
+        let has_boards = active_team
             .as_deref()
             .map(|id| {
                 !Store::global(cx)
                     .collections()
-                    .projects_in_workspace(id, cx)
+                    .boards_in_team(id, cx)
                     .is_empty()
             })
             .unwrap_or(false);
-        if has_projects {
+        if has_boards {
             return v_flex()
                 .size_full()
                 .items_center()
@@ -339,25 +356,25 @@ impl ScreensPanel {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child("No projects yet"),
+                    .child("No boards yet"),
             )
             .child(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Create a project to start tracking issues — a dev board with a repository, or a repo-less task or feedback board."),
+                    .child("Create a board to start tracking issues. Connect a repository to code on it."),
             );
-        // No workspace resolves (e.g. the last one was just deleted — the
+        // No team resolves (e.g. the last one was just deleted — the
         // EXP-43 self-heal is creating a fresh personal one): the create
         // action would silently no-op, so don't offer a dead button.
-        if active_workspace.is_some() {
+        if active_team.is_some() {
             column = column.child(
-                Button::new("screens-new-project")
+                Button::new("screens-new-board")
                     .primary()
                     .small()
-                    .label("New project…")
+                    .label("New board…")
                     .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(NewProject), cx);
+                        window.dispatch_action(Box::new(NewBoard), cx);
                     }),
             );
         }
@@ -398,11 +415,11 @@ impl Render for ScreensPanel {
         let screen = resolved_screen(&self.nav, cx);
 
         // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once a
-        // project scope resolves, `EXP_DEV_CREATE_DIALOG=1` opens the
+        // board scope resolves, `EXP_DEV_CREATE_DIALOG=1` opens the
         // create-issue dialog exactly once so gate screenshots can capture it
         // without synthetic input. Unset in normal runs.
         if std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1") {
-            if let Some(project_id) = crate::navigation::active_project_id(&self.nav, cx) {
+            if let Some(board_id) = crate::navigation::active_board_id(&self.nav, cx) {
                 use std::sync::atomic::{AtomicBool, Ordering};
                 static FIRED: AtomicBool = AtomicBool::new(false);
                 if !FIRED.swap(true, Ordering::SeqCst) {
@@ -411,7 +428,7 @@ impl Render for ScreensPanel {
                             .timer(std::time::Duration::from_millis(1500))
                             .await;
                         let opened = cx.update(|window, cx| {
-                            crate::create_issue_dialog::open(window, cx, project_id);
+                            crate::create_issue_dialog::open(window, cx, board_id);
                         });
                         eprintln!("[exp-desktop] dev: EXP_DEV_CREATE_DIALOG fired ({opened:?})");
                     })
@@ -428,6 +445,9 @@ impl Render for ScreensPanel {
             Some(Screen::Account) => self.account.clone().into_any_element(),
             Some(Screen::SourceControl) => self.source_control.clone().into_any_element(),
             Some(Screen::FileViewer { .. }) => self.file_viewer.clone().into_any_element(),
+            Some(Screen::SupportThread { .. }) => {
+                self.support_thread.clone().into_any_element()
+            }
         };
 
         let active_ix = screen

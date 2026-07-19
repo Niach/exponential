@@ -1,11 +1,11 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issueEvents, issues, projects, repositories } from "@/db/schema"
+import { issueEvents, issues, boards, repositories } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 
-// Parse a workspace issue identifier ("MET-12") out of a PR head-branch name.
+// Parse a team issue identifier ("MET-12") out of a PR head-branch name.
 // Matches the launcher's `exp/<IDENTIFIER>` convention and any custom prefix
 // (e.g. `feature/MET-12`) by anchoring on the trailing `<IDENT>-<number>` tail.
 // Pure — unit-tested in pr-sync.test.ts.
@@ -16,9 +16,9 @@ export function parseIssueIdentifierFromBranch(branch: string): string | null {
 
 // Resolve an issue by (repo full name + head branch), for the webhook's
 // deterministic branch-based linking. The repo scopes the identifier lookup to
-// the projects that repo backs, so identical identifiers in other workspaces
+// the boards that repo backs, so identical identifiers in other teams
 // never cross-match. Returns null when the branch doesn't parse, the repo isn't
-// registered, or no linked project holds that identifier.
+// registered, or no linked board holds that identifier.
 export async function findIssueIdByBranch(
   repoFullName: string,
   branch: string
@@ -32,43 +32,43 @@ export async function findIssueIdByBranch(
     .where(eq(repositories.fullName, repoFullName))
   if (repoRows.length === 0) return null
 
-  // Projects backed by any of these repos (v4: projects.repositoryId).
-  const projectRows = await db
-    .select({ projectId: projects.id, workspaceId: projects.workspaceId })
-    .from(projects)
+  // Boards backed by any of these repos (v4: boards.repositoryId).
+  const boardRows = await db
+    .select({ boardId: boards.id, teamId: boards.teamId })
+    .from(boards)
     .where(
       inArray(
-        projects.repositoryId,
+        boards.repositoryId,
         repoRows.map((r) => r.id)
       )
     )
-  const projectIds = [...new Set(projectRows.map((p) => p.projectId))]
-  if (projectIds.length === 0) return null
+  const boardIds = [...new Set(boardRows.map((p) => p.boardId))]
+  if (boardIds.length === 0) return null
 
   const [issue] = await db
     .select({ id: issues.id })
     .from(issues)
     .where(
-      and(inArray(issues.projectId, projectIds), eq(issues.identifier, identifier))
+      and(inArray(issues.boardId, boardIds), eq(issues.identifier, identifier))
     )
     .limit(1)
   if (issue) return issue.id
 
-  // Second chance (EXP-57): the branch may predate a cross-project move that
+  // Second chance (EXP-57): the branch may predate a cross-board move that
   // renumbered the issue — identifiers are monotonic and never reused, so a
   // retired identifier matches nothing above. Every move records its retired
-  // identifier in a project_moved event; match it WORKSPACE-scoped, because
-  // the move re-pointed the issue's events onto the TARGET project, which may
+  // identifier in a board_moved event; match it TEAM-scoped, because
+  // the move re-pointed the issue's events onto the TARGET board, which may
   // not be backed by this repo at all. Latest event wins (a chain of moves
   // still resolves each retired identifier to the same issue exactly once).
-  const workspaceIds = [...new Set(projectRows.map((p) => p.workspaceId))]
+  const teamIds = [...new Set(boardRows.map((p) => p.teamId))]
   const [movedEvent] = await db
     .select({ issueId: issueEvents.issueId })
     .from(issueEvents)
     .where(
       and(
-        inArray(issueEvents.workspaceId, workspaceIds),
-        eq(issueEvents.type, `project_moved`),
+        inArray(issueEvents.teamId, teamIds),
+        eq(issueEvents.type, `board_moved`),
         sql`${issueEvents.payload} ->> 'fromIdentifier' = ${identifier}`
       )
     )
@@ -99,7 +99,7 @@ export async function applyPrLifecycleStatusInTx(
   tx: Tx,
   opts: {
     issueId: string
-    workspaceId: string
+    teamId: string
     actorUserId: string | null
     currentStatus: string
     to: `in_review` | `done`
@@ -119,7 +119,7 @@ export async function applyPrLifecycleStatusInTx(
 
   await recordIssueEvent(tx, {
     issueId: opts.issueId,
-    workspaceId: opts.workspaceId,
+    teamId: opts.teamId,
     actorUserId: opts.actorUserId,
     type: `status_changed`,
     payload: { from: opts.currentStatus, to: opts.to },
@@ -171,10 +171,10 @@ export async function applyPrOpenedState(opts: {
       .select({
         prUrl: issues.prUrl,
         status: issues.status,
-        workspaceId: projects.workspaceId,
+        teamId: boards.teamId,
       })
       .from(issues)
-      .innerJoin(projects, eq(projects.id, issues.projectId))
+      .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(eq(issues.id, opts.issueId))
       .limit(1)
 
@@ -193,7 +193,7 @@ export async function applyPrOpenedState(opts: {
 
     await recordIssueEvent(tx, {
       issueId: opts.issueId,
-      workspaceId: current.workspaceId,
+      teamId: current.teamId,
       actorUserId: opts.actorUserId ?? null,
       type: `pr_opened`,
       payload: {
@@ -206,7 +206,7 @@ export async function applyPrOpenedState(opts: {
     // An open PR moves the issue into review (EXP-120).
     await applyPrLifecycleStatusInTx(tx, {
       issueId: opts.issueId,
-      workspaceId: current.workspaceId,
+      teamId: current.teamId,
       actorUserId: opts.actorUserId ?? null,
       currentStatus: current.status,
       to: `in_review`,
@@ -249,10 +249,10 @@ export async function applyPrMergeState(opts: {
         prState: issues.prState,
         prUrl: issues.prUrl,
         status: issues.status,
-        workspaceId: projects.workspaceId,
+        teamId: boards.teamId,
       })
       .from(issues)
-      .innerJoin(projects, eq(projects.id, issues.projectId))
+      .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(eq(issues.id, opts.issueId))
       .limit(1)
 
@@ -273,7 +273,7 @@ export async function applyPrMergeState(opts: {
 
     await recordIssueEvent(tx, {
       issueId: opts.issueId,
-      workspaceId: current.workspaceId,
+      teamId: current.teamId,
       actorUserId: opts.actorUserId ?? null,
       type: `pr_merged`,
       payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
@@ -282,7 +282,7 @@ export async function applyPrMergeState(opts: {
     // The merged PR completes the issue (EXP-120: in_review → done).
     await applyPrLifecycleStatusInTx(tx, {
       issueId: opts.issueId,
-      workspaceId: current.workspaceId,
+      teamId: current.teamId,
       actorUserId: opts.actorUserId ?? null,
       currentStatus: current.status,
       to: `done`,

@@ -80,7 +80,7 @@ fun CommentThread(
             state.events.map { TimelineItem.Event(it) })
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
     }
-    // Workspace members for @mention autocomplete (agents excluded — you mention people).
+    // Team members for @mention autocomplete (agents excluded — you mention people).
     val mentionMembers = remember(state.usersById) {
         state.usersById.values
             .filter { !it.isAgent }

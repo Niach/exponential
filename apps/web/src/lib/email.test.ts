@@ -150,12 +150,12 @@ describe(`sendNotificationDigestEmail over the SES transport (mocked)`, () => {
         {
           title: `Dana assigned you MET-12`,
           body: `Fix the login flow`,
-          url: `https://app.example.com/t/metric/projects/web/issues/MET-12`,
+          url: `https://app.example.com/t/metric/boards/web/issues/MET-12`,
         },
         {
           title: `Dana commented on MET-9`,
           body: null,
-          url: `https://app.example.com/t/metric/projects/web/issues/MET-9`,
+          url: `https://app.example.com/t/metric/boards/web/issues/MET-9`,
         },
       ],
       appUrl: `https://app.example.com`,
@@ -183,10 +183,10 @@ describe(`sendNotificationDigestEmail over the SES transport (mocked)`, () => {
     })
     const html = input.Content.Simple.Body.Html.Data
     expect(html).toContain(
-      `https://app.example.com/t/metric/projects/web/issues/MET-12`
+      `https://app.example.com/t/metric/boards/web/issues/MET-12`
     )
     expect(html).toContain(
-      `https://app.example.com/t/metric/projects/web/issues/MET-9`
+      `https://app.example.com/t/metric/boards/web/issues/MET-9`
     )
     expect(html).toContain(
       `https://app.example.com/api/email/unsubscribe?token=tok-1`

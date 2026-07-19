@@ -73,11 +73,27 @@ fn row_by_id<'a>(rows: &'a [Map<String, Value>], id: &str) -> &'a Map<String, Va
 
 /// Load a single-message fixture (camel-case.json / snake-case.json) and
 /// decode it through the real parser.
+///
+/// EXP-180: the shared conformance fixtures still carry the pre-rename wire
+/// names (`project_id`/`projectId`). The protocol layer is column-name-
+/// agnostic so they stay valid there (see tests/protocol.rs), but THESE tests
+/// exercise the desktop schema, which now models the renamed columns — remap
+/// the legacy keys to `board_id`/`boardId` before the apply. Drop the remap
+/// once `packages/electric-protocol` refreshes its fixtures to the renamed
+/// wire.
 fn fixture_message(name: &str) -> ShapeMessage {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../packages/electric-protocol/fixtures")
         .join(name);
-    let fixture: Value = serde_json::from_slice(&std::fs::read(&path).expect("fixture")).unwrap();
+    let mut fixture: Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("fixture")).unwrap();
+    if let Some(value) = fixture.get_mut("value").and_then(Value::as_object_mut) {
+        for (legacy, renamed) in [("project_id", "board_id"), ("projectId", "boardId")] {
+            if let Some(v) = value.remove(legacy) {
+                value.insert(renamed.to_string(), v);
+            }
+        }
+    }
     let body = serde_json::to_vec(&Value::Array(vec![fixture])).unwrap();
     let mut msgs = parse_messages(&body, false);
     assert_eq!(msgs.len(), 1);
@@ -110,7 +126,7 @@ fn apply_tolerates_and_drops_stale_fixture_columns() {
     let row = row_by_id(&rows, "01J9K0A0X3CB4E5F6G7H8J9K0L");
     assert_eq!(row.get("title").and_then(Value::as_str), Some("First issue"));
     assert_eq!(
-        row.get("project_id").and_then(Value::as_str),
+        row.get("board_id").and_then(Value::as_str),
         Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
     );
     assert_eq!(row.get("due_date").and_then(Value::as_str), Some("2026-05-20"));
@@ -171,12 +187,12 @@ fn open_heals_missing_columns_from_an_older_schema() {
     // Healing must also stamp the shape's refetch marker: the healed columns
     // are NULL on every pre-existing row and incremental sync never backfills
     // them (Electric only sends rows that change), so the next poll must be a
-    // full re-snapshot — the 0.8.4→0.8.5 vanishing-projects upgrade bug.
+    // full re-snapshot — the 0.8.4→0.8.5 vanishing-boards upgrade bug.
     let st = store.shape_state("issues").unwrap().unwrap();
     assert!(st.needs_refetch, "healed shape must force a re-snapshot");
     // A freshly created table (full column set from ddl()) heals nothing and
     // gets NO marker — a clean first open starts a plain initial snapshot.
-    assert!(store.shape_state("projects").unwrap().is_none());
+    assert!(store.shape_state("boards").unwrap().is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -218,31 +234,31 @@ fn bind_scalars_not_json_blobs() {
     assert_eq!(row.get("number"), Some(&Value::String("1".into())));
     assert_eq!(row.get("sort_order"), Some(&Value::String("1.5".into())));
 
-    // Bools → canonical "t"/"f" (projects.is_public is a bool column).
-    let projects = shape_by_name("projects").unwrap();
+    // Bools → canonical "t"/"f" (boards.is_protected is a bool column).
+    let boards = shape_by_name("boards").unwrap();
     store
         .apply_batch(
-            projects,
+            boards,
             &[
                 insert(
                     "p-1",
-                    json!({"id": "p-1", "workspace_id": "w-1", "name": "A", "is_public": true}),
+                    json!({"id": "p-1", "team_id": "w-1", "name": "A", "is_protected": true}),
                 ),
                 insert(
                     "p-2",
-                    json!({"id": "p-2", "workspace_id": "w-1", "name": "B", "is_public": false}),
+                    json!({"id": "p-2", "team_id": "w-1", "name": "B", "is_protected": false}),
                 ),
             ],
             None,
         )
         .unwrap();
-    let rows = store.read_all(projects).unwrap();
+    let rows = store.read_all(boards).unwrap();
     assert_eq!(
-        row_by_id(&rows, "p-1").get("is_public"),
+        row_by_id(&rows, "p-1").get("is_protected"),
         Some(&Value::String("t".into()))
     );
     assert_eq!(
-        row_by_id(&rows, "p-2").get("is_public"),
+        row_by_id(&rows, "p-2").get("is_protected"),
         Some(&Value::String("f".into()))
     );
 }
@@ -456,7 +472,7 @@ fn composite_pk_issue_labels() {
             spec,
             &[ShapeMessage::Insert {
                 key: key.clone(),
-                value: json!({"issue_id": "iss-1", "label_id": "lab-1", "workspace_id": "w-1"})
+                value: json!({"issue_id": "iss-1", "label_id": "lab-1", "team_id": "w-1"})
                     .as_object()
                     .cloned()
                     .unwrap(),
@@ -472,7 +488,7 @@ fn composite_pk_issue_labels() {
             spec,
             &[ShapeMessage::Insert {
                 key: key.clone(),
-                value: json!({"issue_id": "iss-1", "label_id": "lab-1", "workspace_id": "w-2"})
+                value: json!({"issue_id": "iss-1", "label_id": "lab-1", "team_id": "w-2"})
                     .as_object()
                     .cloned()
                     .unwrap(),
@@ -482,7 +498,7 @@ fn composite_pk_issue_labels() {
         .unwrap();
     let rows = store.read_all(spec).unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].get("workspace_id").and_then(Value::as_str), Some("w-2"));
+    assert_eq!(rows[0].get("team_id").and_then(Value::as_str), Some("w-2"));
 
     store
         .apply_batch(spec, &[ShapeMessage::Delete { key }], None)

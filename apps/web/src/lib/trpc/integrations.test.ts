@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// One linked installation resolves for every workspace; the repos query then
-// aggregates + caches per workspace. A queue lets individual tests override
+// One linked installation resolves for every team; the repos query then
+// aggregates + caches per team. A queue lets individual tests override
 // specific SELECT results (e.g. unlink's in-use check); everything else gets
 // the default link row, which keeps the cache tests isolated to cache
-// behavior (fresh serve, refresh bypass, invalidation, per-workspace keys).
+// behavior (fresh serve, refresh bypass, invalidation, per-team keys).
 const DEFAULT_ROWS = [
   { installationId: 1, accountLogin: `acme`, accountType: `User` },
 ]
@@ -62,20 +62,20 @@ vi.mock(`@/lib/admin`, () => ({
   isUserAdmin: vi.fn(async () => false),
 }))
 
-const assertWorkspaceMember = vi.fn(
+const assertTeamMember = vi.fn(
   async (..._args: unknown[]) => ({ role: `owner` })
 )
-vi.mock(`@/lib/workspace-membership`, () => ({
-  assertWorkspaceMember: (...args: unknown[]) => assertWorkspaceMember(...args),
-  getUserWorkspaceIds: vi.fn(async () => [`ws-union`]),
+vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: (...args: unknown[]) => assertTeamMember(...args),
+  getUserTeamIds: vi.fn(async () => [`ws-union`]),
 }))
 
-// Stable feedback-workspace id for the unlink protection guard. A fixed value
-// (never produced by freshWorkspaceId) keeps the non-feedback unlink tests on
+// Stable feedback-team id for the unlink protection guard. A fixed value
+// (never produced by freshTeamId) keeps the non-feedback unlink tests on
 // their normal path and lets one test assert the protected refusal.
 const FEEDBACK_WS_ID = `11111111-1111-4111-8111-111111111111`
 vi.mock(`@/lib/bootstrap-cloud`, () => ({
-  getFeedbackWorkspaceId: vi.fn(async () => FEEDBACK_WS_ID),
+  getFeedbackTeamId: vi.fn(async () => FEEDBACK_WS_ID),
 }))
 
 const listAllInstallationRepos = vi.fn(async (_installationId: number) => ({
@@ -141,7 +141,7 @@ function callerFor(userId: string) {
 }
 
 let wsCounter = 0
-function freshWorkspaceId(): string {
+function freshTeamId(): string {
   wsCounter += 1
   return `00000000-0000-4000-8000-${String(wsCounter).padStart(12, `0`)}`
 }
@@ -149,7 +149,7 @@ function freshWorkspaceId(): string {
 beforeEach(() => {
   process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
   listAllInstallationRepos.mockClear()
-  assertWorkspaceMember.mockClear()
+  assertTeamMember.mockClear()
   githubOAuthConfigured.mockReturnValue(false)
   installationIdForRepo.mockClear()
   selectQueue.length = 0
@@ -160,73 +160,73 @@ beforeEach(() => {
 })
 
 describe(`integrations.github.repos scoping`, () => {
-  it(`member-gates the workspace-scoped path`, async () => {
-    const workspaceId = freshWorkspaceId()
-    await callerFor(`user-a`).github.repos({ workspaceId })
-    expect(assertWorkspaceMember).toHaveBeenCalledWith(`user-a`, workspaceId)
+  it(`member-gates the team-scoped path`, async () => {
+    const teamId = freshTeamId()
+    await callerFor(`user-a`).github.repos({ teamId })
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-a`, teamId)
   })
 
-  it(`rejects a call without a workspaceId (the shim is gone)`, async () => {
+  it(`rejects a call without a teamId (the shim is gone)`, async () => {
     await expect(
-      // @ts-expect-error — the input now requires workspaceId; simulate an
+      // @ts-expect-error — the input now requires teamId; simulate an
       // outdated client sending none.
       callerFor(`user-legacy`).github.repos()
     ).rejects.toThrow()
-    expect(assertWorkspaceMember).not.toHaveBeenCalled()
+    expect(assertTeamMember).not.toHaveBeenCalled()
   })
 
-  it(`mints a workspace-bound connect URL`, async () => {
-    const workspaceId = freshWorkspaceId()
-    const result = await callerFor(`user-a`).github.repos({ workspaceId })
+  it(`mints a team-bound connect URL`, async () => {
+    const teamId = freshTeamId()
+    const result = await callerFor(`user-a`).github.repos({ teamId })
     expect(result.connectUrl).toBe(`https://oauth.example`)
-    // The state inside carries the OAuth purpose + the target workspace.
+    // The state inside carries the OAuth purpose + the target team.
     const state = connectUrlStates.at(-1) ?? null
     expect(
       consumeGithubSetupState(state, `user-a`, { expectOauth: true })
-    ).toEqual({ userId: `user-a`, workspaceId })
+    ).toEqual({ userId: `user-a`, teamId })
   })
 })
 
 describe(`integrations.github.repos cache`, () => {
-  it(`serves a fresh cache entry without re-hitting GitHub (keyed per workspace)`, async () => {
+  it(`serves a fresh cache entry without re-hitting GitHub (keyed per team)`, async () => {
     const caller = callerFor(`user-fresh`)
-    const wsA = freshWorkspaceId()
-    const wsB = freshWorkspaceId()
+    const wsA = freshTeamId()
+    const wsB = freshTeamId()
 
-    await caller.github.repos({ workspaceId: wsA })
+    await caller.github.repos({ teamId: wsA })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
     // Second call within the TTL is served from cache — GitHub not re-hit.
-    await caller.github.repos({ workspaceId: wsA })
+    await caller.github.repos({ teamId: wsA })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
-    // A different workspace never shares the entry.
-    await caller.github.repos({ workspaceId: wsB })
+    // A different team never shares the entry.
+    await caller.github.repos({ teamId: wsB })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 
   it(`bypasses the cache when refresh is set`, async () => {
     const caller = callerFor(`user-refresh`)
-    const workspaceId = freshWorkspaceId()
-    await caller.github.repos({ workspaceId })
+    const teamId = freshTeamId()
+    await caller.github.repos({ teamId })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
     // refresh: true drops the cached entry before fetching → re-hits GitHub.
-    await caller.github.repos({ workspaceId, refresh: true })
+    await caller.github.repos({ teamId, refresh: true })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 
   it(`re-hits GitHub after invalidateRepoCache (the claim/setup path)`, async () => {
     const caller = callerFor(`user-setup`)
-    const workspaceId = freshWorkspaceId()
-    await caller.github.repos({ workspaceId })
+    const teamId = freshTeamId()
+    await caller.github.repos({ teamId })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
-    // The claim callback / setup route invalidates the workspace's entry when
+    // The claim callback / setup route invalidates the team's entry when
     // a link lands.
-    invalidateRepoCache(workspaceId)
+    invalidateRepoCache(teamId)
 
-    await caller.github.repos({ workspaceId })
+    await caller.github.repos({ teamId })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 })
@@ -234,22 +234,22 @@ describe(`integrations.github.repos cache`, () => {
 describe(`integrations.github.repos install URL platform marker`, () => {
   it(`marks the minted state mobile only when platform is "mobile"`, async () => {
     const caller = callerFor(`user-platform`)
-    const workspaceId = freshWorkspaceId()
+    const teamId = freshTeamId()
 
-    await caller.github.repos({ workspaceId, platform: `mobile` })
+    await caller.github.repos({ teamId, platform: `mobile` })
     const mobileState = installUrlStates.at(-1) ?? null
     expect(githubSetupStateWantsMobile(mobileState)).toBe(true)
     // The mobile marker rides alongside the dialog flag, never instead of it.
     expect(githubSetupStateWantsDialog(mobileState)).toBe(true)
 
-    // Cached serve (same workspace, within TTL) still mints per-request, so a
+    // Cached serve (same team, within TTL) still mints per-request, so a
     // web call right after a mobile one must NOT inherit the mobile marker.
-    await caller.github.repos({ workspaceId })
+    await caller.github.repos({ teamId })
     const webState = installUrlStates.at(-1) ?? null
     expect(githubSetupStateWantsMobile(webState)).toBe(false)
     expect(githubSetupStateWantsDialog(webState)).toBe(true)
 
-    await caller.github.repos({ workspaceId, platform: `web` })
+    await caller.github.repos({ teamId, platform: `web` })
     expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
       false
     )
@@ -257,15 +257,15 @@ describe(`integrations.github.repos install URL platform marker`, () => {
 })
 
 describe(`assertRepoInstallationAccess grant gate`, () => {
-  // Select order on the live-resolution path: #1 the workspace's linked
-  // installations, #2 the grant lookup for (workspace, installation, repo).
+  // Select order on the live-resolution path: #1 the team's linked
+  // installations, #2 the grant lookup for (team, installation, repo).
   it(`denies a linked-installation repo with NO grant when OAuth is configured`, async () => {
     githubOAuthConfigured.mockReturnValue(true)
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup → none
     await expect(
-      assertRepoInstallationAccess(freshWorkspaceId(), `acme/other-private`)
-    ).rejects.toThrow(/reconnect GitHub in workspace settings/)
+      assertRepoInstallationAccess(freshTeamId(), `acme/other-private`)
+    ).rejects.toThrow(/reconnect GitHub in team settings/)
   })
 
   it(`allows a granted repo and returns the authoritative installation id`, async () => {
@@ -273,7 +273,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS)
     selectQueue.push([{ id: `grant-1` }])
     await expect(
-      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
+      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
     ).resolves.toBe(1)
   })
 
@@ -283,8 +283,8 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup after the scan hit → none
     await expect(
-      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
-    ).rejects.toThrow(/reconnect GitHub in workspace settings/)
+      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
+    ).rejects.toThrow(/reconnect GitHub in team settings/)
     // The scan itself ran (installation-wide listing) — the DENY came from the
     // missing grant, not from the repo being absent.
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
@@ -297,7 +297,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     // row and throw.
     selectQueue.push([])
     await expect(
-      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
+      assertRepoInstallationAccess(freshTeamId(), `acme/repo`)
     ).resolves.toBe(1)
   })
 })
@@ -305,7 +305,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
 describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
   it(`lists only granted repos — never GitHub's installation-wide listing`, async () => {
     githubOAuthConfigured.mockReturnValue(true)
-    const workspaceId = freshWorkspaceId()
+    const teamId = freshTeamId()
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([
       // Two grant rows for the same repo (two members proved access) — the
@@ -323,7 +323,7 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
         defaultBranch: `dev`,
       },
     ])
-    const result = await callerFor(`user-grant`).github.repos({ workspaceId })
+    const result = await callerFor(`user-grant`).github.repos({ teamId })
     expect(result.repos).toEqual([
       {
         fullName: `acme/granted`,
@@ -344,16 +344,16 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
 
   it(`returns an empty list + needsReauth for a linked installation with zero grants`, async () => {
     githubOAuthConfigured.mockReturnValue(true)
-    const workspaceId = freshWorkspaceId()
+    const teamId = freshTeamId()
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // no grants (e.g. a pre-grant legacy link)
-    const result = await callerFor(`user-grant`).github.repos({ workspaceId })
+    const result = await callerFor(`user-grant`).github.repos({ teamId })
     expect(result.repos).toEqual([])
     expect(result.installations[0]).toMatchObject({ needsReauth: true })
     expect(listAllInstallationRepos).not.toHaveBeenCalled()
 
     // Cached serve preserves the grant-derived list and the needsReauth flag.
-    const cached = await callerFor(`user-grant`).github.repos({ workspaceId })
+    const cached = await callerFor(`user-grant`).github.repos({ teamId })
     expect(cached.repos).toEqual([])
     expect(cached.installations[0]).toMatchObject({ needsReauth: true })
   })
@@ -361,10 +361,10 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
 
 describe(`integrations.github.claimLinks guards`, () => {
   it(`refuses installation ids outside the ticket's verified set`, async () => {
-    const workspaceId = freshWorkspaceId()
+    const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({
       u: `user-claim`,
-      w: workspaceId,
+      w: teamId,
       ids: [1, 2],
     })!
     await expect(
@@ -378,7 +378,7 @@ describe(`integrations.github.claimLinks guards`, () => {
   it(`refuses a ticket minted for another user`, async () => {
     const ticket = mintGithubClaimTicket({
       u: `victim`,
-      w: freshWorkspaceId(),
+      w: freshTeamId(),
       ids: [1],
     })!
     await expect(
@@ -393,7 +393,7 @@ describe(`integrations.github.unlink`, () => {
     selectQueue.push([{ id: `repo-1` }, { id: `repo-2` }])
     await expect(
       callerFor(`user-unlink`).github.unlink({
-        workspaceId: freshWorkspaceId(),
+        teamId: freshTeamId(),
         installationId: 1,
       })
     ).rejects.toThrow(/2 connected repositories use this GitHub account/)
@@ -404,17 +404,17 @@ describe(`integrations.github.unlink`, () => {
     selectQueue.push([]) // in-use check → none
     selectQueue.push([{ id: `gi-row-uuid` }]) // installation row lookup
     const result = await callerFor(`user-unlink`).github.unlink({
-      workspaceId: freshWorkspaceId(),
+      teamId: freshTeamId(),
       installationId: 1,
     })
     expect(result).toEqual({ ok: true })
     expect(deletes).toHaveLength(1)
   })
 
-  it(`refuses to unlink the protected dogfood feedback workspace`, async () => {
+  it(`refuses to unlink the protected dogfood feedback team`, async () => {
     await expect(
       callerFor(`user-unlink`).github.unlink({
-        workspaceId: FEEDBACK_WS_ID,
+        teamId: FEEDBACK_WS_ID,
         installationId: 1,
       })
     ).rejects.toThrow(/dogfood GitHub connection is protected/)

@@ -4,14 +4,14 @@ import { and, eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { codingSessions } from "@/db/schema"
 import {
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-} from "@/lib/workspace-membership"
+  assertTeamMember,
+  getIssueTeamContext,
+} from "@/lib/team-membership"
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
-// Two subjects: issue-scoped (issueId) or batch-scoped (workspaceId — the
-// desktop multi-issue batch orchestrator; issue_id/project_id stay NULL, the
+// Two subjects: issue-scoped (issueId) or batch-scoped (teamId — the
+// desktop multi-issue batch orchestrator; issue_id/board_id stay NULL, the
 // populate triggers no-op on NULL issue_id). Exactly one of the two.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
@@ -21,20 +21,20 @@ export const codingSessionsRouter = router({
       z
         .object({
           issueId: z.string().uuid().optional(),
-          workspaceId: z.string().uuid().optional(),
+          teamId: z.string().uuid().optional(),
           deviceLabel: z.string().max(255).optional(),
         })
         .refine(
-          (value) => Boolean(value.issueId) !== Boolean(value.workspaceId),
+          (value) => Boolean(value.issueId) !== Boolean(value.teamId),
           {
-            message: `Exactly one of issueId/workspaceId is required`,
+            message: `Exactly one of issueId/teamId is required`,
           }
         )
     )
     .mutation(async ({ ctx, input }) => {
       if (input.issueId) {
-        const issueCtx = await getIssueWorkspaceContext(input.issueId)
-        await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+        const issueCtx = await getIssueTeamContext(input.issueId)
+        await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -42,8 +42,8 @@ export const codingSessionsRouter = router({
             issueId: input.issueId,
             // Set explicitly (also trigger-denormalized) so the row is valid even
             // if the populate_* triggers aren't applied.
-            workspaceId: issueCtx.workspaceId,
-            projectId: issueCtx.projectId,
+            teamId: issueCtx.teamId,
+            boardId: issueCtx.boardId,
             userId: ctx.session.user.id,
             deviceLabel: input.deviceLabel ?? null,
             status: `running`,
@@ -53,15 +53,15 @@ export const codingSessionsRouter = router({
         return { session }
       }
 
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId!)
+      await assertTeamMember(ctx.session.user.id, input.teamId!)
 
       const [session] = await ctx.db
         .insert(codingSessions)
         .values({
-          // Batch run: no issue to denormalize from — workspace_id written
-          // directly; project_id stays NULL, a batch run spans projects and
-          // must never surface through the anonymous project-scoped clause.
-          workspaceId: input.workspaceId!,
+          // Batch run: no issue to denormalize from — team_id written
+          // directly; board_id stays NULL, a batch run spans boards and
+          // must never surface through the anonymous board-scoped clause.
+          teamId: input.teamId!,
           userId: ctx.session.user.id,
           deviceLabel: input.deviceLabel ?? null,
           status: `running`,
@@ -92,11 +92,11 @@ export const codingSessionsRouter = router({
           id: z.string().uuid(),
           // The row's original start scope — enables re-create-on-missing.
           issueId: z.string().uuid().optional(),
-          workspaceId: z.string().uuid().optional(),
+          teamId: z.string().uuid().optional(),
           deviceLabel: z.string().max(255).optional(),
         })
-        .refine((value) => !(value.issueId && value.workspaceId), {
-          message: `At most one of issueId/workspaceId`,
+        .refine((value) => !(value.issueId && value.teamId), {
+          message: `At most one of issueId/teamId`,
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -110,25 +110,25 @@ export const codingSessionsRouter = router({
         .limit(1)
 
       if (!existing) {
-        if (!input.issueId && !input.workspaceId) return { alive: false }
+        if (!input.issueId && !input.teamId) return { alive: false }
         try {
           if (input.issueId) {
-            const issueCtx = await getIssueWorkspaceContext(input.issueId)
-            await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+            const issueCtx = await getIssueTeamContext(input.issueId)
+            await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
-              workspaceId: issueCtx.workspaceId,
-              projectId: issueCtx.projectId,
+              teamId: issueCtx.teamId,
+              boardId: issueCtx.boardId,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
               status: `running`,
             })
           } else {
-            await assertWorkspaceMember(ctx.session.user.id, input.workspaceId!)
+            await assertTeamMember(ctx.session.user.id, input.teamId!)
             await ctx.db.insert(codingSessions).values({
               id: input.id,
-              workspaceId: input.workspaceId!,
+              teamId: input.teamId!,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
               status: `running`,

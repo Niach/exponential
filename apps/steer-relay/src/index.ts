@@ -118,7 +118,7 @@ app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 
 // Remote "Start on my desktop": route to the device's control socket. The
 // subject is EITHER a single issueId (wire-unchanged) or a batch group
-// (issueIds + workspaceId + repo, all resolved server-side — the desktop syncs
+// (issueIds + teamId + repo, all resolved server-side — the desktop syncs
 // no repositories). Launch-option VALUES (EXP-149) and the batch fields pass
 // through untouched — the web server already validated them, the relay stays a
 // dumb pipe — but their TYPES/SHAPES are pinned here: a mistyped field would
@@ -146,12 +146,12 @@ app.post(`/start`, async (c) => {
     subject = { issueId }
   } else if (hasIssueIds && !hasIssueId) {
     const issueIds = asStringArray(body?.issueIds)
-    const workspaceId = asString(body?.workspaceId)
+    const teamId = asString(body?.teamId)
     const repo = asStartRepo(body?.repo)
-    if (!issueIds || !workspaceId || !repo) {
+    if (!issueIds || !teamId || !repo) {
       return c.json({ error: `Bad request` }, 400)
     }
-    subject = { issueIds, workspaceId, repo }
+    subject = { issueIds, teamId, repo }
   } else {
     return c.json({ error: `Bad request` }, 400)
   }

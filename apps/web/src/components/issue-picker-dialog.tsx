@@ -19,7 +19,7 @@ interface IssuePickerDialogProps {
   placeholder?: string
 }
 
-// A small centered issue picker: search the workspace's issues by identifier
+// A small centered issue picker: search the team's issues by identifier
 // or title and pick one. Backed by the IssueRefProvider (already-synced issues
 // shape — no server round-trips); shares the search-sheet visual language.
 // Used by the mark-as-duplicate flow.

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  Info,
   LifeBuoy,
   Loader2,
   Lock,
@@ -14,24 +15,33 @@ import {
   StickyNote,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { issueCollection, projectCollection } from "@/lib/collections"
+import { issueCollection, boardCollection } from "@/lib/collections"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
-import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
-import { StatusDropdown } from "@/components/issue-properties/status-dropdown"
-import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
-import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
 
 type ThreadRow = Awaited<
   ReturnType<typeof trpc.helpdesk.listThreads.query>
 >[number]
 type ThreadDetail = Awaited<ReturnType<typeof trpc.helpdesk.getThread.query>>
 type WidgetSubmissionRow = Awaited<
-  ReturnType<typeof trpc.widgets.submissionForIssue.query>
+  ReturnType<typeof trpc.widgets.submissionForThread.query>
 >
 
 const LIST_POLL_MS = 30_000
@@ -44,18 +54,21 @@ function reporterLabel(row: {
   return row.reporterName || row.reporterEmail
 }
 
-// Featurebase-style 3-pane support inbox (EXP-128). Threads/messages are
-// server-only tables (no Electric shape), so the list and the open thread
-// poll tRPC; the linked issue in the details pane IS synced, so its triage
-// dropdowns reuse the live issue row and the standard trpc.issues mutations.
-// On small screens the list and the conversation stack (back button); the
-// details rail is desktop-only.
+// Featurebase-style 3-pane support inbox (EXP-128; EXP-180 made threads
+// standalone). Threads/messages are server-only tables (no Electric shape),
+// so the list and the open thread poll tRPC. A thread carries its own
+// open/resolved status; an issue exists only once a member escalates the
+// ticket — the escalated issue IS synced, so the details rail resolves it
+// live from the issues collection. On small screens the list and the
+// conversation stack (back button) and the details rail becomes a sheet
+// behind the header's info button — escalate/linked-issue stay reachable
+// on every viewport.
 export function SupportInbox({
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
 }) {
   const [filter, setFilter] = useState<`open` | `resolved`>(`open`)
   const [threads, setThreads] = useState<ThreadRow[] | null>(null)
@@ -64,14 +77,14 @@ export function SupportInbox({
   const loadThreads = useCallback(async () => {
     try {
       const rows = await trpc.helpdesk.listThreads.query({
-        workspaceId,
+        teamId,
         filter,
       })
       setThreads(rows)
     } catch (err) {
       console.error(`helpdesk list failed`, err)
     }
-  }, [workspaceId, filter])
+  }, [teamId, filter])
 
   useEffect(() => {
     setThreads(null)
@@ -149,7 +162,7 @@ export function SupportInbox({
                   )}
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {thread.lastMessage?.body ?? thread.issueTitle}
+                  {thread.lastMessage?.body ?? thread.title}
                 </p>
               </button>
             ))
@@ -162,8 +175,8 @@ export function SupportInbox({
         <ConversationPane
           key={selected.id}
           thread={selected}
-          workspaceId={workspaceId}
-          workspaceSlug={workspaceSlug}
+          teamId={teamId}
+          teamSlug={teamSlug}
           onBack={() => setSelectedId(null)}
           onChanged={loadThreads}
         />
@@ -183,14 +196,14 @@ export function SupportInbox({
 
 function ConversationPane({
   thread,
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
   onBack,
   onChanged,
 }: {
   thread: ThreadRow
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
   onBack: () => void
   onChanged: () => Promise<void>
 }) {
@@ -199,8 +212,12 @@ function ConversationPane({
   const [mode, setMode] = useState<`reply` | `note`>(`reply`)
   const [sending, setSending] = useState(false)
   const [statusBusy, setStatusBusy] = useState(false)
+  // Below lg the details rail has no room — the same content opens in a
+  // Sheet from the header's info button instead (phone web keeps escalate +
+  // linked-issue parity with the native apps).
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
-  const { users, userMap } = useWorkspaceUsers(workspaceId)
+  const { userMap } = useTeamUsers(teamId)
 
   const loadDetail = useCallback(async () => {
     try {
@@ -240,9 +257,7 @@ function ConversationPane({
     }
   }
 
-  const isResolved =
-    detail?.issue != null &&
-    [`done`, `cancelled`, `duplicate`].includes(detail.issue.status)
+  const isResolved = detail?.thread.status === `resolved`
 
   const toggleClosed = async () => {
     if (statusBusy) return
@@ -280,7 +295,7 @@ function ConversationPane({
               {reporterLabel(thread)}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {thread.issueTitle}
+              {thread.title}
             </p>
           </div>
           <Button
@@ -297,7 +312,16 @@ function ConversationPane({
             ) : (
               <Check className="size-3" />
             )}
-            {isResolved ? `Reopen` : `Close`}
+            {isResolved ? `Reopen ticket` : `Close ticket`}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground lg:hidden"
+            onClick={() => setDetailsOpen(true)}
+            aria-label="Ticket details"
+          >
+            <Info className="size-4" />
           </Button>
         </div>
 
@@ -423,55 +447,123 @@ function ConversationPane({
         </div>
       </div>
 
-      {/* Right — details rail (desktop only) */}
-      <DetailsRail
-        thread={thread}
-        users={users}
-        userMap={userMap}
-        workspaceSlug={workspaceSlug}
-      />
+      {/* Right — details rail (≥lg) */}
+      <div className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4 lg:flex">
+        <ThreadDetails
+          thread={thread}
+          teamId={teamId}
+          teamSlug={teamSlug}
+          onEscalated={async () => {
+            await Promise.all([loadDetail(), onChanged()])
+          }}
+        />
+      </div>
+
+      {/* Below lg the same details open in a sheet from the header. */}
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetContent
+          side="right"
+          className="flex w-80 flex-col gap-4 overflow-y-auto px-4 py-4"
+        >
+          <SheetHeader className="p-0">
+            <SheetTitle className="text-sm">Ticket details</SheetTitle>
+          </SheetHeader>
+          <ThreadDetails
+            thread={thread}
+            teamId={teamId}
+            teamSlug={teamSlug}
+            onEscalated={async () => {
+              await Promise.all([loadDetail(), onChanged()])
+            }}
+          />
+        </SheetContent>
+      </Sheet>
     </>
   )
 }
 
-function DetailsRail({
+// The ticket's metadata + actions: reporter block, widget context, escalate
+// board picker / linked-issue chip. Rendered twice — in the ≥lg details rail
+// and in the <lg details sheet — so every viewport can escalate and reach
+// the linked issue.
+function ThreadDetails({
   thread,
-  users,
-  userMap,
-  workspaceSlug,
+  teamId,
+  teamSlug,
+  onEscalated,
 }: {
   thread: ThreadRow
-  users: ReturnType<typeof useWorkspaceUsers>[`users`]
-  userMap: ReturnType<typeof useWorkspaceUsers>[`userMap`]
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
+  onEscalated: () => Promise<void>
 }) {
-  // The linked issue is Electric-synced — triage from the live row so the
-  // dropdowns update instantly (and match the rest of the app).
+  // The escalated issue (when one exists) is Electric-synced — resolve
+  // identifier/title from the live row so the chip stays fresh.
+  const linkedIssueId = thread.linkedIssueId ?? undefined
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      query
-        .from({ issues: issueCollection })
-        .where(({ issues }) => eq(issues.id, thread.issueId)),
-    [thread.issueId]
+      linkedIssueId
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => eq(issues.id, linkedIssueId))
+        : undefined,
+    [linkedIssueId]
   )
   const issue = issueRows?.[0]
 
-  const { data: projectRows } = useLiveQuery(
+  const issueBoardId = issue?.boardId
+  const { data: boardRows } = useLiveQuery(
+    (query) =>
+      issueBoardId
+        ? query
+            .from({ boards: boardCollection })
+            .where(({ boards }) => eq(boards.id, issueBoardId))
+        : undefined,
+    [issueBoardId]
+  )
+  const board = boardRows?.[0]
+
+  // Escalation board picker: the team's live (non-archived) boards.
+  const { data: allBoards } = useLiveQuery(
     (query) =>
       query
-        .from({ projects: projectCollection })
-        .where(({ projects }) => eq(projects.id, thread.projectId)),
-    [thread.projectId]
+        .from({ boards: boardCollection })
+        .where(({ boards }) => eq(boards.teamId, teamId)),
+    [teamId]
   )
-  const project = projectRows?.[0]
+  const boards = (allBoards ?? []).filter(
+    (row) => !row.archivedAt && !row.deletedAt
+  )
+  const [escalateBoardId, setEscalateBoardId] = useState<string>(``)
+  const [escalating, setEscalating] = useState(false)
+  const [escalateError, setEscalateError] = useState<string | null>(null)
+
+  const escalate = async () => {
+    if (!escalateBoardId || escalating) return
+    setEscalating(true)
+    setEscalateError(null)
+    try {
+      await trpc.helpdesk.escalate.mutate({
+        threadId: thread.id,
+        boardId: escalateBoardId,
+      })
+      await onEscalated()
+    } catch (err) {
+      setEscalateError(
+        err instanceof Error ? err.message : `Couldn't create the issue`
+      )
+    } finally {
+      setEscalating(false)
+    }
+  }
 
   const [submission, setSubmission] = useState<WidgetSubmissionRow | null>(
     null
   )
   useEffect(() => {
     let cancelled = false
-    void trpc.widgets.submissionForIssue
-      .query({ issueId: thread.issueId })
+    void trpc.widgets.submissionForThread
+      .query({ threadId: thread.id })
       .then((row) => {
         if (!cancelled) setSubmission(row)
       })
@@ -479,10 +571,10 @@ function DetailsRail({
     return () => {
       cancelled = true
     }
-  }, [thread.issueId])
+  }, [thread.id])
 
   return (
-    <div className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4 lg:flex">
+    <>
       <section>
         <h2 className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
           Reporter
@@ -527,41 +619,68 @@ function DetailsRail({
         </section>
       )}
 
-      {issue && project && (
+      {thread.linkedIssueId ? (
+        issue &&
+        board && (
+          <section>
+            <h2 className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
+              Linked issue
+            </h2>
+            <Link
+              to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+              params={{
+                teamSlug,
+                boardSlug: board.slug,
+                issueIdentifier: issue.identifier,
+              }}
+              className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
+            >
+              {issue.identifier}
+              <ExternalLink className="h-3 w-3 text-muted-foreground" />
+            </Link>
+            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+              {issue.title}
+            </p>
+          </section>
+        )
+      ) : (
         <section>
           <h2 className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
-            Linked issue
+            Escalate
           </h2>
-          <Link
-            to="/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
-            params={{
-              workspaceSlug,
-              projectSlug: project.slug,
-              issueIdentifier: issue.identifier,
-            }}
-            className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
-          >
-            {issue.identifier}
-            <ExternalLink className="h-3 w-3 text-muted-foreground" />
-          </Link>
-          <p className="mb-2 mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            {issue.title}
+          <p className="mb-2 text-xs text-muted-foreground">
+            Create an issue from this ticket on one of the team&apos;s boards.
           </p>
           <div className="flex flex-col gap-1.5">
-            <StatusDropdown
-              issueId={issue.id}
-              status={issue.status as IssueStatus}
-            />
-            <PriorityDropdown
-              issueId={issue.id}
-              priority={issue.priority as IssuePriority}
-            />
-            <AssigneeDropdown
-              issueId={issue.id}
-              assigneeId={issue.assigneeId}
-              users={users}
-              userMap={userMap}
-            />
+            <Select
+              value={escalateBoardId}
+              onValueChange={setEscalateBoardId}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Pick a board" />
+              </SelectTrigger>
+              <SelectContent>
+                {boards.map((board) => (
+                  <SelectItem key={board.id} value={board.id}>
+                    {board.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!escalateBoardId || escalating}
+              onClick={() => void escalate()}
+            >
+              {escalating ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : null}
+              Create issue
+            </Button>
+            {escalateError && (
+              <p className="text-xs text-destructive">{escalateError}</p>
+            )}
           </div>
         </section>
       )}
@@ -573,6 +692,6 @@ function DetailsRail({
           link.
         </p>
       </section>
-    </div>
+    </>
   )
 }

@@ -3,12 +3,12 @@ import XCTest
 /// Automated App Store screenshots (fastlane snapshot).
 ///
 /// Drives the real app against a seeded local backend: sign in on the
-/// InstanceView/LoginView flow, wait for Electric to sync the demo workspace,
-/// then capture the five store shots (board, issue detail, comments, project
+/// InstanceView/LoginView flow, wait for Electric to sync the demo team,
+/// then capture the five store shots (board, issue detail, comments, board
 /// switcher, inbox). Run via `fastlane screenshots`
 /// (apps/ios) with the seeded dev server running (`apps/web/scripts/
-/// seed-screenshots.ts` — demo@exponential.at / screenshots-demo, workspace
-/// "Acme", project "Mobile App", showcase issue APP-5).
+/// seed-screenshots.ts` — demo@exponential.at / screenshots-demo, team
+/// "Acme", board "Mobile App", showcase issue APP-5).
 ///
 /// The instance URL defaults to http://localhost:5173 and can be overridden
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
@@ -96,20 +96,20 @@ final class StoreScreenshots: XCTestCase {
             snapshot("03_comments")
         }
 
-        // ── 04: project switcher (v7 typed projects) ────────────────────────
-        // The sheet shows the dev / tasks / feedback type glyphs plus the
-        // globe badge on the public feedback board — the v7 headline feature.
+        // ── 04: board switcher ────────────────────────────────────────────
+        // The sheet shows each board's tinted icon glyph next to its name
+        // and prefix.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
-        let switcherButton = app.buttons["Switch project"]
-        XCTAssertTrue(switcherButton.waitForExistence(timeout: 10), "Project switcher control missing")
+        let switcherButton = app.buttons["Switch board"]
+        XCTAssertTrue(switcherButton.waitForExistence(timeout: 10), "Board switcher control missing")
         switcherButton.tap()
         XCTAssertTrue(
             app.staticTexts["Product Feedback"].waitForExistence(timeout: 15),
-            "Project switcher sheet did not show the seeded typed projects"
+            "Board switcher sheet did not show the seeded boards"
         )
         settle(2)
-        snapshot("04_projects")
+        snapshot("04_boards")
 
         // Dismiss without selecting (keep Mobile App current): tap the dimmed
         // area above the medium-detent sheet.

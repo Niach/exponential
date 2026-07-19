@@ -89,7 +89,7 @@ public final class UsersApi: Sendable {
 
     /// Permanently delete the signed-in user's account on this server —
     /// App Store guideline 5.1.1(v) (in-app account deletion). The server
-    /// cascades sessions, memberships, authored content, and solo workspaces;
+    /// cascades sessions, memberships, authored content, and solo teams;
     /// the caller must follow up with local sign-out + cache wipe.
     public func deleteAccount(accountId: String) async throws {
         try await trpc.mutationVoid(

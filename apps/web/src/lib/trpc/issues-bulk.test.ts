@@ -3,8 +3,8 @@ import { TRPCError } from "@trpc/server"
 import { is, Param, SQL } from "drizzle-orm"
 
 // Bulk action bar server half: issues.bulkUpdate / issues.bulkDelete. The
-// batch must resolve to exactly ONE workspace (join through projects, trashed
-// projects excluded — stale ids silently skipped, empty survivor set is a
+// batch must resolve to exactly ONE team (join through boards, trashed
+// boards excluded — stale ids silently skipped, empty survivor set is a
 // hard BAD_REQUEST), membership + assignee validation run ONCE, and the whole
 // batch commits in ONE transaction under ONE txId. Per-issue side effects go
 // through the same applyStatusDerivations/finalizeIssueUpdateInTx core as the
@@ -14,10 +14,10 @@ import { is, Param, SQL } from "drizzle-orm"
 // recording update/delete chains, transaction() handing back the same fake.
 
 const h = vi.hoisted(() => ({
-  assertWorkspaceMember: vi.fn(
+  assertTeamMember: vi.fn(
     async (..._args: unknown[]) => ({ role: `member` }) as unknown
   ),
-  assertAssigneeInWorkspace: vi.fn(async (..._args: unknown[]) => undefined),
+  assertAssigneeInTeam: vi.fn(async (..._args: unknown[]) => undefined),
   ensureSubscribed: vi.fn(),
   recordIssueEvent: vi.fn(),
   collectIssueAttachmentStorageKeysInTx: vi.fn(
@@ -34,13 +34,13 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, () => ({
-  resolveWorkspaceAccess: vi.fn(),
-  assertAssigneeInWorkspace: h.assertAssigneeInWorkspace,
+vi.mock(`@/lib/team-membership`, () => ({
+  resolveTeamAccess: vi.fn(),
+  assertAssigneeInTeam: h.assertAssigneeInTeam,
   assertIssueAccess: vi.fn(),
-  assertWorkspaceMember: h.assertWorkspaceMember,
-  getIssueWorkspaceContext: vi.fn(),
-  getProjectWorkspaceId: vi.fn(),
+  assertTeamMember: h.assertTeamMember,
+  getIssueTeamContext: vi.fn(),
+  getBoardTeamId: vi.fn(),
   getSoleHumanMemberId: vi.fn(),
 }))
 
@@ -176,12 +176,12 @@ function issueRow(
   return {
     id,
     status: `todo`,
-    projectId: `proj-1`,
+    boardId: `proj-1`,
     title: `Issue`,
     priority: `none`,
     assigneeId: null,
     duplicateOfId: null,
-    workspaceId: WS,
+    teamId: WS,
     ...overrides,
   }
 }
@@ -207,10 +207,10 @@ beforeEach(() => {
   select.mockClear()
   fakeDb.execute.mockClear()
   fakeDb.transaction.mockClear()
-  h.assertWorkspaceMember.mockClear()
-  h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
-  h.assertAssigneeInWorkspace.mockClear()
-  h.assertAssigneeInWorkspace.mockResolvedValue(undefined)
+  h.assertTeamMember.mockClear()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
+  h.assertAssigneeInTeam.mockClear()
+  h.assertAssigneeInTeam.mockResolvedValue(undefined)
   h.ensureSubscribed.mockClear()
   h.recordIssueEvent.mockClear()
   h.collectIssueAttachmentStorageKeysInTx.mockClear()
@@ -228,10 +228,10 @@ function eventsOfType(type: string) {
 }
 
 describe(`issues.bulkUpdate`, () => {
-  it(`rejects a batch spanning two workspaces before any write`, async () => {
+  it(`rejects a batch spanning two teams before any write`, async () => {
     seedEligible([
       issueRow(ID_A),
-      issueRow(ID_B, { workspaceId: WS_OTHER }),
+      issueRow(ID_B, { teamId: WS_OTHER }),
     ])
 
     const error = await rejectionOf(
@@ -240,15 +240,15 @@ describe(`issues.bulkUpdate`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Issues must belong to one workspace`
+      `Issues must belong to one team`
     )
-    expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
     expect(fakeDb.transaction).not.toHaveBeenCalled()
     expect(updates).toHaveLength(0)
   })
 
   it(`rejects when no id survives the eligibility join`, async () => {
-    selectQueue.push([]) // all ids stale or in trashed projects
+    selectQueue.push([]) // all ids stale or in trashed boards
 
     const error = await rejectionOf(
       caller.bulkUpdate({ ids: [ID_A], status: `done` })
@@ -271,8 +271,8 @@ describe(`issues.bulkUpdate`, () => {
 
     const result = await caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
 
-    expect(h.assertWorkspaceMember).toHaveBeenCalledTimes(1)
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WS)
+    expect(h.assertTeamMember).toHaveBeenCalledTimes(1)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 77, updated: 2 })
     // ONE transaction, ONE generateTxId probe for the whole batch.
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
@@ -318,8 +318,8 @@ describe(`issues.bulkUpdate`, () => {
       assigneeId: `victim`,
     })
 
-    expect(h.assertAssigneeInWorkspace).toHaveBeenCalledTimes(1)
-    expect(h.assertAssigneeInWorkspace).toHaveBeenCalledWith(`victim`, WS)
+    expect(h.assertAssigneeInTeam).toHaveBeenCalledTimes(1)
+    expect(h.assertAssigneeInTeam).toHaveBeenCalledWith(`victim`, WS)
 
     const assigneeEvents = eventsOfType(`assignee_changed`)
     expect(assigneeEvents.map((e) => [e.issueId, e.payload])).toEqual([
@@ -343,7 +343,7 @@ describe(`issues.bulkUpdate`, () => {
 
     await caller.bulkUpdate({ ids: [ID_A], assigneeId: null })
 
-    expect(h.assertAssigneeInWorkspace).not.toHaveBeenCalled()
+    expect(h.assertAssigneeInTeam).not.toHaveBeenCalled()
     expect(updates[0]!.set.assigneeId).toBeNull()
   })
 
@@ -401,17 +401,17 @@ describe(`issues.bulkUpdate`, () => {
 })
 
 describe(`issues.bulkDelete`, () => {
-  it(`rejects a batch spanning two workspaces`, async () => {
+  it(`rejects a batch spanning two teams`, async () => {
     selectQueue.push([
-      { id: ID_A, workspaceId: WS },
-      { id: ID_B, workspaceId: WS_OTHER },
+      { id: ID_A, teamId: WS },
+      { id: ID_B, teamId: WS_OTHER },
     ])
 
     const error = await rejectionOf(caller.bulkDelete({ ids: [ID_A, ID_B] }))
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Issues must belong to one workspace`
+      `Issues must belong to one team`
     )
     expect(fakeDb.transaction).not.toHaveBeenCalled()
     expect(deletes).toHaveLength(0)
@@ -428,8 +428,8 @@ describe(`issues.bulkDelete`, () => {
 
   it(`deletes in one statement and reclaims every issue's attachment blobs post-commit`, async () => {
     selectQueue.push([
-      { id: ID_A, workspaceId: WS },
-      { id: ID_B, workspaceId: WS },
+      { id: ID_A, teamId: WS },
+      { id: ID_B, teamId: WS },
     ])
     h.collectIssueAttachmentStorageKeysInTx
       .mockResolvedValueOnce([`key-a`])
@@ -437,7 +437,7 @@ describe(`issues.bulkDelete`, () => {
 
     const result = await caller.bulkDelete({ ids: [ID_A, ID_B] })
 
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WS)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 77, deleted: 2 })
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
     expect(fakeDb.execute).toHaveBeenCalledTimes(1)

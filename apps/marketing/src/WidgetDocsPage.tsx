@@ -54,10 +54,12 @@ export function WidgetDocsPage() {
             <h2>Install</h2>
             <p>
               Create a widget in <strong>Team settings → Widget</strong>{` `}
-              (team owners only; Pro plan). Each config gets a public{` `}
-              <code>expw_</code> key, a <strong>domain allowlist</strong> —
-              submissions are only accepted from pages on domains you list —
-              and a target feedback project where reports land.
+              (team owners only; every plan includes at least one). Each
+              config gets a public <code>expw_</code> key, a{` `}
+              <strong>domain allowlist</strong> — submissions are only
+              accepted from pages on domains you list — a{` `}
+              <strong>mode</strong> (feedback, support, or both), and for
+              feedback a <strong>target board</strong> where reports land.
             </p>
             <p>
               Then paste the snippet before <code>&lt;/head&gt;</code> on your
@@ -149,11 +151,11 @@ ExponentialWidget.close();
             label="What lands in Exponential"
           >
             <h2>What lands in Exponential</h2>
-            <p>Each submission becomes, atomically:</p>
+            <p>Each feedback submission becomes, atomically:</p>
             <ul>
               <li>
-                An <strong>issue</strong> in the configured feedback project,
-                with the visitor&apos;s message as the description.
+                An <strong>issue</strong> on the configured board, with the
+                visitor&apos;s message as the description.
               </li>
               <li>
                 The <strong>screenshot as an attachment</strong>, embedded in
@@ -168,12 +170,16 @@ ExponentialWidget.close();
             </ul>
             <p>
               The reporter is <strong>auto-subscribed</strong> to the issue —
-              resolve it and they&apos;re notified. With the{` `}
-              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled, support
-              requests open an email conversation you answer from the Support
-              inbox — and they can land in a <strong>different project</strong>
-              {` `}than feedback (e.g. a private Support board) via the
-              widget&apos;s support-project setting.
+              resolve it and they&apos;re notified.
+            </p>
+            <p>
+              <strong>Support requests are different</strong>: with the{` `}
+              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled (Pro
+              plans and up), they skip the board entirely and open a{` `}
+              <strong>ticket in your team&apos;s Support inbox</strong> — an
+              email conversation with the reporter that any member can answer,
+              and escalate into an issue on any board when it turns out to be
+              a bug.
             </p>
           </DocsSection>
 
@@ -184,11 +190,7 @@ ExponentialWidget.close();
               This site runs the real widget — the feedback button in the
               corner of this page is a live install of exactly the snippet
               above. Click it, annotate a screenshot, submit, and your report
-              lands on the{` `}
-              <a href="https://app.exponential.at">
-                public Exponential feedback board
-              </a>
-              .
+              lands on the Exponential team&apos;s own feedback board.
             </p>
           </DocsSection>
         </DocsLayout>

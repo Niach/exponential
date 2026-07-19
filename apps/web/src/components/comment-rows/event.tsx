@@ -6,7 +6,7 @@ import {
   Tag,
   UserPlus,
 } from "lucide-react"
-import type { IssueEvent, Label, Project, User } from "@/db/schema"
+import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 
 function statusLabel(s: string): string {
@@ -18,12 +18,12 @@ export function EventRow({
   event,
   userMap,
   labelMap,
-  projectMap,
+  boardMap,
 }: {
   event: IssueEvent
   userMap: Map<string, User>
   labelMap: Map<string, Label>
-  projectMap?: Map<string, Project>
+  boardMap?: Map<string, Board>
 }) {
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
@@ -86,15 +86,15 @@ export function EventRow({
       Icon = GitMerge
       text = <>merged the pull request</>
       break
-    case `project_moved`: {
+    case `board_moved`: {
       Icon = FolderInput
-      // A deleted source project leaves no name behind — fall back
+      // A deleted source board leaves no name behind — fall back
       // generically (the payload's from/toIdentifier keeps the row useful).
-      const fromProject = payload.fromProjectId
-        ? projectMap?.get(String(payload.fromProjectId))
+      const fromBoard = payload.fromBoardId
+        ? boardMap?.get(String(payload.fromBoardId))
         : undefined
-      const toProject = payload.toProjectId
-        ? projectMap?.get(String(payload.toProjectId))
+      const toBoard = payload.toBoardId
+        ? boardMap?.get(String(payload.toBoardId))
         : undefined
       const fromIdentifier = payload.fromIdentifier
         ? String(payload.fromIdentifier)
@@ -103,11 +103,11 @@ export function EventRow({
         <>
           moved this from{` `}
           <span className="font-medium text-foreground">
-            {fromProject?.name ?? `another project`}
+            {fromBoard?.name ?? `another board`}
           </span>
           {fromIdentifier ? ` (${fromIdentifier})` : ``} to{` `}
           <span className="font-medium text-foreground">
-            {toProject?.name ?? `this project`}
+            {toBoard?.name ?? `this board`}
           </span>
         </>
       )

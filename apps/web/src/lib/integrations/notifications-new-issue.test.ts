@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // Locks the EXP-53 fan-out: fireAndForgetNewIssueNotify writes an
-// `issue_created` notification to every human member of the issue's workspace
+// `issue_created` notification to every human member of the issue's team
 // (no actor to exclude — the widget bot creator is agent-filtered by
 // deliver()), plus the EXP-50 guarantee that fireAndForgetAssignmentNotify
 // self-filters when the (defaulted) assignee IS the actor.
@@ -55,9 +55,9 @@ const issueMeta = {
   id: `33333333-3333-4333-8333-333333333333`,
   identifier: `EXP-7`,
   title: `Login button unresponsive`,
-  workspaceId: `ws-1`,
-  workspaceSlug: `acme`,
-  projectSlug: `feedback`,
+  teamId: `ws-1`,
+  teamSlug: `acme`,
+  boardSlug: `feedback`,
   assigneeId: null,
 }
 
@@ -73,11 +73,11 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     mockedDb.execute.mockClear()
   })
 
-  it(`delivers issue_created to every human workspace member`, async () => {
+  it(`delivers issue_created to every human team member`, async () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // workspace member enumeration (u3 is the widget bot's membership row)
+      // team member enumeration (u3 is the widget bot's membership row)
       [{ userId: `u1` }, { userId: `u2` }, { userId: `u3` }],
       // deliverableRecipients: current non-agent members — drops the bot u3
       [{ id: `u1` }, { id: `u2` }]
@@ -107,7 +107,7 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     expect(h.sendToUser).toHaveBeenCalledWith(`u2`, payload)
   })
 
-  it(`does nothing when the workspace has no deliverable members`, async () => {
+  it(`does nothing when the team has no deliverable members`, async () => {
     h.selectQueue.push(
       [issueMeta],
       // Only the bot's membership row…
@@ -153,7 +153,7 @@ describe(`fireAndForgetAssignmentNotify self-filter (EXP-50 guarantee)`, () => {
     })
 
     // Synchronous early-return: no db reads, no insert, no push — a solo
-    // workspace defaulting the assignee to the creator never self-notifies.
+    // team defaulting the assignee to the creator never self-notifies.
     await Promise.resolve()
     expect(mockedDb.select).not.toHaveBeenCalled()
     expect(mockedDb.execute).not.toHaveBeenCalled()

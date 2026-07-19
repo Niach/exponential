@@ -10,7 +10,7 @@ public enum ImageUploadState: Equatable, Sendable {
     case failed
 }
 
-/// A workspace member the @-autocomplete can offer. The canonical interchange
+/// A team member the @-autocomplete can offer. The canonical interchange
 /// form is the `@email` token, so `id` is the email.
 public struct MentionMember: Identifiable, Sendable, Equatable {
     public let name: String
@@ -70,7 +70,7 @@ public final class IssueEditorModel {
     /// Invoked on user-originated edits so the host can schedule a debounced save.
     public var onEdit: (() -> Void)?
 
-    /// Workspace members the @-autocomplete can offer (set by the host; should be
+    /// Team members the @-autocomplete can offer (set by the host; should be
     /// pre-filtered to non-agent members).
     public var mentionMembers: [MentionMember] = []
 
@@ -81,7 +81,7 @@ public final class IssueEditorModel {
     /// byte-identical either way.
     public var issueRefResolver: ((String) -> String?)?
 
-    /// Issue search backing the #-autocomplete (set by the host; workspace-
+    /// Issue search backing the #-autocomplete (set by the host; team-
     /// scoped, matching identifier + title substrings — empty query = most
     /// recent). nil disables the #-autocomplete.
     public var issueRefSearch: ((String) -> [IssueRefCandidate])?

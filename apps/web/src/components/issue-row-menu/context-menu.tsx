@@ -1,5 +1,5 @@
 import { type ReactNode } from "react"
-import type { Issue, Label, Project, User } from "@/db/schema"
+import type { Issue, Label, Board, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
@@ -27,7 +27,7 @@ import {
   AssigneeSubmenu,
   LabelsSubmenu,
   PrioritySubmenu,
-  ProjectSubmenu,
+  BoardSubmenu,
   StatusSubmenu,
 } from "./submenus"
 
@@ -37,9 +37,9 @@ interface IssueRowContextMenuProps {
   issueLabels: Label[]
   labels: Label[]
   onOpenIssue: () => void
-  // Workspace projects (sorted) for the move-to-project submenu (EXP-57);
-  // undefined hides the submenu (caller has no workspace scope).
-  projects?: Project[]
+  // Team boards (sorted) for the move-to-board submenu (EXP-57);
+  // undefined hides the submenu (caller has no team scope).
+  boards?: Board[]
   userMap: Map<string, User>
   users: User[]
 }
@@ -52,7 +52,7 @@ export function IssueRowContextMenu({
   issueLabels,
   labels,
   onOpenIssue,
-  projects,
+  boards,
   userMap,
   users,
 }: IssueRowContextMenuProps) {
@@ -111,11 +111,11 @@ export function IssueRowContextMenu({
     })
   }
 
-  const moveToProject = async (projectId: string) => {
-    if (projectId === issue.projectId) return
+  const moveToBoard = async (boardId: string) => {
+    if (boardId === issue.boardId) return
     await trpc.issues.move.mutate({
       id: issue.id,
-      projectId,
+      boardId,
     })
   }
 
@@ -230,12 +230,12 @@ export function IssueRowContextMenu({
             onApplyDueDate={applyDueDate}
           />
 
-          {projects && projects.length > 1 && (
-            <ProjectSubmenu
-              projectId={issue.projectId}
-              projects={projects}
+          {boards && boards.length > 1 && (
+            <BoardSubmenu
+              boardId={issue.boardId}
+              boards={boards}
               topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(projectId) => void moveToProject(projectId)}
+              onSelect={(boardId) => void moveToBoard(boardId)}
             />
           )}
 

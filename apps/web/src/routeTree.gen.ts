@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WSplatRouteImport } from './routes/w/$'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
@@ -29,14 +28,13 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
-import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
 import { Route as Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport } from './routes/[.well-known]/apple-app-site-association'
-import { Route as TWorkspaceSlugRouteRouteImport } from './routes/t/$workspaceSlug/route'
+import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
-import { Route as TWorkspaceSlugIndexRouteImport } from './routes/t/$workspaceSlug/index'
+import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
@@ -44,11 +42,10 @@ import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/git
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
-import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
-import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shapes/workspace-members'
-import { Route as ApiShapesWorkspaceInvitesRouteImport } from './routes/api/shapes/workspace-invites'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
-import { Route as ApiShapesProjectsRouteImport } from './routes/api/shapes/projects'
+import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
+import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
+import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
@@ -57,37 +54,38 @@ import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/is
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
+import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
-import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
+import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
-import { Route as TWorkspaceSlugSettingsRouteRouteImport } from './routes/t/$workspaceSlug/settings/route'
-import { Route as TWorkspaceSlugSupportIndexRouteImport } from './routes/t/$workspaceSlug/support/index'
-import { Route as TWorkspaceSlugSettingsIndexRouteImport } from './routes/t/$workspaceSlug/settings/index'
-import { Route as TWorkspaceSlugReviewsIndexRouteImport } from './routes/t/$workspaceSlug/reviews/index'
-import { Route as TWorkspaceSlugMyIssuesIndexRouteImport } from './routes/t/$workspaceSlug/my-issues/index'
-import { Route as TWorkspaceSlugInboxIndexRouteImport } from './routes/t/$workspaceSlug/inbox/index'
-import { Route as TWorkspaceSlugAgentsIndexRouteImport } from './routes/t/$workspaceSlug/agents/index'
-import { Route as TWorkspaceSlugSettingsWidgetRouteImport } from './routes/t/$workspaceSlug/settings/widget'
-import { Route as TWorkspaceSlugSettingsRepositoriesRouteImport } from './routes/t/$workspaceSlug/settings/repositories'
-import { Route as TWorkspaceSlugSettingsProjectsRouteImport } from './routes/t/$workspaceSlug/settings/projects'
-import { Route as TWorkspaceSlugSettingsMembersRouteImport } from './routes/t/$workspaceSlug/settings/members'
-import { Route as TWorkspaceSlugSettingsLabelsRouteImport } from './routes/t/$workspaceSlug/settings/labels'
-import { Route as TWorkspaceSlugSettingsGeneralRouteImport } from './routes/t/$workspaceSlug/settings/general'
-import { Route as TWorkspaceSlugSettingsBillingRouteImport } from './routes/t/$workspaceSlug/settings/billing'
-import { Route as TWorkspaceSlugReviewsIssueIdentifierRouteImport } from './routes/t/$workspaceSlug/reviews/$issueIdentifier'
+import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
+import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
+import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
+import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
+import { Route as TTeamSlugMyIssuesIndexRouteImport } from './routes/t/$teamSlug/my-issues/index'
+import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
+import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
+import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
+import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
+import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
+import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
+import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
+import { Route as TTeamSlugSettingsBoardsRouteImport } from './routes/t/$teamSlug/settings/boards'
+import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
+import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
 import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
-import { Route as AuthenticatedAdminWorkspacesWorkspaceIdRouteImport } from './routes/_authenticated/admin/workspaces_.$workspaceId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
-import { Route as TWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/index'
-import { Route as TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
+import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
+import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
 
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
@@ -101,11 +99,6 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WSplatRoute = WSplatRouteImport.update({
-  id: '/w/$',
-  path: '/w/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupportTokenRoute = SupportTokenRouteImport.update({
@@ -188,11 +181,6 @@ const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedFeedbackRoute = AuthenticatedFeedbackRouteImport.update({
-  id: '/feedback',
-  path: '/feedback',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
   Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
     id: '/.well-known/oauth-protected-resource',
@@ -217,9 +205,9 @@ const Char91DotwellKnownChar93AppleAppSiteAssociationRoute =
     path: '/.well-known/apple-app-site-association',
     getParentRoute: () => rootRouteImport,
   } as any)
-const TWorkspaceSlugRouteRoute = TWorkspaceSlugRouteRouteImport.update({
-  id: '/t/$workspaceSlug',
-  path: '/t/$workspaceSlug',
+const TTeamSlugRouteRoute = TTeamSlugRouteRouteImport.update({
+  id: '/t/$teamSlug',
+  path: '/t/$teamSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
@@ -227,10 +215,10 @@ const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const TWorkspaceSlugIndexRoute = TWorkspaceSlugIndexRouteImport.update({
+const TTeamSlugIndexRoute = TTeamSlugIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => TWorkspaceSlugRouteRoute,
+  getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
@@ -267,31 +255,24 @@ const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
   path: '/api/support/reply',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesWorkspacesRoute = ApiShapesWorkspacesRouteImport.update({
-  id: '/api/shapes/workspaces',
-  path: '/api/shapes/workspaces',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesWorkspaceMembersRoute =
-  ApiShapesWorkspaceMembersRouteImport.update({
-    id: '/api/shapes/workspace-members',
-    path: '/api/shapes/workspace-members',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiShapesWorkspaceInvitesRoute =
-  ApiShapesWorkspaceInvitesRouteImport.update({
-    id: '/api/shapes/workspace-invites',
-    path: '/api/shapes/workspace-invites',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   id: '/api/shapes/users',
   path: '/api/shapes/users',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesProjectsRoute = ApiShapesProjectsRouteImport.update({
-  id: '/api/shapes/projects',
-  path: '/api/shapes/projects',
+const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
+  id: '/api/shapes/teams',
+  path: '/api/shapes/teams',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesTeamMembersRoute = ApiShapesTeamMembersRouteImport.update({
+  id: '/api/shapes/team-members',
+  path: '/api/shapes/team-members',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
+  id: '/api/shapes/team-invites',
+  path: '/api/shapes/team-invites',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
@@ -335,6 +316,11 @@ const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
   path: '/api/shapes/coding-sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
+  id: '/api/shapes/boards',
+  path: '/api/shapes/boards',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
   id: '/api/shapes/attachments',
   path: '/api/shapes/attachments',
@@ -356,15 +342,14 @@ const ApiAttachmentsAttachmentIdRoute =
     path: '/api/attachments/$attachmentId',
     getParentRoute: () => rootRouteImport,
   } as any)
-const AuthenticatedAdminWorkspacesRoute =
-  AuthenticatedAdminWorkspacesRouteImport.update({
-    id: '/workspaces',
-    path: '/workspaces',
-    getParentRoute: () => AuthenticatedAdminRouteRoute,
-  } as any)
 const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   id: '/users',
   path: '/users',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const AuthenticatedAdminTeamsRoute = AuthenticatedAdminTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
 const AuthenticatedAccountNotificationsRoute =
@@ -373,95 +358,85 @@ const AuthenticatedAccountNotificationsRoute =
     path: '/account/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const TWorkspaceSlugSettingsRouteRoute =
-  TWorkspaceSlugSettingsRouteRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugSupportIndexRoute =
-  TWorkspaceSlugSupportIndexRouteImport.update({
-    id: '/support/',
-    path: '/support/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugSettingsIndexRoute =
-  TWorkspaceSlugSettingsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
-  } as any)
-const TWorkspaceSlugReviewsIndexRoute =
-  TWorkspaceSlugReviewsIndexRouteImport.update({
-    id: '/reviews/',
-    path: '/reviews/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugMyIssuesIndexRoute =
-  TWorkspaceSlugMyIssuesIndexRouteImport.update({
-    id: '/my-issues/',
-    path: '/my-issues/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugInboxIndexRoute =
-  TWorkspaceSlugInboxIndexRouteImport.update({
-    id: '/inbox/',
-    path: '/inbox/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugAgentsIndexRoute =
-  TWorkspaceSlugAgentsIndexRouteImport.update({
-    id: '/agents/',
-    path: '/agents/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
-  } as any)
-const TWorkspaceSlugSettingsWidgetRoute =
-  TWorkspaceSlugSettingsWidgetRouteImport.update({
-    id: '/widget',
-    path: '/widget',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
-  } as any)
-const TWorkspaceSlugSettingsRepositoriesRoute =
-  TWorkspaceSlugSettingsRepositoriesRouteImport.update({
+const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugSupportIndexRoute = TTeamSlugSupportIndexRouteImport.update({
+  id: '/support/',
+  path: '/support/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
+const TTeamSlugReviewsIndexRoute = TTeamSlugReviewsIndexRouteImport.update({
+  id: '/reviews/',
+  path: '/reviews/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugMyIssuesIndexRoute = TTeamSlugMyIssuesIndexRouteImport.update({
+  id: '/my-issues/',
+  path: '/my-issues/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugInboxIndexRoute = TTeamSlugInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugAgentsIndexRoute = TTeamSlugAgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
+  id: '/widget',
+  path: '/widget',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
+const TTeamSlugSettingsRepositoriesRoute =
+  TTeamSlugSettingsRepositoriesRouteImport.update({
     id: '/repositories',
     path: '/repositories',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TWorkspaceSlugSettingsProjectsRoute =
-  TWorkspaceSlugSettingsProjectsRouteImport.update({
-    id: '/projects',
-    path: '/projects',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
-  } as any)
-const TWorkspaceSlugSettingsMembersRoute =
-  TWorkspaceSlugSettingsMembersRouteImport.update({
+const TTeamSlugSettingsMembersRoute =
+  TTeamSlugSettingsMembersRouteImport.update({
     id: '/members',
     path: '/members',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TWorkspaceSlugSettingsLabelsRoute =
-  TWorkspaceSlugSettingsLabelsRouteImport.update({
-    id: '/labels',
-    path: '/labels',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
-  } as any)
-const TWorkspaceSlugSettingsGeneralRoute =
-  TWorkspaceSlugSettingsGeneralRouteImport.update({
+const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
+  id: '/labels',
+  path: '/labels',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
+const TTeamSlugSettingsGeneralRoute =
+  TTeamSlugSettingsGeneralRouteImport.update({
     id: '/general',
     path: '/general',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TWorkspaceSlugSettingsBillingRoute =
-  TWorkspaceSlugSettingsBillingRouteImport.update({
+const TTeamSlugSettingsBoardsRoute = TTeamSlugSettingsBoardsRouteImport.update({
+  id: '/boards',
+  path: '/boards',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
+const TTeamSlugSettingsBillingRoute =
+  TTeamSlugSettingsBillingRouteImport.update({
     id: '/billing',
     path: '/billing',
-    getParentRoute: () => TWorkspaceSlugSettingsRouteRoute,
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TWorkspaceSlugReviewsIssueIdentifierRoute =
-  TWorkspaceSlugReviewsIssueIdentifierRouteImport.update({
+const TTeamSlugReviewsIssueIdentifierRoute =
+  TTeamSlugReviewsIssueIdentifierRouteImport.update({
     id: '/reviews/$issueIdentifier',
     path: '/reviews/$issueIdentifier',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
+    getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
@@ -492,41 +467,40 @@ const AuthenticatedIntegrationsGithubClaimRoute =
     path: '/integrations/github/claim',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedAdminWorkspacesWorkspaceIdRoute =
-  AuthenticatedAdminWorkspacesWorkspaceIdRouteImport.update({
-    id: '/workspaces_/$workspaceId',
-    path: '/workspaces/$workspaceId',
-    getParentRoute: () => AuthenticatedAdminRouteRoute,
-  } as any)
 const AuthenticatedAdminUsersUserIdRoute =
   AuthenticatedAdminUsersUserIdRouteImport.update({
     id: '/users_/$userId',
     path: '/users/$userId',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
-const TWorkspaceSlugProjectsProjectSlugIndexRoute =
-  TWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
-    id: '/projects/$projectSlug/',
-    path: '/projects/$projectSlug/',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
+const AuthenticatedAdminTeamsTeamIdRoute =
+  AuthenticatedAdminTeamsTeamIdRouteImport.update({
+    id: '/teams_/$teamId',
+    path: '/teams/$teamId',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
-const TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute =
-  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport.update({
-    id: '/projects/$projectSlug/issues/$issueIdentifier',
-    path: '/projects/$projectSlug/issues/$issueIdentifier',
-    getParentRoute: () => TWorkspaceSlugRouteRoute,
+const TTeamSlugBoardsBoardSlugIndexRoute =
+  TTeamSlugBoardsBoardSlugIndexRouteImport.update({
+    id: '/boards/$boardSlug/',
+    path: '/boards/$boardSlug/',
+    getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
+const TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute =
+  TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport.update({
+    id: '/boards/$boardSlug/issues/$issueIdentifier',
+    path: '/boards/$boardSlug/issues/$issueIdentifier',
+    getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
-  '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
+  '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -543,15 +517,15 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
-  '/w/$': typeof WSplatRoute
-  '/t/$workspaceSlug/settings': typeof TWorkspaceSlugSettingsRouteRouteWithChildren
+  '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
@@ -560,11 +534,10 @@ export interface FileRoutesByFullPath {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
+  '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
+  '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
-  '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
-  '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -572,30 +545,30 @@ export interface FileRoutesByFullPath {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
-  '/t/$workspaceSlug/': typeof TWorkspaceSlugIndexRoute
+  '/t/$teamSlug/': typeof TTeamSlugIndexRoute
+  '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
-  '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
-  '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
-  '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
-  '/t/$workspaceSlug/settings/members': typeof TWorkspaceSlugSettingsMembersRoute
-  '/t/$workspaceSlug/settings/projects': typeof TWorkspaceSlugSettingsProjectsRoute
-  '/t/$workspaceSlug/settings/repositories': typeof TWorkspaceSlugSettingsRepositoriesRoute
-  '/t/$workspaceSlug/settings/widget': typeof TWorkspaceSlugSettingsWidgetRoute
-  '/t/$workspaceSlug/agents/': typeof TWorkspaceSlugAgentsIndexRoute
-  '/t/$workspaceSlug/inbox/': typeof TWorkspaceSlugInboxIndexRoute
-  '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
-  '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
-  '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
-  '/t/$workspaceSlug/support/': typeof TWorkspaceSlugSupportIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
+  '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
+  '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
+  '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
+  '/t/$teamSlug/my-issues/': typeof TTeamSlugMyIssuesIndexRoute
+  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
+  '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
+  '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -604,7 +577,6 @@ export interface FileRoutesByTo {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -621,14 +593,14 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
-  '/w/$': typeof WSplatRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
@@ -637,11 +609,10 @@ export interface FileRoutesByTo {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
+  '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
+  '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
-  '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
-  '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -649,30 +620,30 @@ export interface FileRoutesByTo {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
-  '/t/$workspaceSlug': typeof TWorkspaceSlugIndexRoute
+  '/t/$teamSlug': typeof TTeamSlugIndexRoute
+  '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
-  '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
-  '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
-  '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
-  '/t/$workspaceSlug/settings/members': typeof TWorkspaceSlugSettingsMembersRoute
-  '/t/$workspaceSlug/settings/projects': typeof TWorkspaceSlugSettingsProjectsRoute
-  '/t/$workspaceSlug/settings/repositories': typeof TWorkspaceSlugSettingsRepositoriesRoute
-  '/t/$workspaceSlug/settings/widget': typeof TWorkspaceSlugSettingsWidgetRoute
-  '/t/$workspaceSlug/agents': typeof TWorkspaceSlugAgentsIndexRoute
-  '/t/$workspaceSlug/inbox': typeof TWorkspaceSlugInboxIndexRoute
-  '/t/$workspaceSlug/my-issues': typeof TWorkspaceSlugMyIssuesIndexRoute
-  '/t/$workspaceSlug/reviews': typeof TWorkspaceSlugReviewsIndexRoute
-  '/t/$workspaceSlug/settings': typeof TWorkspaceSlugSettingsIndexRoute
-  '/t/$workspaceSlug/support': typeof TWorkspaceSlugSupportIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
+  '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
+  '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/agents': typeof TTeamSlugAgentsIndexRoute
+  '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
+  '/t/$teamSlug/my-issues': typeof TTeamSlugMyIssuesIndexRoute
+  '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
+  '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/support': typeof TTeamSlugSupportIndexRoute
+  '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -680,12 +651,11 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/robots.txt': typeof RobotsDottxtRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
-  '/t/$workspaceSlug': typeof TWorkspaceSlugRouteRouteWithChildren
+  '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -702,15 +672,15 @@ export interface FileRoutesById {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
-  '/w/$': typeof WSplatRoute
-  '/t/$workspaceSlug/settings': typeof TWorkspaceSlugSettingsRouteRouteWithChildren
+  '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/_authenticated/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
@@ -719,11 +689,10 @@ export interface FileRoutesById {
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
+  '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
+  '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
-  '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
-  '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -731,30 +700,30 @@ export interface FileRoutesById {
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
-  '/t/$workspaceSlug/': typeof TWorkspaceSlugIndexRoute
+  '/t/$teamSlug/': typeof TTeamSlugIndexRoute
+  '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/_authenticated/admin/workspaces_/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/t/$workspaceSlug/reviews/$issueIdentifier': typeof TWorkspaceSlugReviewsIssueIdentifierRoute
-  '/t/$workspaceSlug/settings/billing': typeof TWorkspaceSlugSettingsBillingRoute
-  '/t/$workspaceSlug/settings/general': typeof TWorkspaceSlugSettingsGeneralRoute
-  '/t/$workspaceSlug/settings/labels': typeof TWorkspaceSlugSettingsLabelsRoute
-  '/t/$workspaceSlug/settings/members': typeof TWorkspaceSlugSettingsMembersRoute
-  '/t/$workspaceSlug/settings/projects': typeof TWorkspaceSlugSettingsProjectsRoute
-  '/t/$workspaceSlug/settings/repositories': typeof TWorkspaceSlugSettingsRepositoriesRoute
-  '/t/$workspaceSlug/settings/widget': typeof TWorkspaceSlugSettingsWidgetRoute
-  '/t/$workspaceSlug/agents/': typeof TWorkspaceSlugAgentsIndexRoute
-  '/t/$workspaceSlug/inbox/': typeof TWorkspaceSlugInboxIndexRoute
-  '/t/$workspaceSlug/my-issues/': typeof TWorkspaceSlugMyIssuesIndexRoute
-  '/t/$workspaceSlug/reviews/': typeof TWorkspaceSlugReviewsIndexRoute
-  '/t/$workspaceSlug/settings/': typeof TWorkspaceSlugSettingsIndexRoute
-  '/t/$workspaceSlug/support/': typeof TWorkspaceSlugSupportIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug/': typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
-  '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
+  '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
+  '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsRoute
+  '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
+  '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
+  '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
+  '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
+  '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
+  '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
+  '/t/$teamSlug/my-issues/': typeof TTeamSlugMyIssuesIndexRoute
+  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
+  '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
+  '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -762,12 +731,11 @@ export interface FileRouteTypes {
     | '/'
     | '/robots.txt'
     | '/admin'
-    | '/t/$workspaceSlug'
+    | '/t/$teamSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
-    | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -784,15 +752,15 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/support/$token'
-    | '/w/$'
-    | '/t/$workspaceSlug/settings'
+    | '/t/$teamSlug/settings'
     | '/account/notifications'
+    | '/admin/teams'
     | '/admin/users'
-    | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
+    | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
@@ -801,11 +769,10 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
-    | '/api/shapes/projects'
+    | '/api/shapes/team-invites'
+    | '/api/shapes/team-members'
+    | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workspace-invites'
-    | '/api/shapes/workspace-members'
-    | '/api/shapes/workspaces'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -813,30 +780,30 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin/'
-    | '/t/$workspaceSlug/'
+    | '/t/$teamSlug/'
+    | '/admin/teams/$teamId'
     | '/admin/users/$userId'
-    | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/t/$workspaceSlug/reviews/$issueIdentifier'
-    | '/t/$workspaceSlug/settings/billing'
-    | '/t/$workspaceSlug/settings/general'
-    | '/t/$workspaceSlug/settings/labels'
-    | '/t/$workspaceSlug/settings/members'
-    | '/t/$workspaceSlug/settings/projects'
-    | '/t/$workspaceSlug/settings/repositories'
-    | '/t/$workspaceSlug/settings/widget'
-    | '/t/$workspaceSlug/agents/'
-    | '/t/$workspaceSlug/inbox/'
-    | '/t/$workspaceSlug/my-issues/'
-    | '/t/$workspaceSlug/reviews/'
-    | '/t/$workspaceSlug/settings/'
-    | '/t/$workspaceSlug/support/'
-    | '/t/$workspaceSlug/projects/$projectSlug/'
-    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/billing'
+    | '/t/$teamSlug/settings/boards'
+    | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/agents/'
+    | '/t/$teamSlug/inbox/'
+    | '/t/$teamSlug/my-issues/'
+    | '/t/$teamSlug/reviews/'
+    | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/support/'
+    | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -845,7 +812,6 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
-    | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -862,14 +828,14 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/support/$token'
-    | '/w/$'
     | '/account/notifications'
+    | '/admin/teams'
     | '/admin/users'
-    | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
+    | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
@@ -878,11 +844,10 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
-    | '/api/shapes/projects'
+    | '/api/shapes/team-invites'
+    | '/api/shapes/team-members'
+    | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workspace-invites'
-    | '/api/shapes/workspace-members'
-    | '/api/shapes/workspaces'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -890,42 +855,41 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin'
-    | '/t/$workspaceSlug'
+    | '/t/$teamSlug'
+    | '/admin/teams/$teamId'
     | '/admin/users/$userId'
-    | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/t/$workspaceSlug/reviews/$issueIdentifier'
-    | '/t/$workspaceSlug/settings/billing'
-    | '/t/$workspaceSlug/settings/general'
-    | '/t/$workspaceSlug/settings/labels'
-    | '/t/$workspaceSlug/settings/members'
-    | '/t/$workspaceSlug/settings/projects'
-    | '/t/$workspaceSlug/settings/repositories'
-    | '/t/$workspaceSlug/settings/widget'
-    | '/t/$workspaceSlug/agents'
-    | '/t/$workspaceSlug/inbox'
-    | '/t/$workspaceSlug/my-issues'
-    | '/t/$workspaceSlug/reviews'
-    | '/t/$workspaceSlug/settings'
-    | '/t/$workspaceSlug/support'
-    | '/t/$workspaceSlug/projects/$projectSlug'
-    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/billing'
+    | '/t/$teamSlug/settings/boards'
+    | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/agents'
+    | '/t/$teamSlug/inbox'
+    | '/t/$teamSlug/my-issues'
+    | '/t/$teamSlug/reviews'
+    | '/t/$teamSlug/settings'
+    | '/t/$teamSlug/support'
+    | '/t/$teamSlug/boards/$boardSlug'
+    | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/robots.txt'
     | '/_authenticated/admin'
-    | '/t/$workspaceSlug'
+    | '/t/$teamSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
-    | '/_authenticated/feedback'
     | '/_authenticated/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -942,15 +906,15 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/support/$token'
-    | '/w/$'
-    | '/t/$workspaceSlug/settings'
+    | '/t/$teamSlug/settings'
     | '/_authenticated/account/notifications'
+    | '/_authenticated/admin/teams'
     | '/_authenticated/admin/users'
-    | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
+    | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
@@ -959,11 +923,10 @@ export interface FileRouteTypes {
     | '/api/shapes/issues'
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
-    | '/api/shapes/projects'
+    | '/api/shapes/team-invites'
+    | '/api/shapes/team-members'
+    | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workspace-invites'
-    | '/api/shapes/workspace-members'
-    | '/api/shapes/workspaces'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -971,37 +934,37 @@ export interface FileRouteTypes {
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/_authenticated/admin/'
-    | '/t/$workspaceSlug/'
+    | '/t/$teamSlug/'
+    | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
-    | '/_authenticated/admin/workspaces_/$workspaceId'
     | '/_authenticated/integrations/github/claim'
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
-    | '/t/$workspaceSlug/reviews/$issueIdentifier'
-    | '/t/$workspaceSlug/settings/billing'
-    | '/t/$workspaceSlug/settings/general'
-    | '/t/$workspaceSlug/settings/labels'
-    | '/t/$workspaceSlug/settings/members'
-    | '/t/$workspaceSlug/settings/projects'
-    | '/t/$workspaceSlug/settings/repositories'
-    | '/t/$workspaceSlug/settings/widget'
-    | '/t/$workspaceSlug/agents/'
-    | '/t/$workspaceSlug/inbox/'
-    | '/t/$workspaceSlug/my-issues/'
-    | '/t/$workspaceSlug/reviews/'
-    | '/t/$workspaceSlug/settings/'
-    | '/t/$workspaceSlug/support/'
-    | '/t/$workspaceSlug/projects/$projectSlug/'
-    | '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/reviews/$issueIdentifier'
+    | '/t/$teamSlug/settings/billing'
+    | '/t/$teamSlug/settings/boards'
+    | '/t/$teamSlug/settings/general'
+    | '/t/$teamSlug/settings/labels'
+    | '/t/$teamSlug/settings/members'
+    | '/t/$teamSlug/settings/repositories'
+    | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/agents/'
+    | '/t/$teamSlug/inbox/'
+    | '/t/$teamSlug/my-issues/'
+    | '/t/$teamSlug/reviews/'
+    | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/support/'
+    | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   RobotsDottxtRoute: typeof RobotsDottxtRoute
-  TWorkspaceSlugRouteRoute: typeof TWorkspaceSlugRouteRouteWithChildren
+  TTeamSlugRouteRoute: typeof TTeamSlugRouteRouteWithChildren
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
@@ -1021,11 +984,11 @@ export interface RootRouteChildren {
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   InviteTokenRoute: typeof InviteTokenRoute
   SupportTokenRoute: typeof SupportTokenRoute
-  WSplatRoute: typeof WSplatRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
+  ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
@@ -1034,11 +997,10 @@ export interface RootRouteChildren {
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
-  ApiShapesProjectsRoute: typeof ApiShapesProjectsRoute
+  ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
+  ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
+  ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
-  ApiShapesWorkspaceInvitesRoute: typeof ApiShapesWorkspaceInvitesRoute
-  ApiShapesWorkspaceMembersRoute: typeof ApiShapesWorkspaceMembersRoute
-  ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
@@ -1071,13 +1033,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/w/$': {
-      id: '/w/$'
-      path: '/w/$'
-      fullPath: '/w/$'
-      preLoaderRoute: typeof WSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/support/$token': {
@@ -1192,13 +1147,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/feedback': {
-      id: '/_authenticated/feedback'
-      path: '/feedback'
-      fullPath: '/feedback'
-      preLoaderRoute: typeof AuthenticatedFeedbackRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/.well-known/oauth-protected-resource': {
       id: '/.well-known/oauth-protected-resource'
       path: '/.well-known/oauth-protected-resource'
@@ -1227,11 +1175,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/t/$workspaceSlug': {
-      id: '/t/$workspaceSlug'
-      path: '/t/$workspaceSlug'
-      fullPath: '/t/$workspaceSlug'
-      preLoaderRoute: typeof TWorkspaceSlugRouteRouteImport
+    '/t/$teamSlug': {
+      id: '/t/$teamSlug'
+      path: '/t/$teamSlug'
+      fullPath: '/t/$teamSlug'
+      preLoaderRoute: typeof TTeamSlugRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
@@ -1241,12 +1189,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/t/$workspaceSlug/': {
-      id: '/t/$workspaceSlug/'
+    '/t/$teamSlug/': {
+      id: '/t/$teamSlug/'
       path: '/'
-      fullPath: '/t/$workspaceSlug/'
-      preLoaderRoute: typeof TWorkspaceSlugIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/'
+      preLoaderRoute: typeof TTeamSlugIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
@@ -1297,27 +1245,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSupportReplyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/workspaces': {
-      id: '/api/shapes/workspaces'
-      path: '/api/shapes/workspaces'
-      fullPath: '/api/shapes/workspaces'
-      preLoaderRoute: typeof ApiShapesWorkspacesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/workspace-members': {
-      id: '/api/shapes/workspace-members'
-      path: '/api/shapes/workspace-members'
-      fullPath: '/api/shapes/workspace-members'
-      preLoaderRoute: typeof ApiShapesWorkspaceMembersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/workspace-invites': {
-      id: '/api/shapes/workspace-invites'
-      path: '/api/shapes/workspace-invites'
-      fullPath: '/api/shapes/workspace-invites'
-      preLoaderRoute: typeof ApiShapesWorkspaceInvitesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/users': {
       id: '/api/shapes/users'
       path: '/api/shapes/users'
@@ -1325,11 +1252,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/projects': {
-      id: '/api/shapes/projects'
-      path: '/api/shapes/projects'
-      fullPath: '/api/shapes/projects'
-      preLoaderRoute: typeof ApiShapesProjectsRouteImport
+    '/api/shapes/teams': {
+      id: '/api/shapes/teams'
+      path: '/api/shapes/teams'
+      fullPath: '/api/shapes/teams'
+      preLoaderRoute: typeof ApiShapesTeamsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/team-members': {
+      id: '/api/shapes/team-members'
+      path: '/api/shapes/team-members'
+      fullPath: '/api/shapes/team-members'
+      preLoaderRoute: typeof ApiShapesTeamMembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/team-invites': {
+      id: '/api/shapes/team-invites'
+      path: '/api/shapes/team-invites'
+      fullPath: '/api/shapes/team-invites'
+      preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/notifications': {
@@ -1388,6 +1329,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/boards': {
+      id: '/api/shapes/boards'
+      path: '/api/shapes/boards'
+      fullPath: '/api/shapes/boards'
+      preLoaderRoute: typeof ApiShapesBoardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/attachments': {
       id: '/api/shapes/attachments'
       path: '/api/shapes/attachments'
@@ -1416,18 +1364,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/admin/workspaces': {
-      id: '/_authenticated/admin/workspaces'
-      path: '/workspaces'
-      fullPath: '/admin/workspaces'
-      preLoaderRoute: typeof AuthenticatedAdminWorkspacesRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
     '/_authenticated/admin/users': {
       id: '/_authenticated/admin/users'
       path: '/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/teams': {
+      id: '/_authenticated/admin/teams'
+      path: '/teams'
+      fullPath: '/admin/teams'
+      preLoaderRoute: typeof AuthenticatedAdminTeamsRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
     '/_authenticated/account/notifications': {
@@ -1437,110 +1385,110 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/t/$workspaceSlug/settings': {
-      id: '/t/$workspaceSlug/settings'
+    '/t/$teamSlug/settings': {
+      id: '/t/$teamSlug/settings'
       path: '/settings'
-      fullPath: '/t/$workspaceSlug/settings'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsRouteRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/settings'
+      preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/support/': {
-      id: '/t/$workspaceSlug/support/'
+    '/t/$teamSlug/support/': {
+      id: '/t/$teamSlug/support/'
       path: '/support'
-      fullPath: '/t/$workspaceSlug/support/'
-      preLoaderRoute: typeof TWorkspaceSlugSupportIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/support/'
+      preLoaderRoute: typeof TTeamSlugSupportIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/settings/': {
-      id: '/t/$workspaceSlug/settings/'
+    '/t/$teamSlug/settings/': {
+      id: '/t/$teamSlug/settings/'
       path: '/'
-      fullPath: '/t/$workspaceSlug/settings/'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/'
+      preLoaderRoute: typeof TTeamSlugSettingsIndexRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/reviews/': {
-      id: '/t/$workspaceSlug/reviews/'
+    '/t/$teamSlug/reviews/': {
+      id: '/t/$teamSlug/reviews/'
       path: '/reviews'
-      fullPath: '/t/$workspaceSlug/reviews/'
-      preLoaderRoute: typeof TWorkspaceSlugReviewsIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/reviews/'
+      preLoaderRoute: typeof TTeamSlugReviewsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/my-issues/': {
-      id: '/t/$workspaceSlug/my-issues/'
+    '/t/$teamSlug/my-issues/': {
+      id: '/t/$teamSlug/my-issues/'
       path: '/my-issues'
-      fullPath: '/t/$workspaceSlug/my-issues/'
-      preLoaderRoute: typeof TWorkspaceSlugMyIssuesIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/my-issues/'
+      preLoaderRoute: typeof TTeamSlugMyIssuesIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/inbox/': {
-      id: '/t/$workspaceSlug/inbox/'
+    '/t/$teamSlug/inbox/': {
+      id: '/t/$teamSlug/inbox/'
       path: '/inbox'
-      fullPath: '/t/$workspaceSlug/inbox/'
-      preLoaderRoute: typeof TWorkspaceSlugInboxIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/inbox/'
+      preLoaderRoute: typeof TTeamSlugInboxIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/agents/': {
-      id: '/t/$workspaceSlug/agents/'
+    '/t/$teamSlug/agents/': {
+      id: '/t/$teamSlug/agents/'
       path: '/agents'
-      fullPath: '/t/$workspaceSlug/agents/'
-      preLoaderRoute: typeof TWorkspaceSlugAgentsIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/agents/'
+      preLoaderRoute: typeof TTeamSlugAgentsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$workspaceSlug/settings/widget': {
-      id: '/t/$workspaceSlug/settings/widget'
+    '/t/$teamSlug/settings/widget': {
+      id: '/t/$teamSlug/settings/widget'
       path: '/widget'
-      fullPath: '/t/$workspaceSlug/settings/widget'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsWidgetRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/widget'
+      preLoaderRoute: typeof TTeamSlugSettingsWidgetRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/settings/repositories': {
-      id: '/t/$workspaceSlug/settings/repositories'
+    '/t/$teamSlug/settings/repositories': {
+      id: '/t/$teamSlug/settings/repositories'
       path: '/repositories'
-      fullPath: '/t/$workspaceSlug/settings/repositories'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsRepositoriesRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/repositories'
+      preLoaderRoute: typeof TTeamSlugSettingsRepositoriesRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/settings/projects': {
-      id: '/t/$workspaceSlug/settings/projects'
-      path: '/projects'
-      fullPath: '/t/$workspaceSlug/settings/projects'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsProjectsRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
-    }
-    '/t/$workspaceSlug/settings/members': {
-      id: '/t/$workspaceSlug/settings/members'
+    '/t/$teamSlug/settings/members': {
+      id: '/t/$teamSlug/settings/members'
       path: '/members'
-      fullPath: '/t/$workspaceSlug/settings/members'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsMembersRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/members'
+      preLoaderRoute: typeof TTeamSlugSettingsMembersRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/settings/labels': {
-      id: '/t/$workspaceSlug/settings/labels'
+    '/t/$teamSlug/settings/labels': {
+      id: '/t/$teamSlug/settings/labels'
       path: '/labels'
-      fullPath: '/t/$workspaceSlug/settings/labels'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsLabelsRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/labels'
+      preLoaderRoute: typeof TTeamSlugSettingsLabelsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/settings/general': {
-      id: '/t/$workspaceSlug/settings/general'
+    '/t/$teamSlug/settings/general': {
+      id: '/t/$teamSlug/settings/general'
       path: '/general'
-      fullPath: '/t/$workspaceSlug/settings/general'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsGeneralRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/general'
+      preLoaderRoute: typeof TTeamSlugSettingsGeneralRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/settings/billing': {
-      id: '/t/$workspaceSlug/settings/billing'
+    '/t/$teamSlug/settings/boards': {
+      id: '/t/$teamSlug/settings/boards'
+      path: '/boards'
+      fullPath: '/t/$teamSlug/settings/boards'
+      preLoaderRoute: typeof TTeamSlugSettingsBoardsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/billing': {
+      id: '/t/$teamSlug/settings/billing'
       path: '/billing'
-      fullPath: '/t/$workspaceSlug/settings/billing'
-      preLoaderRoute: typeof TWorkspaceSlugSettingsBillingRouteImport
-      parentRoute: typeof TWorkspaceSlugSettingsRouteRoute
+      fullPath: '/t/$teamSlug/settings/billing'
+      preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$workspaceSlug/reviews/$issueIdentifier': {
-      id: '/t/$workspaceSlug/reviews/$issueIdentifier'
+    '/t/$teamSlug/reviews/$issueIdentifier': {
+      id: '/t/$teamSlug/reviews/$issueIdentifier'
       path: '/reviews/$issueIdentifier'
-      fullPath: '/t/$workspaceSlug/reviews/$issueIdentifier'
-      preLoaderRoute: typeof TWorkspaceSlugReviewsIssueIdentifierRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+      fullPath: '/t/$teamSlug/reviews/$issueIdentifier'
+      preLoaderRoute: typeof TTeamSlugReviewsIssueIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
@@ -1577,13 +1525,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/admin/workspaces_/$workspaceId': {
-      id: '/_authenticated/admin/workspaces_/$workspaceId'
-      path: '/workspaces/$workspaceId'
-      fullPath: '/admin/workspaces/$workspaceId'
-      preLoaderRoute: typeof AuthenticatedAdminWorkspacesWorkspaceIdRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
     '/_authenticated/admin/users_/$userId': {
       id: '/_authenticated/admin/users_/$userId'
       path: '/users/$userId'
@@ -1591,39 +1532,45 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/t/$workspaceSlug/projects/$projectSlug/': {
-      id: '/t/$workspaceSlug/projects/$projectSlug/'
-      path: '/projects/$projectSlug'
-      fullPath: '/t/$workspaceSlug/projects/$projectSlug/'
-      preLoaderRoute: typeof TWorkspaceSlugProjectsProjectSlugIndexRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+    '/_authenticated/admin/teams_/$teamId': {
+      id: '/_authenticated/admin/teams_/$teamId'
+      path: '/teams/$teamId'
+      fullPath: '/admin/teams/$teamId'
+      preLoaderRoute: typeof AuthenticatedAdminTeamsTeamIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': {
-      id: '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
-      path: '/projects/$projectSlug/issues/$issueIdentifier'
-      fullPath: '/t/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
-      preLoaderRoute: typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport
-      parentRoute: typeof TWorkspaceSlugRouteRoute
+    '/t/$teamSlug/boards/$boardSlug/': {
+      id: '/t/$teamSlug/boards/$boardSlug/'
+      path: '/boards/$boardSlug'
+      fullPath: '/t/$teamSlug/boards/$boardSlug/'
+      preLoaderRoute: typeof TTeamSlugBoardsBoardSlugIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': {
+      id: '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+      path: '/boards/$boardSlug/issues/$issueIdentifier'
+      fullPath: '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+      preLoaderRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
   }
 }
 
 interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminTeamsRoute: typeof AuthenticatedAdminTeamsRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
-  AuthenticatedAdminWorkspacesRoute: typeof AuthenticatedAdminWorkspacesRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+  AuthenticatedAdminTeamsTeamIdRoute: typeof AuthenticatedAdminTeamsTeamIdRoute
   AuthenticatedAdminUsersUserIdRoute: typeof AuthenticatedAdminUsersUserIdRoute
-  AuthenticatedAdminWorkspacesWorkspaceIdRoute: typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
 }
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
   {
+    AuthenticatedAdminTeamsRoute: AuthenticatedAdminTeamsRoute,
     AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
-    AuthenticatedAdminWorkspacesRoute: AuthenticatedAdminWorkspacesRoute,
     AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+    AuthenticatedAdminTeamsTeamIdRoute: AuthenticatedAdminTeamsTeamIdRoute,
     AuthenticatedAdminUsersUserIdRoute: AuthenticatedAdminUsersUserIdRoute,
-    AuthenticatedAdminWorkspacesWorkspaceIdRoute:
-      AuthenticatedAdminWorkspacesWorkspaceIdRoute,
   }
 
 const AuthenticatedAdminRouteRouteWithChildren =
@@ -1633,7 +1580,6 @@ const AuthenticatedAdminRouteRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
-  AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
   AuthenticatedIntegrationsGithubClaimRoute: typeof AuthenticatedIntegrationsGithubClaimRoute
@@ -1642,7 +1588,6 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
-  AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedAccountNotificationsRoute:
     AuthenticatedAccountNotificationsRoute,
@@ -1656,73 +1601,70 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
-interface TWorkspaceSlugSettingsRouteRouteChildren {
-  TWorkspaceSlugSettingsBillingRoute: typeof TWorkspaceSlugSettingsBillingRoute
-  TWorkspaceSlugSettingsGeneralRoute: typeof TWorkspaceSlugSettingsGeneralRoute
-  TWorkspaceSlugSettingsLabelsRoute: typeof TWorkspaceSlugSettingsLabelsRoute
-  TWorkspaceSlugSettingsMembersRoute: typeof TWorkspaceSlugSettingsMembersRoute
-  TWorkspaceSlugSettingsProjectsRoute: typeof TWorkspaceSlugSettingsProjectsRoute
-  TWorkspaceSlugSettingsRepositoriesRoute: typeof TWorkspaceSlugSettingsRepositoriesRoute
-  TWorkspaceSlugSettingsWidgetRoute: typeof TWorkspaceSlugSettingsWidgetRoute
-  TWorkspaceSlugSettingsIndexRoute: typeof TWorkspaceSlugSettingsIndexRoute
+interface TTeamSlugSettingsRouteRouteChildren {
+  TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
+  TTeamSlugSettingsBoardsRoute: typeof TTeamSlugSettingsBoardsRoute
+  TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
+  TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
+  TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
+  TTeamSlugSettingsRepositoriesRoute: typeof TTeamSlugSettingsRepositoriesRoute
+  TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
+  TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
 }
 
-const TWorkspaceSlugSettingsRouteRouteChildren: TWorkspaceSlugSettingsRouteRouteChildren =
+const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
   {
-    TWorkspaceSlugSettingsBillingRoute: TWorkspaceSlugSettingsBillingRoute,
-    TWorkspaceSlugSettingsGeneralRoute: TWorkspaceSlugSettingsGeneralRoute,
-    TWorkspaceSlugSettingsLabelsRoute: TWorkspaceSlugSettingsLabelsRoute,
-    TWorkspaceSlugSettingsMembersRoute: TWorkspaceSlugSettingsMembersRoute,
-    TWorkspaceSlugSettingsProjectsRoute: TWorkspaceSlugSettingsProjectsRoute,
-    TWorkspaceSlugSettingsRepositoriesRoute:
-      TWorkspaceSlugSettingsRepositoriesRoute,
-    TWorkspaceSlugSettingsWidgetRoute: TWorkspaceSlugSettingsWidgetRoute,
-    TWorkspaceSlugSettingsIndexRoute: TWorkspaceSlugSettingsIndexRoute,
+    TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
+    TTeamSlugSettingsBoardsRoute: TTeamSlugSettingsBoardsRoute,
+    TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
+    TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
+    TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,
+    TTeamSlugSettingsRepositoriesRoute: TTeamSlugSettingsRepositoriesRoute,
+    TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
+    TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
   }
 
-const TWorkspaceSlugSettingsRouteRouteWithChildren =
-  TWorkspaceSlugSettingsRouteRoute._addFileChildren(
-    TWorkspaceSlugSettingsRouteRouteChildren,
+const TTeamSlugSettingsRouteRouteWithChildren =
+  TTeamSlugSettingsRouteRoute._addFileChildren(
+    TTeamSlugSettingsRouteRouteChildren,
   )
 
-interface TWorkspaceSlugRouteRouteChildren {
-  TWorkspaceSlugSettingsRouteRoute: typeof TWorkspaceSlugSettingsRouteRouteWithChildren
-  TWorkspaceSlugIndexRoute: typeof TWorkspaceSlugIndexRoute
-  TWorkspaceSlugReviewsIssueIdentifierRoute: typeof TWorkspaceSlugReviewsIssueIdentifierRoute
-  TWorkspaceSlugAgentsIndexRoute: typeof TWorkspaceSlugAgentsIndexRoute
-  TWorkspaceSlugInboxIndexRoute: typeof TWorkspaceSlugInboxIndexRoute
-  TWorkspaceSlugMyIssuesIndexRoute: typeof TWorkspaceSlugMyIssuesIndexRoute
-  TWorkspaceSlugReviewsIndexRoute: typeof TWorkspaceSlugReviewsIndexRoute
-  TWorkspaceSlugSupportIndexRoute: typeof TWorkspaceSlugSupportIndexRoute
-  TWorkspaceSlugProjectsProjectSlugIndexRoute: typeof TWorkspaceSlugProjectsProjectSlugIndexRoute
-  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
+interface TTeamSlugRouteRouteChildren {
+  TTeamSlugSettingsRouteRoute: typeof TTeamSlugSettingsRouteRouteWithChildren
+  TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
+  TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
+  TTeamSlugAgentsIndexRoute: typeof TTeamSlugAgentsIndexRoute
+  TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
+  TTeamSlugMyIssuesIndexRoute: typeof TTeamSlugMyIssuesIndexRoute
+  TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
+  TTeamSlugSupportIndexRoute: typeof TTeamSlugSupportIndexRoute
+  TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
+  TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
 
-const TWorkspaceSlugRouteRouteChildren: TWorkspaceSlugRouteRouteChildren = {
-  TWorkspaceSlugSettingsRouteRoute:
-    TWorkspaceSlugSettingsRouteRouteWithChildren,
-  TWorkspaceSlugIndexRoute: TWorkspaceSlugIndexRoute,
-  TWorkspaceSlugReviewsIssueIdentifierRoute:
-    TWorkspaceSlugReviewsIssueIdentifierRoute,
-  TWorkspaceSlugAgentsIndexRoute: TWorkspaceSlugAgentsIndexRoute,
-  TWorkspaceSlugInboxIndexRoute: TWorkspaceSlugInboxIndexRoute,
-  TWorkspaceSlugMyIssuesIndexRoute: TWorkspaceSlugMyIssuesIndexRoute,
-  TWorkspaceSlugReviewsIndexRoute: TWorkspaceSlugReviewsIndexRoute,
-  TWorkspaceSlugSupportIndexRoute: TWorkspaceSlugSupportIndexRoute,
-  TWorkspaceSlugProjectsProjectSlugIndexRoute:
-    TWorkspaceSlugProjectsProjectSlugIndexRoute,
-  TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute:
-    TWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute,
+const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
+  TTeamSlugSettingsRouteRoute: TTeamSlugSettingsRouteRouteWithChildren,
+  TTeamSlugIndexRoute: TTeamSlugIndexRoute,
+  TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
+  TTeamSlugAgentsIndexRoute: TTeamSlugAgentsIndexRoute,
+  TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
+  TTeamSlugMyIssuesIndexRoute: TTeamSlugMyIssuesIndexRoute,
+  TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,
+  TTeamSlugSupportIndexRoute: TTeamSlugSupportIndexRoute,
+  TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
+  TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
+    TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,
 }
 
-const TWorkspaceSlugRouteRouteWithChildren =
-  TWorkspaceSlugRouteRoute._addFileChildren(TWorkspaceSlugRouteRouteChildren)
+const TTeamSlugRouteRouteWithChildren = TTeamSlugRouteRoute._addFileChildren(
+  TTeamSlugRouteRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   RobotsDottxtRoute: RobotsDottxtRoute,
-  TWorkspaceSlugRouteRoute: TWorkspaceSlugRouteRouteWithChildren,
+  TTeamSlugRouteRoute: TTeamSlugRouteRouteWithChildren,
   Char91DotwellKnownChar93AppleAppSiteAssociationRoute:
     Char91DotwellKnownChar93AppleAppSiteAssociationRoute,
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute:
@@ -1746,11 +1688,11 @@ const rootRouteChildren: RootRouteChildren = {
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   InviteTokenRoute: InviteTokenRoute,
   SupportTokenRoute: SupportTokenRoute,
-  WSplatRoute: WSplatRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
+  ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
@@ -1759,11 +1701,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
-  ApiShapesProjectsRoute: ApiShapesProjectsRoute,
+  ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
+  ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
+  ApiShapesTeamsRoute: ApiShapesTeamsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
-  ApiShapesWorkspaceInvitesRoute: ApiShapesWorkspaceInvitesRoute,
-  ApiShapesWorkspaceMembersRoute: ApiShapesWorkspaceMembersRoute,
-  ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,

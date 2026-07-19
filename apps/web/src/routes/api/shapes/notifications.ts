@@ -2,26 +2,28 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   andClauses,
   buildWhereClause,
-  getUserProjectIds,
+  getUserBoardIds,
   orClauses,
   sqlStringLiteral,
-} from "@/lib/workspace-membership"
+} from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Per-user inbox feed. Streams only the requesting user's notification rows;
 // never anonymous. The where clause is server-computed from the bearer token.
 //
-// Rows are additionally scoped to non-trashed projects the user can still
-// reach via the trigger-denormalized project_id (REV-109): notifications of
-// a soft-deleted project hide for the 48h trash window along with the
-// project itself (and return on restore). The IS NULL arm is defensive — an
-// issue-less notification carries no project identity and must never be
+// Rows are additionally scoped to non-trashed boards the user can still
+// reach via the trigger-denormalized board_id (REV-109): notifications of
+// a soft-deleted board hide for the 48h trash window along with the
+// board itself (and return on restore). The IS NULL arm is defensive — an
+// issue-less notification carries no board identity and must never be
 // silently dropped.
 //
 // `emailed_at` (the hourly digest sweep's server-side claim stamp) and
-// `project_id` (trash-scoping bookkeeping, filtered on above) are
-// deliberately excluded via the columns allowlist — neither is inbox state,
-// and pinning them out keeps client row payloads unchanged.
+// `board_id` (trash-scoping bookkeeping, filtered on above) are
+// deliberately excluded via the columns allowlist — neither is inbox state.
+// `team_id` IS synced: issue-less rows (helpdesk support_reply) carry it so
+// clients can route the notification to the right team's Support inbox;
+// issue-anchored rows leave it NULL (their team comes from the issue).
 export const Route = createFileRoute(`/api/shapes/notifications`)({
   server: {
     handlers: {
@@ -32,6 +34,7 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
           `id`,
           `user_id`,
           `issue_id`,
+          `team_id`,
           `type`,
           `title`,
           `body`,
@@ -42,12 +45,12 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
         ],
         getWhere: async (userId) => {
           if (!userId) return null
-          const projectIds = await getUserProjectIds(userId)
+          const boardIds = await getUserBoardIds(userId)
           return andClauses(
             `"user_id" = ${sqlStringLiteral(userId)}`,
             orClauses(
-              `"project_id" IS NULL`,
-              buildWhereClause(`project_id`, projectIds)
+              `"board_id" IS NULL`,
+              buildWhereClause(`board_id`, boardIds)
             )
           )
         },

@@ -23,9 +23,9 @@ final class ChangesViewModel {
     private(set) var expanded: Set<String> = []
 
     /// Membership gates the Merge / Close affordances (resolved from the issue's
-    /// project → workspace, like IssueDetailViewModel.refreshPermissions). The
+    /// board → team, like IssueDetailViewModel.refreshPermissions). The
     /// server enforces the rule too; this just hides controls a viewer can't use.
-    private(set) var permissions: WorkspacePermissions = .denied
+    private(set) var permissions: TeamPermissions = .denied
     private(set) var merging = false
     private(set) var closing = false
     private(set) var actionError: String?
@@ -112,17 +112,17 @@ final class ChangesViewModel {
         }
     }
 
-    /// Resolve membership from the issue's project → workspace (mirror of
+    /// Resolve membership from the issue's board → team (mirror of
     /// IssueDetailViewModel.refreshPermissions) so the review actions only show
     /// for members.
     private func refreshPermissions(for issue: IssueEntity) {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
-            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
-            return try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
+        let team: TeamEntity? = (try? pool.read { db -> TeamEntity? in
+            let board = try BoardEntity.fetchOne(db, key: issue.boardId)
+            return try board.flatMap { try TeamEntity.fetchOne(db, key: $0.teamId) }
         }) ?? nil
-        permissions = WorkspacePermissions.resolve(
-            workspace: workspace,
+        permissions = TeamPermissions.resolve(
+            team: team,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
             dbPool: pool

@@ -55,8 +55,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * "Reviews" (EXP-131): the open pull requests in the current workspace, grouped
- * by project. Its own bottom-bar destination beside My Work (EXP-147 — it used
+ * "Reviews" (EXP-131): the open pull requests in the current team, grouped
+ * by board. Its own bottom-bar destination beside My Work (EXP-147 — it used
  * to be a PersonalScreen segment). A batch coding run's combined PR shows as
  * ONE entry ("N issues"), never one row per linked issue. Rows open the Review
  * detail (EXP-168 — web parity: the reviews queue reviews PRs, not issues);
@@ -104,8 +104,8 @@ private fun ReviewsListContent(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             state.groups.forEach { group ->
-                item(key = "header-${group.project.id}") {
-                    ProjectHeader(name = group.project.name, count = group.entries.size)
+                item(key = "header-${group.board.id}") {
+                    BoardHeader(name = group.board.name, count = group.entries.size)
                 }
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
@@ -132,7 +132,7 @@ private fun ReviewsListContent(
 }
 
 @Composable
-private fun ProjectHeader(name: String, count: Int) {
+private fun BoardHeader(name: String, count: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

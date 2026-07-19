@@ -2,7 +2,7 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// "My Work" (EXP-58): Inbox and My Issues merged into one project-independent
+/// "My Work" (EXP-58): Inbox and My Issues merged into one board-independent
 /// bottom-bar destination — the web UI's inbox + my-issues pairing — behind a
 /// glass-pill segmented control. The Inbox segment carries the unread count
 /// and hosts Mark all read; the segment choice survives relaunch via
@@ -14,9 +14,9 @@ struct MyWorkView: View {
     @State private var inboxViewModel: InboxViewModel?
     @AppStorage("myWorkSegment") private var segmentRaw = Segment.inbox.rawValue
 
-    // Reviews moved out to its own bottom-bar destination (EXP-147); a
-    // persisted "reviews" rawValue falls back to .inbox via the `segment`
-    // computed property.
+    // Reviews (EXP-147) and Support (EXP-180) each moved out to their own
+    // bottom-bar destinations; a persisted "reviews"/"support" rawValue falls
+    // back to .inbox via the `segment` computed property.
     private enum Segment: String, CaseIterable {
         case inbox
         case myIssues

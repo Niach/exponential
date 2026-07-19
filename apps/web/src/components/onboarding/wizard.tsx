@@ -1,10 +1,9 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { ArrowLeft, FolderKanban, Github, Globe, Sparkles, X } from "lucide-react"
-import type { ProjectIcon } from "@exp/db-schema/domain"
-import { PROJECT_TEMPLATES, type ProjectTemplate } from "@/lib/project-types"
+import { FolderKanban, Github, Sparkles, X } from "lucide-react"
+import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
-import { useCreateProject } from "@/hooks/use-create-project"
+import { useCreateBoard } from "@/hooks/use-create-board"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -15,36 +14,31 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
-import { derivePrefix } from "@/lib/project"
+import { derivePrefix } from "@/lib/board"
 
-// Onboarding: pick a creation template first (Dev / Tasks / Feedback
-// quickstart — templates only pre-set the public toggle, icon and whether the
-// repo picker leads), then one form: name/prefix/icon/color, optional
-// repository, public-board switch. A repository is never required, which is
-// what makes onboarding possible on instances without a GitHub App. Invited
-// users never reach onboarding (they land in the shared workspace).
+// Onboarding: one form — name/prefix/icon/color and an optional repository.
+// A repository is never required, which is what makes onboarding possible on
+// instances without a GitHub App. Invited users never reach onboarding (they
+// land in the shared team).
 export function OnboardingWizard({
-  workspaceId,
-  workspaceSlug,
+  teamId,
+  teamSlug,
 }: {
-  workspaceId: string
-  workspaceSlug: string
+  teamId: string
+  teamSlug: string
 }) {
   const navigate = useNavigate()
-  const { createProject } = useCreateProject()
-  const [template, setTemplate] = useState<ProjectTemplate | null>(null)
+  const { createBoard } = useCreateBoard()
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
-  const [icon, setIcon] = useState<ProjectIcon>(`code`)
-  const [isPublic, setIsPublic] = useState(false)
+  const [icon, setIcon] = useState<BoardIcon>(`code`)
   const [showRepo, setShowRepo] = useState(false)
   const [repo, setRepo] = useState<PickerRepo | null>(null)
   const [saving, setSaving] = useState(false)
@@ -57,27 +51,19 @@ export function OnboardingWizard({
     setPrefix(derivePrefix(value))
   }
 
-  const applyTemplate = (next: ProjectTemplate) => {
-    setTemplate(next)
-    setIcon(next.defaults.icon)
-    setIsPublic(next.defaults.isPublic)
-    setShowRepo(next.defaults.suggestsRepo)
-  }
-
   const canCreate = !!name.trim() && !!prefix.trim() && !saving
 
   const handleCreate = async () => {
-    if (!template || !name.trim() || !prefix.trim()) return
+    if (!name.trim() || !prefix.trim()) return
     setSaving(true)
     setError(null)
     setLimitError(null)
-    const result = await createProject({
-      workspaceId,
+    const result = await createBoard({
+      teamId,
       name,
       prefix,
       color,
       icon,
-      isPublic,
       repository: repo
         ? {
             fullName: repo.fullName,
@@ -88,7 +74,7 @@ export function OnboardingWizard({
     })
     if (result.ok) {
       await trpc.onboarding.complete.mutate()
-      navigate({ to: `/t/$workspaceSlug`, params: { workspaceSlug } })
+      navigate({ to: `/t/$teamSlug`, params: { teamSlug } })
       return
     }
     if (result.error.kind === `planLimit`) {
@@ -99,81 +85,28 @@ export function OnboardingWizard({
     setSaving(false)
   }
 
-  if (template === null) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div className="w-full max-w-2xl">
-          <Card>
-            <CardHeader className="text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <FolderKanban className="size-6 text-primary" />
-              </div>
-              <CardTitle className="text-xl">
-                What are you building?
-              </CardTitle>
-              <CardDescription>
-                Pick a starting point for your first project — everything can
-                be changed later.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {PROJECT_TEMPLATES.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => applyTemplate(option)}
-                  className="flex w-full items-start gap-4 rounded-lg border border-border p-4 text-left transition-colors hover:border-primary/60 hover:bg-accent/40"
-                >
-                  <option.icon className="mt-1 h-6 w-6 shrink-0 text-primary" />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      {option.label}
-                      {option.defaults.isPublic && (
-                        <Globe className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </span>
-                    <span className="block text-sm text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <template.icon className="size-6 text-primary" />
+              <FolderKanban className="size-6 text-primary" />
             </div>
             <CardTitle className="text-xl">
-              Create your {template.label.toLowerCase()}
+              Create your first board
             </CardTitle>
-            <CardDescription>{template.description}</CardDescription>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="mx-auto mt-1 h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => setTemplate(null)}
-            >
-              <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-              Choose a different template
-            </Button>
+            <CardDescription>
+              Boards hold your issues. Connect a GitHub repository to code on
+              them — everything can be changed later.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
               <div className="space-y-2">
-                <Label htmlFor="onb-project-name">Project name</Label>
+                <Label htmlFor="onb-board-name">Board name</Label>
                 <Input
-                  id="onb-project-name"
+                  id="onb-board-name"
                   value={name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. Backend API"
@@ -181,9 +114,9 @@ export function OnboardingWizard({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="onb-project-prefix">Prefix</Label>
+                <Label htmlFor="onb-board-prefix">Prefix</Label>
                 <Input
-                  id="onb-project-prefix"
+                  id="onb-board-prefix"
                   className="sm:w-28"
                   value={prefix}
                   // Alphanumeric only — the server floor rejects symbol
@@ -229,7 +162,7 @@ export function OnboardingWizard({
                   </Button>
                 </div>
               ) : showRepo ? (
-                <GithubRepoPicker workspaceId={workspaceId} onSelect={setRepo} />
+                <GithubRepoPicker teamId={teamId} onSelect={setRepo} />
               ) : (
                 <Button
                   type="button"
@@ -243,34 +176,6 @@ export function OnboardingWizard({
                 </Button>
               )}
             </div>
-
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <div className="min-w-0">
-                <Label
-                  htmlFor="onb-project-public"
-                  className="flex items-center gap-1.5 text-sm"
-                >
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                  Public board
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Anyone with the link can read it.
-                </p>
-              </div>
-              <Switch
-                id="onb-project-public"
-                checked={isPublic}
-                onCheckedChange={setIsPublic}
-              />
-            </div>
-
-            {isPublic && (
-              <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
-                Public boards are readable by anyone: issues, comments and
-                @mentions in them are visible to anyone with the link. The
-                team name is shown on the board.
-              </p>
-            )}
 
             {error && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -286,7 +191,7 @@ export function OnboardingWizard({
 
             <div className="flex justify-end">
               <Button onClick={() => void handleCreate()} disabled={!canCreate}>
-                {saving ? `Creating…` : `Create project`}
+                {saving ? `Creating…` : `Create board`}
               </Button>
             </div>
           </CardContent>

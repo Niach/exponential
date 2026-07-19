@@ -3,19 +3,19 @@
 //! A 1:1 mirror of the web app built out of gpui-component widgets: `sidebar`,
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
 //! `mention_popover`, `filter_bar`/`pills`, `create_issue_dialog`,
-//! `create_project`/`create_workspace`, `inbox`, `my_issues`, `settings/*`,
+//! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
 //! `account`, `diff_view`, `run_bar`. Lands across Phases 1–5.
 //!
 //! Dependency rule (§3.1): lower crates never depend on `ui` (no back-edges).
 //!
-//! Phase-3 state: the §4 app shell — [`Workspace`] (the `DockArea`) with the
-//! non-collapsible [`sidebar`] in the left dock (live workspace
-//! picker + nav rows + project rows), the [`screens`] panel in the center
+//! Phase-3 state: the §4 app shell — [`Shell`] (the `DockArea`) with the
+//! non-collapsible [`sidebar`] in the left dock (live team
+//! picker + nav rows + board rows), the [`screens`] panel in the center
 //! (per-window [`navigation`] routing: board / issue detail / my-issues /
 //! inbox / settings / account — §4.2), the virtualized [`issue_list`] core
 //! with inline status/priority dropdowns (§4.6), a collapsed bottom terminal
 //! dock, per-window `DockAreaState` persistence (§3.3), plus the [`login`]
-//! surface + [`session`] wiring (the §5 state machine: the workspace renders
+//! surface + [`session`] wiring (the §5 state machine: the shell renders
 //! login whenever the session is not `Synced`). The Phase-2 [`debug_board`]
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
@@ -27,12 +27,11 @@ pub mod coding_flow;
 mod coding_selects;
 mod comments;
 mod create_issue_dialog;
-mod create_project_dialog;
-mod create_workspace_dialog;
+mod create_board_dialog;
+mod create_team_dialog;
 mod debug_board;
 mod description_editor;
 pub mod diff;
-mod feedback;
 mod file_tree;
 mod file_viewer;
 mod filter_bar;
@@ -46,7 +45,7 @@ mod image_preview;
 mod inbox;
 pub mod issue_detail;
 mod issue_list;
-mod join_workspace;
+mod join_team;
 mod login;
 pub mod markdown;
 mod mention_input;
@@ -65,14 +64,15 @@ mod sidebar;
 mod source_control;
 mod start_coding_dialog;
 pub mod steer_wiring;
+mod support_thread;
 mod terminal_dock;
 mod timeline;
 mod top_bar;
 mod undock;
 mod undocked_terminal;
 mod update;
-mod workspace;
-mod workspace_heal;
+mod shell;
+mod team_heal;
 
 pub use actions::*;
 pub use icons::ExpIcon;
@@ -82,7 +82,7 @@ pub use update::check_for_updates;
 pub use session::{
     bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,
 };
-pub use workspace::Workspace;
+pub use shell::Shell;
 
 use gpui::{App, AppContext as _};
 use gpui_component::dock::register_panel;
@@ -113,21 +113,15 @@ pub fn init(cx: &mut App) {
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
     // Create-flow dialog actions (§4.2): NewIssue (board filter bar),
-    // NewProject (sidebar `+`), CreateWorkspace (workspace picker).
+    // NewBoard (sidebar `+`), CreateTeam (team picker).
     create_issue_dialog::init(cx);
-    create_project_dialog::init(cx);
-    create_workspace_dialog::init(cx);
-    // §4.2 accept-invite fallback: "Join workspace…" in the footer account
+    create_board_dialog::init(cx);
+    create_team_dialog::init(cx);
+    // §4.2 accept-invite fallback: "Join team…" in the footer account
     // menu (the exponential://invite/<token> deep link routes through oauth.rs).
-    join_workspace::init(cx);
-    // The sidebar Feedback item opens the public feedback board IN-APP for a
-    // member, falling back to the cloud `/feedback` page in the system browser
-    // for everyone else (signed out, non-member, or a self-hosted instance
-    // without a public board). No self-service join — public boards are
-    // read-only for non-members.
-    feedback::init(cx);
-    register_panel(cx, workspace::CENTER_PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| workspace::CenterPanel::new(window, cx)))
+    join_team::init(cx);
+    register_panel(cx, shell::CENTER_PANEL_NAME, |_, _, _, window, cx| {
+        Box::new(cx.new(|cx| shell::CenterPanel::new(window, cx)))
     });
     register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))

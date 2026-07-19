@@ -1,5 +1,13 @@
 # Exponential — Masterplan (v5, release)
 
+> **Vocabulary note (EXP-180, 2026-07-19):** this document predates the great rename. Read
+> "workspace" as **team** and "project" as **board** — the rename was a clean cut across copy,
+> URLs, code identifiers, and DB tables (`teams`/`boards`/`team_id`/`board_id`; `/w/` and
+> `/projects/` URL forms are dead). EXP-180 also removed public feedback boards and the
+> dev/tasks/feedback board types entirely, moved the helpdesk to ONE team-level switch feeding
+> a shared Support inbox (standalone tickets, escalatable to board issues), and gave the Free
+> plan a feedback widget. Where this plan references those systems, the code is the spec.
+
 *2026-07-05. The single plan of record, superseding `docs/archive/masterplan-v4.md`
 (project=repo + desktop git IDE — shipped through R0–R3/R4; its §9 do-not-regress contract is
 carried forward here). Where this document is silent about an inherited system, **the code is

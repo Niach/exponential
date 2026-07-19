@@ -11,7 +11,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/getting-started/`,
     label: `Getting started`,
-    blurb: `Sign up, create your first project, connect GitHub, invite your team.`,
+    blurb: `Sign up, create your first board, connect GitHub, invite your team.`,
   },
   {
     path: `/docs/issues/`,
@@ -26,7 +26,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/feedback/`,
     label: `Feedback & helpdesk`,
-    blurb: `Feedback projects, public boards, and the built-in email helpdesk.`,
+    blurb: `The feedback widget, the team helpdesk, and the shared support inbox.`,
   },
   {
     path: `/docs/widget/`,

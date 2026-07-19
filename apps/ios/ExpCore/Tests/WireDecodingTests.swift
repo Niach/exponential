@@ -17,7 +17,7 @@ final class WireDecodingTests: XCTestCase {
     func testIssueDecodesWireStringNumbersAndKeepsNumericTitle() throws {
         let issue = try decode(IssueEntity.self, #"""
         {
-          "id": "i1", "project_id": "p1", "title": "404",
+          "id": "i1", "board_id": "p1", "title": "404",
           "status": "todo", "priority": "none",
           "number": "7", "pr_number": "12", "sort_order": "3.5",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
@@ -33,7 +33,7 @@ final class WireDecodingTests: XCTestCase {
         // The tRPC/fixture form uses native JSON scalars — still valid.
         let issue = try decode(IssueEntity.self, #"""
         {
-          "id": "i1", "project_id": "p1", "title": "Real",
+          "id": "i1", "board_id": "p1", "title": "Real",
           "status": "todo", "priority": "none",
           "number": 7, "sort_order": 3.5,
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
@@ -49,7 +49,7 @@ final class WireDecodingTests: XCTestCase {
     func testLabelDecodesWireSortOrderAndKeepsBooleanLookingName() throws {
         let label = try decode(LabelEntity.self, #"""
         {
-          "id": "l1", "workspace_id": "w1", "name": "true", "color": "#fff",
+          "id": "l1", "team_id": "w1", "name": "true", "color": "#fff",
           "sort_order": "1.5",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -58,22 +58,41 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(label.name, "true")
     }
 
-    // MARK: - Project (locks the t/f Postgres text forms too)
+    // MARK: - Team (helpdesk_enabled rides the teams shape as Postgres text)
 
-    func testProjectDecodesWireBoolsAndSortOrder() throws {
-        let project = try decode(ProjectEntity.self, #"""
+    func testTeamDecodesWireHelpdeskEnabled() throws {
+        let team = try decode(TeamEntity.self, #"""
         {
-          "id": "p1", "workspace_id": "w1", "name": "P", "slug": "p", "prefix": "P",
-          "sort_order": "2", "is_public": "true", "is_protected": "t",
-          "public_show_comments": "false", "public_show_activity": "f",
+          "id": "w1", "name": "Team", "slug": "team", "helpdesk_enabled": "t",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)
-        XCTAssertEqual(project.sortOrder, 2)
-        XCTAssertTrue(project.isPublic)
-        XCTAssertTrue(project.isProtected)
-        XCTAssertFalse(project.publicShowComments)
-        XCTAssertFalse(project.publicShowActivity)
+        XCTAssertTrue(team.helpdeskEnabled)
+    }
+
+    func testTeamHelpdeskEnabledDefaultsFalseWhenAbsent() throws {
+        // A pre-rotation snapshot may omit the column — schema default wins.
+        let team = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertFalse(team.helpdeskEnabled)
+    }
+
+    // MARK: - Board (locks the t/f Postgres text forms too)
+
+    func testBoardDecodesWireBoolsAndSortOrder() throws {
+        let board = try decode(BoardEntity.self, #"""
+        {
+          "id": "p1", "team_id": "w1", "name": "P", "slug": "p", "prefix": "P",
+          "sort_order": "2", "is_protected": "t",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(board.sortOrder, 2)
+        XCTAssertTrue(board.isProtected)
     }
 
     // MARK: - Attachment
@@ -81,7 +100,7 @@ final class WireDecodingTests: XCTestCase {
     func testAttachmentDecodesWireIntsAndKeepsNumericFilename() throws {
         let attachment = try decode(AttachmentEntity.self, #"""
         {
-          "id": "a1", "workspace_id": "w1", "issue_id": "i1", "uploader_id": "u1",
+          "id": "a1", "team_id": "w1", "issue_id": "i1", "uploader_id": "u1",
           "filename": "3.5", "content_type": "image/png",
           "size_bytes": "12345", "storage_key": "k", "url": "/x",
           "width": "800", "height": "600",
@@ -106,12 +125,42 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertTrue(user.isAgent)
     }
 
+    // MARK: - Notification (issue-less support_reply rows carry team_id)
+
+    func testNotificationDecodesIssuelessSupportReplyWithTeamId() throws {
+        let notification = try decode(NotificationEntity.self, #"""
+        {
+          "id": "n1", "user_id": "u1", "issue_id": null, "team_id": "w1",
+          "type": "support_reply", "title": "New reply on ticket",
+          "body": "A customer replied",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(notification.issueId)
+        XCTAssertEqual(notification.teamId, "w1")
+        XCTAssertEqual(notification.type, "support_reply")
+    }
+
+    func testNotificationTeamIdAbsentOrNullIsNil() throws {
+        // Issue-anchored rows carry team_id: null; pre-rotation snapshots may
+        // omit the key entirely — both must decode with a nil teamId.
+        let notification = try decode(NotificationEntity.self, #"""
+        {
+          "id": "n2", "user_id": "u1", "issue_id": "i1",
+          "type": "issue_comment", "title": "New comment",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(notification.issueId, "i1")
+        XCTAssertNil(notification.teamId)
+    }
+
     // MARK: - IssueSubscriber (bare Postgres "t")
 
     func testIssueSubscriberDecodesWirePostgresTrue() throws {
         let sub = try decode(IssueSubscriberEntity.self, #"""
         {
-          "id": "s1", "issue_id": "i1", "workspace_id": "w1", "source": "manual",
+          "id": "s1", "issue_id": "i1", "team_id": "w1", "source": "manual",
           "unsubscribed": "t",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -126,7 +175,7 @@ final class WireDecodingTests: XCTestCase {
         // become nil.
         XCTAssertThrowsError(try decode(IssueEntity.self, #"""
         {
-          "id": "i1", "project_id": "p1", "title": "t",
+          "id": "i1", "board_id": "p1", "title": "t",
           "status": "todo", "priority": "none", "number": "not-a-number",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -136,7 +185,7 @@ final class WireDecodingTests: XCTestCase {
     func testWireIntAbsentOrNullIsNil() throws {
         let issue = try decode(IssueEntity.self, #"""
         {
-          "id": "i1", "project_id": "p1", "title": "t",
+          "id": "i1", "board_id": "p1", "title": "t",
           "status": "todo", "priority": "none", "number": null,
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }

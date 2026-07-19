@@ -1,4 +1,4 @@
-/* ─── Project board — filter bar + grouped issue list ───
+/* ─── Board — filter bar + grouped issue list ───
    Mirrors apps/web issue-filter-bar.tsx ("Issues" title, pill tabs, indigo
    New Issue) and issue-list.tsx (grid rows [priority | identifier | status |
    title | labels | assignee | due], tinted sticky group headers). */

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { db } from "@/db/connection"
-import { users, workspaceMembers } from "@/db/schema"
+import { users, teamMembers } from "@/db/schema"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -17,7 +17,7 @@ export function widgetUserName(configName: string): string {
 // mistake loud.
 export async function createWidgetUser(
   tx: Tx,
-  args: { workspaceId: string; configName: string }
+  args: { teamId: string; configName: string }
 ): Promise<string> {
   const widgetUserId = randomUUID()
   const now = new Date()
@@ -35,9 +35,9 @@ export async function createWidgetUser(
   })
 
   await tx
-    .insert(workspaceMembers)
+    .insert(teamMembers)
     .values({
-      workspaceId: args.workspaceId,
+      teamId: args.teamId,
       userId: widgetUserId,
       role: `member`,
     })

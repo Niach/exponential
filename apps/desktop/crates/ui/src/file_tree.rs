@@ -4,7 +4,7 @@
 //! changed files, context-menu "Reveal in file manager" / "Open terminal
 //! here". Clicking a file opens [`crate::navigation::Screen::FileViewer`].
 //!
-//! Scope: the tree follows the window's active project (its trunk clone,
+//! Scope: the tree follows the window's active board (its trunk clone,
 //! `<repos_root>/<owner>/<name>` — v4 §4.2 "trunk is *the* IDE surface"). The
 //! repo→trunk-root resolution needs a tRPC-only `repositories.list` lookup
 //! (never synced), so it runs off the foreground like the run bar / `+` shell
@@ -58,7 +58,7 @@ const LOADING_SUFFIX: &str = "\u{1}__loading";
 // ---------------------------------------------------------------------------
 
 /// Window → resolved trunk clone root. The file tree writes it when it resolves
-/// the active project's repo; [`crate::file_viewer`] reads it to turn a
+/// the active board's repo; [`crate::file_viewer`] reads it to turn a
 /// trunk-relative `Screen::FileViewer { path }` into an absolute path (a file
 /// is only reachable from the tree, so the root is always resolved first).
 #[derive(Default)]
@@ -211,9 +211,9 @@ pub struct FileTreeView {
     /// from here instead of a per-tree `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
     window_id: WindowId,
-    /// The project scope the tree is showing (sticky — a non-project screen,
-    /// e.g. the file viewer itself, keeps the last project).
-    project_id: Option<String>,
+    /// The board scope the tree is showing (sticky — a non-board screen,
+    /// e.g. the file viewer itself, keeps the last board).
+    board_id: Option<String>,
     load: Load,
     /// Stale-fetch guard (scope changes bump it).
     generation: u64,
@@ -243,12 +243,12 @@ impl FileTreeView {
         let tree_state = cx.new(|cx| TreeState::new(cx));
         let collections = Store::global(cx).collections().clone();
         let mut subscriptions = vec![
-            // Scope follows navigation (board / issue-detail → project).
+            // Scope follows navigation (board / issue-detail → board).
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The issue→project join reads the synced collections; re-render
+            // The issue→board join reads the synced collections; re-render
             // when they land.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // Lazy directory loading rides the tree's expand events.
@@ -264,7 +264,7 @@ impl FileTreeView {
             nav,
             repo_resolver,
             window_id: window.window_handle().window_id(),
-            project_id: None,
+            board_id: None,
             load: Load::Idle,
             generation: 0,
             trunk_root: None,
@@ -305,25 +305,25 @@ impl FileTreeView {
         .detach();
     }
 
-    /// The window's active project (screen scope with the last-board
+    /// The window's active board (screen scope with the last-board
     /// fallback) — populated on every screen so the Files tool window never
     /// empties on navigation.
-    fn scope_project_id(&self, cx: &App) -> Option<String> {
-        navigation::active_project_id(&self.nav, cx)
+    fn scope_board_id(&self, cx: &App) -> Option<String> {
+        navigation::active_board_id(&self.nav, cx)
     }
 
-    /// Render-time load gate: a new project scope resets and kicks one
+    /// Render-time load gate: a new board scope resets and kicks one
     /// background resolve (repo → trunk root) + snapshot (status/ignored) +
     /// root listing.
     fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
-        // workspace, shared by all five trunk/IDE surfaces).
+        // team, shared by all five trunk/IDE surfaces).
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        if let Some(scope) = self.scope_project_id(cx) {
-            if self.project_id.as_deref() != Some(scope.as_str()) {
-                self.project_id = Some(scope);
+        if let Some(scope) = self.scope_board_id(cx) {
+            if self.board_id.as_deref() != Some(scope.as_str()) {
+                self.board_id = Some(scope);
                 self.load = Load::Idle;
                 self.reset_tree(cx);
             }
@@ -331,11 +331,11 @@ impl FileTreeView {
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let Some(project_id) = self.project_id.clone() else {
+        let Some(board_id) = self.board_id.clone() else {
             return;
         };
         // The trunk clone root comes from the shared resolver.
-        let full_name = match self.repo_resolver.read(cx).lookup_project(&project_id) {
+        let full_name = match self.repo_resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Loading => return, // the resolver observer re-renders us
             RepoLookup::Found(repo) => repo.full_name,
             RepoLookup::NotFound | RepoLookup::Error(_) => {
@@ -521,13 +521,13 @@ impl Render for FileTreeView {
         self.ensure_loaded(cx);
 
         let still_resolving = matches!(self.load, Load::Idle | Load::Loading);
-        let body: gpui::AnyElement = if self.project_id.is_none() {
-            self.render_placeholder("Open a project to browse its files.", cx)
+        let body: gpui::AnyElement = if self.board_id.is_none() {
+            self.render_placeholder("Open a board to browse its files.", cx)
         } else if self.trunk_root.is_none() {
             if still_resolving {
                 self.render_placeholder("Loading files…", cx)
             } else {
-                self.render_placeholder("No repository linked to this project.", cx)
+                self.render_placeholder("No repository linked to this board.", cx)
             }
         } else if self.roots.is_empty() {
             self.render_placeholder("This repository is not cloned yet.", cx)

@@ -1,12 +1,12 @@
-//! Workspace settings + account screens (masterplan-v3 §4.2 "Settings" /
+//! Team settings + account screens (masterplan-v3 §4.2 "Settings" /
 //! "Account", §7.9 integrations surface).
 //!
-//! Web parity targets: the `routes/t/$workspaceSlug/settings/` pages and
-//! their `components/workspace/*-section.tsx` cards, plus
-//! `routes/_authenticated/account/notifications.tsx`. The workspace-settings
+//! Web parity targets: the `routes/t/$teamSlug/settings/` pages and
+//! their `components/team/*-section.tsx` cards, plus
+//! `routes/_authenticated/account/notifications.tsx`. The team-settings
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
 //! left nav with the web's groups — **Team** (General, Members, Labels) and
-//! **Projects** (Projects, Repositories) — plus the desktop-only **This
+//! **Boards** (Boards, Repositories) — plus the desktop-only **This
 //! device** group (Coding, Local repositories); the detail column shows ONE
 //! selected pane with the web's `isOwner &&` gating (General additionally
 //! hides when solo — the pane renders nothing there, matching the web); each
@@ -28,9 +28,9 @@ mod labels;
 mod local_repos;
 mod members;
 mod notifications_prefs;
-mod projects;
+mod boards;
 mod repositories;
-mod workspace_general;
+mod team_general;
 
 pub use account::AccountView;
 
@@ -42,16 +42,16 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 use sync::Store;
 
-use crate::navigation::{active_workspace_id, nav_for_window, Navigation};
+use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::queries;
 
 use labels::LabelsPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
-use projects::ProjectsPane;
+use boards::BoardsPane;
 use repositories::RepositoriesPane;
 use self::coding::CodingPane;
-use workspace_general::GeneralPane;
+use team_general::GeneralPane;
 
 // ---------------------------------------------------------------------------
 // Section nav model (EXP-146 grouped master-detail)
@@ -62,7 +62,7 @@ pub(crate) enum SettingsSection {
     General,
     Members,
     Labels,
-    Projects,
+    Boards,
     Repositories,
     Coding,
     LocalRepos,
@@ -100,11 +100,11 @@ const NAV_GROUPS: &[NavGroup] = &[
         ],
     },
     NavGroup {
-        label: "Projects",
+        label: "Boards",
         items: &[
             NavItem {
-                label: "Projects",
-                section: SettingsSection::Projects,
+                label: "Boards",
+                section: SettingsSection::Boards,
             },
             NavItem {
                 label: "Repositories",
@@ -127,13 +127,13 @@ const NAV_GROUPS: &[NavGroup] = &[
     },
 ];
 
-/// Web nav `visible` gating: General/Projects/Repositories are owner-only,
+/// Web nav `visible` gating: General/Boards/Repositories are owner-only,
 /// and General additionally hides when solo (GeneralPane renders nothing
 /// there, mirroring the web section's `if (solo) return null`).
 fn section_visible(section: SettingsSection, owner: bool, solo: bool) -> bool {
     match section {
         SettingsSection::General => owner && !solo,
-        SettingsSection::Projects | SettingsSection::Repositories => owner,
+        SettingsSection::Boards | SettingsSection::Repositories => owner,
         _ => true,
     }
 }
@@ -155,10 +155,10 @@ fn effective_selection(selected: SettingsSection, owner: bool, solo: bool) -> Se
 }
 
 // ---------------------------------------------------------------------------
-// Workspace settings shell
+// Team settings shell
 // ---------------------------------------------------------------------------
 
-/// The workspace-settings screen (`Screen::Settings`) — the web settings
+/// The team-settings screen (`Screen::Settings`) — the web settings
 /// pages' grouped master-detail layout (billing/widget/danger-zone
 /// skipped: web-only, §4.9).
 pub struct SettingsView {
@@ -166,7 +166,7 @@ pub struct SettingsView {
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
     labels: Entity<LabelsPane>,
-    projects: Entity<ProjectsPane>,
+    boards: Entity<BoardsPane>,
     repositories: Entity<RepositoriesPane>,
     /// §7.7 desktop-only card block (launcher settings + doctor + key status)
     /// — local per-install state, so NOT owner-gated and last in the column.
@@ -186,18 +186,18 @@ impl SettingsView {
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
-        let projects = cx.new(|cx| ProjectsPane::new(nav.clone(), cx));
+        let boards = cx.new(|cx| BoardsPane::new(nav.clone(), cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
         let coding = cx.new(|cx| CodingPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
 
         // The section nav + header depend on role (owner gating) and the
-        // solo heuristic — re-render when membership/workspace data moves.
+        // solo heuristic — re-render when membership/team data moves.
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspaces, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspace_members, |_, _, cx| cx.notify()),
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
         ];
 
@@ -206,7 +206,7 @@ impl SettingsView {
             general,
             members,
             labels,
-            projects,
+            boards,
             repositories,
             coding,
             local_repos,
@@ -218,24 +218,24 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let owner = active_workspace_id(&self.nav, cx)
+        let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
         let solo = {
-            let workspace_id = active_workspace_id(&self.nav, cx);
-            workspace_id
+            let team_id = active_team_id(&self.nav, cx);
+            team_id
                 .as_deref()
-                .map(|ws| !show_workspace_chrome(cx, ws))
+                .map(|ws| !show_team_chrome(cx, ws))
                 .unwrap_or(true)
         };
         let (title, subtitle): (&'static str, SharedString) = if solo {
             (
                 "Settings",
-                "Manage your projects, labels, and repositories.".into(),
+                "Manage your boards, labels, and repositories.".into(),
             )
         } else {
-            let name = active_workspace(cx, &self.nav)
-                .map(|workspace| workspace.name)
+            let name = active_team(cx, &self.nav)
+                .map(|team| team.name)
                 .unwrap_or_default();
             (
                 "Team Settings",
@@ -294,7 +294,7 @@ impl Render for SettingsView {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
             SettingsSection::Labels => self.labels.clone().into_any_element(),
-            SettingsSection::Projects => self.projects.clone().into_any_element(),
+            SettingsSection::Boards => self.boards.clone().into_any_element(),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Coding => self.coding.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
@@ -355,30 +355,30 @@ impl Render for SettingsView {
 // `queries.rs` with the §4.8 sidebar solo rule)
 // ---------------------------------------------------------------------------
 
-/// The window's active synced workspace row.
-pub(crate) fn active_workspace(
+/// The window's active synced team row.
+pub(crate) fn active_team(
     cx: &App,
     nav: &Entity<Navigation>,
-) -> Option<domain::rows::Workspace> {
-    let workspace_id = active_workspace_id(nav, cx)?;
+) -> Option<domain::rows::Team> {
+    let team_id = active_team_id(nav, cx)?;
     Store::global(cx)
         .collections()
-        .workspaces
+        .teams
         .read(cx)
-        .get(&workspace_id)
+        .get(&team_id)
         .cloned()
 }
 
-/// My membership row in `workspace_id` (id + role), from the synced
+/// My membership row in `team_id` (id + role), from the synced
 /// collections.
-pub(crate) fn my_membership(cx: &App, workspace_id: &str) -> Option<(String, String)> {
+pub(crate) fn my_membership(cx: &App, team_id: &str) -> Option<(String, String)> {
     let me = queries::active_account(cx)?;
     Store::global(cx)
         .collections()
-        .workspace_members
+        .team_members
         .read(cx)
         .iter()
-        .find(|member| member.workspace_id == workspace_id && member.user_id == me.user_id)
+        .find(|member| member.team_id == team_id && member.user_id == me.user_id)
         .map(|member| {
             (
                 member.id.clone(),
@@ -388,30 +388,30 @@ pub(crate) fn my_membership(cx: &App, workspace_id: &str) -> Option<(String, Str
 }
 
 /// Web `isOwner` gate (settings route: `currentMember?.role === 'owner'`).
-pub(crate) fn is_owner(cx: &App, workspace_id: &str) -> bool {
-    my_membership(cx, workspace_id)
-        .map(|(_, role)| role == domain::contract::WORKSPACE_ROLE_OWNER)
+pub(crate) fn is_owner(cx: &App, team_id: &str) -> bool {
+    my_membership(cx, team_id)
+        .map(|(_, role)| role == domain::contract::TEAM_ROLE_OWNER)
         .unwrap_or(false)
 }
 
 /// Web `useIsSolo`: true while data loads (bias hidden), else "≤1 human
 /// member" (agents excluded).
-pub(crate) fn is_solo_workspace(cx: &App, workspace_id: &str) -> bool {
+pub(crate) fn is_solo_team(cx: &App, team_id: &str) -> bool {
     let collections = Store::global(cx).collections();
-    if !collections.workspace_members.read(cx).is_ready()
-        || !collections.workspaces.read(cx).is_ready()
+    if !collections.team_members.read(cx).is_ready()
+        || !collections.teams.read(cx).is_ready()
     {
         return true;
     }
-    if collections.workspaces.read(cx).get(workspace_id).is_none() {
+    if collections.teams.read(cx).get(team_id).is_none() {
         return true;
     }
     let users = collections.users.read(cx);
     let human_members = collections
-        .workspace_members
+        .team_members
         .read(cx)
         .iter()
-        .filter(|member| member.workspace_id == workspace_id)
+        .filter(|member| member.team_id == team_id)
         .filter(|member| {
             users
                 .get(&member.user_id)
@@ -422,30 +422,27 @@ pub(crate) fn is_solo_workspace(cx: &App, workspace_id: &str) -> bool {
     human_members <= 1
 }
 
-/// Web `useShowWorkspaceChrome`: revealed when the workspace stops being solo
-/// OR the user explicitly reasons about 2+ workspaces (public counts only
-/// with a membership row).
-pub(crate) fn show_workspace_chrome(cx: &App, workspace_id: &str) -> bool {
-    let is_solo = is_solo_workspace(cx, workspace_id);
+/// Web `useShowTeamChrome`: revealed when the team stops being solo
+/// OR the user explicitly reasons about 2+ teams.
+pub(crate) fn show_team_chrome(cx: &App, team_id: &str) -> bool {
+    let is_solo = is_solo_team(cx, team_id);
     let Some(me) = queries::active_account(cx) else {
         return !is_solo;
     };
     let collections = Store::global(cx).collections();
     let membership_ids: std::collections::HashSet<String> = collections
-        .workspace_members
+        .team_members
         .read(cx)
         .iter()
         .filter(|member| member.user_id == me.user_id)
-        .map(|member| member.workspace_id.clone())
+        .map(|member| member.team_id.clone())
         .collect();
-    // Web: `myWorkspaces` = membership workspaces + the public workspace
-    // appended; `explicitCount` keeps only `!isPublic || membership` — so the
-    // appended-without-membership public row contributes 0 and the count
-    // reduces to "workspaces I have a membership row in".
-    let workspaces = collections.workspaces.read(cx);
-    let explicit_count = workspaces
+    // Web parity: the count reduces to "teams I have a membership row
+    // in".
+    let teams = collections.teams.read(cx);
+    let explicit_count = teams
         .iter()
-        .filter(|workspace| membership_ids.contains(&workspace.id))
+        .filter(|team| membership_ids.contains(&team.id))
         .count();
     !is_solo || explicit_count > 1
 }
@@ -541,7 +538,7 @@ pub(crate) fn upgrade_notice(message: SharedString, cx: &App) -> impl IntoElemen
         )
 }
 
-/// `#rrggbb` → Hsla (label/project colors are stored as hex strings).
+/// `#rrggbb` → Hsla (label/board colors are stored as hex strings).
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     let hex = hex.trim().strip_prefix('#')?;
     if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -620,7 +617,7 @@ mod tests {
     fn non_owner_falls_back_to_members() {
         for gated in [
             SettingsSection::General,
-            SettingsSection::Projects,
+            SettingsSection::Boards,
             SettingsSection::Repositories,
         ] {
             assert_eq!(
@@ -640,7 +637,7 @@ mod tests {
             SettingsSection::Members
         );
         // Solo does NOT gate the other owner sections.
-        assert!(section_visible(SettingsSection::Projects, true, true));
+        assert!(section_visible(SettingsSection::Boards, true, true));
     }
 
     #[test]

@@ -39,11 +39,11 @@ interface CreateIssueDialogProps {
   onOpenChange: (open: boolean) => void
   open: boolean
   prefill?: { title?: string; description?: string }
-  projectColor: string
-  projectId: string
-  projectPrefix: string
+  boardColor: string
+  boardId: string
+  boardPrefix: string
   users: User[]
-  workspaceId: string
+  teamId: string
   restrictModeration?: boolean
 }
 
@@ -52,11 +52,11 @@ export function CreateIssueDialog({
   onOpenChange,
   open,
   prefill,
-  projectColor,
-  projectId,
-  projectPrefix,
+  boardColor,
+  boardId,
+  boardPrefix,
   users,
-  workspaceId,
+  teamId,
   restrictModeration = false,
 }: CreateIssueDialogProps) {
   const [title, setTitle] = useState(prefill?.title ?? ``)
@@ -101,12 +101,12 @@ export function CreateIssueDialog({
     }
   }, [])
 
-  // In a solo workspace (exactly one human member) the assignee control is
+  // In a solo team (exactly one human member) the assignee control is
   // hidden and new issues default to the sole member — mirrors the server's
   // default assignment so optimistic UI + "Create more" resets stay correct.
-  // `users` is the bot-excluded workspace member list; length 0 means the list
+  // `users` is the bot-excluded team member list; length 0 means the list
   // is still loading (never a genuine empty), so it never flags multi-member
-  // workspaces as solo.
+  // teams as solo.
   const isSolo = users.length === 1
   const soleMemberId = isSolo ? users[0].id : null
 
@@ -254,7 +254,7 @@ export function CreateIssueDialog({
       )
 
       const { issue } = await trpc.issues.create.mutate({
-        projectId,
+        boardId,
         title: title.trim(),
         status,
         priority,
@@ -355,8 +355,8 @@ export function CreateIssueDialog({
     <IssueEditorDialogShell
       open={open}
       onOpenChange={handleOpenChange}
-      projectPrefix={projectPrefix}
-      projectColor={projectColor}
+      boardPrefix={boardPrefix}
+      boardColor={boardColor}
       dialogTestId="issue-editor-create"
       restrictModeration={restrictModeration}
       formProps={{ onSubmit: handleSubmit }}
@@ -385,7 +385,7 @@ export function CreateIssueDialog({
       onStatusChange={setStatus}
       priority={priority}
       onPriorityChange={setPriority}
-      workspaceId={workspaceId}
+      teamId={teamId}
       selectedLabelIds={selectedLabelIds}
       onToggleLabel={handleToggleLabel}
       users={users}

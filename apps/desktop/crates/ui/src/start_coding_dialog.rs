@@ -11,8 +11,8 @@
 //!   per-issue subagent definitions, no waves; Claude organizes the work.
 //!
 //! The multi-issue PICKER is always present: a searchable checklist scoped to
-//! the pre-seeded issues' project(s), OPEN issues only (EXP-119 —
-//! `done`/`cancelled`/`duplicate`/PR-merged rows are hidden; other projects'
+//! the pre-seeded issues' board(s), OPEN issues only (EXP-119 —
+//! `done`/`cancelled`/`duplicate`/PR-merged rows are hidden; other boards'
 //! issues too). Pre-seeded ids are exempt from both filters and force-check:
 //! the explicit pick wins, which keeps the Play-button re-run of a done issue
 //! working. Repo probes (`repositories.forIssue`, background executor,
@@ -67,7 +67,7 @@ const COST_NOTE_THRESHOLD: usize = 6;
 /// beyond this size stops being one coherent session anyway.
 const MAX_ISSUES_PER_RUN: usize = 30;
 
-/// Unchecked search matches rendered at once — a workspace can hold hundreds
+/// Unchecked search matches rendered at once — a team can hold hundreds
 /// of issues, and the checklist is a plain (non-virtual) list.
 const MAX_UNCHECKED_ROWS: usize = 50;
 
@@ -84,32 +84,32 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog for unknown issue {issue_id}");
         return;
     };
-    let Some(workspace_id) = Store::global(cx)
+    let Some(team_id) = Store::global(cx)
         .collections()
-        .projects
+        .boards
         .read(cx)
-        .get(&issue.project_id)
-        .map(|project| project.workspace_id.clone())
+        .get(&issue.board_id)
+        .map(|board| board.team_id.clone())
     else {
-        log::warn!("[ui] start-coding dialog: project not synced for {issue_id}");
+        log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, workspace_id, vec![issue.id]);
+    open(window, cx, team_id, vec![issue.id]);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
 pub fn open_for_selection(
     window: &mut Window,
     cx: &mut App,
-    workspace_id: String,
+    team_id: String,
     issue_ids: Vec<String>,
 ) {
-    open(window, cx, workspace_id, issue_ids);
+    open(window, cx, team_id, issue_ids);
 }
 
-fn open(window: &mut Window, cx: &mut App, workspace_id: String, preselected: Vec<String>) {
+fn open(window: &mut Window, cx: &mut App, team_id: String, preselected: Vec<String>) {
     let view =
-        cx.new(|cx| StartCodingDialogView::new(workspace_id, preselected, window, cx));
+        cx.new(|cx| StartCodingDialogView::new(team_id, preselected, window, cx));
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).launching;
         let max_height = window.viewport_size().height * 0.85;
@@ -158,8 +158,8 @@ enum DefaultsMode {
 }
 
 pub struct StartCodingDialogView {
-    workspace_id: String,
-    /// Every non-archived workspace issue, project→number ordered.
+    team_id: String,
+    /// Every non-archived team issue, board→number ordered.
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
@@ -184,7 +184,7 @@ pub struct StartCodingDialogView {
 
 impl StartCodingDialogView {
     fn new(
-        workspace_id: String,
+        team_id: String,
         preselected: Vec<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -193,15 +193,15 @@ impl StartCodingDialogView {
         let settings = hub.read(cx).settings.clone();
 
         // Snapshot the picker's candidate pool (EXP-119): the pre-seeded
-        // issues' project(s) only, OPEN issues only — unrelated projects and
+        // issues' board(s) only, OPEN issues only — unrelated boards and
         // closed rows just buried the launchable ones. Pre-seeded ids are
         // exempt from both filters: the explicit pick wins (the Play-button
         // re-run of a done issue), and a checked id MUST keep its row —
         // `batch_request`/`launch_blocker` iterate `rows` and would silently
         // drop it from the run otherwise.
         let preselected: HashSet<String> = preselected.into_iter().collect();
-        let mut issues = queries::workspace_issues(cx, &workspace_id);
-        // `workspace_issues` hides ARCHIVED rows, but the Play button resolves
+        let mut issues = queries::team_issues(cx, &team_id);
+        // `team_issues` hides ARCHIVED rows, but the Play button resolves
         // its seed from the raw collection — re-read any missing seed raw so
         // an archived pick shows up force-checked instead of silently
         // vanishing from the run (`batch_request` iterates `rows`).
@@ -212,18 +212,18 @@ impl StartCodingDialogView {
                 }
             }
         }
-        let scope_projects: HashSet<String> = issues
+        let scope_boards: HashSet<String> = issues
             .iter()
             .filter(|issue| preselected.contains(&issue.id))
-            .map(|issue| issue.project_id.clone())
+            .map(|issue| issue.board_id.clone())
             .collect();
         issues.retain(|issue| {
             if preselected.contains(&issue.id) {
                 return true;
             }
             // No resolvable seed (racing a delete) → keep the whole
-            // workspace pool rather than an empty picker.
-            if !scope_projects.is_empty() && !scope_projects.contains(&issue.project_id) {
+            // team pool rather than an empty picker.
+            if !scope_boards.is_empty() && !scope_boards.contains(&issue.board_id) {
                 return false;
             }
             let closed = matches!(
@@ -233,8 +233,8 @@ impl StartCodingDialogView {
             !closed
         });
         issues.sort_by(|a, b| {
-            a.project_id
-                .cmp(&b.project_id)
+            a.board_id
+                .cmp(&b.board_id)
                 .then_with(|| a.number.cmp(&b.number))
         });
         let mut checked = HashSet::new();
@@ -289,7 +289,7 @@ impl StartCodingDialogView {
         };
 
         let mut this = Self {
-            workspace_id,
+            team_id,
             rows,
             repos: HashMap::new(),
             probe_generation: 0,
@@ -316,7 +316,7 @@ impl StartCodingDialogView {
     /// Kick ONE `repositories.forIssue` probe for `issue_id` if it never ran
     /// (background executor, generation-guarded like
     /// `StartCodingControl::ensure_probe`). Lazy by design: only checked
-    /// issues probe — a whole-workspace eager fan-out would be hundreds of
+    /// issues probe — a whole-team eager fan-out would be hundreds of
     /// tRPC calls.
     fn ensure_probe(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
         if self.repos.contains_key(&issue_id) {
@@ -473,7 +473,7 @@ impl StartCodingDialogView {
         }
         Some(BatchLaunchRequest {
             batch_id: coding::new_batch_id(),
-            workspace_id: self.workspace_id.clone(),
+            team_id: self.team_id.clone(),
             repo: repo?,
             issues,
             device_label: coding::default_device_label(),
@@ -762,7 +762,7 @@ impl Render for StartCodingDialogView {
                 div()
                     .text_sm()
                     .text_color(theme_muted)
-                    .child("No open issues in this project."),
+                    .child("No open issues in this board."),
             );
         }
         for ix in checked_ixs {
@@ -773,12 +773,12 @@ impl Render for StartCodingDialogView {
         }
         if no_matches {
             // Without this the scoped pool renders a silently blank list —
-            // the filter (open issues, this project only) is invisible.
+            // the filter (open issues, this board only) is invisible.
             checklist = checklist.child(
                 div()
                     .text_xs()
                     .text_color(theme_muted)
-                    .child("No matches — only open issues from this project are shown."),
+                    .child("No matches — only open issues from this board are shown."),
             );
         }
         if hidden > 0 {

@@ -1,17 +1,17 @@
 //! The full-width top bar — sits ABOVE everything (rail included), the
-//! JetBrains-new-UI header. Left: the **project picker** (the window's active
-//! project; picking navigates to that board and re-scopes Files / Source
+//! JetBrains-new-UI header. Left: the **board picker** (the window's active
+//! board; picking navigates to that board and re-scopes Files / Source
 //! Control / run configs) followed by the current screen's breadcrumb trail.
 //! Right: the run widget (config select + play/stop) and the trunk git
 //! cluster (branch chip, sync status, Commit, Pull/Push).
 //!
-//! EXP-69: the picker doubles as the workspace switcher — it lists EVERY
-//! project across ALL the user's workspaces (grouped under small workspace
-//! headers once there is more than one), and picking a project from another
-//! workspace switches workspace + project in one action. The old footer
-//! account-menu workspace list is gone.
+//! EXP-69: the picker doubles as the team switcher — it lists EVERY
+//! board across ALL the user's teams (grouped under small team
+//! headers once there is more than one), and picking a board from another
+//! team switches team + board in one action. The old footer
+//! account-menu team list is gone.
 //!
-//! The issue detail keeps its own richer breadcrumb row (project › identifier
+//! The issue detail keeps its own richer breadcrumb row (board › identifier
 //! › live title + Start coding) — the top bar shows no crumb for it.
 
 use gpui::{
@@ -24,9 +24,9 @@ use gpui_component::{
 };
 use sync::Store;
 
-use crate::actions::{NewProject, OpenProject, SwitchWorkspace};
+use crate::actions::{NewBoard, OpenBoard, SwitchTeam};
 use crate::git_bar::GitBar;
-use crate::navigation::{active_project_id, active_workspace_id, nav_for_window, Navigation};
+use crate::navigation::{active_board_id, active_team_id, nav_for_window, Navigation};
 use crate::properties_panel::parse_hex_color;
 use crate::run_bar::RunBar;
 use crate::sidebar::rail_shared_for_window;
@@ -34,23 +34,23 @@ use crate::sidebar::rail_shared_for_window;
 /// Top-bar height (the terminal strip / rail metrics live in their modules).
 pub(crate) const TOP_BAR_H: f32 = 38.;
 
-/// One workspace's slice of the merged picker menu (EXP-69) — a captured
+/// One team's slice of the merged picker menu (EXP-69) — a captured
 /// snapshot, cheap clones only (menus render lazily in the overlay).
 struct PickerGroup {
-    workspace_id: String,
-    workspace_name: String,
-    /// `(project_id, project_name, is_active)` rows, board sort order.
-    projects: Vec<(String, String, bool)>,
+    team_id: String,
+    team_name: String,
+    /// `(board_id, board_name, is_active)` rows, board sort order.
+    boards: Vec<(String, String, bool)>,
 }
 
-/// The header view owned by the `Workspace` shell.
+/// The header view owned by the `Shell` shell.
 pub struct TopBar {
     nav: Entity<Navigation>,
     /// The shared trunk git chrome (owned by the rail registry so the rail's
     /// conflict badge and this rendering read the same state).
     git_bar: Entity<GitBar>,
     /// The run widget (config select + play/stop). Self-scopes to the active
-    /// project and hides without one.
+    /// board and hides without one.
     run_bar: Entity<RunBar>,
     _subscriptions: Vec<Subscription>,
 }
@@ -69,8 +69,8 @@ impl TopBar {
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspaces, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&Store::global(cx).state(), |_, _, cx| cx.notify()),
         ];
         Self {
@@ -81,17 +81,17 @@ impl TopBar {
         }
     }
 
-    /// The project picker (EXP-69 merged with the workspace switcher): the
-    /// active project as the label; the dropdown lists ALL projects across
-    /// ALL workspaces, grouped under small workspace headers (flat with a
-    /// plain "Projects" label while there is only one workspace), plus
-    /// "New project…". Picking a project from another workspace switches
-    /// workspace + project in one action (the `OpenProject` handler
-    /// re-scopes); a project-less workspace gets a "Switch to workspace"
+    /// The board picker (EXP-69 merged with the team switcher): the
+    /// active board as the label; the dropdown lists ALL boards across
+    /// ALL teams, grouped under small team headers (flat with a
+    /// plain "Boards" label while there is only one team), plus
+    /// "New board…". Picking a board from another team switches
+    /// team + board in one action (the `OpenBoard` handler
+    /// re-scopes); a board-less team gets a "Switch to team"
     /// entry so it stays reachable.
-    fn render_project_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_board_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let store = Store::global(cx);
-        if !store.collections().projects.read(cx).is_ready() {
+        if !store.collections().boards.read(cx).is_ready() {
             return h_flex()
                 .gap_2()
                 .items_center()
@@ -100,16 +100,16 @@ impl TopBar {
                 .into_any_element();
         }
 
-        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
             return div().into_any_element();
         };
-        let projects = store
+        let boards = store
             .collections()
-            .projects_in_workspace(&workspace_id, cx);
-        let active_id = active_project_id(&self.nav, cx);
+            .boards_in_team(&team_id, cx);
+        let active_id = active_board_id(&self.nav, cx);
         let active = active_id
             .as_deref()
-            .and_then(|id| projects.iter().find(|p| p.id == id));
+            .and_then(|id| boards.iter().find(|p| p.id == id));
 
         let dot_color = active
             .and_then(|p| p.color.as_deref())
@@ -117,26 +117,24 @@ impl TopBar {
             .unwrap_or(cx.theme().muted_foreground);
         let label: SharedString = active
             .map(|p| SharedString::from(p.name.clone()))
-            .unwrap_or_else(|| "Select project".into());
-        // The active project's stored icon (falling back to the legacy
-        // type-derived glyph) drives the leading glyph, color-tinted; the globe
-        // marker keys off publicness. Without an active project fall back to the
-        // neutral color dot.
-        let type_glyph = active.map(crate::icons::project_icon);
-        let is_public = active.and_then(|p| p.is_public).unwrap_or(false);
+            .unwrap_or_else(|| "Select board".into());
+        // The active board's stored icon (falling back to the
+        // attribute-derived glyph) drives the leading glyph, color-tinted.
+        // Without an active board fall back to the neutral color dot.
+        let type_glyph = active.map(crate::icons::board_icon);
 
         // Captured snapshot for the menu builder (menus render lazily in the
-        // overlay; they must not read `self`): one group per workspace
-        // (name-sorted, web picker order), each with its projects as
+        // overlay; they must not read `self`): one group per team
+        // (name-sorted, web picker order), each with its boards as
         // `(id, name, is_active)` rows.
         let groups: Vec<PickerGroup> = store
             .collections()
-            .workspaces_sorted(cx)
+            .teams_sorted(cx)
             .into_iter()
-            .map(|workspace| {
-                let projects: Vec<(String, String, bool)> = store
+            .map(|team| {
+                let boards: Vec<(String, String, bool)> = store
                     .collections()
-                    .projects_in_workspace(&workspace.id, cx)
+                    .boards_in_team(&team.id, cx)
                     .iter()
                     .map(|p| {
                         (
@@ -147,9 +145,9 @@ impl TopBar {
                     })
                     .collect();
                 PickerGroup {
-                    workspace_id: workspace.id,
-                    workspace_name: workspace.name,
-                    projects,
+                    team_id: team.id,
+                    team_name: team.name,
+                    boards,
                 }
             })
             .collect();
@@ -168,7 +166,7 @@ impl TopBar {
                 .into_any_element(),
         };
 
-        let mut trigger_inner = h_flex()
+        let trigger_inner = h_flex()
             .gap_2()
             .items_center()
             .max_w(px(240.))
@@ -183,14 +181,6 @@ impl TopBar {
                     .text_ellipsis()
                     .child(label),
             );
-        if is_public {
-            trigger_inner = trigger_inner.child(
-                crate::icons::public_board_icon()
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            );
-        }
 
         div()
             .flex_shrink_0()
@@ -205,44 +195,44 @@ impl TopBar {
                             .text_color(cx.theme().muted_foreground),
                     )
                     .dropdown_menu(move |menu, _window, _cx| {
-                        // Project lists grow with the account's workspaces —
+                        // Board lists grow with the account's teams —
                         // cap + scroll (EXP-46a). Flat items only (no
-                        // submenus): workspace grouping is small label
+                        // submenus): team grouping is small label
                         // headers, shown once there is more than one
-                        // workspace.
+                        // team.
                         let mut menu = menu.scrollable(true).max_h(px(320.));
                         let show_headers = groups.len() > 1;
                         if !show_headers {
-                            menu = menu.label("Projects");
+                            menu = menu.label("Boards");
                         }
                         for group in &groups {
                             if show_headers {
                                 menu =
-                                    menu.label(SharedString::from(group.workspace_name.clone()));
+                                    menu.label(SharedString::from(group.team_name.clone()));
                             }
-                            if group.projects.is_empty() && show_headers {
-                                // Keep project-less workspaces reachable now
-                                // that the footer workspace switcher is gone.
+                            if group.boards.is_empty() && show_headers {
+                                // Keep board-less teams reachable now
+                                // that the footer team switcher is gone.
                                 menu = menu.menu(
                                     "Switch to team",
-                                    Box::new(SwitchWorkspace {
-                                        workspace_id: group.workspace_id.clone(),
+                                    Box::new(SwitchTeam {
+                                        team_id: group.team_id.clone(),
                                     }),
                                 );
                                 continue;
                             }
-                            for (id, name, active) in &group.projects {
+                            for (id, name, active) in &group.boards {
                                 menu = menu.menu_with_check(
                                     SharedString::from(name.clone()),
                                     *active,
-                                    Box::new(OpenProject {
-                                        project_id: id.clone(),
+                                    Box::new(OpenBoard {
+                                        board_id: id.clone(),
                                     }),
                                 );
                             }
                         }
                         menu.separator()
-                            .menu_with_icon("New project…", IconName::Plus, Box::new(NewProject))
+                            .menu_with_icon("New board…", IconName::Plus, Box::new(NewBoard))
                     }),
             )
             .into_any_element()
@@ -263,7 +253,7 @@ impl Render for TopBar {
             .text_color(cx.theme().sidebar_foreground)
             .border_b_1()
             .border_color(cx.theme().sidebar_border)
-            .child(self.render_project_picker(cx))
+            .child(self.render_board_picker(cx))
             .child(div().flex_1().min_w_0())
             .child(self.run_bar.clone())
             .child(

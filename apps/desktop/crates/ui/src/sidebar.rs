@@ -1,20 +1,20 @@
-//! The workspace sidebar (masterplan-v3 §4.2, reworked as a JetBrains-style
+//! The team sidebar (masterplan-v3 §4.2, reworked as a JetBrains-style
 //! tool-window rail).
 //!
 //! Two cooperating views share per-window state through [`RailShared`]:
 //!
-//! - [`RailView`] — a 44px icon-only strip owned by the `Workspace` shell and
+//! - [`RailView`] — a 44px icon-only strip owned by the `Shell` shell and
 //!   rendered OUTSIDE the `DockArea`, full height below the top bar. Top: the
 //!   Search action, then the tool-window selectors — **Inbox / My Issues /
 //!   All Issues / Reviews** (mini issue lists; Reviews carries a
 //!   dot while open PRs exist) and **Files / Source Control** (Source Control carries
 //!   an amber badge in conflict mode and opens the changes
 //!   screen immediately). The active tool's icon is tinted with the active
-//!   project's color. One tool is ALWAYS active — re-clicking never
+//!   board's color. One tool is ALWAYS active — re-clicking never
 //!   unselects. Bottom: terminal-dock toggle, settings gear, and the
 //!   **account button as the very bottom element** — its dropdown holds the
-//!   account-level actions only (EXP-69: workspace switching moved into the
-//!   top bar's merged project picker).
+//!   account-level actions only (EXP-69: team switching moved into the
+//!   top bar's merged board picker).
 //! - [`SidebarPanel`] — the tool-window column right of the rail (a resizable
 //!   pane INSIDE the dock-area center, so the bottom terminal dock runs
 //!   beneath it): the active tool window's content. Issue tools are mini
@@ -45,15 +45,15 @@ use gpui_component::{
 use sync::Store;
 
 
-use crate::actions::{CreateWorkspace, OpenSettings, SendFeedback, SignOut};
+use crate::actions::{CreateTeam, OpenSettings, SignOut};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::git_bar::GitBar;
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
-    active_project_id, active_workspace_id, nav_for_window, navigate, resolved_screen, Navigation,
-    Screen,
+    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
+    Navigation, Screen,
 };
 use crate::properties_panel::parse_hex_color;
 use crate::queries;
@@ -71,15 +71,19 @@ pub(crate) const DEFAULT_DOCK_WIDTH: f32 = 520.;
 pub(crate) enum ToolWindow {
     /// Notification groups (mini inbox); rows open the issue detail.
     Inbox,
-    /// Issues assigned to me across the workspace (mini list).
+    /// Issues assigned to me across the team (mini list).
     MyIssues,
-    /// Every issue in the workspace (mini list).
+    /// Every issue in the team (mini list).
     AllIssues,
-    /// Open pull requests across the workspace: issue-linked ones grouped by
-    /// project, plus GitHub-listed PRs not linked to any issue grouped by
+    /// Open pull requests across the team: issue-linked ones grouped by
+    /// board, plus GitHub-listed PRs not linked to any issue grouped by
     /// repo — both with an inline squash-merge action (server-side via the
     /// GitHub App).
     Reviews,
+    /// Support tickets of the active team (EXP-180 — server-only tRPC data,
+    /// polled). The rail icon renders only while the active team's synced
+    /// `helpdesk_enabled` flag is on.
+    Support,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -98,11 +102,11 @@ pub(crate) struct RailShared {
     git_bar: Entity<GitBar>,
     file_tree: Entity<crate::file_tree::FileTreeView>,
     /// The "All Issues" tool window's board (filter bar + grouped list,
-    /// scoped to the active project). Shared here — not on `SidebarPanel` —
+    /// scoped to the active board). Shared here — not on `SidebarPanel` —
     /// so the issue detail's prev/next switcher (EXP-48) can read the same
     /// query + filter state the visible list applies.
     board_all: Entity<BoardView>,
-    /// The "My Issues" board (assignee == me across the workspace).
+    /// The "My Issues" board (assignee == me across the team).
     board_my: Entity<BoardView>,
     /// The branch whose HISTORY the Source Control screen shows — a sidebar
     /// branch row selects it WITHOUT checking out (`None` = the checked-out
@@ -188,7 +192,7 @@ pub(crate) fn rail_shared_for_window(
     shared
 }
 
-/// Drop a closed window's entry (called from the `Workspace` release hook,
+/// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `navigation::remove_window`).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
     if let Some(registry) = cx.try_global::<RailRegistry>() {
@@ -220,17 +224,53 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
     }
 }
 
-/// The window's active-project accent color (rail selection tint, falls back
-/// to the theme primary when the project has no color).
-fn project_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
-    active_project_id(nav, cx)
+/// Whether the ACTIVE team's synced row has the helpdesk flag on — the gate
+/// for the Support rail icon + tool window (EXP-180). Rows synced before the
+/// column existed hydrate `None` → disabled.
+fn helpdesk_enabled(nav: &Entity<Navigation>, cx: &App) -> bool {
+    active_team_id(nav, cx)
         .and_then(|id| {
             Store::global(cx)
                 .collections()
-                .projects
+                .teams
                 .read(cx)
                 .get(&id)
-                .and_then(|project| project.color.as_deref().and_then(parse_hex_color))
+                .and_then(|team| team.helpdesk_enabled)
+        })
+        == Some(true)
+}
+
+/// The Support tool window's open/resolved filter (the server's
+/// `helpdesk.listThreads` filter enum).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SupportFilter {
+    Open,
+    Resolved,
+}
+
+impl SupportFilter {
+    fn as_str(self) -> &'static str {
+        match self {
+            SupportFilter::Open => "open",
+            SupportFilter::Resolved => "resolved",
+        }
+    }
+}
+
+/// The fetch key of one Support list: `(team_id, filter)`.
+type SupportKey = (String, SupportFilter);
+
+/// The window's active-board accent color (rail selection tint, falls back
+/// to the theme primary when the board has no color).
+fn board_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
+    active_board_id(nav, cx)
+        .and_then(|id| {
+            Store::global(cx)
+                .collections()
+                .boards
+                .read(cx)
+                .get(&id)
+                .and_then(|board| board.color.as_deref().and_then(parse_hex_color))
         })
         .unwrap_or_else(|| cx.theme().primary)
 }
@@ -239,7 +279,7 @@ fn project_accent(nav: &Entity<Navigation>, cx: &App) -> Hsla {
 // RailView — the icon strip left of the dock area
 // ---------------------------------------------------------------------------
 
-/// The 44px tool-window rail. Owned and rendered by the `Workspace` shell
+/// The 44px tool-window rail. Owned and rendered by the `Shell` shell
 /// OUTSIDE the `DockArea`, below the full-width top bar. (No terminal
 /// toggle — the bottom terminal strip is the single toggle affordance.)
 pub struct RailView {
@@ -261,9 +301,11 @@ impl RailView {
             cx.observe(&nav, |_, _, cx| cx.notify()),
             // Conflict badge follows the git bar's trunk state.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
-            // The Reviews dot is a live read over issues ⨝ projects.
+            // The Reviews dot is a live read over issues ⨝ boards.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // The Support icon gates on the team row's helpdesk_enabled flag.
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -274,7 +316,7 @@ impl RailView {
     }
 
     /// One tool-window icon: a ghost icon button, `selected` + tinted with
-    /// the project accent while its tool window is active; `badge` paints the
+    /// the board accent while its tool window is active; `badge` paints the
     /// amber conflict dot.
     fn rail_tool_icon(
         &self,
@@ -330,8 +372,8 @@ impl RailView {
     }
 
     /// The account button — ALWAYS the rail's very bottom element. Its
-    /// dropdown holds the account-level actions (EXP-69: workspace switching
-    /// lives in the top bar's merged project picker now, and account
+    /// dropdown holds the account-level actions (EXP-69: team switching
+    /// lives in the top bar's merged board picker now, and account
     /// deletion is web/mobile-only).
     fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let who: SharedString = crate::queries::active_account(cx)
@@ -352,8 +394,7 @@ impl RailView {
                         IconName::Bell,
                         Box::new(crate::actions::OpenAccount),
                     )
-                    .menu_with_icon("Send Feedback", IconName::ThumbsUp, Box::new(SendFeedback))
-                    .menu_with_icon("New team", IconName::Plus, Box::new(CreateWorkspace))
+                    .menu_with_icon("New team", IconName::Plus, Box::new(CreateTeam))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))
             })
@@ -372,7 +413,7 @@ impl RailView {
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Keep the git lifecycle live regardless of which tool window is
-        // open: auto-clone on project open + the conflict badge both ride the
+        // open: auto-clone on board open + the conflict badge both ride the
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
@@ -393,11 +434,24 @@ impl Render for RailView {
             }
         }
 
-        let accent = project_accent(&self.nav, cx);
-        // Reviews badge: any open issue-linked PR in the active workspace.
-        let has_reviews = active_workspace_id(&self.nav, cx)
+        let accent = board_accent(&self.nav, cx);
+        // Reviews badge: any open issue-linked PR in the active team.
+        let has_reviews = active_team_id(&self.nav, cx)
             .map(|id| !queries::review_issues(cx, &id).is_empty())
             .unwrap_or(false);
+        // Support tool (EXP-180): rendered ONLY while the active team's
+        // synced row carries helpdesk_enabled = true.
+        let support_icon = helpdesk_enabled(&self.nav, cx).then(|| {
+            self.rail_tool_icon(
+                "rail-support",
+                Icon::from(ExpIcon::MessageSquare),
+                ToolWindow::Support,
+                "Support",
+                false,
+                accent,
+                cx,
+            )
+        });
         v_flex()
             .w(px(RAIL_W))
             .flex_shrink_0()
@@ -464,6 +518,7 @@ impl Render for RailView {
                 accent,
                 cx,
             ))
+            .children(support_icon)
             .child(self.divider(cx))
             // Repo tool windows.
             .child(self.rail_tool_icon(
@@ -516,7 +571,7 @@ pub struct SidebarPanel {
     shared: Entity<RailShared>,
     /// The "All Issues" tool window — the full board (filter bar with
     /// All/Active/Backlog tabs + New Issue + the grouped virtualized list
-    /// with inline status/priority menus), scoped to the active project.
+    /// with inline status/priority menus), scoped to the active board.
     /// Lives in [`RailShared`] (EXP-48 — the detail switcher reads it too).
     board_all: Entity<BoardView>,
     /// The "My Issues" tool window — same board pinned to assignee == me
@@ -544,17 +599,30 @@ pub struct SidebarPanel {
     /// The last merge failure, `(row_key, message)` — a caption under the
     /// row, cleared on the next attempt.
     review_error: Option<(String, String)>,
-    /// Fetched `repositories.openPulls` result: `(workspace_id, repos)` —
+    /// Fetched `repositories.openPulls` result: `(team_id, repos)` —
     /// open PRs with NO issue link (release PRs, manual branches, external
-    /// contributors), listed straight from GitHub. Rendered below the project
+    /// contributors), listed straight from GitHub. Rendered below the board
     /// groups; a merged pull is removed locally (no Electric echo).
     open_pulls: Option<(String, Vec<api::repositories::OpenPullsRepo>)>,
-    /// The workspace the current openPulls fetch belongs to. Cleared whenever
+    /// The team the current openPulls fetch belongs to. Cleared whenever
     /// the Reviews tool window is inactive, so re-opening refetches (the
     /// server caches ~60s; there is deliberately no polling).
     open_pulls_key: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     open_pulls_seq: u64,
+    /// The Support tool window's open/resolved filter (EXP-180).
+    support_filter: SupportFilter,
+    /// Fetched `helpdesk.listThreads` result, tagged with its
+    /// `(team_id, filter)` key so another team's/filter's rows never render.
+    support_threads: Option<(SupportKey, Vec<api::helpdesk::SupportThreadSummary>)>,
+    /// The key the current fetch + 30s poll belong to. Cleared whenever the
+    /// Support tool window is inactive (like `open_pulls_key`), which also
+    /// ends the poll loop on its next tick.
+    support_key: Option<SupportKey>,
+    /// Bumped per list fetch — a stale response checks it before landing.
+    support_seq: u64,
+    /// Bumped per poll spawn — at most ONE Support poll loop is ever live.
+    support_poll_seq: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -573,6 +641,27 @@ fn close_pr_key(issue_id: &str) -> String {
     format!("close:{issue_id}")
 }
 
+/// Fire-and-forget `notifications.markRead` over a group's unread rows (the
+/// web `markGroupRead`) — the Electric echo clears the dots.
+fn mark_group_read(unread_ids: &[String], cx: &mut App) {
+    if unread_ids.is_empty() {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let ids = unread_ids.to_vec();
+    cx.background_executor()
+        .spawn(async move {
+            for id in ids {
+                if let Err(err) = api::notifications::notifications_mark_read(&trpc, &id) {
+                    log::warn!("[ui] notifications.markRead({id}) failed: {err}");
+                }
+            }
+        })
+        .detach();
+}
+
 /// Latest-notification kind → the inbox row's leading type-badge glyph (the
 /// meaning table shared across all clients).
 fn notification_type_icon(kind: Option<&str>) -> Icon {
@@ -587,6 +676,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         }
         Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
         Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
+        // EXP-180: the helpdesk fan-out — the Support rail tool's glyph.
+        Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY) => {
+            Icon::from(ExpIcon::MessageSquare)
+        }
         _ => Icon::new(IconName::Bell),
     }
 }
@@ -607,8 +700,8 @@ impl SidebarPanel {
             // Session phase — the shared state.
             cx.observe(&Store::global(cx).state(), |_, _, cx| cx.notify()),
             // Query scoping + inbox list are live collection reads.
-            cx.observe(&collections.workspaces, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // The coding badges ride the coding_sessions shape; the local
@@ -633,6 +726,11 @@ impl SidebarPanel {
             open_pulls: None,
             open_pulls_key: None,
             open_pulls_seq: 0,
+            support_filter: SupportFilter::Open,
+            support_threads: None,
+            support_key: None,
+            support_seq: 0,
+            support_poll_seq: 0,
             flow,
             flow_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -730,81 +828,90 @@ impl SidebarPanel {
         } else if data.groups.is_empty() {
             self.list_note("All caught up.", cx)
         } else {
-            let theme_radius = cx.theme().radius;
             let rows: Vec<gpui::AnyElement> = data
                 .groups
                 .iter()
-                .map(|group| {
-                    let theme = cx.theme();
-                    let unread = group.unread > 0;
-                    let selected = matches!(
-                        resolved_screen(&self.nav, cx),
-                        Some(Screen::IssueDetail { issue_id }) if issue_id == group.issue.id
-                    );
-                    let issue_id = group.issue.id.clone();
-                    let unread_ids: Vec<String> = group
-                        .items
-                        .iter()
-                        .filter(|n| n.read_at.is_none())
-                        .map(|n| n.id.clone())
-                        .collect();
-                    // Items are newest first — `first()` IS the latest.
-                    let latest = group.items.first();
-                    let time: SharedString = latest
-                        .and_then(|n| n.created_at.as_deref())
-                        .map(crate::inbox::relative_time)
-                        .unwrap_or_default()
-                        .into();
-                    // Notification titles are full human sentences ("Danny
-                    // merged the pull request for …") — shown verbatim.
-                    let sentence: SharedString = latest
-                        .and_then(|n| n.title.clone())
-                        .unwrap_or_default()
-                        .into();
-                    let type_icon =
-                        notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
-                    h_flex()
-                        .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
-                        .w_full()
-                        .items_start()
-                        .gap_2()
-                        .px_2()
-                        .py_1p5()
-                        .rounded(theme_radius)
-                        .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-                        .hover(|this| this.bg(theme.accent.opacity(0.3)))
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            // Web `markGroupRead`: clear the group's unreads
-                            // (the Electric echo removes the dot), then open.
-                            if !unread_ids.is_empty() {
-                                if let Some(trpc) = queries::trpc_client(cx) {
-                                    let ids = unread_ids.clone();
-                                    cx.background_executor()
-                                        .spawn(async move {
-                                            for id in ids {
-                                                if let Err(err) =
-                                                    api::notifications::notifications_mark_read(
-                                                        &trpc, &id,
-                                                    )
-                                                {
-                                                    log::warn!(
-                                                        "[ui] notifications.markRead({id}) failed: {err}"
-                                                    );
-                                                }
-                                            }
-                                        })
-                                        .detach();
-                                }
-                            }
-                            navigate(
-                                window,
-                                cx,
-                                Screen::IssueDetail {
-                                    issue_id: issue_id.clone(),
-                                },
-                            );
-                        }))
+                .map(|entry| match entry {
+                    queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
+                    queries::InboxEntry::Support(group) => self.inbox_support_row(group, cx),
+                })
+                .collect();
+            div()
+                .id("mini-inbox-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .child(v_flex().p_1().gap_0p5().children(rows))
+                .into_any_element()
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One issue-group inbox row: the latest notification's type icon +
+    /// sentence; click marks the group read and opens the issue detail.
+    fn inbox_issue_row(
+        &self,
+        group: &queries::InboxGroup,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = group.unread > 0;
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::IssueDetail { issue_id }) if issue_id == group.issue.id
+        );
+        let issue_id = group.issue.id.clone();
+        let unread_ids: Vec<String> = group
+            .items
+            .iter()
+            .filter(|n| n.read_at.is_none())
+            .map(|n| n.id.clone())
+            .collect();
+        // Items are newest first — `first()` IS the latest.
+        let latest = group.items.first();
+        let time: SharedString = latest
+            .and_then(|n| n.created_at.as_deref())
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        // Notification titles are full human sentences ("Danny
+        // merged the pull request for …") — shown verbatim.
+        let sentence: SharedString = latest
+            .and_then(|n| n.title.clone())
+            .unwrap_or_default()
+            .into();
+        let type_icon = notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
+        h_flex()
+            .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                // Web `markGroupRead`: clear the group's unreads
+                // (the Electric echo removes the dot), then open.
+                mark_group_read(&unread_ids, cx);
+                navigate(
+                    window,
+                    cx,
+                    Screen::IssueDetail {
+                        issue_id: issue_id.clone(),
+                    },
+                );
+            }))
                         // Leading circular type badge (the latest item's kind).
                         .child(
                             h_flex()
@@ -885,35 +992,158 @@ impl SidebarPanel {
                                 ),
                         )
                         .into_any_element()
-                })
-                .collect();
-            div()
-                .id("mini-inbox-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(v_flex().p_1().gap_0p5().children(rows))
-                .into_any_element()
-        };
+    }
 
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            .child(body)
+    /// One synthetic Support inbox row (EXP-180): the group's latest
+    /// `support_reply` sentence under a plain "Support" label (+ the team
+    /// name when the ticket team is synced — web parity). Click marks the
+    /// group read and opens that team's Support tool, switching the active
+    /// team first when it differs; the generic NULL-team group opens
+    /// Support for the current team.
+    fn inbox_support_row(
+        &self,
+        group: &queries::SupportInboxGroup,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = group.unread > 0;
+        let unread_ids: Vec<String> = group
+            .items
+            .iter()
+            .filter(|n| n.read_at.is_none())
+            .map(|n| n.id.clone())
+            .collect();
+        // Items are newest first — `first()` IS the latest.
+        let latest = group.items.first();
+        let time: SharedString = latest
+            .and_then(|n| n.created_at.as_deref())
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        // Notification titles are full human sentences ("A reporter replied
+        // to …") — shown verbatim.
+        let sentence: SharedString = latest
+            .and_then(|n| n.title.clone())
+            .unwrap_or_default()
+            .into();
+        let team_name: Option<SharedString> = group.team_name.clone().map(Into::into);
+        let target_team = group.team_id.clone();
+        let type_icon =
+            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY));
+        h_flex()
+            .id(SharedString::from(format!(
+                "mini-inbox-support-{}",
+                group.team_id.as_deref().unwrap_or("unknown")
+            )))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // Web `markGroupRead`, then open the ticket team's Support
+                // inbox (a cross-team group switches the window's team; the
+                // NULL-team legacy group stays on the current one).
+                mark_group_read(&unread_ids, cx);
+                if let Some(team_id) = target_team.clone() {
+                    if active_team_id(&this.nav, cx).as_deref() != Some(team_id.as_str()) {
+                        switch_team(window, cx, team_id);
+                    }
+                }
+                activate_tool(window, cx, ToolWindow::Support);
+            }))
+            // Leading circular type badge — the Support glyph.
+            .child(
+                h_flex()
+                    .size_6()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(theme.muted)
+                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .when(unread, |this| {
+                                        this.font_weight(FontWeight::MEDIUM)
+                                    })
+                                    // Read groups render dimmed.
+                                    .text_color(if unread {
+                                        theme.foreground
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child("Support"),
+                            )
+                            .when_some(team_name, |this, name| {
+                                this.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .truncate()
+                                        .text_color(theme.muted_foreground)
+                                        .child(name),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_xs()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(sentence),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1p5()
+                    .pt_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(time),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(theme.primary)),
+                    ),
+            )
             .into_any_element()
     }
 
     /// *My Issues* tool window: the full board pinned to assignee == me
-    /// across the workspace (its bar renders the title, tabs and filter).
+    /// across the team (its bar renders the title, tabs and filter).
     fn render_my_issues_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let query = match (
-            active_workspace_id(&self.nav, cx),
+            active_team_id(&self.nav, cx),
             queries::active_account(cx),
         ) {
-            (Some(workspace_id), Some(account)) => IssueQuery::MyIssues {
-                workspace_id,
+            (Some(team_id), Some(account)) => IssueQuery::MyIssues {
+                team_id,
                 user_id: account.user_id,
             },
             _ => IssueQuery::None,
@@ -927,12 +1157,12 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// *All Issues* tool window: the project board, relocated — filter bar
+    /// *All Issues* tool window: the board view, relocated — filter bar
     /// (All/Active/Backlog tabs, filter popover, New Issue) + the grouped
     /// virtualized list with inline status/priority menus.
     fn render_all_issues_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let query = match active_project_id(&self.nav, cx) {
-            Some(project_id) => IssueQuery::Project { project_id },
+        let query = match active_board_id(&self.nav, cx) {
+            Some(board_id) => IssueQuery::Board { board_id },
             None => IssueQuery::None,
         };
         self.board_all.update(cx, |board, cx| board.set_query(query, cx));
@@ -946,9 +1176,9 @@ impl SidebarPanel {
 
     // -- Reviews tool window ----------------------------------------------------
 
-    /// *Reviews* tool window: open pull requests across the workspace, each
+    /// *Reviews* tool window: open pull requests across the team, each
     /// mergeable row with a two-click inline merge confirm. Issue-linked PRs
-    /// come from the synced issues shape, grouped by project; below them, PRs
+    /// come from the synced issues shape, grouped by board; below them, PRs
     /// NOT linked to anything (manual branches, external contributors) come
     /// from a background `repositories.openPulls` fetch, grouped by repo —
     /// the synced lists never wait on GitHub. Merging goes through the server
@@ -958,23 +1188,23 @@ impl SidebarPanel {
     fn render_reviews_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let collections = Store::global(cx).collections().clone();
         let is_ready = collections.issues.read(cx).is_ready()
-            && collections.projects.read(cx).is_ready();
-        let workspace_id = active_workspace_id(&self.nav, cx);
-        if let Some(id) = workspace_id.as_deref() {
+            && collections.boards.read(cx).is_ready();
+        let team_id = active_team_id(&self.nav, cx);
+        if let Some(id) = team_id.as_deref() {
             self.ensure_open_pulls(id, cx);
         }
-        let groups = workspace_id
+        let groups = team_id
             .as_deref()
             .map(|id| queries::review_groups(cx, id))
             .unwrap_or_default();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
             .as_ref()
-            .filter(|(ws, _)| Some(ws.as_str()) == workspace_id.as_deref())
+            .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
             .map(|(_, repos)| queries::visible_pull_repos(repos))
             .unwrap_or_default();
 
-        // Rows that merged/closed (or left the workspace scope) drop their
+        // Rows that merged/closed (or left the team scope) drop their
         // transient merge state — this is also where a successful merge's
         // lingering "Merging…" id gets collected once the echo lands.
         {
@@ -1024,7 +1254,7 @@ impl SidebarPanel {
             let mut children: Vec<gpui::AnyElement> = Vec::new();
             for group in &groups {
                 let dot = group
-                    .project
+                    .board
                     .color
                     .as_deref()
                     .and_then(parse_hex_color)
@@ -1042,7 +1272,7 @@ impl SidebarPanel {
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(muted)
-                                .child(SharedString::from(group.project.name.clone())),
+                                .child(SharedString::from(group.board.name.clone())),
                         )
                         .into_any_element(),
                 );
@@ -1442,19 +1672,19 @@ impl SidebarPanel {
     }
 
     /// Kick the `repositories.openPulls` fetch when the Reviews tool window
-    /// is shown or the workspace changes — never on a timer (the server
-    /// caches ~60s). Data from another workspace is dropped immediately; a
-    /// reopen in the same workspace keeps rendering the previous result while
+    /// is shown or the team changes — never on a timer (the server
+    /// caches ~60s). Data from another team is dropped immediately; a
+    /// reopen in the same team keeps rendering the previous result while
     /// the refresh is in flight.
-    fn ensure_open_pulls(&mut self, workspace_id: &str, cx: &mut gpui::Context<Self>) {
-        if self.open_pulls_key.as_deref() == Some(workspace_id) {
+    fn ensure_open_pulls(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        if self.open_pulls_key.as_deref() == Some(team_id) {
             return;
         }
-        self.open_pulls_key = Some(workspace_id.to_string());
+        self.open_pulls_key = Some(team_id.to_string());
         if self
             .open_pulls
             .as_ref()
-            .is_some_and(|(ws, _)| ws != workspace_id)
+            .is_some_and(|(ws, _)| ws != team_id)
         {
             self.open_pulls = None;
         }
@@ -1463,7 +1693,7 @@ impl SidebarPanel {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        let ws = workspace_id.to_string();
+        let ws = team_id.to_string();
         cx.spawn(async move |this, cx| {
             let call_ws = ws.clone();
             let result = cx
@@ -1684,6 +1914,312 @@ impl SidebarPanel {
         .detach();
     }
 
+    // -- Support tool window ----------------------------------------------------
+
+    /// *Support* tool window (EXP-180): the active team's support tickets,
+    /// filtered open/resolved. Threads are server-only tRPC data — a
+    /// seq-guarded background fetch keyed on `(team_id, filter)` (the
+    /// `ensure_open_pulls` pattern) plus a 30s poll that lives only while
+    /// this tool window is active (`support_key` clears on tool switch, which
+    /// ends the loop). Rows open the thread's center tab.
+    fn render_support_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let team_id = active_team_id(&self.nav, cx);
+        let enabled = helpdesk_enabled(&self.nav, cx);
+        if enabled {
+            if let Some(id) = team_id.as_deref() {
+                self.ensure_support_threads(id, cx);
+            }
+        }
+        let filter = self.support_filter;
+
+        // Open/resolved filter buttons in the tool header (the Inbox
+        // header-button style).
+        let header = self
+            .tool_header(Icon::from(ExpIcon::MessageSquare), "Support", cx)
+            .child(
+                Button::new("support-filter-open")
+                    .ghost()
+                    .xsmall()
+                    .label("Open")
+                    .selected(filter == SupportFilter::Open)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_support_filter(SupportFilter::Open, cx);
+                    })),
+            )
+            .child(
+                Button::new("support-filter-resolved")
+                    .ghost()
+                    .xsmall()
+                    .label("Resolved")
+                    .selected(filter == SupportFilter::Resolved)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_support_filter(SupportFilter::Resolved, cx);
+                    })),
+            );
+
+        let key = team_id.map(|id| (id, filter));
+        let threads: Option<Vec<api::helpdesk::SupportThreadSummary>> = self
+            .support_threads
+            .as_ref()
+            .filter(|(tagged, _)| Some(tagged) == key.as_ref())
+            .map(|(_, threads)| threads.clone());
+
+        let body: gpui::AnyElement = if !enabled {
+            // The rail icon is gated on the flag, but the tool can stay
+            // active across a team switch — degrade instead of a dead panel.
+            self.list_note("Support is not enabled for this team.", cx)
+        } else {
+            match threads {
+                None => self.list_skeleton(cx),
+                Some(threads) if threads.is_empty() => self.list_note(
+                    match filter {
+                        SupportFilter::Open => "No open tickets.",
+                        SupportFilter::Resolved => "No resolved tickets.",
+                    },
+                    cx,
+                ),
+                Some(threads) => {
+                    let rows: Vec<gpui::AnyElement> = threads
+                        .iter()
+                        .map(|thread| self.support_row(thread, cx))
+                        .collect();
+                    div()
+                        .id("support-scroll")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .child(v_flex().p_1().gap_0p5().children(rows))
+                        .into_any_element()
+                }
+            }
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One Support row: title, reporter + relative time, an unread dot while
+    /// the reporter spoke last. Click opens the thread screen.
+    fn support_row(
+        &self,
+        thread: &api::helpdesk::SupportThreadSummary,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        // The unread dot's indigo — the blue accent token (token-locked, not
+        // loose hex).
+        let unread_dot = theme::tokens::BLUE.to_hsla();
+
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::SupportThread { thread_id }) if thread_id == thread.id
+        );
+        let unread = thread.unread;
+        let reporter: SharedString = thread
+            .reporter_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| thread.reporter_email.clone())
+            .unwrap_or_else(|| "Reporter".to_string())
+            .into();
+        let time: SharedString = thread
+            .updated_at
+            .as_deref()
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        // One-line latest-PUBLIC-message preview (web/iOS/Android row
+        // parity); newlines collapse so `truncate` sees a single line.
+        // Absent/blank bodies render nothing.
+        let preview: Option<SharedString> = thread
+            .last_message
+            .as_ref()
+            .and_then(|message| message.body.as_deref())
+            .map(|body| body.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|body| !body.is_empty())
+            .map(Into::into);
+        let nav_id = thread.id.clone();
+        let nav_title = thread.title.clone();
+
+        v_flex()
+            .id(SharedString::from(format!("support-{}", thread.id)))
+            .w_full()
+            .px_2()
+            .py_1p5()
+            .gap_0p5()
+            .rounded(radius)
+            .when(selected, |this| this.bg(accent.opacity(0.6)))
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                // Seed the tab label — thread titles are tRPC-only.
+                crate::support_thread::remember_title(cx, &nav_id, &nav_title);
+                navigate(
+                    window,
+                    cx,
+                    Screen::SupportThread {
+                        thread_id: nav_id.clone(),
+                    },
+                );
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if unread { fg } else { muted })
+                            .child(SharedString::from(thread.title.clone())),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(unread_dot)),
+                    ),
+            )
+            .when_some(preview, |this, preview| {
+                this.child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .truncate()
+                        .text_color(muted)
+                        .child(preview),
+                )
+            })
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(div().min_w_0().truncate().child(reporter))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .child(SharedString::from(format!("\u{00B7} {time}"))),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Flip the open/resolved filter — drops the fetch key so the next
+    /// render refetches (and the stale-filter rows never show: the rendered
+    /// list is key-tagged).
+    fn set_support_filter(&mut self, filter: SupportFilter, cx: &mut gpui::Context<Self>) {
+        if self.support_filter == filter {
+            return;
+        }
+        self.support_filter = filter;
+        self.support_key = None;
+        cx.notify();
+    }
+
+    /// Kick the `helpdesk.listThreads` fetch when the Support tool window is
+    /// shown or the team/filter changes, and start the 30s poll for that key
+    /// (the `ensure_open_pulls` pattern plus polling — tickets arrive
+    /// server-side with no Electric echo).
+    fn ensure_support_threads(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        let key: SupportKey = (team_id.to_string(), self.support_filter);
+        if self.support_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.support_key = Some(key.clone());
+        // Rows from another key are dropped immediately; a re-open on the
+        // same key keeps rendering the previous result while refreshing.
+        if self
+            .support_threads
+            .as_ref()
+            .is_some_and(|(tagged, _)| *tagged != key)
+        {
+            self.support_threads = None;
+        }
+        self.fetch_support_threads(cx);
+        self.spawn_support_poll(key, cx);
+    }
+
+    /// One seq-guarded list fetch for the CURRENT `support_key`.
+    fn fetch_support_threads(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(key) = self.support_key.clone() else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.support_seq += 1;
+        let seq = self.support_seq;
+        cx.spawn(async move |this, cx| {
+            let (team_id, filter) = key.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::helpdesk::helpdesk_list_threads(&trpc, &team_id, filter.as_str())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.support_seq != seq || this.support_key.as_ref() != Some(&key) {
+                    return;
+                }
+                match result {
+                    Ok(threads) => {
+                        this.support_threads = Some((key, threads));
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        // Keep whatever rendered; the next poll retries.
+                        log::warn!("[ui] helpdesk.listThreads failed: {err}");
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The 30s Support poll: entity-weak, superseded by `support_poll_seq`
+    /// (at most one loop live), and self-terminating once `support_key` no
+    /// longer matches — i.e. the tool window was left or re-keyed.
+    fn spawn_support_poll(&mut self, key: SupportKey, cx: &mut gpui::Context<Self>) {
+        self.support_poll_seq += 1;
+        let generation = self.support_poll_seq;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(30))
+                    .await;
+                let keep_going = this.update(cx, |this, cx| {
+                    if this.support_poll_seq != generation
+                        || this.support_key.as_ref() != Some(&key)
+                    {
+                        return false;
+                    }
+                    this.fetch_support_threads(cx);
+                    true
+                });
+                if !matches!(keep_going, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     // -- Files tool window ----------------------------------------------------
 
     /// *Files* tool window: the trunk file tree at full panel height.
@@ -1779,6 +2315,11 @@ impl Render for SidebarPanel {
         if tool != ToolWindow::Reviews {
             self.open_pulls_key = None;
         }
+        // Leaving the Support tool drops its fetch key — the next open
+        // refetches, and the 30s poll loop dies on its next tick.
+        if tool != ToolWindow::Support {
+            self.support_key = None;
+        }
         v_flex()
             .size_full()
             .min_w_0()
@@ -1792,6 +2333,7 @@ impl Render for SidebarPanel {
                 ToolWindow::MyIssues => self.render_my_issues_tool(cx),
                 ToolWindow::AllIssues => self.render_all_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
+                ToolWindow::Support => self.render_support_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

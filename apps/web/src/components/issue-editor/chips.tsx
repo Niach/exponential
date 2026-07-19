@@ -35,7 +35,7 @@ export interface IssueEditorChipsProps {
   priority: IssuePriority
   assigneeId: string | null
   selectedLabelIds: string[]
-  workspaceId: string
+  teamId: string
   users: User[]
   dueDate: Date | undefined
   dueTime: string | null
@@ -61,7 +61,7 @@ export function IssueEditorChips({
   priority,
   assigneeId,
   selectedLabelIds,
-  workspaceId,
+  teamId,
   users,
   dueDate,
   dueTime,
@@ -132,7 +132,7 @@ export function IssueEditorChips({
 
       <LabelPicker
         disabled={disabled}
-        workspaceId={workspaceId}
+        teamId={teamId}
         selectedLabelIds={selectedLabelIds}
         onToggle={onToggleLabel}
       />

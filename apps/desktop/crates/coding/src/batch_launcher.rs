@@ -41,9 +41,9 @@ pub struct BatchLaunchRequest {
     /// Client-generated [`new_batch_id`] — names the branch and keys the
     /// local session registry.
     pub batch_id: String,
-    /// The workspace the issues live in — `codingSessions.start`'s batch
-    /// subject (`{ workspaceId }`).
-    pub workspace_id: String,
+    /// The team the issues live in — `codingSessions.start`'s batch
+    /// subject (`{ teamId }`).
+    pub team_id: String,
     pub repo: RepoGroup,
     /// Only issues resolving to `repo`, already filtered to launchable ones
     /// (2+ — a single selection takes the plain issue path).

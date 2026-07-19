@@ -13,6 +13,11 @@ final class DeepLinkBus: @unchecked Sendable {
     // userId). Wins over the userId mapping when set.
     var pendingIssueAccountId: String?
     var pendingInviteToken: String?
+    // A support_reply push tap (EXP-180): the ticket to open in the Support
+    // thread view. Carries the recipient's server user id like issue pushes so
+    // multi-account devices open it under the right account.
+    var pendingSupportThreadId: String?
+    var pendingSupportThreadUserId: String?
     // A web URL the app was opened with but cannot render (unknown host, issue
     // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
@@ -33,6 +38,11 @@ final class DeepLinkBus: @unchecked Sendable {
 
     func navigateToInvite(_ token: String) {
         pendingInviteToken = token
+    }
+
+    func navigateToSupportThread(_ threadId: String, userId: String? = nil) {
+        pendingSupportThreadUserId = userId
+        pendingSupportThreadId = threadId
     }
 
     func openExternal(_ url: URL) {
@@ -57,5 +67,12 @@ final class DeepLinkBus: @unchecked Sendable {
         let token = pendingInviteToken
         pendingInviteToken = nil
         return token
+    }
+
+    func consumeSupportThread() -> String? {
+        let id = pendingSupportThreadId
+        pendingSupportThreadId = nil
+        pendingSupportThreadUserId = nil
+        return id
     }
 }

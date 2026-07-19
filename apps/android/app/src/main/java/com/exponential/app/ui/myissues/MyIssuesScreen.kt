@@ -39,7 +39,7 @@ import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * "My Issues" (masterplan §5a): a cross-project list of everything assigned
+ * "My Issues" (masterplan §5a): a cross-board list of everything assigned
  * to me on the active account, grouped by status. A fixed built-in view — no
  * filters, no saved views. Lives on as the My Issues segment of the "My Work"
  * tab (PersonalScreen, EXP-58); embedded there rather than routed to.
@@ -80,7 +80,7 @@ fun MyIssuesListContent(
                 }
                 if (!isCollapsed) {
                     items(group.issues, key = { it.issue.id }) { entry ->
-                        // Rows span projects — the identifier's project
+                        // Rows span boards — the identifier's board
                         // prefix ({PREFIX}-{n}) disambiguates; the assignee
                         // avatar is omitted (it's always me).
                         LongPressIssueRow(

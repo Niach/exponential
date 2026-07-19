@@ -51,7 +51,7 @@ function AdminLayout() {
           </Button>
           <Button asChild variant="ghost" size="sm">
             <Link
-              to="/admin/workspaces"
+              to="/admin/teams"
               activeProps={{ className: `bg-accent` }}
             >
               <Building2 className="h-4 w-4" />

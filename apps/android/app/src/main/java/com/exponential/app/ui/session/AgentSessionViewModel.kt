@@ -159,7 +159,7 @@ sealed interface AgentFeedRow {
 }
 
 /** Group consecutive runs of ≥2 [AgentFeedItem.Tool] items into
- *  [AgentFeedRow.ToolRun] rows — a pure render-time projection: the flat feed
+ *  [AgentFeedRow.ToolRun] rows — a pure render-time boardion: the flat feed
  *  (and [activeQuestionIds] over it) is never restructured. */
 fun groupToolRuns(feed: List<AgentFeedItem>): List<AgentFeedRow> {
     val rows = mutableListOf<AgentFeedRow>()

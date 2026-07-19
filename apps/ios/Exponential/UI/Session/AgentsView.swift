@@ -12,7 +12,7 @@ import SwiftUI
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
@@ -65,7 +65,7 @@ struct AgentsView: View {
         .sheet(item: $startSheetDevice) { device in
             StartCodingSheet(
                 devices: devices ?? [],
-                issues: viewModel?.startCandidates(workspaceId: workspaceState.activeWorkspace?.id) ?? [],
+                issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
                 preselectedIds: [],
                 preferredDeviceId: device.deviceId
             ) { chosenDevice, issueIds, options in

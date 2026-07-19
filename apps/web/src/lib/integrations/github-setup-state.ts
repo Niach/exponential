@@ -20,7 +20,7 @@ const STATE_TTL_MS = 60 * 60 * 1000
 
 interface SetupStatePayload {
   u: string // initiating user id
-  w?: string // workspace the claim links the installation to
+  w?: string // team the claim links the installation to
   o?: boolean // OAuth-claim purpose (consumed only by the OAuth callback)
   d?: boolean // launched from an in-app dialog → self-closing landing page
   m?: boolean // launched from a native mobile client → exponential:// deep-link page
@@ -51,7 +51,7 @@ export function mintGithubSetupState(
   opts?: {
     dialog?: boolean
     mobile?: boolean
-    workspaceId?: string
+    teamId?: string
     oauth?: boolean
   },
   now: number = Date.now()
@@ -60,7 +60,7 @@ export function mintGithubSetupState(
   if (!key) return undefined
   const payload: SetupStatePayload = {
     u: userId,
-    ...(opts?.workspaceId ? { w: opts.workspaceId } : {}),
+    ...(opts?.teamId ? { w: opts.teamId } : {}),
     ...(opts?.oauth ? { o: true } : {}),
     ...(opts?.dialog ? { d: true } : {}),
     ...(opts?.mobile ? { m: true } : {}),
@@ -110,20 +110,20 @@ export function githubSetupStateWantsMobile(state: string | null): boolean {
   return decodePayload(state)?.m === true
 }
 
-// Verify + consume: returns the initiating user id (+ target workspace) only
+// Verify + consume: returns the initiating user id (+ target team) only
 // when the signature, expiry, and single-use nonce all hold AND the token was
 // minted for `sessionUserId` (the user the callback's browser session resolves
 // to). The nonce is burned only on full success, so a callback that lands
 // without a session doesn't invalidate the link for a signed-in retry.
 // `expectOauth` pins the token's purpose: an install-flow state can't be
 // replayed against the OAuth callback (or vice versa) — the two callbacks
-// create workspace links under different proofs of control.
+// create team links under different proofs of control.
 export function consumeGithubSetupState(
   state: string | null,
   sessionUserId: string | null,
   opts?: { expectOauth?: boolean },
   now: number = Date.now()
-): { userId: string; workspaceId: string | null } | null {
+): { userId: string; teamId: string | null } | null {
   if (!state || !sessionUserId) return null
   const key = secret()
   if (!key) return null
@@ -143,14 +143,14 @@ export function consumeGithubSetupState(
   pruneConsumedNonces(now)
   if (consumedNonces.has(payload.n)) return null
   consumedNonces.set(payload.n, payload.exp)
-  return { userId: payload.u, workspaceId: payload.w ?? null }
+  return { userId: payload.u, teamId: payload.w ?? null }
 }
 
 // ---------------------------------------------------------------------------
 // Claim ticket — the OAuth callback's hand-off to the /integrations/github/
 // claim page when the user's GitHub account has SEVERAL installations to pick
 // from. Same HMAC scheme as the setup state, but deliberately NOT single-use:
-// linking is idempotent and the ticket is bound to user + workspace + the
+// linking is idempotent and the ticket is bound to user + team + the
 // exact installation-id set the callback enumerated, so replaying it can only
 // re-create the same links. Short TTL keeps the window tight.
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ const CLAIM_TICKET_TTL_MS = 15 * 60 * 1000
 
 export interface GithubClaimTicket {
   u: string // claiming user id
-  w: string // workspace the links target
+  w: string // team the links target
   ids: number[] // installation ids the OAuth enumeration proved control of
   m?: boolean // mobile flow → claim page shows the exponential:// return card
   d?: boolean // dialog flow → claim page self-closes into the opener

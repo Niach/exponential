@@ -4,13 +4,13 @@ import { router } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { checkClientVersion } from "@/lib/client-version"
-import { workspacesRouter } from "@/lib/trpc/workspaces"
-import { projectsRouter } from "@/lib/trpc/projects"
+import { teamsRouter } from "@/lib/trpc/teams"
+import { boardsRouter } from "@/lib/trpc/boards"
 import { issuesRouter } from "@/lib/trpc/issues"
 import { issueLabelsRouter } from "@/lib/trpc/issue-labels"
 import { labelsRouter } from "@/lib/trpc/labels"
-import { workspaceInvitesRouter } from "@/lib/trpc/workspace-invites"
-import { workspaceMembersRouter } from "@/lib/trpc/workspace-members"
+import { teamInvitesRouter } from "@/lib/trpc/team-invites"
+import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { usersRouter } from "@/lib/trpc/users"
 import { integrationsRouter } from "@/lib/trpc/integrations"
 import { adminRouter } from "@/lib/trpc/admin"
@@ -26,13 +26,11 @@ import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
 import { widgetsRouter } from "@/lib/trpc/widgets"
 import { helpdeskRouter } from "@/lib/trpc/helpdesk"
-import { publicBoardRouter } from "@/lib/trpc/public-board"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 
 export const appRouter = router({
-  publicBoard: publicBoardRouter,
-  workspaces: workspacesRouter,
-  projects: projectsRouter,
+  teams: teamsRouter,
+  boards: boardsRouter,
   issues: issuesRouter,
   issueLabels: issueLabelsRouter,
   labels: labelsRouter,
@@ -41,8 +39,8 @@ export const appRouter = router({
   runConfigs: runConfigsRouter,
   codingSessions: codingSessionsRouter,
   steer: steerRouter,
-  workspaceInvites: workspaceInvitesRouter,
-  workspaceMembers: workspaceMembersRouter,
+  teamInvites: teamInvitesRouter,
+  teamMembers: teamMembersRouter,
   users: usersRouter,
   integrations: integrationsRouter,
   admin: adminRouter,

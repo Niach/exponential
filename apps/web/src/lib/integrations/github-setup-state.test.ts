@@ -18,7 +18,7 @@ describe(`github setup state token`, () => {
     expect(state).toBeTruthy()
     expect(consumeGithubSetupState(state!, `user-1`)).toEqual({
       userId: `user-1`,
-      workspaceId: null,
+      teamId: null,
     })
   })
 
@@ -56,7 +56,7 @@ describe(`github setup state token`, () => {
     const state = mintGithubSetupState(`user-1`)!
     expect(consumeGithubSetupState(state, `user-1`)).toEqual({
       userId: `user-1`,
-      workspaceId: null,
+      teamId: null,
     })
     expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
   })
@@ -105,24 +105,24 @@ describe(`github setup state token`, () => {
     })!
     expect(consumeGithubSetupState(state, `user-1`)).toEqual({
       userId: `user-1`,
-      workspaceId: null,
+      teamId: null,
     })
     // Single-use holds regardless of markers.
     expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
   })
 
-  it(`round-trips the target workspace id`, () => {
-    const state = mintGithubSetupState(`user-1`, { workspaceId: `ws-9` })!
+  it(`round-trips the target team id`, () => {
+    const state = mintGithubSetupState(`user-1`, { teamId: `ws-9` })!
     expect(consumeGithubSetupState(state, `user-1`)).toEqual({
       userId: `user-1`,
-      workspaceId: `ws-9`,
+      teamId: `ws-9`,
     })
   })
 
   it(`pins the token purpose: an install state never consumes as an OAuth state (and vice versa)`, () => {
-    const installState = mintGithubSetupState(`user-1`, { workspaceId: `ws-9` })!
+    const installState = mintGithubSetupState(`user-1`, { teamId: `ws-9` })!
     const oauthState = mintGithubSetupState(`user-1`, {
-      workspaceId: `ws-9`,
+      teamId: `ws-9`,
       oauth: true,
     })!
     // Cross-purpose replays refuse without burning the nonce…
@@ -133,11 +133,11 @@ describe(`github setup state token`, () => {
     // …so the right callback can still consume each one.
     expect(consumeGithubSetupState(installState, `user-1`)).toEqual({
       userId: `user-1`,
-      workspaceId: `ws-9`,
+      teamId: `ws-9`,
     })
     expect(
       consumeGithubSetupState(oauthState, `user-1`, { expectOauth: true })
-    ).toEqual({ userId: `user-1`, workspaceId: `ws-9` })
+    ).toEqual({ userId: `user-1`, teamId: `ws-9` })
   })
 })
 

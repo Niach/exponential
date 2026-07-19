@@ -64,7 +64,7 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
 
     /// Per-user account id — keyed by instance URL AND userId, so two users on
     /// the same server get distinct ids (hence distinct local DB files, offsets,
-    /// and workspace selection). The `\n` separator keeps URL/userId boundaries
+    /// and team selection). The `\n` separator keeps URL/userId boundaries
     /// unambiguous. Same 8-byte hex width as the pending id.
     public static func makeId(instanceUrl: String, userId: String) -> String {
         let digest = SHA256.hash(data: Data("\(instanceUrl)\n\(userId)".utf8))

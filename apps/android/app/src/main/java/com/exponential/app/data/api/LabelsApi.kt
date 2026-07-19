@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class CreateLabelInput(
-    val workspaceId: String,
+    val teamId: String,
     val name: String,
     val color: String = "#6366f1",
 )
@@ -20,14 +20,14 @@ data class IssueLabelInput(val issueId: String, val labelId: String)
 
 @Serializable
 data class UpdateLabelInput(
-    val workspaceId: String,
+    val teamId: String,
     val labelId: String,
     val name: String? = null,
     val color: String? = null,
 )
 
 @Serializable
-data class DeleteLabelInput(val workspaceId: String, val labelId: String)
+data class DeleteLabelInput(val teamId: String, val labelId: String)
 
 @Singleton
 class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
@@ -49,11 +49,11 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun delete(accountId: String, workspaceId: String, labelId: String) {
+    suspend fun delete(accountId: String, teamId: String, labelId: String) {
         trpc.mutationUnit(
             accountId,
             path = "labels.delete",
-            input = DeleteLabelInput(workspaceId, labelId),
+            input = DeleteLabelInput(teamId, labelId),
             inputSerializer = DeleteLabelInput.serializer(),
         )
     }

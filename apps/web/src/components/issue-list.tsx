@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, Label, Project, User } from "@/db/schema"
-import { projectCollection } from "@/lib/collections"
+import type { Issue, Label, Board, User } from "@/db/schema"
+import { boardCollection } from "@/lib/collections"
 import { StatusDropdown, getStatusConfig } from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Plus, ChevronRight, ListTodo, SearchX } from "lucide-react"
 import type { IssueStatus } from "@/lib/domain"
-import type { IssueGroup } from "@/lib/project-board"
+import type { IssueGroup } from "@/lib/board-view"
 
 const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `rgba(113, 113, 122, 0.08)`,
@@ -44,12 +44,12 @@ interface IssueListProps {
   // True while the Electric issues collection is still loading its first
   // snapshot — renders skeleton rows instead of an empty state.
   isLoading?: boolean
-  // Distinguish "the project has no issues" from "filters hide everything".
+  // Distinguish "the board has no issues" from "filters hide everything".
   hasAnyIssues?: boolean
   hasActiveFilters?: boolean
   onClearFilters?: () => void
   // Rendered below the genuine "No issues yet" empty state only (never the
-  // filtered-empty one) — the project board passes the member-only "Getting
+  // filtered-empty one) — the board passes the member-only "Getting
   // started" cards here (EXP-88).
   emptyStateExtra?: React.ReactNode
   // Optional trailing per-row action cell. Rendered in its own
@@ -58,7 +58,7 @@ interface IssueListProps {
   // Enables bulk selection + the floating action bar (hover checkboxes on
   // md+, shift-click ranges, Cmd/Ctrl+A, Esc).
   // Undefined = bulk select off. Selection also requires canModerate.
-  bulkWorkspaceId?: string
+  bulkTeamId?: string
 }
 
 function IssueListSkeleton() {
@@ -100,35 +100,35 @@ export function IssueList({
   onClearFilters,
   emptyStateExtra,
   renderRowAction,
-  bulkWorkspaceId,
+  bulkTeamId,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
-  const bulkEnabled = Boolean(bulkWorkspaceId) && canModerate
+  const bulkEnabled = Boolean(bulkTeamId) && canModerate
 
-  // Workspace projects feed the context menu's move-to-project submenu
-  // (EXP-57). Trashed projects never reach the client (the projects shape
+  // Team boards feed the context menu's move-to-board submenu
+  // (EXP-57). Trashed boards never reach the client (the boards shape
   // filters them server-side).
-  const { data: projectRows } = useLiveQuery(
+  const { data: boardRows } = useLiveQuery(
     (query) =>
-      bulkWorkspaceId
+      bulkTeamId
         ? query
-            .from({ projects: projectCollection })
-            .where(({ projects }) => eq(projects.workspaceId, bulkWorkspaceId))
+            .from({ boards: boardCollection })
+            .where(({ boards }) => eq(boards.teamId, bulkTeamId))
         : undefined,
-    [bulkWorkspaceId]
+    [bulkTeamId]
   )
-  const workspaceProjects = useMemo(
+  const teamBoards = useMemo(
     () =>
-      bulkWorkspaceId
-        ? [...((projectRows ?? []) as Project[])].sort((left, right) =>
+      bulkTeamId
+        ? [...((boardRows ?? []) as Board[])].sort((left, right) =>
             left.name.localeCompare(right.name)
           )
         : undefined,
-    [projectRows, bulkWorkspaceId]
+    [boardRows, bulkTeamId]
   )
 
   // The range/select-all universe: filtered rows in render order, minus
@@ -257,10 +257,10 @@ export function IssueList({
       ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
       : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
-  // Solo workspace (exactly one human member): render the assignee cell as a
+  // Solo team (exactly one human member): render the assignee cell as a
   // static avatar, not an interactive dropdown. `users` is the bot-excluded
   // member list; length 0 means still loading (never a genuine empty), so a
-  // multi-member workspace never briefly reads as solo.
+  // multi-member team never briefly reads as solo.
   const isSolo = users.length === 1
 
   const toggleGroup = (status: IssueStatus) => {
@@ -383,7 +383,7 @@ export function IssueList({
                     labels={labels}
                     users={users}
                     userMap={userMap}
-                    projects={workspaceProjects}
+                    boards={teamBoards}
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
@@ -491,7 +491,7 @@ export function IssueList({
         )
       })}
 
-      {bulkEnabled && bulkWorkspaceId && selectedIssues.length > 0 && (
+      {bulkEnabled && bulkTeamId && selectedIssues.length > 0 && (
         <BulkActionBar
           issues={selectedIssues}
           issueLabelMap={issueLabelMap}

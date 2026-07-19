@@ -10,7 +10,7 @@ import {
   type SteerPerm,
   type SteerTicketClaims,
 } from "@exp/steer-ticket"
-import type { WorkspaceRole } from "@/lib/domain"
+import type { TeamRole } from "@/lib/domain"
 
 // ── Config (env) ──────────────────────────────────────────────────────────────
 
@@ -69,27 +69,27 @@ export type SteerTicketSeed =
   | {
       kind: `publisher`
       userId: string
-      workspaceId: string
+      teamId: string
       sessionId: string
     }
   | {
       kind: `viewer`
       userId: string
-      workspaceId: string
+      teamId: string
       sessionId: string
-      role: WorkspaceRole
+      role: TeamRole
       /** Display name (or email), shown in viewer presence. */
       name: string
       /** The caller owns the coding_sessions row — grants steer regardless
-       *  of workspace role (you may always steer your own session). */
+       *  of team role (you may always steer your own session). */
       isSessionOwner?: boolean
     }
 
-// Workspace owners may steer, and so may the coding session's own starter
+// Team owners may steer, and so may the coding session's own starter
 // (isSessionOwner); plain members watch. (The role enum is owner|member only
 // — there is no admin role.)
 export function viewerPermFor(
-  role: WorkspaceRole,
+  role: TeamRole,
   isSessionOwner = false
 ): SteerPerm {
   return role === `owner` || isSessionOwner ? `steer` : `view`
@@ -106,11 +106,11 @@ export function buildSteerTicketClaims(
   }
   switch (seed.kind) {
     case `control`:
-      // Control tickets are account-scoped, not workspace-scoped — ws is the
+      // Control tickets are account-scoped, not team-scoped — team is the
       // empty string by convention (see SteerTicketClaims docs).
       return {
         ...base,
-        ws: ``,
+        team: ``,
         role: `control`,
         perm: `steer`,
         ...(seed.deviceLabel ? { deviceLabel: seed.deviceLabel } : {}),
@@ -118,7 +118,7 @@ export function buildSteerTicketClaims(
     case `publisher`:
       return {
         ...base,
-        ws: seed.workspaceId,
+        team: seed.teamId,
         sessionId: seed.sessionId,
         role: `publisher`,
         perm: `steer`,
@@ -126,7 +126,7 @@ export function buildSteerTicketClaims(
     case `viewer`:
       return {
         ...base,
-        ws: seed.workspaceId,
+        team: seed.teamId,
         sessionId: seed.sessionId,
         name: seed.name,
         role: `viewer`,
@@ -212,7 +212,7 @@ export interface SteerStartOptions {
 
 /**
  * The repo group a BATCH remote start carries. Resolved server-side (from the
- * batch's shared project repository) because the desktop syncs no repositories
+ * batch's shared board repository) because the desktop syncs no repositories
  * collection — the relay frame must be "fat" enough for the launcher to clone
  * without a lookup. NEVER includes installationId: that is a server-only
  * secret and must never ride the relay.
@@ -225,11 +225,11 @@ export interface SteerStartRepo {
 
 /**
  * The subject of a remote start: either a single issue (wire-unchanged) or a
- * batch of issues sharing one workspace + repo group. Exactly one form.
+ * batch of issues sharing one team + repo group. Exactly one form.
  */
 export type SteerStartSubject =
   | { issueId: string }
-  | { issueIds: string[]; workspaceId: string; repo: SteerStartRepo }
+  | { issueIds: string[]; teamId: string; repo: SteerStartRepo }
 
 /** POST /start — route a remote start to the device's control socket.
  * Undefined option fields are dropped by JSON.stringify — never sent. */

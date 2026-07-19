@@ -1,6 +1,6 @@
 //! Debug board — the Phase-2 "live sync of the 15 shapes renders a board"
 //! gate surface (masterplan-v3 §11.4 Phase 2; §5.11 gate 2). Phase 3 replaces
-//! it with the real virtualized project board.
+//! it with the real virtualized board view.
 //!
 //! Renders, live off the sync collections:
 //! * a per-shape **status line** — name + sync phase
@@ -191,7 +191,7 @@ impl Render for DebugBoardPanel {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Debug board — Phase 3 replaces this with the real project board."),
+                    .child("Debug board — Phase 3 replaces this with the real board view."),
             )
             .child(self.render_status_line(cx))
             .child(

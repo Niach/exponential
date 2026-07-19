@@ -1,8 +1,8 @@
-/* ─── Web sidebar — team switcher, nav, projects, footer ───
+/* ─── Web sidebar — team switcher, nav, boards, footer ───
    Mirrors apps/web/src/components/workspace/sidebar.tsx (shadcn sidebar on
    the dark zinc theme): 256px rail on --bg-elev, 32px menu buttons, badges
-   right-aligned, Projects group with colored type icons + a globe on the
-   public feedback board, footer with Getting started / Send feedback / user. */
+   right-aligned, Boards group with colored icons, footer with Getting
+   started / Send feedback / user. */
 import { INBOX_ITEMS, PROJECT, REVIEWS } from "../ide/data"
 import { useWeb, type WebNav } from "./state"
 import { AGENTS_RUNNING, WEB_PROJECTS, WEB_USER, type DemoProjectIcon } from "./data"
@@ -18,7 +18,6 @@ import {
 import {
   IcBot,
   IcCode2,
-  IcGlobe,
   IcKanban,
   IcLifeBuoy,
   IcMegaphone,
@@ -118,14 +117,14 @@ export function WebSidebar() {
 
         <div className="web-group">
           <div className="web-group-head">
-            <span className="web-group-label">Projects</span>
-            <button className="web-group-plus" type="button" title="Create project">
+            <span className="web-group-label">Boards</span>
+            <button className="web-group-plus" type="button" title="Create board">
               <IcPlus size={14} />
             </button>
           </div>
           {WEB_PROJECTS.map((project, i) => {
             const Icon = projectIcon[project.icon]
-            /* The demo board is the first (dogfood) project. */
+            /* The demo board is the first (dogfood) one. */
             const isBoard = i === 0
             return (
               <NavItem
@@ -134,11 +133,6 @@ export function WebSidebar() {
                 label={project.name}
                 active={nav === `project` && isBoard}
                 onClick={isBoard ? go(`project`) : undefined}
-                trailing={
-                  project.isPublic ? (
-                    <IcGlobe size={13} className="ide-c-muted" />
-                  ) : undefined
-                }
               />
             )
           })}

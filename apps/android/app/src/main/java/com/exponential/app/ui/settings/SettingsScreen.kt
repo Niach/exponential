@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,13 +39,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
-import com.exponential.app.data.db.MultiAccountWorkspaceRepository
-import com.exponential.app.data.db.ServerWorkspaceGroup
+import com.exponential.app.data.db.MultiAccountTeamRepository
+import com.exponential.app.data.db.ServerTeamGroup
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.WorkspaceAvatar
+import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
@@ -59,12 +58,12 @@ import kotlinx.coroutines.flow.stateIn
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val selection: WorkspaceSelection,
-    multiAccountWorkspaces: MultiAccountWorkspaceRepository,
+    private val selection: TeamSelection,
+    multiAccountTeams: MultiAccountTeamRepository,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
-    val serverGroups: StateFlow<List<ServerWorkspaceGroup>> =
-        multiAccountWorkspaces.serverGroups.stateIn(
+    val serverGroups: StateFlow<List<ServerTeamGroup>> =
+        multiAccountTeams.serverGroups.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             emptyList(),
@@ -73,12 +72,12 @@ class SettingsViewModel @Inject constructor(
     // startAddServer removed — Settings now navigates to the instance route
     // directly via the onAddServer callback.
 
-    /// Settings → Workspaces tap. Selects the workspace and (for cross-server
+    /// Settings → Teams tap. Selects the team and (for cross-server
     /// taps) makes its account active; the caller navigates immediately —
-    /// WorkspaceSettingsViewModel scopes to the active account reactively, so
+    /// TeamSettingsViewModel scopes to the active account reactively, so
     /// no rebuild/pending-handoff dance is needed.
-    fun onWorkspaceSettingsTap(accountId: String, workspaceId: String) {
-        selection.select(workspaceId)
+    fun onTeamSettingsTap(accountId: String, teamId: String) {
+        selection.select(teamId)
         if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
         }
@@ -86,15 +85,14 @@ class SettingsViewModel @Inject constructor(
 }
 
 // iOS-parity Settings: a centered nav title, the zinc AppBackground gradient,
-// and grouped glass sections (Servers / Workspaces / General) of
+// and grouped glass sections (Servers / Teams / General) of
 // leading-icon + title (+ optional subtitle) + trailing-chevron rows.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
-    onOpenWorkspaceSettings: () -> Unit,
+    onOpenTeamSettings: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
-    onOpenFeedbackBoard: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -145,9 +143,9 @@ fun SettingsScreen(
                     }
                 }
 
-                // Workspaces section — the switcher list: tapping a workspace
+                // Teams section — the switcher list: tapping a team
                 // selects it (and switches the active account for cross-server
-                // taps) before opening that workspace's settings.
+                // taps) before opening that team's settings.
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("Teams")
                     if (serverGroups.isEmpty()) {
@@ -160,11 +158,11 @@ fun SettingsScreen(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             serverGroups.forEach { group ->
-                                WorkspaceGroupBlock(
+                                TeamGroupBlock(
                                     group = group,
-                                    onWorkspaceTap = { workspaceId ->
-                                        viewModel.onWorkspaceSettingsTap(group.accountId, workspaceId)
-                                        onOpenWorkspaceSettings()
+                                    onTeamTap = { teamId ->
+                                        viewModel.onTeamSettingsTap(group.accountId, teamId)
+                                        onOpenTeamSettings()
                                     },
                                 )
                             }
@@ -181,17 +179,6 @@ fun SettingsScreen(
                             title = "Sync diagnostics",
                             subtitle = "Live Electric shape status",
                             onClick = onOpenSyncDiagnostics,
-                        )
-                        CardDivider()
-                        // In-app join gate for the public feedback board
-                        // (FeedbackBoardScreen); the screen itself falls back
-                        // to the old external `/feedback` URL when the active
-                        // server has no joinable public board.
-                        SettingsRow(
-                            icon = Icons.Filled.Forum,
-                            title = "Send feedback",
-                            subtitle = "Join the public feedback board",
-                            onClick = onOpenFeedbackBoard,
                         )
                     }
                 }
@@ -305,11 +292,11 @@ private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
     }
 }
 
-// One server's hostname header + a glass card of its workspaces (the switcher).
+// One server's hostname header + a glass card of its teams (the switcher).
 @Composable
-private fun WorkspaceGroupBlock(
-    group: ServerWorkspaceGroup,
-    onWorkspaceTap: (workspaceId: String) -> Unit,
+private fun TeamGroupBlock(
+    group: ServerTeamGroup,
+    onTeamTap: (teamId: String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(modifier = Modifier.padding(horizontal = 4.dp)) {
@@ -331,19 +318,19 @@ private fun WorkspaceGroupBlock(
             }
         }
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-            group.workspaces.forEachIndexed { i, workspace ->
+            group.teams.forEachIndexed { i, team ->
                 if (i > 0) CardDivider()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onWorkspaceTap(workspace.id) }
+                        .clickable { onTeamTap(team.id) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    WorkspaceAvatar(workspace, size = 22.dp)
+                    TeamAvatar(team, size = 22.dp)
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        workspace.name,
+                        team.name,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),

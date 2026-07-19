@@ -1,6 +1,6 @@
 import { and, eq, isNotNull } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects } from "@/db/schema"
+import { issues, boards } from "@/db/schema"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
 import {
   applyPrClosedState,
@@ -34,10 +34,10 @@ async function pollOpenPrs(): Promise<void> {
         issueId: issues.id,
         prUrl: issues.prUrl,
         prNumber: issues.prNumber,
-        workspaceId: projects.workspaceId,
+        teamId: boards.teamId,
       })
       .from(issues)
-      .innerJoin(projects, eq(projects.id, issues.projectId))
+      .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(
         and(
           eq(issues.prState, `open`),
@@ -61,7 +61,7 @@ async function pollOpenPrs(): Promise<void> {
         let state = pullStates.get(row.prUrl)
         if (!state) {
           const token = await resolveRepoToken({
-            workspaceId: row.workspaceId,
+            teamId: row.teamId,
             repo,
           })
           state = await fetchPullState(repo, row.prNumber, token)

@@ -32,7 +32,7 @@ object ImageLoaderModule {
             // Issue images come back as relative paths like
             // /api/attachments/{id}. This interceptor resolves them against the
             // configured instance URL AND attaches the account's Bearer token
-            // (the shared HttpClient only sets Accept), so private-workspace
+            // (the shared HttpClient only sets Accept), so private-team
             // attachments no longer 401.
             add(InstanceUrlInterceptor(auth))
         }

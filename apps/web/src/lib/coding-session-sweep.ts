@@ -18,7 +18,7 @@
 // session never goes stale however long it lives), and even a session whose
 // heartbeats all failed only loses its badge/steerability, never its process.
 //
-// Mirrors project-trash.ts's in-process scheduler shell; started once from
+// Mirrors board-trash.ts's in-process scheduler shell; started once from
 // server-bun.ts. Multi-instance safe by construction: the status-conditioned
 // DELETE is the atomic claim, and the desktop's own end mutation tolerates a
 // vanished row either way.

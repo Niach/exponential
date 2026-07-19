@@ -3,15 +3,15 @@ import { TRPCError } from "@trpc/server"
 import { is, Param, SQL } from "drizzle-orm"
 
 // Bulk label writes (one label → many issues) for the multi-select action
-// bar. bulkAdd loads the label, gates on membership in ITS workspace, keeps
-// only same-workspace issues in non-trashed projects, and records label_added
+// bar. bulkAdd loads the label, gates on membership in ITS team, keeps
+// only same-team issues in non-trashed boards, and records label_added
 // ONLY for rows the onConflictDoNothing insert actually created (returning())
 // — a half-labelled selection must not double-log the already-labelled
 // issues. bulkRemove deletes by (labelId, issueIds) and records label_removed
 // per actually-deleted row. Fake-db harness mirrors issues-bulk.test.ts.
 
 const h = vi.hoisted(() => ({
-  assertWorkspaceMember: vi.fn(
+  assertTeamMember: vi.fn(
     async (..._args: unknown[]) => ({ role: `member` }) as unknown
   ),
   recordIssueEvent: vi.fn(),
@@ -22,9 +22,9 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-vi.mock(`@/lib/workspace-membership`, () => ({
-  assertIssueLabelWorkspaceMatch: vi.fn(),
-  assertWorkspaceMember: h.assertWorkspaceMember,
+vi.mock(`@/lib/team-membership`, () => ({
+  assertIssueLabelTeamMatch: vi.fn(),
+  assertTeamMember: h.assertTeamMember,
 }))
 
 vi.mock(`@/lib/integrations/activity`, () => ({
@@ -131,18 +131,18 @@ beforeEach(() => {
   select.mockClear()
   fakeDb.execute.mockClear()
   fakeDb.transaction.mockClear()
-  h.assertWorkspaceMember.mockClear()
-  h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
+  h.assertTeamMember.mockClear()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.recordIssueEvent.mockClear()
 })
 
 describe(`issueLabels.bulkAdd`, () => {
   it(`inserts only eligible issues and records label_added only for actually-new rows`, async () => {
-    selectQueue.push([{ workspaceId: WS }]) // label lookup
-    // The workspace + non-trashed-project join drops ISSUE_3.
+    selectQueue.push([{ teamId: WS }]) // label lookup
+    // The team + non-trashed-board join drops ISSUE_3.
     selectQueue.push([
-      { id: ISSUE_1, projectId: `proj-1` },
-      { id: ISSUE_2, projectId: `proj-2` },
+      { id: ISSUE_1, boardId: `proj-1` },
+      { id: ISSUE_2, boardId: `proj-2` },
     ])
     // ISSUE_2 already carried the label — onConflictDoNothing skips it.
     state.insertReturning = [{ issueId: ISSUE_1 }]
@@ -152,21 +152,21 @@ describe(`issueLabels.bulkAdd`, () => {
       issueIds: [ISSUE_1, ISSUE_2, ISSUE_3],
     })
 
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WS)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 42 })
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.values).toEqual([
       {
         issueId: ISSUE_1,
         labelId: LABEL_ID,
-        workspaceId: WS,
-        projectId: `proj-1`,
+        teamId: WS,
+        boardId: `proj-1`,
       },
       {
         issueId: ISSUE_2,
         labelId: LABEL_ID,
-        workspaceId: WS,
-        projectId: `proj-2`,
+        teamId: WS,
+        boardId: `proj-2`,
       },
     ])
     const added = eventsOfType(`label_added`)
@@ -176,7 +176,7 @@ describe(`issueLabels.bulkAdd`, () => {
   })
 
   it(`throws BAD_REQUEST when no issue survives the eligibility join`, async () => {
-    selectQueue.push([{ workspaceId: WS }]) // label lookup
+    selectQueue.push([{ teamId: WS }]) // label lookup
     selectQueue.push([]) // nothing eligible (read in-tx, before the txId probe)
 
     const error = await rejectionOf(
@@ -195,14 +195,14 @@ describe(`issueLabels.bulkAdd`, () => {
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`NOT_FOUND`)
-    expect(h.assertWorkspaceMember).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
     expect(inserts).toHaveLength(0)
   })
 })
 
 describe(`issueLabels.bulkRemove`, () => {
   it(`deletes by (labelId, issueIds) and records label_removed per actually-deleted row`, async () => {
-    selectQueue.push([{ workspaceId: WS }]) // label lookup
+    selectQueue.push([{ teamId: WS }]) // label lookup
     state.deleteReturning = [{ issueId: ISSUE_1 }, { issueId: ISSUE_2 }]
 
     const result = await caller.bulkRemove({
@@ -210,7 +210,7 @@ describe(`issueLabels.bulkRemove`, () => {
       issueIds: [ISSUE_1, ISSUE_2, ISSUE_3],
     })
 
-    expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WS)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 42 })
     expect(deletes).toHaveLength(1)
     expect(collectParams(deletes[0]!.where)).toEqual([
@@ -227,7 +227,7 @@ describe(`issueLabels.bulkRemove`, () => {
   })
 
   it(`records no events when nothing was linked`, async () => {
-    selectQueue.push([{ workspaceId: WS }])
+    selectQueue.push([{ teamId: WS }])
     state.deleteReturning = []
 
     const result = await caller.bulkRemove({

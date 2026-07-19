@@ -858,7 +858,7 @@ fn manager_runs_all_15_shapes_and_stops_cleanly() {
         .iter()
         .all(|r| r.bearer.as_deref() == Some("tok-1")));
 
-    // First-sync wait: the workspaces shape reaches head (up-to-date).
+    // First-sync wait: the teams shape reaches head (up-to-date).
     assert!(manager.wait_for_first_sync("acct-1", Duration::from_secs(5)));
     assert!(manager.store("acct-1").is_some());
 

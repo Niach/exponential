@@ -11,18 +11,18 @@ import {
   issueSubscribers,
   labels,
   notifications,
-  projects,
+  boards,
 } from "@/db/schema"
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import {
-  resolveWorkspaceAccess,
-  assertAssigneeInWorkspace,
+  resolveTeamAccess,
+  assertAssigneeInTeam,
   assertIssueAccess,
-  assertWorkspaceMember,
-  getIssueWorkspaceContext,
-  getProjectWorkspaceId,
+  assertTeamMember,
+  getIssueTeamContext,
+  getBoardTeamId,
   getSoleHumanMemberId,
-} from "@/lib/workspace-membership"
+} from "@/lib/team-membership"
 import {
   closePullRequest,
   fetchPullFiles,
@@ -33,7 +33,7 @@ import {
   githubAppConfigured,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
-import { isInstallationLinkedToWorkspace } from "@/lib/trpc/integrations"
+import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import {
   applyPrClosedState,
@@ -125,11 +125,11 @@ async function finalizeIssueUpdateInTx(
   tx: Tx,
   args: {
     issueId: string
-    workspaceId: string
+    teamId: string
     actorUserId: string
     current: {
       status: string
-      projectId: string
+      boardId: string
       title: string
       priority: string
       assigneeId: string | null
@@ -141,7 +141,7 @@ async function finalizeIssueUpdateInTx(
   statusChange: { from: string; to: string } | null
   previousAssigneeId: string | null
 } | null> {
-  const { issueId, workspaceId, actorUserId, current, setValues } = args
+  const { issueId, teamId, actorUserId, current, setValues } = args
 
   const [issue] = await tx
     .update(issues)
@@ -159,7 +159,7 @@ async function finalizeIssueUpdateInTx(
     statusChange = { from: current.status, to: issue.status }
     await recordIssueEvent(tx, {
       issueId,
-      workspaceId,
+      teamId,
       actorUserId,
       type: `status_changed`,
       payload: { from: current.status, to: issue.status },
@@ -168,7 +168,7 @@ async function finalizeIssueUpdateInTx(
   if (current.assigneeId !== issue.assigneeId) {
     await recordIssueEvent(tx, {
       issueId,
-      workspaceId,
+      teamId,
       actorUserId,
       type: `assignee_changed`,
       payload: { from: current.assigneeId, to: issue.assigneeId },
@@ -177,7 +177,7 @@ async function finalizeIssueUpdateInTx(
       await ensureSubscribed(tx, {
         issueId,
         userId: issue.assigneeId,
-        workspaceId,
+        teamId,
         source: `assignee`,
       })
     }
@@ -194,7 +194,7 @@ export const issuesRouter = router({
   create: authedProcedure
     .input(
       z.object({
-        projectId: z.string().uuid(),
+        boardId: z.string().uuid(),
         title: z.string().min(1).max(500),
         status: issueStatusSchema.optional(),
         priority: issuePrioritySchema.optional(),
@@ -207,25 +207,25 @@ export const issuesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectWorkspaceId(input.projectId)
-      await resolveWorkspaceAccess(
+      const board = await getBoardTeamId(input.boardId)
+      await resolveTeamAccess(
         ctx.session.user.id,
-        project.workspaceId,
+        board.teamId,
         `create_issue`
       )
 
       // The assignee is INPUT, not the actor — validate it against the
-      // issue's workspace or any member could push-notify arbitrary users.
+      // issue's team or any member could push-notify arbitrary users.
       if (input.assigneeId != null) {
-        await assertAssigneeInWorkspace(input.assigneeId, project.workspaceId)
+        await assertAssigneeInTeam(input.assigneeId, board.teamId)
       }
 
-      // EXP-50: in a solo workspace (exactly one human member) an unassigned
+      // EXP-50: in a solo team (exactly one human member) an unassigned
       // issue can only ever be theirs — default-assign that member. An
       // explicit assignee (validated above) always wins; multi-member
-      // workspaces keep the unassigned default.
+      // teams keep the unassigned default.
       const assigneeId =
-        input.assigneeId ?? (await getSoleHumanMemberId(project.workspaceId))
+        input.assigneeId ?? (await getSoleHumanMemberId(board.teamId))
 
       if (input.description && hasMarkdownImages(input.description)) {
         throw new TRPCError({
@@ -239,7 +239,7 @@ export const issuesRouter = router({
         const [issue] = await tx
           .insert(issues)
           .values({
-            projectId: input.projectId,
+            boardId: input.boardId,
             title: input.title,
             status: input.status ?? `backlog`,
             priority: input.priority ?? `none`,
@@ -254,17 +254,17 @@ export const issuesRouter = router({
 
         if (input.labelIds && input.labelIds.length > 0) {
           const labelRows = await tx
-            .select({ id: labels.id, workspaceId: labels.workspaceId })
+            .select({ id: labels.id, teamId: labels.teamId })
             .from(labels)
             .where(inArray(labels.id, input.labelIds))
 
-          const wrongWorkspace = labelRows.find(
-            (label) => label.workspaceId !== project.workspaceId
+          const wrongTeam = labelRows.find(
+            (label) => label.teamId !== board.teamId
           )
-          if (wrongWorkspace || labelRows.length !== input.labelIds.length) {
+          if (wrongTeam || labelRows.length !== input.labelIds.length) {
             throw new TRPCError({
               code: `BAD_REQUEST`,
-              message: `Labels must belong to the same workspace as the project`,
+              message: `Labels must belong to the same team as the board`,
             })
           }
 
@@ -272,8 +272,8 @@ export const issuesRouter = router({
             input.labelIds.map((labelId) => ({
               issueId: issue.id,
               labelId,
-              workspaceId: project.workspaceId,
-              projectId: input.projectId,
+              teamId: board.teamId,
+              boardId: input.boardId,
             }))
           )
         }
@@ -283,14 +283,14 @@ export const issuesRouter = router({
         await ensureSubscribed(tx, {
           issueId: issue.id,
           userId: ctx.session.user.id,
-          workspaceId: project.workspaceId,
+          teamId: board.teamId,
           source: `creator`,
         })
         if (issue.assigneeId) {
           await ensureSubscribed(tx, {
             issueId: issue.id,
             userId: issue.assigneeId,
-            workspaceId: project.workspaceId,
+            teamId: board.teamId,
             source: `assignee`,
           })
         }
@@ -301,14 +301,14 @@ export const issuesRouter = router({
           ? await resolveMentions(
               tx,
               getIssueDescriptionText(issue.description),
-              project.workspaceId
+              board.teamId
             )
           : []
         for (const userId of mentionedUserIds) {
           await ensureSubscribed(tx, {
             issueId: issue.id,
             userId,
-            workspaceId: project.workspaceId,
+            teamId: board.teamId,
             source: `mention`,
           })
         }
@@ -372,12 +372,12 @@ export const issuesRouter = router({
       )
 
       // The assignee is INPUT, not the actor — validate it against the
-      // issue's workspace or any member could push-notify arbitrary users.
+      // issue's team or any member could push-notify arbitrary users.
       // null (unassign) and undefined (untouched) both skip the check.
       if (updates.assigneeId != null) {
-        await assertAssigneeInWorkspace(
+        await assertAssigneeInTeam(
           updates.assigneeId,
-          issueContext.workspaceId
+          issueContext.teamId
         )
       }
 
@@ -390,7 +390,7 @@ export const issuesRouter = router({
           .select({
             description: issues.description,
             status: issues.status,
-            projectId: issues.projectId,
+            boardId: issues.boardId,
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
@@ -424,20 +424,20 @@ export const issuesRouter = router({
                 message: `An issue cannot be a duplicate of itself`,
               })
             }
-            // The canonical issue must live in the same workspace.
+            // The canonical issue must live in the same team.
             const [canonical] = await tx
-              .select({ workspaceId: projects.workspaceId })
+              .select({ teamId: boards.teamId })
               .from(issues)
-              .innerJoin(projects, eq(projects.id, issues.projectId))
+              .innerJoin(boards, eq(boards.id, issues.boardId))
               .where(eq(issues.id, updates.duplicateOfId))
               .limit(1)
             if (
               !canonical ||
-              canonical.workspaceId !== issueContext.workspaceId
+              canonical.teamId !== issueContext.teamId
             ) {
               throw new TRPCError({
                 code: `BAD_REQUEST`,
-                message: `Canonical issue must be in the same workspace`,
+                message: `Canonical issue must be in the same team`,
               })
             }
             setValues.status = `duplicate`
@@ -519,12 +519,12 @@ export const issuesRouter = router({
           // NEW text but not the old one are subscribed + notified, so
           // re-saving a description never re-pings everyone already in it.
           const previouslyMentioned = new Set(
-            await resolveMentions(tx, previousText, issueContext.workspaceId)
+            await resolveMentions(tx, previousText, issueContext.teamId)
           )
           const nextMentioned = await resolveMentions(
             tx,
             nextText,
-            issueContext.workspaceId
+            issueContext.teamId
           )
           newlyMentionedUserIds = nextMentioned.filter(
             (userId) => !previouslyMentioned.has(userId)
@@ -533,7 +533,7 @@ export const issuesRouter = router({
             await ensureSubscribed(tx, {
               issueId: id,
               userId,
-              workspaceId: issueContext.workspaceId,
+              teamId: issueContext.teamId,
               source: `mention`,
             })
           }
@@ -553,7 +553,7 @@ export const issuesRouter = router({
 
         const result = await finalizeIssueUpdateInTx(tx, {
           issueId: id,
-          workspaceId: issueContext.workspaceId,
+          teamId: issueContext.teamId,
           actorUserId: ctx.session.user.id,
           current: currentIssue,
           setValues,
@@ -604,22 +604,22 @@ export const issuesRouter = router({
       return { issue }
     }),
 
-  // Move an issue to another project in the SAME workspace (EXP-57, web-only
-  // UI for now). The issue is renumbered in the target project (Linear-style:
+  // Move an issue to another board in the SAME team (EXP-57, web-only
+  // UI for now). The issue is renumbered in the target board (Linear-style:
   // EXP-42 → ABC-17): the generate_issue_number trigger is INSERT-only, so the
   // next number is allocated here the same way the trigger does it (read the
   // target's current max, then upsert the monotonic issue_number_counters row
   // — the ON CONFLICT row lock serializes concurrent allocations and the
   // GREATEST clamp heals a stale/missing counter row). The denormalized child
-  // project_id columns (their populate triggers are also INSERT-only) are
+  // board_id columns (their populate triggers are also INSERT-only) are
   // re-pointed in the same transaction so member + anonymous shape scoping
   // stays truthful. PR/branch linkage (pr_url/pr_number/branch) survives
-  // untouched; labels are workspace-scoped, so they survive too.
+  // untouched; labels are team-scoped, so they survive too.
   move: authedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
-        projectId: z.string().uuid(),
+        boardId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -629,19 +629,19 @@ export const issuesRouter = router({
         `write`
       )
 
-      if (issueContext.projectId === input.projectId) {
+      if (issueContext.boardId === input.boardId) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Issue is already in this project`,
+          message: `Issue is already in this board`,
         })
       }
 
       // 404s trashed targets — an issue must never move into the trash.
-      const targetProject = await getProjectWorkspaceId(input.projectId)
-      if (targetProject.workspaceId !== issueContext.workspaceId) {
+      const targetBoard = await getBoardTeamId(input.boardId)
+      if (targetBoard.teamId !== issueContext.teamId) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Issues can only move within their workspace`,
+          message: `Issues can only move within their team`,
         })
       }
 
@@ -649,13 +649,13 @@ export const issuesRouter = router({
         const txId = await generateTxId(tx)
 
         // FOR UPDATE serializes concurrent moves of the same issue AND pairs
-        // with the FOR KEY SHARE read in populate_issue_child_project_id so a
+        // with the FOR KEY SHARE read in populate_issue_child_board_id so a
         // child row inserted mid-move can never commit with the old
-        // project_id (see 0001_triggers.sql §7).
+        // board_id (see 0001_triggers.sql §7).
         const [current] = await tx
           .select({
             identifier: issues.identifier,
-            projectId: issues.projectId,
+            boardId: issues.boardId,
           })
           .from(issues)
           .where(eq(issues.id, input.id))
@@ -666,41 +666,41 @@ export const issuesRouter = router({
         }
         // Re-validate under the lock: a concurrent move that already landed
         // the issue here must not renumber it a second time (and would record
-        // a project_moved event with a stale from-side).
-        if (current.projectId === input.projectId) {
+        // a board_moved event with a stale from-side).
+        if (current.boardId === input.boardId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `Issue is already in this project`,
+            message: `Issue is already in this board`,
           })
         }
 
         const [target] = await tx
           .select({
-            prefix: projects.prefix,
-            slug: projects.slug,
+            prefix: boards.prefix,
+            slug: boards.slug,
           })
-          .from(projects)
-          .where(eq(projects.id, input.projectId))
+          .from(boards)
+          .where(eq(boards.id, input.boardId))
           .limit(1)
         if (!target) {
           throw new TRPCError({
             code: `NOT_FOUND`,
-            message: `Project not found`,
+            message: `Board not found`,
           })
         }
 
-        // Allocate the target project's next number exactly like
+        // Allocate the target board's next number exactly like
         // generate_issue_number (0001_triggers.sql).
         const maxResult = await tx.execute(
-          sql`SELECT COALESCE(MAX(number), 0) AS current_max FROM issues WHERE project_id = ${input.projectId}`
+          sql`SELECT COALESCE(MAX(number), 0) AS current_max FROM issues WHERE board_id = ${input.boardId}`
         )
         const currentMax = Number(
           (maxResult.rows[0] as { current_max: number | string }).current_max
         )
         const counterResult = await tx.execute(sql`
-          INSERT INTO issue_number_counters AS c (project_id, counter)
-          VALUES (${input.projectId}, ${currentMax} + 1)
-          ON CONFLICT (project_id) DO UPDATE
+          INSERT INTO issue_number_counters AS c (board_id, counter)
+          VALUES (${input.boardId}, ${currentMax} + 1)
+          ON CONFLICT (board_id) DO UPDATE
             SET counter = GREATEST(c.counter, ${currentMax}) + 1
           RETURNING counter
         `)
@@ -712,7 +712,7 @@ export const issuesRouter = router({
         const [moved] = await tx
           .update(issues)
           .set({
-            projectId: input.projectId,
+            boardId: input.boardId,
             number: nextNumber,
             identifier: nextIdentifier,
           })
@@ -722,59 +722,59 @@ export const issuesRouter = router({
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
         }
 
-        // Re-point the trigger-denormalized project_id on every issue-child
-        // table (the populate triggers are INSERT-only). workspace_id is
-        // unchanged — moves never cross workspaces.
+        // Re-point the trigger-denormalized board_id on every issue-child
+        // table (the populate triggers are INSERT-only). team_id is
+        // unchanged — moves never cross teams.
         await tx
           .update(comments)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(comments.issueId, input.id))
         await tx
           .update(attachments)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(attachments.issueId, input.id))
         await tx
           .update(issueEvents)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(issueEvents.issueId, input.id))
         await tx
           .update(issueSubscribers)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(issueSubscribers.issueId, input.id))
         await tx
           .update(issueLabels)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(issueLabels.issueId, input.id))
         await tx
           .update(codingSessions)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(codingSessions.issueId, input.id))
         await tx
           .update(notifications)
-          .set({ projectId: input.projectId })
+          .set({ boardId: input.boardId })
           .where(eq(notifications.issueId, input.id))
 
         await recordIssueEvent(tx, {
           issueId: input.id,
-          workspaceId: issueContext.workspaceId,
+          teamId: issueContext.teamId,
           actorUserId: ctx.session.user.id,
-          type: `project_moved`,
+          type: `board_moved`,
           payload: {
-            fromProjectId: current.projectId,
-            toProjectId: input.projectId,
+            fromBoardId: current.boardId,
+            toBoardId: input.boardId,
             fromIdentifier: current.identifier,
             toIdentifier: nextIdentifier,
           },
         })
 
-        return { txId, issue: moved, projectSlug: target.slug }
+        return { txId, issue: moved, boardSlug: target.slug }
       })
     }),
 
   // Bulk property write for the multi-select action bar (status / priority /
-  // assignee). One workspace per batch, one transaction, one txId — Electric
+  // assignee). One team per batch, one transaction, one txId — Electric
   // awaitTxId covers every row version. Stale ids and issues in trashed
-  // projects are silently skipped (addIssues precedent); an empty survivor
+  // boards are silently skipped (addIssues precedent); an empty survivor
   // set is a hard error.
   bulkUpdate: authedProcedure
     .input(
@@ -804,16 +804,16 @@ export const issuesRouter = router({
         .select({
           id: issues.id,
           status: issues.status,
-          projectId: issues.projectId,
+          boardId: issues.boardId,
           title: issues.title,
           priority: issues.priority,
           assigneeId: issues.assigneeId,
           duplicateOfId: issues.duplicateOfId,
-          workspaceId: projects.workspaceId,
+          teamId: boards.teamId,
         })
         .from(issues)
-        .innerJoin(projects, eq(issues.projectId, projects.id))
-        .where(and(inArray(issues.id, input.ids), isNull(projects.deletedAt)))
+        .innerJoin(boards, eq(issues.boardId, boards.id))
+        .where(and(inArray(issues.id, input.ids), isNull(boards.deletedAt)))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -821,20 +821,20 @@ export const issuesRouter = router({
           message: `No updatable issues`,
         })
       }
-      const workspaceIds = new Set(eligible.map((row) => row.workspaceId))
-      if (workspaceIds.size > 1) {
+      const teamIds = new Set(eligible.map((row) => row.teamId))
+      if (teamIds.size > 1) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Issues must belong to one workspace`,
+          message: `Issues must belong to one team`,
         })
       }
-      const workspaceId = eligible[0].workspaceId
-      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+      const teamId = eligible[0].teamId
+      await assertTeamMember(ctx.session.user.id, teamId)
 
       // The assignee is INPUT, not the actor — validate it against the
-      // batch's workspace or any member could push-notify arbitrary users.
+      // batch's team or any member could push-notify arbitrary users.
       if (input.assigneeId != null) {
-        await assertAssigneeInWorkspace(input.assigneeId, workspaceId)
+        await assertAssigneeInTeam(input.assigneeId, teamId)
       }
 
       const patch: Record<string, unknown> = {
@@ -855,7 +855,7 @@ export const issuesRouter = router({
           applyStatusDerivations(setValues, row)
           const result = await finalizeIssueUpdateInTx(tx, {
             issueId: row.id,
-            workspaceId,
+            teamId,
             actorUserId: ctx.session.user.id,
             current: row,
             setValues,
@@ -904,10 +904,10 @@ export const issuesRouter = router({
     .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
     .mutation(async ({ ctx, input }) => {
       const eligible = await ctx.db
-        .select({ id: issues.id, workspaceId: projects.workspaceId })
+        .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)
-        .innerJoin(projects, eq(issues.projectId, projects.id))
-        .where(and(inArray(issues.id, input.ids), isNull(projects.deletedAt)))
+        .innerJoin(boards, eq(issues.boardId, boards.id))
+        .where(and(inArray(issues.id, input.ids), isNull(boards.deletedAt)))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -915,14 +915,14 @@ export const issuesRouter = router({
           message: `No deletable issues`,
         })
       }
-      const workspaceIds = new Set(eligible.map((row) => row.workspaceId))
-      if (workspaceIds.size > 1) {
+      const teamIds = new Set(eligible.map((row) => row.teamId))
+      if (teamIds.size > 1) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Issues must belong to one workspace`,
+          message: `Issues must belong to one team`,
         })
       }
-      await assertWorkspaceMember(ctx.session.user.id, eligible[0].workspaceId)
+      await assertTeamMember(ctx.session.user.id, eligible[0].teamId)
 
       const storageKeys: string[] = []
       const result = await ctx.db.transaction(async (tx) => {
@@ -960,8 +960,8 @@ export const issuesRouter = router({
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (v7: every member is invited/trusted — the
-      // old public-workspace moderator clamp is gone with self-service joins).
-      const { workspaceId } = await assertIssueAccess(
+      // old public-team moderator clamp is gone with self-service joins).
+      const { teamId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1000,7 +1000,7 @@ export const issuesRouter = router({
       }
 
       // Merge against the repo the PR actually lives in — derived from prUrl,
-      // never the project's CURRENT repository: after a project repo
+      // never the board's CURRENT repository: after a board repo
       // retarget, prNumber would otherwise address an unrelated PR in the
       // new repo (same derivation as prFiles below).
       const repoFullName = repoFromPrUrl(row.prUrl)
@@ -1024,18 +1024,18 @@ export const issuesRouter = router({
         })
       }
       // Link-gate (mirrors prFiles): the installation serving this repo must
-      // still be claimed by the issue's workspace — a deliberately severed
+      // still be claimed by the issue's team — a deliberately severed
       // GitHub connection must not keep authorizing PR writes through an old
       // prUrl.
       if (
-        !(await isInstallationLinkedToWorkspace(
-          workspaceId,
+        !(await isInstallationLinkedToTeam(
+          teamId,
           resolved.installationId
         ))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${repoFullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
 
@@ -1106,7 +1106,7 @@ export const issuesRouter = router({
   closePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ closed: true }> => {
-      const { workspaceId } = await assertIssueAccess(
+      const { teamId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1143,7 +1143,7 @@ export const issuesRouter = router({
       }
 
       // Close against the repo the PR actually lives in — derived from prUrl,
-      // never the project's CURRENT repository (same derivation as mergePr).
+      // never the board's CURRENT repository (same derivation as mergePr).
       const repoFullName = repoFromPrUrl(row.prUrl)
       if (!repoFullName) {
         throw new TRPCError({
@@ -1165,18 +1165,18 @@ export const issuesRouter = router({
         })
       }
       // Link-gate (mirrors prFiles): the installation serving this repo must
-      // still be claimed by the issue's workspace — a deliberately severed
+      // still be claimed by the issue's team — a deliberately severed
       // GitHub connection must not keep authorizing PR writes through an old
       // prUrl.
       if (
-        !(await isInstallationLinkedToWorkspace(
-          workspaceId,
+        !(await isInstallationLinkedToTeam(
+          teamId,
           resolved.installationId
         ))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${repoFullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
 
@@ -1228,11 +1228,10 @@ export const issuesRouter = router({
   prFiles: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // PR diffs can expose private-repo file contents — member-only, NEVER
-      // public: anonymous feedback-board viewers have no authed session and
-      // the issues shape hides pr_url/branch from them entirely.
-      const { workspaceId } = await getIssueWorkspaceContext(input.issueId)
-      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+      // PR diffs can expose private-repo file contents — member-only (like
+      // every read since EXP-180 removed anonymous access).
+      const { teamId } = await getIssueTeamContext(input.issueId)
+      await assertTeamMember(ctx.session.user.id, teamId)
 
       const [row] = await ctx.db
         .select({
@@ -1243,7 +1242,7 @@ export const issuesRouter = router({
         .where(eq(issues.id, input.issueId))
         .limit(1)
 
-      // Derive owner/repo from the PR URL (repos no longer live on projects —
+      // Derive owner/repo from the PR URL (repos no longer live on boards —
       // they moved to the server-only repositories registry).
       const repo = row?.prUrl ? repoFromPrUrl(row.prUrl) : null
       if (!row?.prNumber || !repo) {
@@ -1251,20 +1250,20 @@ export const issuesRouter = router({
       }
 
       // Link-gate (mirrors repositories.installationToken): the installation
-      // serving this repo must still be claimed by the issue's workspace — a
+      // serving this repo must still be claimed by the issue's team — a
       // deliberately severed GitHub connection must not keep exposing
       // private-repo PR contents through an old prUrl.
       const resolved = await resolveRepoInstallationTokenInfo(repo)
       if (
         resolved &&
-        !(await isInstallationLinkedToWorkspace(
-          workspaceId,
+        !(await isInstallationLinkedToTeam(
+          teamId,
           resolved.installationId
         ))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `${repo} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+          message: `${repo} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
 
@@ -1283,7 +1282,7 @@ export const issuesRouter = router({
     }),
 
   // Full-text issue search (EXP-3): Postgres FTS over issue title +
-  // description AND comment bodies, workspace-scoped, archived excluded,
+  // description AND comment bodies, team-scoped, archived excluded,
   // relevance-ordered. An ILIKE substring fallback keeps this a strict
   // superset of the old title-substring search — it still matches
   // identifiers (EXP-42) and partial words that FTS lexemes miss. All
@@ -1293,13 +1292,13 @@ export const issuesRouter = router({
   search: authedProcedure
     .input(
       z.object({
-        workspaceId: z.string().uuid(),
+        teamId: z.string().uuid(),
         query: z.string().trim().min(1),
         limit: z.number().int().min(1).max(50).default(20),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertTeamMember(ctx.session.user.id, input.teamId)
 
       // Escape LIKE wildcards so the substring fallback matches literally.
       const like = `%${escapeLikePattern(input.query)}%`
@@ -1309,12 +1308,12 @@ export const issuesRouter = router({
           i.id,
           i.identifier,
           i.title,
-          i.project_id as "projectId",
+          i.board_id as "boardId",
           i.status,
           i.priority
         from issues i
-        join projects p on p.id = i.project_id
-        where p.workspace_id = ${input.workspaceId}::uuid
+        join boards p on p.id = i.board_id
+        where p.team_id = ${input.teamId}::uuid
           and p.deleted_at is null
           and i.archived_at is null
           and (
@@ -1347,7 +1346,7 @@ export const issuesRouter = router({
         id: row.id as string,
         identifier: row.identifier as string,
         title: row.title as string,
-        projectId: row.projectId as string,
+        boardId: row.boardId as string,
         status: row.status as string,
         priority: row.priority as string,
       }))

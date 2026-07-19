@@ -113,7 +113,7 @@ pub struct ShapeStore {
 
 impl ShapeStore {
     /// Open (creating if needed) the store at `path` — e.g.
-    /// `{data_dir}/accounts/{account_id}/sync.sqlite` (§5.4). Applies the
+    /// `{data_dir}/accounts/{account_id}/sync-v2.sqlite` (§5.4). Applies the
     /// §5.4 pragmas and ensures the `electric_offsets` + 15 shape tables.
     ///
     /// Do NOT declare cross-table FOREIGN KEYs (§5.4): Electric delivers rows
@@ -327,10 +327,10 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// pre-existing row, and incremental sync never backfills it (Electric only
 /// sends rows that CHANGE) — so the shape's `needs_refetch` marker is stamped
 /// in the same breath, forcing a full re-snapshot that repopulates real
-/// values (the iOS v9 projects-migration parity; reuses the 409 refetch
+/// values (the iOS v9 boards-migration parity; reuses the 409 refetch
 /// path, so stale rows stay readable until the atomic swap). Without this, a
-/// self-updated build hydrated e.g. `is_public` as explicit JSON null on
-/// every old row indefinitely.
+/// self-updated build hydrated e.g. a newly-added `icon` column as explicit
+/// JSON null on every old row indefinitely.
 fn heal_missing_columns(conn: &Connection, spec: &ShapeSpec) -> Result<()> {
     let existing: Vec<String> = {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info(\"{}\")", spec.name))?;

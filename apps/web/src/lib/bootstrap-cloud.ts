@@ -4,14 +4,13 @@ import {
   githubInstallationLinks,
   githubInstallations,
   issues,
-  projects,
+  boards,
   repositories,
   widgetConfigs,
-  workspaceMembers,
-  workspaces,
+  teamMembers,
+  teams,
 } from "@/db/schema"
 import { users } from "@/db/auth-schema"
-import { invalidatePublicProjectCache } from "@/lib/workspace-membership"
 import { emailEnabled } from "@/lib/email"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { createWidgetUser } from "@/lib/widget/widget-user"
@@ -20,33 +19,29 @@ import { createWidgetUser } from "@/lib/widget/widget-user"
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 
-const FEEDBACK_WORKSPACE_SLUG = `feedback`
-const FEEDBACK_WORKSPACE_NAME = `Exponential Feedback`
-// The feedback workspace's canonical dogfood project: "Exponential" — a
-// PUBLIC feedback board (is_public) since v7; the workspace itself is a
-// normal private workspace. Feedback (widget + /feedback route) and dogfood
-// coding share it — a separate `feedback` project only split the same triage
-// board in two. Since EXP-162 a second bootstrap project exists: the private
-// helpdesk `Support` board (see ensureSupportProject).
-const PUBLIC_PROJECT_SLUG = `exponential`
-const PUBLIC_PROJECT_NAME = `Exponential`
-const PUBLIC_PROJECT_PREFIX = `EXP`
-// The canonical dogfood project is always backed by this repo (a feedback
-// board with an OPTIONAL repo — v7 allows both). On this internal bootstrap
-// path we upsert the registry row DIRECTLY, with no GitHub App validation —
-// `installation_id` starts null; ensurePublicRepositoryInstallation backfills
-// it (and the feedback workspace's installation link) from a live GitHub
-// lookup on every boot, best-effort.
+const FEEDBACK_TEAM_SLUG = `feedback`
+const FEEDBACK_TEAM_NAME = `Exponential Feedback`
+// The feedback team's canonical dogfood board: "Exponential". Private
+// like every board since EXP-180 (public boards are gone) — the widget is
+// the only inbound feedback path. Feedback and dogfood coding share it.
+const DOGFOOD_BOARD_SLUG = `exponential`
+const DOGFOOD_BOARD_NAME = `Exponential`
+const DOGFOOD_BOARD_PREFIX = `EXP`
+// The canonical dogfood board is always backed by this repo (repos are
+// OPTIONAL on boards). On this internal bootstrap path we upsert the
+// registry row DIRECTLY, with no GitHub App validation — `installation_id`
+// starts null; ensurePublicRepositoryInstallation backfills it (and the
+// feedback team's installation link) from a live GitHub lookup on every
+// boot, best-effort.
 const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
-// Pre-collapse deployments seeded this second project next to the dogfood one;
-// collapseLegacyFeedbackProject folds it away.
-const LEGACY_FEEDBACK_PROJECT_SLUG = `feedback`
-// The dogfood helpdesk board (EXP-162): a PRIVATE, helpdesk-enabled sibling of
-// the public feedback board — the dogfood widget's support tickets land here
-// (widget_configs.support_project_id) while feedback stays on `exponential`.
-const SUPPORT_PROJECT_SLUG = `support`
-const SUPPORT_PROJECT_NAME = `Support`
-const SUPPORT_PROJECT_PREFIX = `SUP`
+// Pre-collapse deployments seeded this second board next to the dogfood one;
+// collapseLegacyFeedbackBoard folds it away.
+const LEGACY_FEEDBACK_BOARD_SLUG = `feedback`
+// The former dogfood helpdesk board (EXP-162, retired by EXP-180): tickets
+// are standalone team-level threads now, so the Support board is just
+// a normal board holding its historical ticket-issues.
+// releaseLegacySupportBoard un-protects it so admins can archive/trash it.
+const LEGACY_SUPPORT_BOARD_SLUG = `support`
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -57,137 +52,126 @@ function parseAdminEmails(): string[] {
     .filter(Boolean)
 }
 
-// The (now private, v7) workspace hosting the public dogfood feedback board.
+// The (now private, v7) team hosting the public dogfood feedback board.
 // Membership is bootstrap-managed owners (admins) plus regular invites — the
 // migration purged the old self-joined members once; no recurring purge here,
 // because invited triagers are legitimate members now.
-async function ensureFeedbackWorkspace() {
+async function ensureFeedbackTeam() {
   const [existing] = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.slug, FEEDBACK_WORKSPACE_SLUG))
+    .select({ id: teams.id })
+    .from(teams)
+    .where(eq(teams.slug, FEEDBACK_TEAM_SLUG))
     .limit(1)
   if (existing) return existing.id
 
-  const [workspace] = await db
-    .insert(workspaces)
+  const [team] = await db
+    .insert(teams)
     .values({
-      name: FEEDBACK_WORKSPACE_NAME,
-      slug: FEEDBACK_WORKSPACE_SLUG,
+      name: FEEDBACK_TEAM_NAME,
+      slug: FEEDBACK_TEAM_SLUG,
     })
-    .returning({ id: workspaces.id })
-  return workspace.id
+    .returning({ id: teams.id })
+  return team.id
 }
 
-// Cached id of the bootstrap feedback workspace (cloud-only; null on
+// Cached id of the bootstrap feedback team (cloud-only; null on
 // self-hosted instances, which have no bootstrap board). This replaces the old
-// `workspaces.isPublic` column as the "shared infra workspace" marker used by
-// personal-workspace resolution, onboarding evidence, billing workspace
+// `teams.isPublic` column as the "shared infra team" marker used by
+// personal-team resolution, onboarding evidence, billing team
 // counts, and the delete guards.
-let feedbackWorkspaceIdPromise: Promise<string | null> | null = null
+let feedbackTeamIdPromise: Promise<string | null> | null = null
 
-export function getFeedbackWorkspaceId(): Promise<string | null> {
+export function getFeedbackTeamId(): Promise<string | null> {
   if (!isCloudInstance()) return Promise.resolve(null)
-  if (!feedbackWorkspaceIdPromise) {
-    feedbackWorkspaceIdPromise = (async () => {
+  if (!feedbackTeamIdPromise) {
+    feedbackTeamIdPromise = (async () => {
       const [row] = await db
-        .select({ id: workspaces.id })
-        .from(workspaces)
-        .where(eq(workspaces.slug, FEEDBACK_WORKSPACE_SLUG))
+        .select({ id: teams.id })
+        .from(teams)
+        .where(eq(teams.slug, FEEDBACK_TEAM_SLUG))
         .limit(1)
       const id = row?.id ?? null
-      // A null just means the async bootstrap hasn't inserted the workspace
+      // A null just means the async bootstrap hasn't inserted the team
       // yet — don't memoize it, or every guard keyed on this id stays
       // disabled for the process lifetime.
       if (id === null) {
-        feedbackWorkspaceIdPromise = null
+        feedbackTeamIdPromise = null
       }
       return id
     })().catch((err) => {
-      feedbackWorkspaceIdPromise = null
+      feedbackTeamIdPromise = null
       throw err
     })
   }
-  return feedbackWorkspaceIdPromise
+  return feedbackTeamIdPromise
 }
 
-// The feedback workspace's single canonical `exponential` project — the
-// public dogfood feedback board (is_public, repo-backed). Runs on every
-// boot and is deliberately INDEPENDENT of DOGFOOD_REPO: the /feedback route
-// redirects to this slug unconditionally, the widget config targets it, and
-// collapseLegacyFeedbackProject folds the legacy project into it — all of
-// which must work on already-bootstrapped pre-collapse DBs where the project
-// was never seeded. Idempotent; returns the project id. Also idempotently
-// re-aligns publicness on pre-v7 rows (replacing the old workspace-flag
-// forcing).
-async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
+// The feedback team's single canonical `exponential` board — the
+// private, protected, repo-backed dogfood board. Runs on every boot: the
+// widget config targets it and collapseLegacyFeedbackBoard folds the legacy
+// board into it — all of which must work on already-bootstrapped DBs where
+// the board was never seeded. Idempotent; returns the board id.
+async function ensureDogfoodBoard(
+  publicTeamId: string
+): Promise<string> {
   const [existing] = await db
     .select({
-      id: projects.id,
-      isPublic: projects.isPublic,
-      isProtected: projects.isProtected,
+      id: boards.id,
+      isProtected: boards.isProtected,
     })
-    .from(projects)
+    .from(boards)
     .where(
       and(
-        eq(projects.workspaceId, publicWorkspaceId),
-        eq(projects.slug, PUBLIC_PROJECT_SLUG)
+        eq(boards.teamId, publicTeamId),
+        eq(boards.slug, DOGFOOD_BOARD_SLUG)
       )
     )
     .limit(1)
   if (existing) {
-    // Idempotently re-align publicness AND stamp the non-deletable marker — this is what marks the ops-restored
-    // prod row protected on first boot.
-    const patch: Partial<typeof projects.$inferInsert> = {}
-    if (!existing.isPublic) {
-      patch.isPublic = true
-      patch.publicShowComments = true
-    }
-    if (!existing.isProtected) patch.isProtected = true
-    if (Object.keys(patch).length > 0) {
-      await db.update(projects).set(patch).where(eq(projects.id, existing.id))
-      // Only the publicness flip changes the public surface.
-      if (patch.isPublic) invalidatePublicProjectCache()
+    // Idempotently stamp the non-deletable marker — this is what marks the
+    // ops-restored prod row protected on first boot.
+    if (!existing.isProtected) {
+      await db
+        .update(boards)
+        .set({ isProtected: true })
+        .where(eq(boards.id, existing.id))
     }
     return existing.id
   }
 
-  // The dogfood board is feedback + repo-backed — upsert the dogfood repo
-  // first (idempotent) and pass its id into project creation.
-  const repositoryId = await ensurePublicRepository(publicWorkspaceId)
+  // The dogfood board is repo-backed — upsert the dogfood repo first
+  // (idempotent) and pass its id into board creation.
+  const repositoryId = await ensurePublicRepository(publicTeamId)
 
-  const [project] = await db
-    .insert(projects)
+  const [board] = await db
+    .insert(boards)
     .values({
-      workspaceId: publicWorkspaceId,
-      name: PUBLIC_PROJECT_NAME,
-      slug: PUBLIC_PROJECT_SLUG,
-      prefix: PUBLIC_PROJECT_PREFIX,
-      isPublic: true,
-      publicShowComments: true,
+      teamId: publicTeamId,
+      name: DOGFOOD_BOARD_NAME,
+      slug: DOGFOOD_BOARD_SLUG,
+      prefix: DOGFOOD_BOARD_PREFIX,
       isProtected: true,
       repositoryId,
     })
-    .returning({ id: projects.id })
-  invalidatePublicProjectCache()
-  return project.id
+    .returning({ id: boards.id })
+  return board.id
 }
 
 // Upsert the dogfood repositories row and return its id. Runs on the internal
 // bootstrap path only — no GitHub App validation, `installation_id` left null
-// (self-heal fills it). Idempotent via the (workspace_id, full_name) unique.
+// (self-heal fills it). Idempotent via the (team_id, full_name) unique.
 async function ensurePublicRepository(
-  publicWorkspaceId: string
+  publicTeamId: string
 ): Promise<string> {
   const [inserted] = await db
     .insert(repositories)
     .values({
-      workspaceId: publicWorkspaceId,
+      teamId: publicTeamId,
       fullName: PUBLIC_REPO_FULL_NAME,
       installationId: null,
     })
     .onConflictDoNothing({
-      target: [repositories.workspaceId, repositories.fullName],
+      target: [repositories.teamId, repositories.fullName],
     })
     .returning({ id: repositories.id })
   if (inserted) return inserted.id
@@ -197,7 +181,7 @@ async function ensurePublicRepository(
     .from(repositories)
     .where(
       and(
-        eq(repositories.workspaceId, publicWorkspaceId),
+        eq(repositories.teamId, publicTeamId),
         eq(repositories.fullName, PUBLIC_REPO_FULL_NAME)
       )
     )
@@ -216,10 +200,10 @@ async function ensurePublicRepository(
 // Best-effort self-heal for the dogfood repo's GitHub wiring: resolve the
 // repo's installation live (App JWT), mirror the installation row, backfill
 // the bootstrap repo row's null `installation_id`, and link the installation
-// to the feedback workspace so its pickers/token mints pass the workspace
+// to the feedback team so its pickers/token mints pass the team
 // link-gate. Idempotent; a GitHub outage or unconfigured App just logs and
 // retries next boot.
-async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
+async function ensurePublicRepositoryInstallation(publicTeamId: string) {
   const {
     githubAppConfigured,
     getInstallation,
@@ -258,7 +242,7 @@ async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
       .set({ installationId })
       .where(
         and(
-          eq(repositories.workspaceId, publicWorkspaceId),
+          eq(repositories.teamId, publicTeamId),
           eq(repositories.fullName, PUBLIC_REPO_FULL_NAME),
           sql`${repositories.installationId} IS DISTINCT FROM ${installationId}`
         )
@@ -266,7 +250,7 @@ async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
     await db
       .insert(githubInstallationLinks)
       .values({
-        workspaceId: publicWorkspaceId,
+        teamId: publicTeamId,
         githubInstallationId: installationRow.id,
       })
       .onConflictDoNothing()
@@ -279,141 +263,112 @@ async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
 }
 
 // The dogfood helpdesk gate rides the normal plan machinery
-// (assertCanUseHelpdesk is Pro+ on cloud) — comp the feedback workspace to
+// (assertCanUseHelpdesk is Pro+ on cloud) — comp the feedback team to
 // `business` via the existing admin comp floor instead of special-casing it
 // in billing. One-shot (only when comp_tier IS NULL) so a deliberate admin
 // change sticks. Side effect: business limits (storage/widgets/seats) apply
-// to the shared dogfood workspace — intended.
-async function ensureFeedbackWorkspaceComp(publicWorkspaceId: string) {
+// to the shared dogfood team — intended.
+async function ensureFeedbackTeamComp(publicTeamId: string) {
   await db
-    .update(workspaces)
+    .update(teams)
     .set({ compTier: `business` })
     .where(
       and(
-        eq(workspaces.id, publicWorkspaceId),
-        sql`${workspaces.compTier} IS NULL`
+        eq(teams.id, publicTeamId),
+        sql`${teams.compTier} IS NULL`
       )
     )
 }
 
-// The dogfood Support project (EXP-162): private, helpdesk-enabled, protected
-// (bootstrap-managed — deleting it would cascade the dogfood support
-// conversations). Idempotent; heals the helpdesk/protection flags on existing
-// rows like ensurePublicProject heals publicness. Returns the project id.
-async function ensureSupportProject(
-  publicWorkspaceId: string
-): Promise<string> {
-  const [existing] = await db
-    .select({
-      id: projects.id,
-      isPublic: projects.isPublic,
-      helpdeskEnabled: projects.helpdeskEnabled,
-      isProtected: projects.isProtected,
-    })
-    .from(projects)
+// The dogfood team always offers support: force the team helpdesk
+// flag on (mirrors the old per-board forcing — a deliberate admin disable
+// would be undone next boot, which is intended for the shared dogfood
+// team).
+async function ensureTeamHelpdesk(publicTeamId: string) {
+  await db
+    .update(teams)
+    .set({ helpdeskEnabled: true })
     .where(
       and(
-        eq(projects.workspaceId, publicWorkspaceId),
-        eq(projects.slug, SUPPORT_PROJECT_SLUG)
+        eq(teams.id, publicTeamId),
+        eq(teams.helpdeskEnabled, false)
       )
     )
-    .limit(1)
-  if (existing) {
-    const patch: Partial<typeof projects.$inferInsert> = {}
-    // Support conversations carry reporter PII — an adopted pre-existing
-    // `support` project must never stay anonymously readable.
-    if (existing.isPublic) patch.isPublic = false
-    if (!existing.helpdeskEnabled) patch.helpdeskEnabled = true
-    if (!existing.isProtected) patch.isProtected = true
-    if (Object.keys(patch).length > 0) {
-      await db.update(projects).set(patch).where(eq(projects.id, existing.id))
-      if (patch.isPublic === false) invalidatePublicProjectCache()
-    }
-    return existing.id
-  }
+}
 
-  const [project] = await db
-    .insert(projects)
-    .values({
-      workspaceId: publicWorkspaceId,
-      name: SUPPORT_PROJECT_NAME,
-      slug: SUPPORT_PROJECT_SLUG,
-      prefix: SUPPORT_PROJECT_PREFIX,
-      isPublic: false,
-      icon: `message-circle`,
-      helpdeskEnabled: true,
-      isProtected: true,
-    })
-    .returning({ id: projects.id })
-  return project.id
+// EXP-180 retired the dedicated Support board (tickets are standalone
+// team-level threads; the migration converted the old issue-anchored
+// ones). Its historical ticket-issues stay as normal issues — just clear the
+// bootstrap protection so admins can archive or trash the board at their own
+// pace. One-shot in effect: once cleared, nothing re-protects it.
+async function releaseLegacySupportBoard(publicTeamId: string) {
+  await db
+    .update(boards)
+    .set({ isProtected: false })
+    .where(
+      and(
+        eq(boards.teamId, publicTeamId),
+        eq(boards.slug, LEGACY_SUPPORT_BOARD_SLUG),
+        eq(boards.isProtected, true)
+      )
+    )
 }
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
 
 // The dogfood widget: the Exponential web app itself embeds the feedback
-// widget pointed at the public feedback board. Domains stay open (allow-all)
-// on purpose — self-hosted instances with arbitrary hostnames load this same
-// cloud widget, and the widget is the ONLY anonymous write path to the board;
-// rate limiting is the abuse control. Since EXP-162 the config splits its
-// targets: feedback → the public `exponential` board, support → the private
-// Support project (helpdesk). Existing configs get a ONE-SHOT heal, gated on
+// widget — feedback lands on the dogfood board, support tickets in the
+// team support inbox. Domains stay open (allow-all) on purpose —
+// self-hosted instances with arbitrary hostnames load this same cloud widget,
+// and the widget is the ONLY anonymous write path; rate limiting is the abuse
+// control. Existing configs get a ONE-SHOT modes heal, gated on
 // `formConfig.modes` being ABSENT: the modes-aware settings UI always writes
-// a modes array on save, so its absence proves the config predates EXP-130
-// support mode and was never deliberately configured — while a NULL
-// support_project_id alone is NOT proof (the UI stores NULL for "Same as
-// project" and for feedback-only, and the heal must never fight those).
-async function ensureFeedbackWidgetConfig(
-  publicWorkspaceId: string,
-  supportProjectId: string
-) {
+// a modes array on save, so its absence proves the config was never
+// deliberately configured.
+async function ensureFeedbackWidgetConfig(publicTeamId: string) {
   const [existing] = await db
     .select({
       id: widgetConfigs.id,
-      supportProjectId: widgetConfigs.supportProjectId,
       formConfig: widgetConfigs.formConfig,
     })
     .from(widgetConfigs)
     .where(
       and(
-        eq(widgetConfigs.workspaceId, publicWorkspaceId),
+        eq(widgetConfigs.teamId, publicTeamId),
         eq(widgetConfigs.name, FEEDBACK_WIDGET_NAME)
       )
     )
     .limit(1)
   if (existing) {
     const form = existing.formConfig ?? {}
-    if (existing.supportProjectId != null || Array.isArray(form.modes)) return
+    if (Array.isArray(form.modes)) return
     await db
       .update(widgetConfigs)
-      .set({
-        supportProjectId,
-        formConfig: { ...form, modes: [`feedback`, `support`] },
-      })
+      .set({ formConfig: { ...form, modes: [`feedback`, `support`] } })
       .where(eq(widgetConfigs.id, existing.id))
     return
   }
 
-  const [project] = await db
-    .select({ id: projects.id })
-    .from(projects)
+  const [board] = await db
+    .select({ id: boards.id })
+    .from(boards)
     .where(
       and(
-        eq(projects.workspaceId, publicWorkspaceId),
-        eq(projects.slug, PUBLIC_PROJECT_SLUG)
+        eq(boards.teamId, publicTeamId),
+        eq(boards.slug, DOGFOOD_BOARD_SLUG)
       )
     )
     .limit(1)
-  if (!project) return
+  if (!board) return
 
   await db.transaction(async (tx) => {
     const widgetUserId = await createWidgetUser(tx, {
-      workspaceId: publicWorkspaceId,
+      teamId: publicTeamId,
       configName: FEEDBACK_WIDGET_NAME,
     })
     await tx.insert(widgetConfigs).values({
-      workspaceId: publicWorkspaceId,
-      projectId: project.id,
-      supportProjectId,
+      teamId: publicTeamId,
+      boardId: board.id,
       name: FEEDBACK_WIDGET_NAME,
       publicKey: generateWidgetKey(),
       allowedDomains: [],
@@ -423,53 +378,53 @@ async function ensureFeedbackWidgetConfig(
   })
 }
 
-// Pre-collapse cloud deployments carried TWO projects in the public workspace:
-// the seeded `feedback` project (the widget's target) and the DOGFOOD_REPO-
-// gated `exponential` project. Fold the legacy one away on already-bootstrapped
-// DBs. Order matters: repoint widget configs FIRST (widget_configs.project_id
-// cascades on project delete, and the live widget may still be filing into the
-// legacy project), then drop the legacy project only while it holds zero
+// Pre-collapse cloud deployments carried TWO boards in the public team:
+// the seeded `feedback` board (the widget's target) and the DOGFOOD_REPO-
+// gated `exponential` board. Fold the legacy one away on already-bootstrapped
+// DBs. Order matters: repoint widget configs FIRST (widget_configs.board_id
+// cascades on board delete, and the live widget may still be filing into the
+// legacy board), then drop the legacy board only while it holds zero
 // issues (issues cascade — never delete user data; the NOT EXISTS guard keeps
 // the emptiness check and the delete in one atomic statement). A non-empty
-// legacy project just stays until it's triaged empty — next boot retries.
-async function collapseLegacyFeedbackProject(publicWorkspaceId: string) {
+// legacy board just stays until it's triaged empty — next boot retries.
+async function collapseLegacyFeedbackBoard(publicTeamId: string) {
   const rows = await db
-    .select({ id: projects.id, slug: projects.slug })
-    .from(projects)
+    .select({ id: boards.id, slug: boards.slug })
+    .from(boards)
     .where(
       and(
-        eq(projects.workspaceId, publicWorkspaceId),
-        inArray(projects.slug, [
-          LEGACY_FEEDBACK_PROJECT_SLUG,
-          PUBLIC_PROJECT_SLUG,
+        eq(boards.teamId, publicTeamId),
+        inArray(boards.slug, [
+          LEGACY_FEEDBACK_BOARD_SLUG,
+          DOGFOOD_BOARD_SLUG,
         ])
       )
     )
-  const legacy = rows.find((r) => r.slug === LEGACY_FEEDBACK_PROJECT_SLUG)
-  const canonical = rows.find((r) => r.slug === PUBLIC_PROJECT_SLUG)
+  const legacy = rows.find((r) => r.slug === LEGACY_FEEDBACK_BOARD_SLUG)
+  const canonical = rows.find((r) => r.slug === DOGFOOD_BOARD_SLUG)
   if (!legacy || !canonical) return
 
   await db
     .update(widgetConfigs)
-    .set({ projectId: canonical.id })
-    .where(eq(widgetConfigs.projectId, legacy.id))
+    .set({ boardId: canonical.id })
+    .where(eq(widgetConfigs.boardId, legacy.id))
 
   await db
-    .delete(projects)
+    .delete(boards)
     .where(
       and(
-        eq(projects.id, legacy.id),
+        eq(boards.id, legacy.id),
         notExists(
           db
             .select({ id: issues.id })
             .from(issues)
-            .where(eq(issues.projectId, legacy.id))
+            .where(eq(issues.boardId, legacy.id))
         )
       )
     )
 }
 
-async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
+async function addAdminsAsPublicTeamOwners(publicTeamId: string) {
   const adminRows = await db
     .select({ id: users.id })
     .from(users)
@@ -477,9 +432,9 @@ async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
   if (adminRows.length === 0) return
   for (const admin of adminRows) {
     await db
-      .insert(workspaceMembers)
+      .insert(teamMembers)
       .values({
-        workspaceId: publicWorkspaceId,
+        teamId: publicTeamId,
         userId: admin.id,
         role: `owner`,
       })
@@ -538,19 +493,20 @@ export function bootstrapCloud(): Promise<void> {
       await applyCustomSql()
       await promoteInitialAdmins()
       if (isCloudInstance()) {
-        const publicWorkspaceId = await ensureFeedbackWorkspace()
-        await ensureFeedbackWorkspaceComp(publicWorkspaceId)
-        await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
-        // Canonical project first — it upserts its backing repository row
-        // inline (the dogfood board is feedback + repo-backed). Then fold the
-        // legacy feedback project into the canonical one, then seed the
-        // Support project + widget config — which needs the Exponential
-        // project (feedback target) and Support project (helpdesk target).
-        await ensurePublicProject(publicWorkspaceId)
-        await ensurePublicRepositoryInstallation(publicWorkspaceId)
-        await collapseLegacyFeedbackProject(publicWorkspaceId)
-        const supportProjectId = await ensureSupportProject(publicWorkspaceId)
-        await ensureFeedbackWidgetConfig(publicWorkspaceId, supportProjectId)
+        const publicTeamId = await ensureFeedbackTeam()
+        await ensureFeedbackTeamComp(publicTeamId)
+        await addAdminsAsPublicTeamOwners(publicTeamId)
+        // Canonical board first — it upserts its backing repository row
+        // inline (the dogfood board is repo-backed). Then fold the legacy
+        // feedback board into the canonical one, flip the team
+        // helpdesk on, release the retired Support board, and seed the
+        // widget config (feedback target = the Exponential board).
+        await ensureDogfoodBoard(publicTeamId)
+        await ensurePublicRepositoryInstallation(publicTeamId)
+        await collapseLegacyFeedbackBoard(publicTeamId)
+        await ensureTeamHelpdesk(publicTeamId)
+        await releaseLegacySupportBoard(publicTeamId)
+        await ensureFeedbackWidgetConfig(publicTeamId)
       }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)
@@ -564,7 +520,7 @@ export function bootstrapCloud(): Promise<void> {
 // Promote a single user if their email matches the admin list. Used by Better
 // Auth's user.create.after hook (so first-sign-in promotion doesn't need to
 // wait for a server restart) and again from afterEmailVerification. Also adds
-// the freshly-promoted admin as an owner of the bootstrap feedback workspace.
+// the freshly-promoted admin as an owner of the bootstrap feedback team.
 //
 // When email flows are enabled, promotion requires a verified email: sign-up
 // is open on the cloud and does not prove mailbox ownership, so an attacker
@@ -584,11 +540,11 @@ export async function maybePromoteNewUser(
     .set({ isAdmin: true, updatedAt: new Date() })
     .where(eq(users.id, userId))
 
-  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
-  if (feedbackWorkspaceId) {
+  const feedbackTeamId = await getFeedbackTeamId()
+  if (feedbackTeamId) {
     await db
-      .insert(workspaceMembers)
-      .values({ workspaceId: feedbackWorkspaceId, userId, role: `owner` })
+      .insert(teamMembers)
+      .values({ teamId: feedbackTeamId, userId, role: `owner` })
       .onConflictDoNothing()
   }
 }

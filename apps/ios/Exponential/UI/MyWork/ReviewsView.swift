@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// "Reviews" (EXP-131): the active workspace's open PRs awaiting review, one row
+/// "Reviews" (EXP-131): the active team's open PRs awaiting review, one row
 /// per distinct PR (a batch coding run's issues collapse into a single row),
-/// grouped by project. Its own bottom-bar destination beside My Work (EXP-147 —
+/// grouped by board. Its own bottom-bar destination beside My Work (EXP-147 —
 /// it used to be a My Work segment).
 struct ReviewsView: View {
     var body: some View {
@@ -23,14 +23,14 @@ struct ReviewsView: View {
 struct ReviewsListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(TeamState.self) private var teamState
     @Environment(\.openURL) private var openURL
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
     @State private var mergeError: String?
 
     var body: some View {
-        let groups = viewModel?.groups(workspaceId: workspaceState.activeWorkspace?.id) ?? []
+        let groups = viewModel?.groups(teamId: teamState.activeTeam?.id) ?? []
         Group {
             if viewModel == nil {
                 Color.clear
@@ -103,7 +103,7 @@ struct ReviewsListContent: View {
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
                 } header: {
-                    projectHeader(project: group.project, count: group.entries.count)
+                    boardHeader(board: group.board, count: group.entries.count)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
@@ -121,9 +121,9 @@ struct ReviewsListContent: View {
     }
 
     @ViewBuilder
-    private func projectHeader(project: ProjectEntity, count: Int) -> some View {
+    private func boardHeader(board: BoardEntity, count: Int) -> some View {
         HStack(spacing: 8) {
-            Text(project.name)
+            Text(board.name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 

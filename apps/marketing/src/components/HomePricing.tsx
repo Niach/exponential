@@ -24,7 +24,7 @@ const HOME_PLANS = [
     name: `Pro`,
     amount: `$5`,
     cadence: `/seat/mo`,
-    tagline: `Adds the feedback widget and helpdesk.`,
+    tagline: `Adds the helpdesk and more widgets.`,
     highlight: true,
   },
   {

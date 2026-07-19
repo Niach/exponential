@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react"
 import { LifeBuoy } from "lucide-react"
-import { useNavigate } from "@tanstack/react-router"
 import {
   SidebarMenuButton,
   SidebarMenuItem,
@@ -10,54 +9,44 @@ import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 
 // One-shot fetch — runtime config is set at deploy time and won't change
 // during a session. Cached at module scope so subsequent mounts don't refetch.
-let cachedFeedbackUrl: string | null | undefined = undefined
-let cachePromise: Promise<string | null> | null = null
+let cachedWidgetAvailable: boolean | undefined = undefined
+let cachePromise: Promise<boolean> | null = null
 
-async function loadFeedbackUrl(): Promise<string | null> {
-  if (cachedFeedbackUrl !== undefined) return cachedFeedbackUrl
+async function loadWidgetAvailable(): Promise<boolean> {
+  if (cachedWidgetAvailable !== undefined) return cachedWidgetAvailable
   if (cachePromise) return cachePromise
   cachePromise = getRuntimeConfig()
     .then((config) => {
-      cachedFeedbackUrl = config.publicFeedbackUrl
-      return cachedFeedbackUrl
+      cachedWidgetAvailable = config.feedbackWidget !== null
+      return cachedWidgetAvailable
     })
     .catch(() => {
-      cachedFeedbackUrl = null
-      return null
+      cachedWidgetAvailable = false
+      return false
     })
   return cachePromise
 }
 
+// Sidebar entry point into the embedded feedback widget (the same widget the
+// FeedbackWidgetProvider mounts as a floating launcher). Renders nothing when
+// the runtime config exposes no dogfood widget — EXP-180 removed the legacy
+// public-feedback-board redirect fallback.
 export function FeedbackButton() {
-  const navigate = useNavigate()
-  const [externalUrl, setExternalUrl] = useState<string | null>(
-    cachedFeedbackUrl ?? null
+  const [available, setAvailable] = useState<boolean>(
+    cachedWidgetAvailable ?? false
   )
 
   useEffect(() => {
-    if (cachedFeedbackUrl !== undefined) return
-    void loadFeedbackUrl().then(setExternalUrl)
+    if (cachedWidgetAvailable !== undefined) return
+    void loadWidgetAvailable().then(setAvailable)
   }, [])
 
-  const handleClick = () => {
-    // Preferred path: the embedded feedback widget (screenshot + form in
-    // place). Falls back to the legacy redirect flows when it isn't loaded.
-    if (openFeedbackWidget()) return
-    if (externalUrl) {
-      const source =
-        typeof window !== `undefined` ? window.location.hostname : ``
-      const url = new URL(`${externalUrl}/feedback`)
-      if (source) url.searchParams.set(`source`, source)
-      window.open(url.toString(), `_blank`, `noopener,noreferrer`)
-      return
-    }
-    void navigate({ to: `/feedback`, search: {} })
-  }
+  if (!available) return null
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        onClick={handleClick}
+        onClick={() => openFeedbackWidget()}
         aria-label="Feedback & support"
         className="text-muted-foreground"
       >

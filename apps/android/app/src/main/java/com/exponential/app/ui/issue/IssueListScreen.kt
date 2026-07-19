@@ -62,7 +62,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InitialsAvatar
@@ -72,8 +72,8 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.home.HomeViewModel
-import com.exponential.app.ui.home.ProjectSwitcherSheet
-import com.exponential.app.ui.onboarding.CreateProjectSheet
+import com.exponential.app.ui.home.BoardSwitcherSheet
+import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -84,17 +84,17 @@ import com.exponential.app.ui.theme.glassRow
 /**
  * How the issue list is mounted:
  * - [Root] — the Issues tab's home. No back button; the pinned header is the
- *   inline project switcher (current project name + expander glyph → the
- *   switcher sheet) plus the settings gear. The project swaps in place.
- * - [Pushed] — a pushed `project/{projectId}` destination (share target,
- *   deep link, search): back button, fixed project.
+ *   inline board switcher (current board name + expander glyph → the
+ *   switcher sheet) plus the settings gear. The board swaps in place.
+ * - [Pushed] — a pushed `board/{boardId}` destination (share target,
+ *   deep link, search): back button, fixed board.
  */
 enum class IssueListMode { Root, Pushed }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(
-    projectId: String?,
+    boardId: String?,
     mode: IssueListMode,
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
@@ -106,12 +106,12 @@ fun IssueListScreen(
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
-    var showCreateProject by remember { mutableStateOf(false) }
+    var showCreateBoard by remember { mutableStateOf(false) }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
 
-    // Root mode resolves the project outside the nav args (last-used → first),
+    // Root mode resolves the board outside the nav args (last-used → first),
     // so the ViewModel is re-pointed whenever the resolution changes.
-    LaunchedEffect(projectId) { viewModel.setProject(projectId.orEmpty()) }
+    LaunchedEffect(boardId) { viewModel.setBoard(boardId.orEmpty()) }
 
     // The switcher tree + bootstrap live in the (old home) switcher ViewModel;
     // only the Root mount needs them. The mode of a mounted screen never
@@ -123,18 +123,18 @@ fun IssueListScreen(
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
-    // "Any signed-in account has a project" — gates the cross-account switcher
-    // (so a projectless active account with a project-bearing sibling can still
+    // "Any signed-in account has a board" — gates the cross-account switcher
+    // (so a boardless active account with a board-bearing sibling can still
     // switch to it). The spinner instead gates on the ACTIVE account
-    // (activeAccountHasProject), because only the active account's project can
+    // (activeAccountHasBoard), because only the active account's board can
     // resolve into the root list.
-    val hasAnyProject = homeState?.projectTree
-        ?.any { group -> group.workspaceBlocks.any { it.projects.isNotEmpty() } } == true
+    val hasAnyBoard = homeState?.boardTree
+        ?.any { group -> group.teamBlocks.any { it.boards.isNotEmpty() } } == true
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // Pinned nav row. Pushed: circular back button. Root: the inline
-            // project switcher control + the settings gear. The filter button
+            // board switcher control + the settings gear. The filter button
             // moved inline with the tab-preset chips (iOS placement); the
             // single add-issue affordance is the bottom bar's compose FAB.
             Row(
@@ -148,9 +148,9 @@ fun IssueListScreen(
                         CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                     }
                     IssueListMode.Root -> {
-                        ProjectSwitcherControl(
-                            name = state.project?.name,
-                            enabled = hasAnyProject,
+                        BoardSwitcherControl(
+                            name = state.board?.name,
+                            enabled = hasAnyBoard,
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
@@ -161,37 +161,37 @@ fun IssueListScreen(
 
             SyncBannerRow(syncBanner, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-            if (mode == IssueListMode.Root && projectId.isNullOrBlank()) {
-                // No project on this account yet (companion app: projects are
+            if (mode == IssueListMode.Root && boardId.isNullOrBlank()) {
+                // No board on this account yet (companion app: boards are
                 // created on web/desktop). When the ACTIVE account already has a
-                // project, the current one is still resolving — show a spinner,
-                // not the empty copy. An active account with only projectless
-                // workspaces (a fresh account) falls through to the empty state,
+                // board, the current one is still resolving — show a spinner,
+                // not the empty copy. An active account with only boardless
+                // teams (a fresh account) falls through to the empty state,
                 // never a perpetual spinner.
-                if (homeState?.activeAccountHasProject == true) {
+                if (homeState?.activeAccountHasBoard == true) {
                     LoadingState()
                 } else {
-                    // Still syncing until the workspace bootstrap finishes AND
-                    // the projects shape has reached up-to-date at least once —
-                    // otherwise a companion account that DOES have projects would
-                    // briefly flash "Create your first project" before its
-                    // projects snapshot lands. Only a settled, genuinely empty
-                    // account shows the create-project copy.
+                    // Still syncing until the team bootstrap finishes AND
+                    // the boards shape has reached up-to-date at least once —
+                    // otherwise a companion account that DOES have boards would
+                    // briefly flash "Create your first board" before its
+                    // boards snapshot lands. Only a settled, genuinely empty
+                    // account shows the create-board copy.
                     val stillSyncing = homeState == null ||
                         homeState.isSyncing ||
-                        !homeState.activeAccountProjectsSynced
+                        !homeState.activeAccountBoardsSynced
                     val syncingOrError = stillSyncing || homeError != null
                     EmptyState(
                         message = when {
                             homeError != null -> homeError
                             stillSyncing -> "Syncing…"
-                            else -> "No projects yet. Create your first project to get started."
+                            else -> "No boards yet. Create your first board to get started."
                         },
                         icon = Icons.Filled.UnfoldMore,
                         action = if (syncingOrError) null else {
                             {
-                                Button(onClick = { showCreateProject = true }) {
-                                    Text("Create project")
+                                Button(onClick = { showCreateBoard = true }) {
+                                    Text("Create board")
                                 }
                             }
                         },
@@ -226,27 +226,27 @@ fun IssueListScreen(
     }
 
     if (showSwitcher && homeViewModel != null) {
-        ProjectSwitcherSheet(
-            groups = homeState?.projectTree ?: emptyList(),
-            onSelect = { accountId, pickedProjectId ->
-                homeViewModel.selectProject(accountId, pickedProjectId)
+        BoardSwitcherSheet(
+            groups = homeState?.boardTree ?: emptyList(),
+            onSelect = { accountId, pickedBoardId ->
+                homeViewModel.selectBoard(accountId, pickedBoardId)
                 showSwitcher = false
             },
             onDismiss = { showSwitcher = false },
-            onCreateProject = {
+            onCreateBoard = {
                 showSwitcher = false
-                showCreateProject = true
+                showCreateBoard = true
             },
         )
     }
 
-    if (showCreateProject) {
-        // The new project's last-used pointer swaps the root list in place, so
+    if (showCreateBoard) {
+        // The new board's last-used pointer swaps the root list in place, so
         // dismissing is all this needs to do on success.
-        CreateProjectSheet(
-            workspaceId = null,
-            onCreated = { showCreateProject = false },
-            onDismiss = { showCreateProject = false },
+        CreateBoardSheet(
+            teamId = null,
+            onCreated = { showCreateBoard = false },
+            onDismiss = { showCreateBoard = false },
         )
     }
 }
@@ -255,7 +255,7 @@ fun IssueListScreen(
 @Composable
 private fun IssueListContent(
     state: IssueListState,
-    permissions: WorkspacePermissions,
+    permissions: TeamPermissions,
     collapsed: Set<IssueStatus>,
     onToggleCollapsed: (IssueStatus, Boolean) -> Unit,
     onOpenFilters: () -> Unit,
@@ -274,10 +274,10 @@ private fun IssueListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            // Large project title (scrolls with content, iOS .navigationTitle).
+            // Large board title (scrolls with content, iOS .navigationTitle).
             item(key = "title") {
                 Text(
-                    state.project?.name ?: "Project",
+                    state.board?.name ?: "Board",
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -350,10 +350,10 @@ private fun IssueListContent(
     }
 }
 
-// The Issues tab root's inline project switcher: current project name + an
+// The Issues tab root's inline board switcher: current board name + an
 // up/down expander glyph as one tappable glass control (iOS combobox pattern).
 @Composable
-private fun ProjectSwitcherControl(
+private fun BoardSwitcherControl(
     name: String?,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -375,7 +375,7 @@ private fun ProjectSwitcherControl(
         )
         Icon(
             Icons.Filled.UnfoldMore,
-            contentDescription = "Switch project",
+            contentDescription = "Switch board",
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(
                 alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,

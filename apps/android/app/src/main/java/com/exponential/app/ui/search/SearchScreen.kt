@@ -47,7 +47,7 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * The Search tab: a pure cross-project search — instant local matching over
+ * The Search tab: a pure cross-board search — instant local matching over
  * identifier + title, augmented by the server's full-text search. Assigned
  * issues no longer live here (EXP-58): they moved to the "My Work" tab
  * (PersonalScreen) alongside the inbox.
@@ -83,7 +83,7 @@ fun SearchScreen(
 
             when {
                 state.query.isEmpty() -> EmptyState(
-                    message = "Search issues across all your projects.\nMatches identifiers, titles, and full text.",
+                    message = "Search issues across all your boards.\nMatches identifiers, titles, and full text.",
                     icon = Icons.Filled.Search,
                 )
                 state.groups.isEmpty() -> {
@@ -103,8 +103,8 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     state.groups.forEach { group ->
-                        item(key = "project-${group.project.id}") {
-                            ProjectHeader(name = group.project.name, colorHex = group.project.color)
+                        item(key = "board-${group.board.id}") {
+                            BoardHeader(name = group.board.name, colorHex = group.board.color)
                         }
                         items(group.issues, key = { it.id }) { issue ->
                             IssueRow(
@@ -122,7 +122,7 @@ fun SearchScreen(
 }
 
 @Composable
-private fun ProjectHeader(name: String, colorHex: String) {
+private fun BoardHeader(name: String, colorHex: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -81,11 +81,11 @@ impl ControlApi for TrpcControlApi {
 pub enum RemoteStartSubject {
     /// A single-issue start — the `issueId` frame the phone always sent.
     Issue(String),
-    /// A batch start — `issueIds` + the server-resolved workspace and repo
+    /// A batch start — `issueIds` + the server-resolved team and repo
     /// (the desktop syncs no repositories collection, so both ride the frame).
     Batch {
         issue_ids: Vec<String>,
-        workspace_id: String,
+        team_id: String,
         repo: StartRepoGroup,
     },
 }
@@ -105,12 +105,12 @@ pub struct RemoteStart {
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
 /// the exactly-one-subject invariant. `None` — a malformed frame the caller
 /// logs and drops — when: both or neither of `issue_id`/`issue_ids` are set;
-/// `issue_ids` is empty; or a batch frame lacks `workspace_id` or `repo`.
+/// `issue_ids` is empty; or a batch frame lacks `team_id` or `repo`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn remote_start_from_frame(
     issue_id: Option<String>,
     issue_ids: Option<Vec<String>>,
-    workspace_id: Option<String>,
+    team_id: Option<String>,
     repo: Option<StartRepoGroup>,
     model: Option<String>,
     effort: Option<String>,
@@ -121,7 +121,7 @@ pub(crate) fn remote_start_from_frame(
         (Some(issue_id), None) => RemoteStartSubject::Issue(issue_id),
         (None, Some(issue_ids)) if !issue_ids.is_empty() => RemoteStartSubject::Batch {
             issue_ids,
-            workspace_id: workspace_id?,
+            team_id: team_id?,
             repo: repo?,
         },
         // Both set, neither set, or an empty batch list → malformed.
@@ -387,14 +387,14 @@ async fn connect_and_listen(
                     Some(ServerFrame::StartSession {
                         issue_id,
                         issue_ids,
-                        workspace_id,
+                        team_id,
                         repo,
                         model,
                         effort,
                         ultracode,
                         plan_mode,
                     }) => match remote_start_from_frame(
-                        issue_id, issue_ids, workspace_id, repo, model, effort, ultracode,
+                        issue_id, issue_ids, team_id, repo, model, effort, ultracode,
                         plan_mode,
                     ) {
                         Some(start) => {
@@ -403,7 +403,7 @@ async fn connect_and_listen(
                         }
                         None => log::warn!(
                             "steer control: malformed start_session — need exactly one of \
-                             issueId/issueIds; batch needs workspaceId+repo — ignored"
+                             issueId/issueIds; batch needs teamId+repo — ignored"
                         ),
                     },
                     Some(other) => {
@@ -495,7 +495,7 @@ mod tests {
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
                     issue_ids: vec!["a".into(), "b".into()],
-                    workspace_id: "ws-7".into(),
+                    team_id: "ws-7".into(),
                     repo: repo(),
                 },
                 model: None,
@@ -555,7 +555,7 @@ mod tests {
             ),
             None
         );
-        // Batch missing the workspace.
+        // Batch missing the team.
         assert_eq!(
             remote_start_from_frame(
                 None,

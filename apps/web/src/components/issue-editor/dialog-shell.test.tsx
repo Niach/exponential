@@ -107,8 +107,8 @@ function baseShellProps() {
   return {
     open: true,
     onOpenChange: vi.fn(),
-    projectPrefix: `APP`,
-    projectColor: `#6366f1`,
+    boardPrefix: `APP`,
+    boardColor: `#6366f1`,
     headerContent: <span>New issue</span>,
     title: `Initial title`,
     onTitleChange: vi.fn(),
@@ -118,7 +118,7 @@ function baseShellProps() {
     onStatusChange: vi.fn(),
     priority: `none` as const,
     onPriorityChange: vi.fn(),
-    workspaceId: `workspace-1`,
+    teamId: `team-1`,
     selectedLabelIds: [],
     onToggleLabel: vi.fn(),
     users: [],
@@ -148,8 +148,8 @@ describe(`IssueEditorDialogShell`, () => {
       <IssueEditorDialogShell
         open
         onOpenChange={onOpenChange}
-        projectPrefix="APP"
-        projectColor="#6366f1"
+        boardPrefix="APP"
+        boardColor="#6366f1"
         headerContent={<span>New issue</span>}
         title="Initial title"
         onTitleChange={onTitleChange}
@@ -159,7 +159,7 @@ describe(`IssueEditorDialogShell`, () => {
         onStatusChange={onStatusChange}
         priority="none"
         onPriorityChange={onPriorityChange}
-        workspaceId="workspace-1"
+        teamId="team-1"
         selectedLabelIds={[]}
         onToggleLabel={onToggleLabel}
         users={[]}

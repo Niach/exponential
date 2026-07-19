@@ -2,12 +2,12 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { issueLabels, issues, labels, projects } from "@/db/schema"
+import { issueLabels, issues, labels, boards } from "@/db/schema"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import {
-  assertIssueLabelWorkspaceMatch,
-  assertWorkspaceMember,
-} from "@/lib/workspace-membership"
+  assertIssueLabelTeamMatch,
+  assertTeamMember,
+} from "@/lib/team-membership"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 
 export const issueLabelsRouter = router({
@@ -19,7 +19,7 @@ export const issueLabelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { issue, label } = await assertIssueLabelWorkspaceMatch(
+      const { issue, label } = await assertIssueLabelTeamMatch(
         ctx.session.user.id,
         input.issueId,
         input.labelId
@@ -32,14 +32,14 @@ export const issueLabelsRouter = router({
           .values({
             issueId: input.issueId,
             labelId: input.labelId,
-            workspaceId: label!.workspaceId,
-            projectId: issue.projectId,
+            teamId: label!.teamId,
+            boardId: issue.boardId,
           })
           .onConflictDoNothing()
 
         await recordIssueEvent(tx, {
           issueId: input.issueId,
-          workspaceId: label!.workspaceId,
+          teamId: label!.teamId,
           actorUserId: ctx.session.user.id,
           type: `label_added`,
           payload: { labelId: input.labelId },
@@ -57,7 +57,7 @@ export const issueLabelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { label } = await assertIssueLabelWorkspaceMatch(
+      const { label } = await assertIssueLabelTeamMatch(
         ctx.session.user.id,
         input.issueId,
         input.labelId
@@ -76,7 +76,7 @@ export const issueLabelsRouter = router({
 
         await recordIssueEvent(tx, {
           issueId: input.issueId,
-          workspaceId: label!.workspaceId,
+          teamId: label!.teamId,
           actorUserId: ctx.session.user.id,
           type: `label_removed`,
           payload: { labelId: input.labelId },
@@ -87,8 +87,8 @@ export const issueLabelsRouter = router({
     }),
 
   // Bulk label writes for the multi-select action bar: ONE label across many
-  // issues. Eligibility mirrors issues.bulkUpdate — same workspace as the
-  // label, non-trashed project; stale ids are silently skipped. Events are
+  // issues. Eligibility mirrors issues.bulkUpdate — same team as the
+  // label, non-trashed board; stale ids are silently skipped. Events are
   // recorded only for rows actually inserted/deleted (returning()), so a
   // half-labelled selection never double-logs the already-labelled issues.
   bulkAdd: authedProcedure
@@ -100,27 +100,27 @@ export const issueLabelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const label = await getLabelOrThrow(ctx.db, input.labelId)
-      await assertWorkspaceMember(ctx.session.user.id, label.workspaceId)
+      await assertTeamMember(ctx.session.user.id, label.teamId)
 
       return await ctx.db.transaction(async (tx) => {
         // Eligibility read runs IN the insert's transaction — read outside,
         // an issue hard-deleted in the window would FK-fail the whole batch
         // instead of being silently skipped.
         const eligible = await tx
-          .select({ id: issues.id, projectId: issues.projectId })
+          .select({ id: issues.id, boardId: issues.boardId })
           .from(issues)
-          .innerJoin(projects, eq(issues.projectId, projects.id))
+          .innerJoin(boards, eq(issues.boardId, boards.id))
           .where(
             and(
               inArray(issues.id, input.issueIds),
-              eq(projects.workspaceId, label.workspaceId),
-              isNull(projects.deletedAt)
+              eq(boards.teamId, label.teamId),
+              isNull(boards.deletedAt)
             )
           )
         if (eligible.length === 0) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `No labelable issues in this workspace`,
+            message: `No labelable issues in this team`,
           })
         }
 
@@ -131,8 +131,8 @@ export const issueLabelsRouter = router({
             eligible.map((row) => ({
               issueId: row.id,
               labelId: input.labelId,
-              workspaceId: label.workspaceId,
-              projectId: row.projectId,
+              teamId: label.teamId,
+              boardId: row.boardId,
             }))
           )
           .onConflictDoNothing()
@@ -141,7 +141,7 @@ export const issueLabelsRouter = router({
         for (const row of inserted) {
           await recordIssueEvent(tx, {
             issueId: row.issueId,
-            workspaceId: label.workspaceId,
+            teamId: label.teamId,
             actorUserId: ctx.session.user.id,
             type: `label_added`,
             payload: { labelId: input.labelId },
@@ -161,7 +161,7 @@ export const issueLabelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const label = await getLabelOrThrow(ctx.db, input.labelId)
-      await assertWorkspaceMember(ctx.session.user.id, label.workspaceId)
+      await assertTeamMember(ctx.session.user.id, label.teamId)
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -178,7 +178,7 @@ export const issueLabelsRouter = router({
         for (const row of removed) {
           await recordIssueEvent(tx, {
             issueId: row.issueId,
-            workspaceId: label.workspaceId,
+            teamId: label.teamId,
             actorUserId: ctx.session.user.id,
             type: `label_removed`,
             payload: { labelId: input.labelId },
@@ -194,7 +194,7 @@ type Db = typeof db
 
 async function getLabelOrThrow(db: Db, labelId: string) {
   const [label] = await db
-    .select({ workspaceId: labels.workspaceId })
+    .select({ teamId: labels.teamId })
     .from(labels)
     .where(eq(labels.id, labelId))
     .limit(1)

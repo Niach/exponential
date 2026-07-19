@@ -3,15 +3,15 @@ import ExpCore
 import SwiftUI
 import GRDB
 
-/// Root of the Issues tab: the issue list of the current project, with an
-/// inline project switcher in the navigation bar (project name + up/down
-/// chevron → `ProjectSwitcherSheet`). Replaces the old Projects overview as
-/// the app's home — switching projects swaps the list in place, no push.
+/// Root of the Issues tab: the issue list of the current board, with an
+/// inline board switcher in the navigation bar (board name + up/down
+/// chevron → `BoardSwitcherSheet`). Replaces the old Boards overview as
+/// the app's home — switching boards swaps the list in place, no push.
 struct IssuesHomeView: View {
     let syncing: Bool
-    let currentProject: CurrentProjectRef?
-    let projectLoader: MultiAccountProjectLoader?
-    let onSelectProject: (_ accountId: String, _ projectId: String) -> Void
+    let currentBoard: CurrentBoardRef?
+    let boardLoader: MultiAccountBoardLoader?
+    let onSelectBoard: (_ accountId: String, _ boardId: String) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @State private var showSwitcher = false
@@ -20,19 +20,19 @@ struct IssuesHomeView: View {
 
     private struct CreateTarget: Identifiable {
         let accountId: String
-        let workspaceId: String
-        var id: String { "\(accountId)/\(workspaceId)" }
+        let teamId: String
+        var id: String { "\(accountId)/\(teamId)" }
     }
 
     var body: some View {
         ZStack {
             AppBackground()
 
-            if let current = currentProject {
-                IssueListView(projectId: current.projectId)
+            if let current = currentBoard {
+                IssueListView(boardId: current.boardId)
                     .environment(\.accountId, current.accountId)
                     // Remount on switch so the list view model rebinds to the
-                    // selected project (it captures projectId at creation).
+                    // selected board (it captures boardId at creation).
                     .id(current)
             } else if syncing {
                 VStack(spacing: 12) {
@@ -57,12 +57,12 @@ struct IssuesHomeView: View {
             }
         }
         .sheet(isPresented: $showSwitcher) {
-            ProjectSwitcherSheet(
-                projectLoader: projectLoader,
-                currentProject: currentProject,
-                onSelect: { accountId, projectId in
+            BoardSwitcherSheet(
+                boardLoader: boardLoader,
+                currentBoard: currentBoard,
+                onSelect: { accountId, boardId in
                     showSwitcher = false
-                    onSelectProject(accountId, projectId)
+                    onSelectBoard(accountId, boardId)
                 }
             )
             .presentationDetents([.medium, .large])
@@ -70,48 +70,48 @@ struct IssuesHomeView: View {
             .presentationBackground(.ultraThinMaterial)
         }
         .sheet(item: $createTarget) { target in
-            CreateProjectSheet(
+            CreateBoardSheet(
                 accountId: target.accountId,
-                workspaceId: target.workspaceId,
-                onCreated: { projectId in onSelectProject(target.accountId, projectId) }
+                teamId: target.teamId,
+                onCreated: { boardId in onSelectBoard(target.accountId, boardId) }
             )
             .presentationBackground(.ultraThinMaterial)
         }
         // Android-parity self-heal (EXP-82): Android's home bootstrap calls
-        // workspaces.ensureDefault on every appearance, so an account that
-        // ends up workspace-less (legacy signup, or an owner deleted a shared
-        // workspace out from under us) heals itself. Deleting your LAST
-        // workspace is server-refused, so this can never resurrect a
+        // teams.ensureDefault on every appearance, so an account that
+        // ends up team-less (legacy signup, or an owner deleted a shared
+        // team out from under us) heals itself. Deleting your LAST
+        // team is server-refused, so this can never resurrect a
         // deliberately deleted one.
-        .task { await healDefaultWorkspace() }
+        .task { await healDefaultTeam() }
     }
 
     // MARK: - Switcher control
 
-    private var hasAnyProjects: Bool {
-        !(projectLoader?.groups ?? []).isEmpty
+    private var hasAnyBoards: Bool {
+        !(boardLoader?.groups ?? []).isEmpty
     }
 
-    private var currentProjectName: String? {
-        guard let current = currentProject else { return nil }
-        for group in projectLoader?.groups ?? [] where group.accountId == current.accountId {
-            for block in group.workspaceBlocks {
-                if let project = block.projects.first(where: { $0.id == current.projectId }) {
-                    return project.name
+    private var currentBoardName: String? {
+        guard let current = currentBoard else { return nil }
+        for group in boardLoader?.groups ?? [] where group.accountId == current.accountId {
+            for block in group.teamBlocks {
+                if let board = block.boards.first(where: { $0.id == current.boardId }) {
+                    return board.name
                 }
             }
         }
         return nil
     }
 
-    /// One tappable control: current project name + the combobox-style
+    /// One tappable control: current board name + the combobox-style
     /// up/down chevron. Disabled until there is anything to switch to.
     private var switcherControl: some View {
         Button {
             showSwitcher = true
         } label: {
             HStack(spacing: 5) {
-                Text(currentProjectName ?? "Projects")
+                Text(currentBoardName ?? "Boards")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -122,9 +122,9 @@ struct IssuesHomeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!hasAnyProjects)
-        .opacity(hasAnyProjects ? 1 : 0.5)
-        .accessibilityLabel("Switch project")
+        .disabled(!hasAnyBoards)
+        .opacity(hasAnyBoards ? 1 : 0.5)
+        .accessibilityLabel("Switch board")
     }
 
     private var settingsButton: some View {
@@ -139,23 +139,23 @@ struct IssuesHomeView: View {
 
     // MARK: - Empty state
 
-    // Nothing synced yet — offer to create the first project inline (a project
+    // Nothing synced yet — offer to create the first board inline (a board
     // is backed by a GitHub repo, connected in the create sheet).
     private var emptyStateHint: some View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.title2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No projects yet")
+            Text("No boards yet")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Create your first project to get started.")
+            Text("Create your first board to get started.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
 
             Button {
-                Task { await beginCreateProject() }
+                Task { await beginCreateBoard() }
             } label: {
                 HStack(spacing: 6) {
                     if preparingCreate {
@@ -164,7 +164,7 @@ struct IssuesHomeView: View {
                         Image(systemName: "plus")
                             .font(.caption.weight(.semibold))
                     }
-                    Text("Create project")
+                    Text("Create board")
                         .font(.subheadline.weight(.medium))
                 }
                 .foregroundStyle(.white)
@@ -178,28 +178,28 @@ struct IssuesHomeView: View {
         .padding(.horizontal, 40)
     }
 
-    /// Resolve (creating if needed) the default workspace, then open the create
+    /// Resolve (creating if needed) the default team, then open the create
     /// sheet targeting it.
-    private func beginCreateProject() async {
+    private func beginCreateBoard() async {
         guard !preparingCreate, let accountId = deps.auth.activeAccountId else { return }
         preparingCreate = true
         defer { preparingCreate = false }
-        if let workspace = await resolveDefaultWorkspace(accountId: accountId) {
-            createTarget = CreateTarget(accountId: accountId, workspaceId: workspace.id)
+        if let team = await resolveDefaultTeam(accountId: accountId) {
+            createTarget = CreateTarget(accountId: accountId, teamId: team.id)
         }
     }
 
-    private func healDefaultWorkspace() async {
+    private func healDefaultTeam() async {
         guard let accountId = deps.auth.activeAccountId else { return }
-        _ = await resolveDefaultWorkspace(accountId: accountId)
+        _ = await resolveDefaultTeam(accountId: accountId)
     }
 
-    /// Resolve (creating if needed) the account's default workspace.
-    private func resolveDefaultWorkspace(accountId: String) async -> WorkspaceResult? {
-        guard let workspace = try? await deps.workspacesApi.ensureDefault(accountId: accountId) else {
+    /// Resolve (creating if needed) the account's default team.
+    private func resolveDefaultTeam(accountId: String) async -> TeamResult? {
+        guard let team = try? await deps.teamsApi.ensureDefault(accountId: accountId) else {
             return nil
         }
-        // If the workspace isn't in the local synced set, ensureDefault
+        // If the team isn't in the local synced set, ensureDefault
         // just CREATED it — the membership change rotates every shape's
         // server-derived where clause, and the in-flight live long-polls
         // would keep the OLD scope for up to ~60s, so anything created
@@ -208,12 +208,12 @@ struct IssuesHomeView: View {
         var alreadySynced = false
         if let pool = try? deps.db.pool(forAccountId: accountId) {
             alreadySynced = (try? await pool.read { db in
-                try WorkspaceEntity.fetchOne(db, key: workspace.id) != nil
+                try TeamEntity.fetchOne(db, key: team.id) != nil
             }) ?? false
         }
         if !alreadySynced {
             await deps.syncManager.restartPipeline(accountId: accountId)
         }
-        return workspace
+        return team
     }
 }

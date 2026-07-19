@@ -13,9 +13,9 @@ import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 describe(`sanitizeRedirectPath`, () => {
   it.each([
     `/`,
-    `/t/acme/projects/exp`,
+    `/t/acme/boards/exp`,
     // legacy path form — still a valid same-origin redirect target
-    `/w/acme/projects/exp`,
+    `/w/acme/boards/exp`,
     // invite/$token.tsx producer shape
     `/invite/abc123`,
     // MCP OAuth resume-shaped relative URL

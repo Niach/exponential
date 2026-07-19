@@ -212,11 +212,11 @@ describe(`CreateIssueDialog`, () => {
       <CreateIssueDialog
         open
         onOpenChange={onOpenChange}
-        projectColor="#6366f1"
-        projectId="project-1"
-        projectPrefix="APP"
+        boardColor="#6366f1"
+        boardId="board-1"
+        boardPrefix="APP"
         users={[]}
-        workspaceId="workspace-1"
+        teamId="team-1"
       />
     )
 
@@ -248,7 +248,7 @@ describe(`CreateIssueDialog`, () => {
     })
 
     expect(mockState.createMutate).toHaveBeenCalledWith({
-      projectId: `project-1`,
+      boardId: `board-1`,
       title: `Draft issue`,
       status: `backlog`,
       priority: `none`,
@@ -286,11 +286,11 @@ describe(`CreateIssueDialog`, () => {
       <CreateIssueDialog
         open
         onOpenChange={onOpenChange}
-        projectColor="#6366f1"
-        projectId="project-1"
-        projectPrefix="APP"
+        boardColor="#6366f1"
+        boardId="board-1"
+        boardPrefix="APP"
         users={[]}
-        workspaceId="workspace-1"
+        teamId="team-1"
       />
     )
 
@@ -327,7 +327,7 @@ describe(`CreateIssueDialog`, () => {
     })
 
     expect(mockState.createMutate).toHaveBeenCalledWith({
-      projectId: `project-1`,
+      boardId: `board-1`,
       title: `Draft issue`,
       status: `backlog`,
       priority: `none`,

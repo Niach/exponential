@@ -13,8 +13,8 @@ final class CodingSessionLivenessTests: XCTestCase {
         CodingSessionEntity(
             id: "sess-1",
             issueId: "issue-1",
-            projectId: nil,
-            workspaceId: "ws-1",
+            boardId: nil,
+            teamId: "ws-1",
             userId: "user-1",
             deviceLabel: nil,
             status: status,

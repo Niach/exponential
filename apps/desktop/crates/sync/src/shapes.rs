@@ -15,7 +15,7 @@
 //! PII rule (§5.4/§5.9): `issue_subscribers` must NOT model an `email` column
 //! — the proxy's columns allowlist excludes widget-reporter emails from sync,
 //! and the missing local column is the client-side belt to that server-side
-//! suspender. Same for `workspace_invites.token` (REV-4/14): the proxy's
+//! suspender. Same for `team_invites.token` (REV-4/14): the proxy's
 //! allowlist excludes the invite bearer secret (accept is not recipient-bound,
 //! so a synced owner-role token would let any member escalate to owner);
 //! owners get the token once, from the create mutation. `users` is the
@@ -86,34 +86,43 @@ impl ShapeSpec {
 /// `users`).
 pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
-        name: "workspaces",
-        path: "/api/shapes/workspaces",
-        // Workspaces are always private — no is_public/public_write_policy
-        // (publicness lives on feedback-board projects). A pre-fix install
-        // keeps those as orphaned local TEXT columns (heal_missing_columns is
-        // additive-only); the allowlist drops the keys on upsert.
-        columns: &["id", "name", "slug", "icon_url", "created_at", "updated_at"],
+        name: "teams",
+        path: "/api/shapes/teams",
+        // Teams are always private — no is_public/public_write_policy.
+        // A pre-fix install keeps those as orphaned local TEXT columns
+        // (heal_missing_columns is additive-only); the allowlist drops the
+        // keys on upsert. `helpdesk_enabled` (EXP-180) gates the Support
+        // inbox — heal_missing_columns ALTERs it onto existing store tables
+        // and stamps a refetch so old rows get real values, not NULLs.
+        columns: &[
+            "id",
+            "name",
+            "slug",
+            "icon_url",
+            "helpdesk_enabled",
+            "created_at",
+            "updated_at",
+        ],
         pk: PkKind::Id,
     },
     ShapeSpec {
-        name: "projects",
-        path: "/api/shapes/projects",
+        name: "boards",
+        path: "/api/shapes/boards",
         columns: &[
             "id",
-            "workspace_id",
+            "team_id",
             "name",
             "slug",
             "prefix",
             "color",
-            // Nullable repo + publicness/icon + feedback-board visibility
-            // toggles. `heal_missing_columns` ALTERs these onto existing tables
-            // on the next open (all TEXT).
-            "is_public",
+            // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
+            // existing tables on the next open (all TEXT). The dropped
+            // public-board columns (`is_public`/`public_show_*`) linger as
+            // orphaned local TEXT columns on pre-drop installs; the allowlist
+            // drops the keys on upsert.
             "icon",
             "repository_id",
-            "public_show_comments",
-            "public_show_activity",
-            // Trash contract: the bootstrap dogfood project is protected —
+            // Trash contract: the bootstrap dogfood board is protected —
             // clients disable delete/archive/retype from this synced flag.
             "is_protected",
             "sort_order",
@@ -130,7 +139,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
         // wire fields; tolerated-and-dropped by the allowlist, never modeled).
         columns: &[
             "id",
-            "project_id",
+            "board_id",
             "number",
             "identifier",
             "title",
@@ -159,7 +168,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
         path: "/api/shapes/labels",
         columns: &[
             "id",
-            "workspace_id",
+            "team_id",
             "name",
             "color",
             "sort_order",
@@ -171,7 +180,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "issue_labels",
         path: "/api/shapes/issue-labels",
-        columns: &["issue_id", "label_id", "workspace_id", "created_at"],
+        columns: &["issue_id", "label_id", "team_id", "created_at"],
         pk: PkKind::IssueLabelPair,
     },
     ShapeSpec {
@@ -194,11 +203,11 @@ pub const SHAPES: [ShapeSpec; 14] = [
         pk: PkKind::Id,
     },
     ShapeSpec {
-        name: "workspace_members",
-        path: "/api/shapes/workspace-members",
+        name: "team_members",
+        path: "/api/shapes/team-members",
         columns: &[
             "id",
-            "workspace_id",
+            "team_id",
             "user_id",
             "role",
             "created_at",
@@ -207,15 +216,15 @@ pub const SHAPES: [ShapeSpec; 14] = [
         pk: PkKind::Id,
     },
     ShapeSpec {
-        name: "workspace_invites",
-        path: "/api/shapes/workspace-invites",
+        name: "team_invites",
+        path: "/api/shapes/team-invites",
         // No `token`: the proxy's columns allowlist excludes the invite
         // bearer secret from sync (see the module header). Pre-fix installs
         // keep an orphaned local `token` column (heal_missing_columns is
         // additive-only) — harmless; the allowlist drops the key on upsert.
         columns: &[
             "id",
-            "workspace_id",
+            "team_id",
             "invited_by_id",
             "role",
             "accepted_at",
@@ -231,7 +240,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
         columns: &[
             "id",
             "issue_id",
-            "workspace_id",
+            "team_id",
             "author_id",
             "body",
             "edited_at",
@@ -245,7 +254,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
         path: "/api/shapes/attachments",
         columns: &[
             "id",
-            "workspace_id",
+            "team_id",
             "issue_id",
             "comment_id",
             "uploader_id",
@@ -268,6 +277,12 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "id",
             "user_id",
             "issue_id",
+            // EXP-180: nullable — set on issue-less `support_reply` rows (the
+            // ticket's team) so the inbox can group helpdesk activity per
+            // team; NULL on issue-anchored rows. `heal_missing_columns`
+            // ALTERs it onto existing store tables and stamps a refetch so
+            // old rows get real values, not NULLs.
+            "team_id",
             "type",
             "title",
             "body",
@@ -284,7 +299,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
         columns: &[
             "id",
             "issue_id",
-            "workspace_id",
+            "team_id",
             "actor_user_id",
             "type",
             "payload",
@@ -302,7 +317,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "id",
             "issue_id",
             "user_id",
-            "workspace_id",
+            "team_id",
             "source",
             "unsubscribed",
             "created_at",
@@ -314,11 +329,11 @@ pub const SHAPES: [ShapeSpec; 14] = [
         name: "coding_sessions",
         path: "/api/shapes/coding-sessions",
         // `issue_id` is nullable — batch-scoped (multi-issue) sessions carry
-        // only `workspace_id`.
+        // only `team_id`.
         columns: &[
             "id",
             "issue_id",
-            "workspace_id",
+            "team_id",
             "user_id",
             "device_label",
             "status",
@@ -367,6 +382,14 @@ mod tests {
     fn issue_subscribers_never_models_email() {
         let spec = shape_by_name("issue_subscribers").unwrap();
         assert!(!spec.columns.contains(&"email"));
+    }
+
+    #[test]
+    fn notifications_model_team_id_for_support_grouping() {
+        // EXP-180: issue-less `support_reply` rows carry the ticket's team —
+        // the inbox's only handle on which Support inbox to open.
+        let spec = shape_by_name("notifications").unwrap();
+        assert!(spec.columns.contains(&"team_id"));
     }
 
     #[test]

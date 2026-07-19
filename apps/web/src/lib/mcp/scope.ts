@@ -1,82 +1,82 @@
 import { and, eq, gt, inArray, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { mcpGrants, oauthAccessTokens, projects } from "@/db/schema"
+import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
 
 // What an /api/mcp request may touch. Session-cookie and personal `expu_`
 // api-key requests are the user's own credentials and get `full` access; an
 // OAuth access token (a human MCP client like Claude) is confined to the
-// workspaces/projects its consent grant selected. A token whose (user,
+// teams/boards its consent grant selected. A token whose (user,
 // client) pair has no grant row gets NOTHING — the holder must re-run the
 // consent flow. The scope is enforced in the MCP tool layer; OAuth tokens are
 // not accepted anywhere else (see resolveSession), so the tool layer is the
 // complete surface.
 export interface McpAccess {
   full: boolean
-  /** Whole-workspace grants — includes projects created later. */
-  fullWorkspaceIds: ReadonlySet<string>
-  /** Individually granted projects. */
-  grantedProjectIds: ReadonlySet<string>
+  /** Whole-team grants — includes boards created later. */
+  fullTeamIds: ReadonlySet<string>
+  /** Individually granted boards. */
+  grantedBoardIds: ReadonlySet<string>
   /**
-   * Workspaces reachable at all: fully granted ones plus the hosts of
-   * individually granted projects (those need workspace-level aux reads —
+   * Teams reachable at all: fully granted ones plus the hosts of
+   * individually granted boards (those need team-level aux reads —
    * labels, members — for issue workflows).
    */
-  visibleWorkspaceIds: ReadonlySet<string>
+  visibleTeamIds: ReadonlySet<string>
 }
 
 export const FULL_ACCESS: McpAccess = {
   full: true,
-  fullWorkspaceIds: new Set(),
-  grantedProjectIds: new Set(),
-  visibleWorkspaceIds: new Set(),
+  fullTeamIds: new Set(),
+  grantedBoardIds: new Set(),
+  visibleTeamIds: new Set(),
 }
 
 export const NO_ACCESS: McpAccess = {
   full: false,
-  fullWorkspaceIds: new Set(),
-  grantedProjectIds: new Set(),
-  visibleWorkspaceIds: new Set(),
+  fullTeamIds: new Set(),
+  grantedBoardIds: new Set(),
+  visibleTeamIds: new Set(),
 }
 
 interface GrantShape {
-  allWorkspaces: boolean
-  workspaceIds: string[]
-  projectIds: string[]
+  allTeams: boolean
+  teamIds: string[]
+  boardIds: string[]
 }
 
-// Pure core, unit-testable: `projectWorkspaceIds` maps each granted project
-// to its workspace id (resolved by the caller).
+// Pure core, unit-testable: `boardTeamIds` maps each granted board
+// to its team id (resolved by the caller).
 export function buildMcpAccess(
   grant: GrantShape,
-  projectWorkspaceIds: ReadonlyMap<string, string>
+  boardTeamIds: ReadonlyMap<string, string>
 ): McpAccess {
-  if (grant.allWorkspaces) return FULL_ACCESS
-  const fullWorkspaceIds = new Set(grant.workspaceIds)
-  const grantedProjectIds = new Set(grant.projectIds)
-  const visibleWorkspaceIds = new Set(grant.workspaceIds)
-  for (const projectId of grant.projectIds) {
-    const workspaceId = projectWorkspaceIds.get(projectId)
-    if (workspaceId) visibleWorkspaceIds.add(workspaceId)
+  if (grant.allTeams) return FULL_ACCESS
+  const fullTeamIds = new Set(grant.teamIds)
+  const grantedBoardIds = new Set(grant.boardIds)
+  const visibleTeamIds = new Set(grant.teamIds)
+  for (const boardId of grant.boardIds) {
+    const teamId = boardTeamIds.get(boardId)
+    if (teamId) visibleTeamIds.add(teamId)
   }
-  return { full: false, fullWorkspaceIds, grantedProjectIds, visibleWorkspaceIds }
+  return { full: false, fullTeamIds, grantedBoardIds, visibleTeamIds }
 }
 
 export async function resolveMcpAccessForGrant(
   grant: GrantShape | null | undefined
 ): Promise<McpAccess> {
   if (!grant) return NO_ACCESS
-  if (grant.allWorkspaces) return FULL_ACCESS
+  if (grant.allTeams) return FULL_ACCESS
   const map = new Map<string, string>()
-  if (grant.projectIds.length > 0) {
-    // Trash-aware: a granted project sitting in the 48h trash must not keep
-    // its host workspace visible for workspace-level aux reads.
+  if (grant.boardIds.length > 0) {
+    // Trash-aware: a granted board sitting in the 48h trash must not keep
+    // its host team visible for team-level aux reads.
     const rows = await db
-      .select({ id: projects.id, workspaceId: projects.workspaceId })
-      .from(projects)
+      .select({ id: boards.id, teamId: boards.teamId })
+      .from(boards)
       .where(
-        and(inArray(projects.id, grant.projectIds), isNull(projects.deletedAt))
+        and(inArray(boards.id, grant.boardIds), isNull(boards.deletedAt))
       )
-    for (const row of rows) map.set(row.id, row.workspaceId)
+    for (const row of rows) map.set(row.id, row.teamId)
   }
   return buildMcpAccess(grant, map)
 }
@@ -106,9 +106,9 @@ export async function resolveMcpTokenAccess(
 
   const [grant] = await db
     .select({
-      allWorkspaces: mcpGrants.allWorkspaces,
-      workspaceIds: mcpGrants.workspaceIds,
-      projectIds: mcpGrants.projectIds,
+      allTeams: mcpGrants.allTeams,
+      teamIds: mcpGrants.teamIds,
+      boardIds: mcpGrants.boardIds,
     })
     .from(mcpGrants)
     .where(
@@ -127,73 +127,73 @@ export async function resolveMcpTokenAccess(
 }
 
 const deniedMessage = (target: string) =>
-  `This MCP connection was not granted access to ${target}. Re-authenticate the MCP server and adjust the workspace/project selection on the consent screen.`
+  `This MCP connection was not granted access to ${target}. Re-authenticate the MCP server and adjust the team/board selection on the consent screen.`
 
-export function isWorkspaceVisible(access: McpAccess, workspaceId: string) {
-  return access.full || access.visibleWorkspaceIds.has(workspaceId)
+export function isTeamVisible(access: McpAccess, teamId: string) {
+  return access.full || access.visibleTeamIds.has(teamId)
 }
 
-export function isWorkspaceFullyGranted(
+export function isTeamFullyGranted(
   access: McpAccess,
-  workspaceId: string
+  teamId: string
 ) {
-  return access.full || access.fullWorkspaceIds.has(workspaceId)
+  return access.full || access.fullTeamIds.has(teamId)
 }
 
-export function isProjectGranted(
+export function isBoardGranted(
   access: McpAccess,
-  projectId: string,
-  workspaceId: string
+  boardId: string,
+  teamId: string
 ) {
   return (
     access.full ||
-    access.grantedProjectIds.has(projectId) ||
-    access.fullWorkspaceIds.has(workspaceId)
+    access.grantedBoardIds.has(boardId) ||
+    access.fullTeamIds.has(teamId)
   )
 }
 
-/** Workspace-level reads needed by issue workflows: labels, members, repos. */
-export function assertWorkspaceVisible(access: McpAccess, workspaceId: string) {
-  if (!isWorkspaceVisible(access, workspaceId)) {
-    throw new Error(deniedMessage(`this workspace`))
+/** Team-level reads needed by issue workflows: labels, members, repos. */
+export function assertTeamVisible(access: McpAccess, teamId: string) {
+  if (!isTeamVisible(access, teamId)) {
+    throw new Error(deniedMessage(`this team`))
   }
 }
 
-/** Workspace-level mutations: settings, invites, labels, repos, new projects. */
-export function assertWorkspaceFullyGranted(
+/** Team-level mutations: settings, invites, labels, repos, new boards. */
+export function assertTeamFullyGranted(
   access: McpAccess,
-  workspaceId: string
+  teamId: string
 ) {
-  if (!isWorkspaceFullyGranted(access, workspaceId)) {
+  if (!isTeamFullyGranted(access, teamId)) {
     throw new Error(
-      deniedMessage(`workspace-level operations in this workspace`)
+      deniedMessage(`team-level operations in this team`)
     )
   }
 }
 
-export function assertProjectGranted(
+export function assertBoardGranted(
   access: McpAccess,
-  projectId: string,
-  workspaceId: string
+  boardId: string,
+  teamId: string
 ) {
-  if (!isProjectGranted(access, projectId, workspaceId)) {
-    throw new Error(deniedMessage(`this project`))
+  if (!isBoardGranted(access, boardId, teamId)) {
+    throw new Error(deniedMessage(`this board`))
   }
 }
 
-/** Operations spanning every workspace (create workspace, whole inbox). */
+/** Operations spanning every team (create team, whole inbox). */
 export function assertFullAccess(access: McpAccess) {
   if (!access.full) {
     throw new Error(
-      deniedMessage(`data outside its granted workspaces/projects`)
+      deniedMessage(`data outside its granted teams/boards`)
     )
   }
 }
 
-export function filterVisibleWorkspaceIds(
+export function filterVisibleTeamIds(
   access: McpAccess,
-  workspaceIds: string[]
+  teamIds: string[]
 ): string[] {
-  if (access.full) return workspaceIds
-  return workspaceIds.filter((id) => access.visibleWorkspaceIds.has(id))
+  if (access.full) return teamIds
+  return teamIds.filter((id) => access.visibleTeamIds.has(id))
 }

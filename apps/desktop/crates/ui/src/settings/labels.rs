@@ -1,6 +1,6 @@
 //! Settings → Labels (masterplan-v3 §4.2).
 //!
-//! Web parity: `components/workspace/labels-section.tsx` — inline label rows
+//! Web parity: `components/team/labels-section.tsx` — inline label rows
 //! (color swatch `Popover` + borderless name `Input` persisting on
 //! blur/Enter + inline "Delete?" confirm) and the create form (name input +
 //! `ColorSwatchGrid` + Create/Cancel).
@@ -29,7 +29,7 @@ use sync::Store;
 
 use domain::rows::Label;
 
-use crate::navigation::{active_workspace_id, Navigation};
+use crate::navigation::{active_team_id, Navigation};
 
 use super::{card, card_header, parse_hex_color, spawn_trpc};
 
@@ -64,7 +64,7 @@ impl LabelsPane {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe_in(&nav, window, |this, _, window, cx| {
-                // Workspace switch: per-row inputs belong to the old scope.
+                // Team switch: per-row inputs belong to the old scope.
                 this.confirming_delete = None;
                 this.sync_inputs(window, cx);
                 cx.notify();
@@ -98,9 +98,9 @@ impl LabelsPane {
         this
     }
 
-    /// The workspace's labels, `sortOrder` then name (web `orderBy`).
+    /// The team's labels, `sortOrder` then name (web `orderBy`).
     fn scoped_labels(&self, cx: &App) -> Vec<Label> {
-        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
             return Vec::new();
         };
         let mut labels: Vec<Label> = Store::global(cx)
@@ -108,7 +108,7 @@ impl LabelsPane {
             .labels
             .read(cx)
             .iter()
-            .filter(|label| label.workspace_id == workspace_id)
+            .filter(|label| label.team_id == team_id)
             .cloned()
             .collect();
         labels.sort_by(|a, b| {
@@ -175,10 +175,10 @@ impl LabelsPane {
             input.update(cx, |state, cx| state.set_value(name, window, cx));
             return;
         }
-        let workspace_id = label.workspace_id.clone();
+        let team_id = label.team_id.clone();
         let label_id = label_id.to_string();
         spawn_trpc(cx, "labels.update(name)", move |trpc| {
-            api::labels::labels_update(trpc, &workspace_id, &label_id, Some(&typed), None)
+            api::labels::labels_update(trpc, &team_id, &label_id, Some(&typed), None)
         });
     }
 
@@ -186,7 +186,7 @@ impl LabelsPane {
         if self.submitting {
             return;
         }
-        let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
             return;
         };
         let name = self.new_name.read(cx).value().trim().to_string();
@@ -205,7 +205,7 @@ impl LabelsPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::labels::labels_create(&trpc, &workspace_id, &name, Some(&color))
+                    api::labels::labels_create(&trpc, &team_id, &name, Some(&color))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -237,7 +237,7 @@ impl LabelsPane {
         let swatch_color = parse_hex_color(&color).unwrap_or(cx.theme().muted_foreground);
         let confirming = self.confirming_delete.as_deref() == Some(label.id.as_str());
         let label_id = label.id.clone();
-        let workspace_id = label.workspace_id.clone();
+        let team_id = label.team_id.clone();
 
         let mut row = h_flex()
             .gap_3()
@@ -266,22 +266,22 @@ impl LabelsPane {
                     .content({
                         let current = color.clone();
                         let label_id = label_id.clone();
-                        let workspace_id = workspace_id.clone();
+                        let team_id = team_id.clone();
                         move |_, _, cx| {
                             let popover = cx.entity();
                             let label_id = label_id.clone();
-                            let workspace_id = workspace_id.clone();
+                            let team_id = team_id.clone();
                             swatch_grid(
                                 &format!("label-swatch-{label_id}"),
                                 Some(current.as_str()),
                                 move |picked, window, cx| {
-                                    let workspace_id = workspace_id.clone();
+                                    let team_id = team_id.clone();
                                     let label_id = label_id.clone();
                                     let picked = picked.to_string();
                                     spawn_trpc(cx, "labels.update(color)", move |trpc| {
                                         api::labels::labels_update(
                                             trpc,
-                                            &workspace_id,
+                                            &team_id,
                                             &label_id,
                                             None,
                                             Some(&picked),
@@ -311,7 +311,7 @@ impl LabelsPane {
         }
 
         if confirming {
-            let del_workspace = workspace_id.clone();
+            let del_team = team_id.clone();
             let del_label = label_id.clone();
             row = row.child(
                 h_flex()
@@ -329,11 +329,11 @@ impl LabelsPane {
                             .xsmall()
                             .icon(Icon::new(IconName::Check).text_color(cx.theme().danger))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                let workspace_id = del_workspace.clone();
+                                let team_id = del_team.clone();
                                 let label_id = del_label.clone();
                                 this.confirming_delete = None;
                                 spawn_trpc(cx, "labels.delete", move |trpc| {
-                                    api::labels::labels_delete(trpc, &workspace_id, &label_id)
+                                    api::labels::labels_delete(trpc, &team_id, &label_id)
                                 });
                                 cx.notify();
                             })),

@@ -2,12 +2,12 @@ package com.exponential.app.ui.reviews
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Reviews (EXP-131): every open pull request in the CURRENT workspace, grouped
-// by project. A batch coding run links N issues to ONE pr_url, so the list
+// Reviews (EXP-131): every open pull request in the CURRENT team, grouped
+// by board. A batch coding run links N issues to ONE pr_url, so the list
 // collapses those rows into a single entry (never N). Pure client work over the
 // already-synced issues shape — no new shape, no server round-trip to list.
 
@@ -36,7 +36,7 @@ data class ReviewEntry(
     val prUrl: String?,
     val prNumber: Int?,
     val branch: String?,
-    val projectId: String,
+    val boardId: String,
     val issues: List<IssueEntity>,
 ) {
     val representative: IssueEntity get() = issues.first()
@@ -44,13 +44,13 @@ data class ReviewEntry(
     val identifiers: List<String> get() = issues.map { it.identifier }
 }
 
-data class ReviewProjectGroup(
-    val project: ProjectEntity,
+data class ReviewBoardGroup(
+    val board: BoardEntity,
     val entries: List<ReviewEntry>,
 )
 
 data class ReviewsState(
-    val groups: List<ReviewProjectGroup> = emptyList(),
+    val groups: List<ReviewBoardGroup> = emptyList(),
     val loaded: Boolean = false,
 )
 
@@ -60,22 +60,22 @@ class ReviewsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
-    selection: WorkspaceSelection,
+    selection: TeamSelection,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     val state: StateFlow<ReviewsState> =
-        combine(dbFlow, selection.selectedId) { db, workspaceId -> db to workspaceId }
-            .flatMapLatest { (db, workspaceId) ->
-                if (db == null || workspaceId == null) {
+        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
                     flowOf(ReviewsState(loaded = true))
                 } else {
                     combine(
-                        db.issueDao().observeOpenPrsByWorkspace(workspaceId),
-                        db.projectDao().observeByWorkspace(workspaceId),
-                    ) { issues, projects ->
-                        buildState(issues, projects)
+                        db.issueDao().observeOpenPrsByTeam(teamId),
+                        db.boardDao().observeByTeam(teamId),
+                    ) { issues, boards ->
+                        buildState(issues, boards)
                     }
                 }
             }
@@ -83,16 +83,16 @@ class ReviewsViewModel @Inject constructor(
 
     private fun buildState(
         issues: List<IssueEntity>,
-        projects: List<ProjectEntity>,
+        boards: List<BoardEntity>,
     ): ReviewsState {
-        val projectsById = projects.associateBy { it.id }
+        val boardsById = boards.associateBy { it.id }
 
         // Group by pr_url so a batch PR (N issues, one url) becomes ONE entry;
         // an issue without a url (defensive — the query only selects pr_state
         // 'open', which normally implies a url) keys on its own id so it stays
         // a distinct single-issue row.
         val entries = issues
-            .filter { it.projectId in projectsById }
+            .filter { it.boardId in boardsById }
             .groupBy { it.prUrl ?: "issue:${it.id}" }
             .map { (groupKey, rows) ->
                 val ordered = rows.sortedByDescending { sortableTimestamp(it.createdAt) }
@@ -102,27 +102,27 @@ class ReviewsViewModel @Inject constructor(
                     prUrl = representative.prUrl,
                     prNumber = representative.prNumber,
                     branch = representative.branch,
-                    projectId = representative.projectId,
+                    boardId = representative.boardId,
                     issues = ordered,
                 )
             }
 
-        // Group entries by project, newest entry first within each project, and
-        // order the projects by their sortOrder (name tiebreak) — parity with
-        // web/iOS/desktop, which all walk projects in board order.
+        // Group entries by board, newest entry first within each board, and
+        // order the boards by their sortOrder (name tiebreak) — parity with
+        // web/iOS/desktop, which all walk boards in board order.
         val groups = entries
-            .groupBy { it.projectId }
-            .mapNotNull { (projectId, projectEntries) ->
-                val project = projectsById[projectId] ?: return@mapNotNull null
-                ReviewProjectGroup(
-                    project = project,
-                    entries = projectEntries.sortedByDescending {
+            .groupBy { it.boardId }
+            .mapNotNull { (boardId, boardEntries) ->
+                val board = boardsById[boardId] ?: return@mapNotNull null
+                ReviewBoardGroup(
+                    board = board,
+                    entries = boardEntries.sortedByDescending {
                         sortableTimestamp(it.representative.createdAt)
                     },
                 )
             }
             .sortedWith(
-                compareBy({ it.project.sortOrder }, { it.project.name.lowercase() })
+                compareBy({ it.board.sortOrder }, { it.board.name.lowercase() })
             )
 
         return ReviewsState(groups = groups, loaded = true)

@@ -131,11 +131,11 @@ pub fn sign_out_active(cx: &mut App) {
 /// 2. Otherwise resume the first persisted signed-in account (warm start —
 ///    the pipeline resumes from the persisted cursor, §5.11 gate 3).
 pub fn bootstrap(cx: &mut App) {
-    // EXP-43 zero-workspace self-heal: observes the workspaces collection for
-    // the "synced but no workspace" dead end (last workspace deleted; personal
+    // EXP-43 zero-team self-heal: observes the teams collection for
+    // the "synced but no team" dead end (last team deleted; personal
     // bootstrap failed). Anchored here because the `Store` global exists by
     // now (ui::init runs before it is set).
-    crate::workspace_heal::install(cx);
+    crate::team_heal::install(cx);
 
     let dev_server = std::env::var("EXP_DEV_SERVER").ok();
     let dev_token = std::env::var("EXP_DEV_TOKEN").ok();

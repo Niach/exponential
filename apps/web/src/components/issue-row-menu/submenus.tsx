@@ -1,5 +1,5 @@
 import { FolderInput, Tag, UserRound, X } from "lucide-react"
-import type { Issue, Label, Project, User } from "@/db/schema"
+import type { Issue, Label, Board, User } from "@/db/schema"
 import {
   getIssuePriorityConfig,
   getIssueStatusConfig,
@@ -191,60 +191,60 @@ export function PrioritySubmenu({
   )
 }
 
-interface ProjectSubmenuProps {
-  projectId: Issue[`projectId`]
-  // Workspace projects (sorted by name, trashed excluded upstream by the
-  // projects shape). Kept a plain prop (no live query here) so this stays
+interface BoardSubmenuProps {
+  boardId: Issue[`boardId`]
+  // Team boards (sorted by name, trashed excluded upstream by the
+  // boards shape). Kept a plain prop (no live query here) so this stays
   // presentational like its siblings.
-  projects: Project[]
+  boards: Board[]
   topLevelValueClass: string
-  onSelect: (projectId: string) => void
+  onSelect: (boardId: string) => void
 }
 
-// EXP-57: move the issue to another project in the same workspace. The issue
-// is renumbered in the target project (EXP-42 → ABC-17) server-side.
-export function ProjectSubmenu({
-  projectId,
-  projects,
+// EXP-57: move the issue to another board in the same team. The issue
+// is renumbered in the target board (EXP-42 → ABC-17) server-side.
+export function BoardSubmenu({
+  boardId,
+  boards,
   topLevelValueClass,
   onSelect,
-}: ProjectSubmenuProps) {
-  const currentName = projects.find(
-    (project) => project.id === projectId
+}: BoardSubmenuProps) {
+  const currentName = boards.find(
+    (board) => board.id === boardId
   )?.name
 
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
         <FolderInput className="size-4" />
-        Move to project
+        Move to board
         <ContextMenuShortcut className={topLevelValueClass}>
-          {currentName ?? `Project`}
+          {currentName ?? `Board`}
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[15rem]">
-        <ContextMenuRadioGroup value={projectId}>
-          {projects.length === 0 ? (
+        <ContextMenuRadioGroup value={boardId}>
+          {boards.length === 0 ? (
             <ContextMenuItem disabled inset>
-              No projects yet
+              No boards yet
             </ContextMenuItem>
           ) : (
-            projects.map((project) => (
+            boards.map((board) => (
               <ContextMenuRadioItem
-                key={project.id}
-                value={project.id}
-                disabled={project.id === projectId}
+                key={board.id}
+                value={board.id}
+                disabled={board.id === boardId}
                 onSelect={() => {
-                  if (project.id !== projectId) {
-                    onSelect(project.id)
+                  if (board.id !== boardId) {
+                    onSelect(board.id)
                   }
                 }}
               >
                 <div
                   className="size-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: project.color }}
+                  style={{ backgroundColor: board.color }}
                 />
-                <span className="truncate">{project.name}</span>
+                <span className="truncate">{board.name}</span>
               </ContextMenuRadioItem>
             ))
           )}

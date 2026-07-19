@@ -17,7 +17,7 @@ import SwiftUI
 struct AgentPrCard: View {
     let issue: IssueEntity
     let runningSessions: [CodingSessionEntity]
-    let permissions: WorkspacePermissions
+    let permissions: TeamPermissions
     let users: [UserEntity]
     /// Loads the eligible issues for the Start-coding sheet's picker (the
     /// current issue pre-checked). Injected so the card stays view-model-free.

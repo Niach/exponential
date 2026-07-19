@@ -2,10 +2,10 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Cross-project "assigned to me" list (masterplan §5a): all issues in the
+/// Cross-board "assigned to me" list (masterplan §5a): all issues in the
 /// active account with `assigneeId == me`, grouped by status, rows pushing
 /// the issue detail. Same glass row language as `IssueListView`, plus a
-/// project name per row since rows span projects. No background or navigation
+/// board name per row since rows span boards. No background or navigation
 /// chrome of its own — it renders embedded as the My Work tab's My Issues
 /// segment (EXP-58; it previously hid inside Search's empty-query state).
 struct MyIssuesListContent: View {
@@ -74,11 +74,11 @@ struct MyIssuesListContent: View {
             }
         }
         .listStyle(.plain)
-        // Same compact-list treatment as the project IssueListView (EXP-80):
+        // Same compact-list treatment as the board IssueListView (EXP-80):
         // zero the List's own content margins, kill the implicit 44pt row
         // floor, and flow sections without the inter-section band — without
         // these, My Issues rows sit inboard with visibly chunkier spacing
-        // than the project list's.
+        // than the board list's.
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .contentMargins(.top, 0, for: .scrollContent)
         .environment(\.defaultMinListRowHeight, 0)
@@ -122,8 +122,8 @@ struct MyIssuesListContent: View {
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 16)
 
-                // The identifier carries the project prefix ({PREFIX}-{n}) —
-                // exactly the cross-project disambiguator this view needs.
+                // The identifier carries the board prefix ({PREFIX}-{n}) —
+                // exactly the cross-board disambiguator this view needs.
                 if let identifier = issue.identifier {
                     Text(identifier)
                         .font(.caption.monospaced())
@@ -143,8 +143,8 @@ struct MyIssuesListContent: View {
 
                 Spacer()
 
-                if let project = vm.project(forId: issue.projectId) {
-                    Text(project.name)
+                if let board = vm.board(forId: issue.boardId) {
+                    Text(board.name)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)

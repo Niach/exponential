@@ -14,19 +14,19 @@ export const Route = createFileRoute(`/`)({
         throw redirect({ to: `/onboarding` })
       }
 
-      // EXP-69: jump back to this device's last-used workspace (the workspace
-      // index then prefers the last-used project board). The helper is
+      // EXP-69: jump back to this device's last-used team (the team
+      // index then prefers the last-used board). The helper is
       // window-guarded, so a non-browser evaluation just skips this. A stale
-      // entry — workspace deleted or membership lost — clears itself and
+      // entry — team deleted or membership lost — clears itself and
       // falls through to the /t/default resolution below.
       const last = readLastVisited()
       if (last) {
         let isMember = false
         try {
-          const workspace = await trpc.workspaces.getBySlug.query({
-            slug: last.workspaceSlug,
+          const team = await trpc.teams.getBySlug.query({
+            slug: last.teamSlug,
           })
-          isMember = workspace.membership !== null
+          isMember = team.membership !== null
           if (!isMember) clearLastVisited()
         } catch (e) {
           const isNotFound =
@@ -37,15 +37,15 @@ export const Route = createFileRoute(`/`)({
         }
         if (isMember) {
           throw redirect({
-            to: `/t/$workspaceSlug`,
-            params: { workspaceSlug: last.workspaceSlug },
+            to: `/t/$teamSlug`,
+            params: { teamSlug: last.teamSlug },
           })
         }
       }
     }
     throw redirect({
-      to: `/t/$workspaceSlug`,
-      params: { workspaceSlug: `default` },
+      to: `/t/$teamSlug`,
+      params: { teamSlug: `default` },
     })
   },
 })

@@ -8,7 +8,7 @@ type Session = Awaited<ReturnType<typeof auth.api.getSession>>
 //     via the bearer plugin, and
 //   - `Authorization: Bearer expu_...` personal api keys (apiKey plugin).
 // Human MCP clients' OAuth2 access tokens are deliberately NOT accepted here:
-// those tokens are consent-scoped to selected workspaces/projects, and only
+// those tokens are consent-scoped to selected teams/boards, and only
 // the MCP tool layer enforces that scope — so /api/mcp is the only endpoint
 // that resolves them (see lib/mcp/scope.ts).
 export async function resolveSession(request: Request): Promise<Session> {

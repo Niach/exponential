@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // Locks EXP-53 + EXP-50 on the widget submit path: after the transaction
-// commits, every human workspace member is notified via
-// fireAndForgetNewIssueNotify (issue_created); in a solo workspace the issue
+// commits, every human team member is notified via
+// fireAndForgetNewIssueNotify (issue_created); in a solo team the issue
 // is inserted with the sole human member as assignee (subscribed as
 // `assignee`, NO assignment notification — issue_created already covers it).
 
@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   ensureSubscribed: vi.fn(),
   fireAndForgetNewIssueNotify: vi.fn(),
   fireAndForgetAssignmentNotify: vi.fn(),
+  fireAndForgetSupportThreadNotify: vi.fn(),
   assertCanUseHelpdesk: vi.fn(async (): Promise<void> => undefined),
   createSupportThreadInTx: vi.fn(
     async (_tx: unknown, _args: Record<string, unknown>) => ({
@@ -73,6 +74,14 @@ vi.mock(`@/lib/helpdesk/service`, () => ({
   createSupportThreadInTx: h.createSupportThreadInTx,
   MAX_SUPPORT_MESSAGE_CHARS: 10_000,
   supportThreadUrl: (token: string) => `https://app.test/support/${token}`,
+  // Mirrors the real first-line clamp — the support path titles threads with it.
+  supportTicketTitle: (message: string) => {
+    const firstLine = (message.split(`\n`, 1)[0] ?? ``).trim()
+    if (!firstLine) return `Support request`
+    return firstLine.length > 120
+      ? `${firstLine.slice(0, 119).trimEnd()}…`
+      : firstLine
+  },
 }))
 vi.mock(`@/lib/email`, () => ({
   sendSupportConfirmationEmail: h.sendSupportConfirmationEmail,
@@ -90,7 +99,7 @@ vi.mock(`@/lib/storage`, () => ({
   uploadObject: vi.fn(async () => undefined),
   deleteObject: vi.fn(async () => undefined),
 }))
-vi.mock(`@/lib/workspace-membership`, () => ({
+vi.mock(`@/lib/team-membership`, () => ({
   getSoleHumanMemberId: h.getSoleHumanMemberId,
 }))
 vi.mock(`@/lib/integrations/subscriptions`, () => ({
@@ -99,45 +108,48 @@ vi.mock(`@/lib/integrations/subscriptions`, () => ({
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetNewIssueNotify: h.fireAndForgetNewIssueNotify,
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
+  fireAndForgetSupportThreadNotify: h.fireAndForgetSupportThreadNotify,
 }))
 
-import { emailDeliveries, issues, issueSubscribers } from "@/db/schema"
+import {
+  emailDeliveries,
+  issues,
+  issueSubscribers,
+  widgetSubmissions,
+} from "@/db/schema"
 import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
   effectiveWidgetModes,
   requestedWidgetModes,
-  supportTicketTitle,
   WidgetRequestError,
-  type WidgetConfigWithProject,
+  type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
 
 const config = {
   id: `cfg-1`,
-  workspaceId: `ws-1`,
-  projectId: `proj-1`,
+  teamId: `ws-1`,
+  boardId: `proj-1`,
   widgetUserId: `widget-bot`,
   publicKey: `expw_test`,
   enabled: true,
   allowedDomains: [],
   formConfig: null,
-  projectSlug: `board`,
-  projectName: `Board`,
-  // A private board keeps publicIssueUrl() out of play (no appBaseUrl dependence).
-  projectIsPublic: false,
-  projectHelpdeskEnabled: false,
-  projectDeletedAt: null,
-  projectArchivedAt: null,
-  workspaceSlug: `acme`,
-} as unknown as WidgetConfigWithProject
+  boardSlug: `board`,
+  boardName: `Board`,
+  boardDeletedAt: null,
+  boardArchivedAt: null,
+  teamSlug: `acme`,
+  teamHelpdeskEnabled: false,
+} as unknown as WidgetConfigWithBoard
 
-// A config whose support mode is fully live (helpdesk on, plan gate mocked
-// green).
+// A config whose support mode is fully live (team helpdesk on, plan gate
+// mocked green).
 const supportConfig = {
   ...config,
   formConfig: { modes: [`feedback`, `support`] },
-  projectHelpdeskEnabled: true,
-} as unknown as WidgetConfigWithProject
+  teamHelpdeskEnabled: true,
+} as unknown as WidgetConfigWithBoard
 
 function submitForm(): FormData {
   const form = new FormData()
@@ -158,7 +170,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     h.fireAndForgetAssignmentNotify.mockClear()
   })
 
-  it(`solo workspace: auto-assigns the sole member, subscribes them as assignee, fires only issue_created`, async () => {
+  it(`solo team: auto-assigns the sole member, subscribes them as assignee, fires only issue_created`, async () => {
     h.getSoleHumanMemberId.mockResolvedValue(`member-1`)
 
     const result = await createWidgetSubmission({
@@ -175,7 +187,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     expect(h.ensureSubscribed).toHaveBeenCalledWith(tx, {
       issueId: result.issueId,
       userId: `member-1`,
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
       source: `assignee`,
     })
 
@@ -187,7 +199,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
     expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
   })
 
-  it(`multi-member workspace: no assignee, no assignee subscription, members still notified`, async () => {
+  it(`multi-member team: no assignee, no assignee subscription, members still notified`, async () => {
     const result = await createWidgetSubmission({
       config,
       formData: submitForm(),
@@ -221,7 +233,7 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   // the config fetch races the first open), so the server must enforce the
   // board owner's policy itself.
   describe(`emailRequired enforcement`, () => {
-    const requiredConfig: WidgetConfigWithProject = {
+    const requiredConfig: WidgetConfigWithBoard = {
       ...config,
       formConfig: { emailRequired: true },
     }
@@ -270,10 +282,10 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   })
 })
 
-// EXP-130: the widget's support mode files a helpdesk ticket — issue +
-// support thread + widget_reporter subscriber in one transaction, then the
-// confirmation email carrying the magic link (emails are the token's only
-// carrier — it is never stored).
+// The widget's support mode files a STANDALONE helpdesk ticket (EXP-180):
+// a support thread + widget_submissions context row in one transaction — no
+// issue — then the confirmation email carrying the magic link (emails are the
+// token's only carrier — it is never stored).
 describe(`createWidgetSupportSubmission`, () => {
   beforeEach(() => {
     h.inserts.length = 0
@@ -283,6 +295,7 @@ describe(`createWidgetSupportSubmission`, () => {
     h.getSoleHumanMemberId.mockResolvedValue(null)
     h.ensureSubscribed.mockClear()
     h.fireAndForgetNewIssueNotify.mockClear()
+    h.fireAndForgetSupportThreadNotify.mockClear()
     h.assertCanUseHelpdesk.mockClear()
     h.assertCanUseHelpdesk.mockResolvedValue(undefined)
     h.createSupportThreadInTx.mockClear()
@@ -297,39 +310,50 @@ describe(`createWidgetSupportSubmission`, () => {
     return form
   }
 
-  it(`files a ticket: issue + thread + reporter subscriber + confirmation email`, async () => {
+  it(`files a standalone ticket: thread + context row + confirmation email, NO issue`, async () => {
     const result = await createWidgetSupportSubmission({
       config: supportConfig,
       formData: supportForm(),
       userAgent: `UA`,
     })
 
-    const issue = h.inserts.find((i) => i.table === issues)
-    expect(issue?.values.title).toBe(`My login is broken`)
-    expect(issue?.values.description).toContain(`It loops back to the form.`)
-    expect(issue?.values.creatorId).toBe(`widget-bot`)
-
-    const subscriber = h.inserts.find((i) => i.table === issueSubscribers)
-    expect(subscriber?.values.email).toBe(`reporter@example.com`)
-    expect(subscriber?.values.source).toBe(`widget_reporter`)
+    // No issue, no subscriber row — the ticket is thread-only.
+    expect(h.inserts.some((i) => i.table === issues)).toBe(false)
+    expect(h.inserts.some((i) => i.table === issueSubscribers)).toBe(false)
 
     expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
     expect(h.createSupportThreadInTx.mock.calls[0][1]).toMatchObject({
+      teamId: `ws-1`,
+      title: `My login is broken`,
       reporterEmail: `reporter@example.com`,
     })
 
-    expect(h.fireAndForgetNewIssueNotify).toHaveBeenCalledTimes(1)
+    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
+    expect(submission?.values.supportThreadId).toBe(`thread-1`)
+    expect(submission?.values.issueId).toBeNull()
+
+    // Members are notified through the support fan-out, not issue_created.
+    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledWith({
+      threadId: `thread-1`,
+      kind: `created`,
+    })
+    expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
+
     expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: `reporter@example.com`,
+        boardName: `Board`,
         threadUrl: `https://app.test/support/tok-minted`,
       })
     )
     const delivery = h.dbInserts.find((i) => i.table === emailDeliveries)
     expect(delivery?.values.kind).toBe(`support_confirmation`)
     expect(delivery?.values.status).toBe(`sent`)
+    expect(delivery?.values.issueId).toBeNull()
 
-    // Support tickets never mint a public issue URL.
+    // Support tickets never mint an issue identifier or URL.
+    expect(result.issueId).toBeNull()
+    expect(result.identifier).toBeNull()
     expect(result.url).toBeNull()
   })
 
@@ -344,11 +368,11 @@ describe(`createWidgetSupportSubmission`, () => {
     expect(h.inserts).toHaveLength(0)
   })
 
-  it(`rejects when the target project's helpdesk is off`, async () => {
+  it(`rejects when the team helpdesk is off`, async () => {
     const stale = {
       ...supportConfig,
-      projectHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithProject
+      teamHelpdeskEnabled: false,
+    } as unknown as WidgetConfigWithBoard
     await expect(
       createWidgetSupportSubmission({
         config: stale,
@@ -388,15 +412,38 @@ describe(`createWidgetSupportSubmission`, () => {
       formData: supportForm(),
       userAgent: null,
     })
-    expect(result.identifier).toBe(`EXP-9`)
-    expect(h.fireAndForgetNewIssueNotify).toHaveBeenCalledTimes(1)
+    expect(result.identifier).toBeNull()
+    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a support ticket still files while the FEEDBACK board is trashed`, async () => {
+    const feedbackTrashed = {
+      ...supportConfig,
+      boardDeletedAt: new Date(),
+    } as unknown as WidgetConfigWithBoard
+
+    await createWidgetSupportSubmission({
+      config: feedbackTrashed,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
+
+    // …while the feedback path still refuses the trashed board.
+    await expect(
+      createWidgetSubmission({
+        config: feedbackTrashed,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 403 })
   })
 
   it(`the feedback path refuses a support-only widget`, async () => {
     const supportOnly = {
       ...supportConfig,
       formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     await expect(
       createWidgetSubmission({
         config: supportOnly,
@@ -404,6 +451,34 @@ describe(`createWidgetSupportSubmission`, () => {
         userAgent: null,
       })
     ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it(`a board-less (support-only) widget refuses feedback POSTs`, async () => {
+    const boardless = {
+      ...supportConfig,
+      boardId: null,
+      boardName: null,
+      boardSlug: null,
+      formConfig: { modes: [`support`] },
+    } as unknown as WidgetConfigWithBoard
+    await expect(
+      createWidgetSubmission({
+        config: boardless,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 403 })
+
+    // Its support path works and the confirmation email falls back to the
+    // widget's own name.
+    await createWidgetSupportSubmission({
+      config: boardless,
+      formData: supportForm(),
+      userAgent: null,
+    })
+    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ boardName: boardless.name })
+    )
   })
 })
 
@@ -421,25 +496,33 @@ describe(`widget modes`, () => {
     const junk = {
       ...config,
       formConfig: { modes: [`support`, `support`, `roadmap`] },
-    } as unknown as WidgetConfigWithProject
+    } as unknown as WidgetConfigWithBoard
     expect(requestedWidgetModes(junk)).toEqual([`support`])
   })
 
-  it(`drops support when the project helpdesk is off, keeping feedback`, async () => {
+  it(`drops support when the team helpdesk is off, keeping feedback`, async () => {
     const stale = {
       ...supportConfig,
-      projectHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithProject
+      teamHelpdeskEnabled: false,
+    } as unknown as WidgetConfigWithBoard
     expect(await effectiveWidgetModes(stale)).toEqual([`feedback`])
   })
 
-  it(`a support-only widget degrades to feedback instead of a dead launcher`, async () => {
+  it(`a support-only widget with support unavailable serves nothing`, async () => {
     h.assertCanUseHelpdesk.mockRejectedValue(new Error(`plan`))
     const supportOnly = {
       ...supportConfig,
       formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithProject
-    expect(await effectiveWidgetModes(supportOnly)).toEqual([`feedback`])
+    } as unknown as WidgetConfigWithBoard
+    expect(await effectiveWidgetModes(supportOnly)).toEqual([])
+  })
+
+  it(`a board-less widget never offers feedback`, async () => {
+    const boardless = {
+      ...supportConfig,
+      boardId: null,
+    } as unknown as WidgetConfigWithBoard
+    expect(await effectiveWidgetModes(boardless)).toEqual([`support`])
   })
 
   it(`serves both modes when everything is live`, async () => {
@@ -447,157 +530,6 @@ describe(`widget modes`, () => {
       `feedback`,
       `support`,
     ])
-  })
-})
-
-// EXP-162: a config may split its targets — feedback stays on project_id,
-// support tickets file into support_project_id. The SUPPORT TARGET's
-// helpdesk/trash state gates support; the primary's is irrelevant to it (and
-// vice versa).
-describe(`split support target (EXP-162)`, () => {
-  // Primary helpdesk deliberately OFF — only the split target's flag counts.
-  const splitConfig = {
-    ...config,
-    formConfig: { modes: [`feedback`, `support`] },
-    projectHelpdeskEnabled: false,
-    supportProjectId: `proj-support`,
-    supportProjectHelpdeskEnabled: true,
-    supportProjectDeletedAt: null,
-  } as unknown as WidgetConfigWithProject
-
-  beforeEach(() => {
-    h.inserts.length = 0
-    h.dbInserts.length = 0
-    h.txShouldFail = false
-    h.getSoleHumanMemberId.mockClear()
-    h.getSoleHumanMemberId.mockResolvedValue(null)
-    h.ensureSubscribed.mockClear()
-    h.fireAndForgetNewIssueNotify.mockClear()
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
-    h.createSupportThreadInTx.mockClear()
-    h.sendSupportConfirmationEmail.mockClear()
-  })
-
-  const supportForm = (): FormData => {
-    const form = new FormData()
-    form.set(`mode`, `support`)
-    form.set(`message`, `Where is my invoice?`)
-    form.set(`email`, `reporter@example.com`)
-    return form
-  }
-
-  it(`serves both modes off the split target's helpdesk flag`, async () => {
-    expect(await effectiveWidgetModes(splitConfig)).toEqual([
-      `feedback`,
-      `support`,
-    ])
-  })
-
-  it(`drops support when the split target's helpdesk is off`, async () => {
-    const stale = {
-      ...splitConfig,
-      supportProjectHelpdeskEnabled: false,
-      // Even with the PRIMARY helpdesk on — the split target decides.
-      projectHelpdeskEnabled: true,
-    } as unknown as WidgetConfigWithProject
-    expect(await effectiveWidgetModes(stale)).toEqual([`feedback`])
-  })
-
-  it(`drops support when the split target is trashed`, async () => {
-    const trashed = {
-      ...splitConfig,
-      supportProjectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
-    expect(await effectiveWidgetModes(trashed)).toEqual([`feedback`])
-  })
-
-  it(`keeps serving support when only the FEEDBACK board is trashed`, async () => {
-    // The config route must not hide the whole widget over a trashed primary
-    // while a live split support target remains.
-    const feedbackTrashed = {
-      ...splitConfig,
-      projectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
-    expect(await effectiveWidgetModes(feedbackTrashed)).toEqual([`support`])
-  })
-
-  it(`returns NO modes when both targets are unavailable`, async () => {
-    const allDead = {
-      ...splitConfig,
-      projectDeletedAt: new Date(),
-      supportProjectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
-    expect(await effectiveWidgetModes(allDead)).toEqual([])
-  })
-
-  it(`files the ticket into the support project, emailing the PRIMARY name`, async () => {
-    await createWidgetSupportSubmission({
-      config: splitConfig,
-      formData: supportForm(),
-      userAgent: null,
-    })
-
-    const issue = h.inserts.find((i) => i.table === issues)
-    expect(issue?.values.projectId).toBe(`proj-support`)
-    const subscriber = h.inserts.find((i) => i.table === issueSubscribers)
-    expect(subscriber?.values.projectId).toBe(`proj-support`)
-    expect(h.createSupportThreadInTx.mock.calls[0][1]).toMatchObject({
-      projectId: `proj-support`,
-    })
-    // The product-facing identity stays the primary project's name — a
-    // support project named "Support" must not render "Support support".
-    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ projectName: `Board` })
-    )
-  })
-
-  it(`falls back to the primary project when support_project_id is NULL`, async () => {
-    await createWidgetSupportSubmission({
-      config: supportConfig,
-      formData: supportForm(),
-      userAgent: null,
-    })
-    const issue = h.inserts.find((i) => i.table === issues)
-    expect(issue?.values.projectId).toBe(`proj-1`)
-  })
-
-  it(`a trashed feedback board doesn't block support at a live split target`, async () => {
-    const feedbackTrashed = {
-      ...splitConfig,
-      projectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
-
-    const result = await createWidgetSupportSubmission({
-      config: feedbackTrashed,
-      formData: supportForm(),
-      userAgent: null,
-    })
-    expect(result.identifier).toBe(`EXP-9`)
-
-    // …while the feedback path still refuses the trashed primary board.
-    await expect(
-      createWidgetSubmission({
-        config: feedbackTrashed,
-        formData: submitForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-  })
-
-  it(`a trashed support target rejects support despite a live primary`, async () => {
-    const supportTrashed = {
-      ...splitConfig,
-      supportProjectDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithProject
-    await expect(
-      createWidgetSupportSubmission({
-        config: supportTrashed,
-        formData: supportForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-    expect(h.inserts).toHaveLength(0)
   })
 })
 
@@ -646,21 +578,5 @@ describe(`structured email error codes`, () => {
     expect(error).toBeInstanceOf(WidgetRequestError)
     expect((error as WidgetRequestError).status).toBe(400)
     expect((error as WidgetRequestError).code).toBeUndefined()
-  })
-})
-
-describe(`supportTicketTitle`, () => {
-  it(`uses the first line`, () => {
-    expect(supportTicketTitle(`Broken login\nmore detail`)).toBe(`Broken login`)
-  })
-
-  it(`clamps long first lines with an ellipsis`, () => {
-    const title = supportTicketTitle(`x`.repeat(300))
-    expect(title.length).toBeLessThanOrEqual(120)
-    expect(title.endsWith(`…`)).toBe(true)
-  })
-
-  it(`falls back when the message starts blank`, () => {
-    expect(supportTicketTitle(`\n\nactual text`)).toBe(`Support request`)
   })
 })

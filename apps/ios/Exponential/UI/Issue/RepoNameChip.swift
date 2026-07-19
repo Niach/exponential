@@ -2,23 +2,23 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Resolves the server-only repositories registry once per workspace and caches
+/// Resolves the server-only repositories registry once per team and caches
 /// it for the app's lifetime (mirrors SteerConfigCache's fetch-once pattern).
-/// The synced `projects.repositoryId` is a uuid; the fullName/defaultBranch live
+/// The synced `boards.repositoryId` is a uuid; the fullName/defaultBranch live
 /// only behind the repositories tRPC API, so every surface that shows a repo
-/// name (project header, issue coding section) reads through this cache.
+/// name (board header, issue coding section) reads through this cache.
 @MainActor
 enum RepositoryDirectory {
-    private static var cache: [String: [WorkspaceRepo]] = [:]
+    private static var cache: [String: [TeamRepo]] = [:]
 
-    private static func key(_ accountId: String, _ workspaceId: String) -> String {
-        "\(accountId)|\(workspaceId)"
+    private static func key(_ accountId: String, _ teamId: String) -> String {
+        "\(accountId)|\(teamId)"
     }
 
-    static func repos(accountId: String, workspaceId: String, api: RepositoriesApi) async -> [WorkspaceRepo] {
-        let k = key(accountId, workspaceId)
+    static func repos(accountId: String, teamId: String, api: RepositoriesApi) async -> [TeamRepo] {
+        let k = key(accountId, teamId)
         if let cached = cache[k] { return cached }
-        let list = (try? await api.list(accountId: accountId, workspaceId: workspaceId)) ?? []
+        let list = (try? await api.list(accountId: accountId, teamId: teamId)) ?? []
         // Only cache non-empty results so a transient failure retries next time.
         if !list.isEmpty { cache[k] = list }
         return list
@@ -26,29 +26,29 @@ enum RepositoryDirectory {
 
     static func repo(
         accountId: String,
-        workspaceId: String,
+        teamId: String,
         repositoryId: String,
         api: RepositoriesApi
-    ) async -> WorkspaceRepo? {
-        await repos(accountId: accountId, workspaceId: workspaceId, api: api)
+    ) async -> TeamRepo? {
+        await repos(accountId: accountId, teamId: teamId, api: api)
             .first { $0.id == repositoryId }
     }
 
     /// Drop the cached list so the next read re-fetches (after a create/retarget).
-    static func invalidate(accountId: String, workspaceId: String) {
-        cache.removeValue(forKey: key(accountId, workspaceId))
+    static func invalidate(accountId: String, teamId: String) {
+        cache.removeValue(forKey: key(accountId, teamId))
     }
 }
 
-/// A tappable `owner/name` chip for a project's backing repo. Resolves the uuid
+/// A tappable `owner/name` chip for a board's backing repo. Resolves the uuid
 /// via `RepositoryDirectory`; renders nothing until (and unless) it resolves.
 struct RepoNameChip: View {
     let accountId: String
-    let workspaceId: String
+    let teamId: String
     let repositoryId: String?
 
     @Environment(AppDependencies.self) private var deps
-    @State private var repo: WorkspaceRepo?
+    @State private var repo: TeamRepo?
 
     var body: some View {
         Group {
@@ -76,7 +76,7 @@ struct RepoNameChip: View {
                 .buttonStyle(.plain)
             }
         }
-        .task(id: "\(accountId)|\(workspaceId)|\(repositoryId ?? "")") { await resolve() }
+        .task(id: "\(accountId)|\(teamId)|\(repositoryId ?? "")") { await resolve() }
     }
 
     private func resolve() async {
@@ -86,7 +86,7 @@ struct RepoNameChip: View {
         }
         repo = await RepositoryDirectory.repo(
             accountId: accountId,
-            workspaceId: workspaceId,
+            teamId: teamId,
             repositoryId: repositoryId,
             api: deps.repositoriesApi
         )

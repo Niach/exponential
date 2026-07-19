@@ -1,7 +1,7 @@
 // Steer relay tickets — the ONLY credential the relay ever sees.
 //
 // The web app mints a short-lived ticket (steer.mintTicket, after checking the
-// caller's workspace permission); the relay verifies signature + expiry and
+// caller's team permission); the relay verifies signature + expiry and
 // trusts the claims. Compact HS256 format (NOT a full JWT — no header, no alg
 // negotiation): `base64url(JSON claims) + "." + base64url(HMAC-SHA256)`.
 // Shared by apps/web (sign) and apps/steer-relay (verify) so the format can't
@@ -18,8 +18,8 @@ export type SteerPerm = `view` | `steer`
 export interface SteerTicketClaims {
   /** userId of the authenticated caller. */
   sub: string
-  /** workspaceId the ticket is scoped to (empty string for control tickets). */
-  ws: string
+  /** teamId the ticket is scoped to (empty string for control tickets). */
+  team: string
   /** Display name, shown in viewer presence. */
   name?: string
   /** Human device label (control tickets). */

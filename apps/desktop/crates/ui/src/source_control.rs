@@ -4,10 +4,10 @@
 //! banner with "Fix conflicts with Claude" / "Open terminal" / "Abort". The
 //! working/commit diff renders through the shared `diff.rs` renderer.
 //!
-//! Trunk resolution (§4.2 rule 1: trunk-only, no project/issue scope): the
-//! active workspace's clone. The workspace's first project (sidebar order)
+//! Trunk resolution (§4.2 rule 1: trunk-only, no board/issue scope): the
+//! active team's clone. The team's first board (sidebar order)
 //! resolves the backing repo via `repositories.list` (the v4 model —
-//! `projects.repositoryId`); the clone lives at `<repos_root>/<owner>/<name>`.
+//! `boards.repositoryId`); the clone lives at `<repos_root>/<owner>/<name>`.
 //! All git state is derived from disk through [`coding::scm`] (§4.2 rule 3),
 //! so it survives restarts and out-of-band fixes; every read/mutation runs on
 //! the background executor (scm calls block on `git`).
@@ -82,7 +82,7 @@ enum Load {
     Ready,
 }
 
-/// The resolved trunk clone (§4.2): the active workspace's backing repo on
+/// The resolved trunk clone (§4.2): the active team's backing repo on
 /// disk, plus the ids the push path needs to mint a JIT installation token.
 #[derive(Clone)]
 struct TrunkScope {
@@ -122,8 +122,8 @@ pub struct SourceControlView {
     name_input: Entity<InputState>,
     email_input: Entity<InputState>,
 
-    /// The active workspace this state belongs to (scope-change reset key).
-    scope_workspace: Option<String>,
+    /// The active team this state belongs to (scope-change reset key).
+    scope_team: Option<String>,
     scope_load: Load,
     scope: Option<TrunkScope>,
 
@@ -173,8 +173,8 @@ impl SourceControlView {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workspaces, |_, _, cx| cx.notify()),
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
+            cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // The sidebar's view-branch selection lives on the rail state.
@@ -204,7 +204,7 @@ impl SourceControlView {
             commit_input,
             name_input,
             email_input,
-            scope_workspace: None,
+            scope_team: None,
             scope_load: Load::Idle,
             scope: None,
             status: None,
@@ -228,19 +228,19 @@ impl SourceControlView {
 
     // -- scope resolution ---------------------------------------------------
 
-    /// Render-time gate: reset on workspace change, then (once) resolve the
-    /// active workspace's trunk clone off the foreground and kick the first
+    /// Render-time gate: reset on team change, then (once) resolve the
+    /// active team's trunk clone off the foreground and kick the first
     /// git read. `Idle` while nothing is loading — the collection observers
-    /// re-notify us when workspaces/projects sync in.
+    /// re-notify us when teams/boards sync in.
     fn ensure_scope(&mut self, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
-        // workspace, shared by all five trunk/IDE surfaces).
+        // team, shared by all five trunk/IDE surfaces).
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let workspace_id = navigation::active_workspace_id(&self.nav, cx);
-        if workspace_id.as_deref() != self.scope_workspace.as_deref() {
-            self.scope_workspace = workspace_id.clone();
+        let team_id = navigation::active_team_id(&self.nav, cx);
+        if team_id.as_deref() != self.scope_team.as_deref() {
+            self.scope_team = team_id.clone();
             self.scope = None;
             self.status = None;
             self.conflict = None;
@@ -255,24 +255,24 @@ impl SourceControlView {
         if matches!(self.scope_load, Load::Ready) {
             return;
         }
-        let Some(workspace_id) = workspace_id else {
+        let Some(team_id) = team_id else {
             return;
         };
         let collections = Store::global(cx).collections();
-        if !collections.projects.read(cx).is_ready() {
-            return; // wait for the projects shape (the observer re-fires)
+        if !collections.boards.read(cx).is_ready() {
+            return; // wait for the boards shape (the observer re-fires)
         }
-        let first_project = collections
-            .projects_in_workspace(&workspace_id, cx)
+        let first_board = collections
+            .boards_in_team(&team_id, cx)
             .first()
-            .map(|project| project.id.clone());
+            .map(|board| board.id.clone());
 
         // Read the shared resolution rather than firing our own network call:
-        // the first project's repo, else the sole workspace repo (v4 §4.2).
+        // the first board's repo, else the sole team repo (v4 §4.2).
         match self
             .repo_resolver
             .read(cx)
-            .lookup_workspace_trunk(first_project.as_deref())
+            .lookup_team_trunk(first_board.as_deref())
         {
             RepoLookup::Loading => {
                 // Still resolving — show the "Resolving repository…" state and
@@ -292,7 +292,7 @@ impl SourceControlView {
                 self.refresh(cx);
             }
             RepoLookup::NotFound | RepoLookup::Error(_) => {
-                // No repo connected to the workspace (or resolution failed) —
+                // No repo connected to the team (or resolution failed) —
                 // the screen shows the "connect one in settings" notice.
                 self.scope = None;
                 self.scope_load = Load::Ready;
@@ -1240,7 +1240,7 @@ impl SourceControlView {
     fn render_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let theme = cx.theme();
 
-        // Scope not yet resolvable (workspaces/projects still syncing).
+        // Scope not yet resolvable (teams/boards still syncing).
         if matches!(self.scope_load, Load::Loading) && self.scope.is_none() {
             return div()
                 .size_full()
@@ -1275,7 +1275,7 @@ impl SourceControlView {
                 .p_4()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("Repository not cloned yet — open a project to clone it.")
+                .child("Repository not cloned yet — open a board to clone it.")
                 .into_any_element();
         }
 

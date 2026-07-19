@@ -1,6 +1,6 @@
-// Last-visited workspace/project persistence (EXP-69). Per-device via
-// localStorage: the workspace layout writes an entry on every workspace or
-// project navigation, and the root redirect (`routes/index.tsx`) reads it so
+// Last-visited team/board persistence (EXP-69). Per-device via
+// localStorage: the team layout writes an entry on every team or
+// board navigation, and the root redirect (`routes/index.tsx`) reads it so
 // app entry jumps back to where the user left off instead of `/t/default`.
 //
 // Every accessor guards via `safeLocalStorage` and degrades to
@@ -9,8 +9,8 @@
 import { safeLocalStorage } from "@/lib/local-storage"
 
 export interface LastVisited {
-  workspaceSlug: string
-  projectSlug?: string
+  teamSlug: string
+  boardSlug?: string
 }
 
 const STORAGE_KEY = `exp.lastVisited`
@@ -25,16 +25,16 @@ export function readLastVisited(): LastVisited | null {
     if (typeof parsed !== `object` || parsed === null) return null
     const record = parsed as Record<string, unknown>
     if (
-      typeof record.workspaceSlug !== `string` ||
-      record.workspaceSlug.length === 0
+      typeof record.teamSlug !== `string` ||
+      record.teamSlug.length === 0
     ) {
       return null
     }
     return {
-      workspaceSlug: record.workspaceSlug,
-      projectSlug:
-        typeof record.projectSlug === `string` && record.projectSlug.length > 0
-          ? record.projectSlug
+      teamSlug: record.teamSlug,
+      boardSlug:
+        typeof record.boardSlug === `string` && record.boardSlug.length > 0
+          ? record.boardSlug
           : undefined,
     }
   } catch {
@@ -42,24 +42,24 @@ export function readLastVisited(): LastVisited | null {
   }
 }
 
-// Remember a navigation. A workspace-level visit (no `projectSlug` — Inbox,
-// My Issues, settings, …) keeps the stored project while the workspace is
-// unchanged, so "last-used project" survives a detour; it drops the project
-// when the workspace changed (a project slug is only meaningful inside its
-// own workspace).
+// Remember a navigation. A team-level visit (no `boardSlug` — Inbox,
+// My Issues, settings, …) keeps the stored board while the team is
+// unchanged, so "last-used board" survives a detour; it drops the board
+// when the team changed (a board slug is only meaningful inside its
+// own team).
 export function rememberLastVisited(
-  workspaceSlug: string,
-  projectSlug?: string
+  teamSlug: string,
+  boardSlug?: string
 ): void {
   const store = safeLocalStorage()
   if (!store) return
   const previous = readLastVisited()
   const next: LastVisited = {
-    workspaceSlug,
-    projectSlug:
-      projectSlug ??
-      (previous?.workspaceSlug === workspaceSlug
-        ? previous.projectSlug
+    teamSlug,
+    boardSlug:
+      boardSlug ??
+      (previous?.teamSlug === teamSlug
+        ? previous.boardSlug
         : undefined),
   }
   try {
@@ -69,7 +69,7 @@ export function rememberLastVisited(
   }
 }
 
-// Drop a stale entry (workspace deleted or membership lost) so the next app
+// Drop a stale entry (team deleted or membership lost) so the next app
 // entry falls straight through to the `/t/default` resolution.
 export function clearLastVisited(): void {
   const store = safeLocalStorage()

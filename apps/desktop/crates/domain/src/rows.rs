@@ -25,28 +25,32 @@ use crate::hydrate::{
     tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
 };
 
-/// `workspaces` shape row. Workspaces are always private (publicness lives on
-/// feedback-board projects, not the workspace) — the shape carries no
-/// `is_public`/`public_write_policy`.
+/// `teams` shape row. Teams are always private — the shape carries
+/// no `is_public`/`public_write_policy`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Workspace {
+pub struct Team {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub slug: Option<String>,
     #[serde(default)]
     pub icon_url: Option<String>,
+    /// EXP-180 helpdesk gate: `Some(true)` unlocks the team's Support inbox
+    /// (standalone support tickets, every member handles them). `None` on
+    /// rows synced before the column existed — treated as disabled.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub helpdesk_enabled: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
 }
 
-/// `projects` shape row.
+/// `boards` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Project {
+pub struct Board {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub name: String,
     #[serde(default)]
     pub slug: Option<String>,
@@ -54,33 +58,17 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// Whether this is a public board — anyone with the link can read it. The
-    /// canonical publicness signal.
-    /// NOT NULL default false server-side, but `Option` locally: a store-healed
-    /// column is SQL NULL on pre-existing rows (explicit JSON null at hydrate,
-    /// which `serde(default)` does NOT cover), and a not-yet-updated
-    /// self-hosted server never serves the column — a required bool would drop
-    /// the whole row (§5.5). Read sites default to `false`.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_public: Option<bool>,
-    /// Curated icon name (`crate::contract::PROJECT_ICON_VALUES`) chosen at
+    /// Curated icon name (`crate::contract::BOARD_ICON_VALUES`) chosen at
     /// create time. `None` on pre-icon boards — consumers fall back to an
     /// attribute-derived glyph.
     #[serde(default)]
     pub icon: Option<String>,
-    /// `projects.repository_id` (v4 §3.1, nullable) — the one repository this
-    /// project clones/branches against, or `None` for a repo-less board. Coding
-    /// affordances gate purely on this presence, never on board type.
+    /// `boards.repository_id` (v4 §3.1, nullable) — the one repository this
+    /// board clones/branches against, or `None` for a repo-less board.
+    /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
-    /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
-    /// carried so the desktop mirrors the full shape. `None` on legacy/other
-    /// rows.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub public_show_comments: Option<bool>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub public_show_activity: Option<bool>,
-    /// Trash contract: protected projects (the bootstrap dogfood board) are
+    /// Trash contract: protected boards (the bootstrap dogfood board) are
     /// non-deletable/non-archivable/non-retypable — the server refuses, and
     /// clients disable the affordances from this flag. `None` on legacy rows.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
@@ -99,7 +87,7 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Issue {
     pub id: String,
-    pub project_id: String,
+    pub board_id: String,
     #[serde(deserialize_with = "tolerant_i64")]
     pub number: i64,
     pub identifier: String,
@@ -148,7 +136,7 @@ fn default_priority() -> IssuePriority {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Label {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub name: String,
     #[serde(default)]
     pub color: Option<String>,
@@ -166,7 +154,7 @@ pub struct IssueLabel {
     pub issue_id: String,
     pub label_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
 }
@@ -193,10 +181,11 @@ pub struct User {
     pub updated_at: Option<String>,
 }
 
-/// Display fallback for a user id whose [`User`] row didn't sync: the server
-/// no longer syncs user rows for public-workspace co-members, so a known id can
-/// resolve to no row. Rather than leak the raw id (or a misleading "Someone"),
-/// show `Member <LAST4>` — the uppercased last four chars of the id.
+/// Display fallback for a user id whose [`User`] row didn't sync: a referenced
+/// id can resolve to no local row (the user's row hasn't synced yet, or the
+/// account was deleted). Rather than leak the raw id (or a misleading
+/// "Someone"), show `Member <LAST4>` — the uppercased last four chars of the
+/// id.
 pub fn member_fallback_label(user_id: &str) -> String {
     let chars: Vec<char> = user_id.chars().collect();
     let start = chars.len().saturating_sub(4);
@@ -204,11 +193,11 @@ pub fn member_fallback_label(user_id: &str) -> String {
     format!("Member {}", tail.to_uppercase())
 }
 
-/// `workspace_members` shape row.
+/// `team_members` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct WorkspaceMember {
+pub struct TeamMember {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     pub user_id: String,
     #[serde(default)]
     pub role: Option<String>,
@@ -218,14 +207,14 @@ pub struct WorkspaceMember {
     pub updated_at: Option<String>,
 }
 
-/// `workspace_invites` shape row (requireAuth shape, §5.9). The server's
+/// `team_invites` shape row (requireAuth shape, §5.9). The server's
 /// columns allowlist excludes the bearer `token` from the shape (REV-4/14) —
 /// the invite link is built once from the create mutation's response, never
 /// from synced rows.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct WorkspaceInvite {
+pub struct TeamInvite {
     pub id: String,
-    pub workspace_id: String,
+    pub team_id: String,
     #[serde(default)]
     pub invited_by_id: Option<String>,
     #[serde(default)]
@@ -246,7 +235,7 @@ pub struct Comment {
     pub id: String,
     pub issue_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub author_id: Option<String>,
     /// GFM markdown (the cross-client interchange contract).
@@ -265,7 +254,7 @@ pub struct Comment {
 pub struct Attachment {
     pub id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
@@ -300,6 +289,11 @@ pub struct Notification {
     pub user_id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
+    /// EXP-180: set on issue-less `support_reply` rows (the ticket's team) so
+    /// the inbox can group helpdesk activity per team; NULL on issue-anchored
+    /// rows (their team resolves via the issue) and on pre-column rows.
+    #[serde(default)]
+    pub team_id: Option<String>,
     /// `notification_type` wire value — typed enum lands with the Phase-3
     /// inbox (§4.7); Phase 2 carries the raw string.
     #[serde(default, rename = "type")]
@@ -324,7 +318,7 @@ pub struct IssueEvent {
     pub id: String,
     pub issue_id: String,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub actor_user_id: Option<String>,
     #[serde(default, rename = "type")]
@@ -351,7 +345,7 @@ pub struct IssueSubscriber {
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
@@ -364,14 +358,14 @@ pub struct IssueSubscriber {
 
 /// `coding_sessions` shape row (the cross-client "coding now" badge).
 /// `issue_id` is NULL on batch-scoped (multi-issue) session rows — those
-/// carry only `workspace_id` (enforced by the tRPC writer).
+/// carry only `team_id` (enforced by the tRPC writer).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct CodingSession {
     pub id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
     #[serde(default)]
-    pub workspace_id: Option<String>,
+    pub team_id: Option<String>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
@@ -408,7 +402,7 @@ mod tests {
         // float for `sort_order`, TEXT forms elsewhere.
         let issue: Issue = serde_json::from_value(json!({
             "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": 1,
             "identifier": "EXP-1",
             "title": "First issue",
@@ -432,7 +426,7 @@ mod tests {
     fn issue_with_unknown_enum_value_is_kept_not_dropped() {
         let issue: Issue = serde_json::from_value(json!({
             "id": "i-1",
-            "project_id": "p-1",
+            "board_id": "p-1",
             "number": "7",
             "identifier": "EXP-7",
             "title": "Future status",
@@ -445,72 +439,87 @@ mod tests {
     }
 
     #[test]
-    fn workspace_hydrates_and_ignores_stray_public_columns() {
-        // Workspaces are always private — the shape has no
-        // is_public/public_write_policy field. A row from an older server that
-        // still serves those columns must hydrate anyway (row structs carry no
-        // deny_unknown_fields, so the extra keys are simply ignored).
-        let ws: Workspace = serde_json::from_value(json!({
-            "id": "w-1",
-            "name": "Exponential",
-            "slug": "exponential",
-            "is_public": "t",
-            "public_write_policy": "authenticated"
-        }))
-        .unwrap();
-        assert_eq!(ws.slug.as_deref(), Some("exponential"));
-    }
-
-    #[test]
-    fn project_public_and_icon_hydrate() {
-        // Publicness comes from `is_public` and the glyph from `icon`; the
-        // dropped `type` column no longer arrives (a stray one is simply
-        // ignored — no field models it).
-        let public: Project = serde_json::from_value(json!({
+    fn board_icon_hydrates_and_stray_public_columns_are_ignored() {
+        // The glyph comes from `icon`; the dropped public-board columns
+        // (`is_public`/`public_show_*`, like the older `type`) no longer
+        // arrive — a stray one from an older server or a pre-drop local table
+        // is simply ignored (row structs carry no deny_unknown_fields).
+        let board: Board = serde_json::from_value(json!({
             "id": "p-1",
-            "workspace_id": "w-1",
-            "name": "Feedback",
-            "is_public": "t",
+            "team_id": "w-1",
+            "name": "Exponential",
             "icon": "megaphone",
-            "public_show_comments": "t"
+            "is_public": "t",
+            "public_show_comments": "t",
+            "public_show_activity": null
         }))
         .unwrap();
-        assert_eq!(public.is_public, Some(true));
-        assert_eq!(public.icon.as_deref(), Some("megaphone"));
-        assert_eq!(public.public_show_comments, Some(true));
+        assert_eq!(board.icon.as_deref(), Some("megaphone"));
 
-        let private: Project = serde_json::from_value(json!({
-            "id": "p-2", "workspace_id": "w-1", "name": "Tasks",
-            "is_public": false, "icon": "square-kanban"
+        // A row missing `icon` degrades to None (attribute-derived fallback).
+        let sparse: Board = serde_json::from_value(json!({
+            "id": "p-3", "team_id": "w-1", "name": "Sparse"
         }))
         .unwrap();
-        assert_eq!(private.is_public, Some(false));
-        assert_eq!(private.icon.as_deref(), Some("square-kanban"));
-
-        // A row missing the new columns degrades: publicness to None (read
-        // sites default to false), glyph to None (attribute-derived fallback).
-        let sparse: Project = serde_json::from_value(json!({
-            "id": "p-3", "workspace_id": "w-1", "name": "Sparse"
-        }))
-        .unwrap();
-        assert_eq!(sparse.is_public, None);
         assert_eq!(sparse.icon, None);
     }
 
     #[test]
-    fn project_with_null_is_public_hydrates_not_dropped() {
-        // The 0.8.4→0.8.5 upgrade regression: `heal_missing_columns` ALTERs
-        // `is_public` in as TEXT NULL on pre-existing rows, and the store's
-        // hydrate read re-wraps SQL NULL as EXPLICIT JSON null — which
-        // `serde(default)` does not cover. A required bool here made every
-        // pre-upgrade project row fail hydration and silently vanish from the
-        // project list (§5.5: a partial row degrades, never drops).
-        let healed: Project = serde_json::from_value(json!({
-            "id": "p-1", "workspace_id": "w-1", "name": "Healed",
-            "is_public": null
+    fn team_helpdesk_enabled_hydrates_tolerantly() {
+        // SQLite TEXT store form ("t"/"f") — the same tolerant path as
+        // Board::is_protected.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-1",
+            "name": "Acme",
+            "helpdesk_enabled": "t"
         }))
-        .expect("explicit-null is_public must not drop the row");
-        assert_eq!(healed.is_public, None);
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, Some(true));
+
+        // Bare wire bool works too.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-2",
+            "name": "Beta",
+            "helpdesk_enabled": false
+        }))
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, Some(false));
+
+        // Pre-column rows degrade to None (disabled), never a dropped row.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-3",
+            "name": "Legacy"
+        }))
+        .unwrap();
+        assert_eq!(team.helpdesk_enabled, None);
+    }
+
+    #[test]
+    fn notification_team_id_hydrates_and_degrades_to_none() {
+        // EXP-180: an issue-less support_reply row carries the ticket's team.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-1",
+            "user_id": "u-1",
+            "issue_id": null,
+            "team_id": "w-1",
+            "type": "support_reply",
+            "title": "Reporter replied",
+            "body": "Thanks, that fixed it!"
+        }))
+        .unwrap();
+        assert_eq!(n.issue_id, None);
+        assert_eq!(n.team_id.as_deref(), Some("w-1"));
+        assert_eq!(n.kind.as_deref(), Some("support_reply"));
+
+        // Issue-anchored / pre-column rows degrade to None, never a drop.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-2",
+            "user_id": "u-1",
+            "issue_id": "i-1",
+            "type": "issue_assigned"
+        }))
+        .unwrap();
+        assert_eq!(n.team_id, None);
     }
 
     #[test]

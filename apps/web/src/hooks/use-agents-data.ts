@@ -2,10 +2,10 @@ import { useMemo } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
-  useWorkspaceProjects,
-  useWorkspaceUsers,
-} from "@/hooks/use-workspace-data"
-import type { CodingSession, Issue, Project, User } from "@/db/schema"
+  useTeamBoards,
+  useTeamUsers,
+} from "@/hooks/use-team-data"
+import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 
@@ -13,25 +13,25 @@ export interface AgentSessionRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing. */
   issue: Issue | undefined
-  project: Project | undefined
+  board: Board | undefined
   /** Undefined for unsynced users (public boards) — render via displayUserName. */
   user: User | undefined
 }
 
-// Workspace Agents page + dock data: the RUNNING coding sessions in the
-// workspace (synced coding_sessions shape, workspace-scoped by the denormalized
-// workspace_id), joined client-side to their issue / project / driving user,
+// Team Agents page + dock data: the RUNNING coding sessions in the
+// team (synced coding_sessions shape, team-scoped by the denormalized
+// team_id), joined client-side to their issue / board / driving user,
 // newest-first. Ended sessions dropped out with the redesign — the live trail
 // lives on each issue, and the dock/Agents page only surface running work.
-export function useAgentsData(workspaceId?: string) {
+export function useAgentsData(teamId?: string) {
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
-      workspaceId
+      teamId
         ? query
             .from({ sessions: codingSessionCollection })
-            .where(({ sessions }) => eq(sessions.workspaceId, workspaceId))
+            .where(({ sessions }) => eq(sessions.teamId, teamId))
         : undefined,
-    [workspaceId]
+    [teamId]
   )
   const sessions = useMemo(
     () => (sessionRows ?? []) as CodingSession[],
@@ -56,15 +56,15 @@ export function useAgentsData(workspaceId?: string) {
     [issueIds.join(`,`)]
   )
 
-  const projects = useWorkspaceProjects(workspaceId)
-  const { userMap } = useWorkspaceUsers(workspaceId)
+  const boards = useTeamBoards(teamId)
+  const { userMap } = useTeamUsers(teamId)
   const now = useNow()
 
   return useMemo(() => {
     const issueMap = new Map(
       ((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])
     )
-    const projectMap = new Map(projects.map((project) => [project.id, project]))
+    const boardMap = new Map(boards.map((board) => [board.id, board]))
 
     const toRow = (session: CodingSession): AgentSessionRow => {
       // Batch-scoped sessions carry no issue — render issueless.
@@ -72,7 +72,7 @@ export function useAgentsData(workspaceId?: string) {
       return {
         session,
         issue,
-        project: issue ? projectMap.get(issue.projectId) : undefined,
+        board: issue ? boardMap.get(issue.boardId) : undefined,
         user: userMap.get(session.userId),
       }
     }
@@ -93,9 +93,9 @@ export function useAgentsData(workspaceId?: string) {
 
     return {
       running,
-      // Without a workspace id the query is skipped and can never deliver a
+      // Without a team id the query is skipped and can never deliver a
       // snapshot — treat that as ready-empty instead of loading forever.
-      isLoading: !isReady && Boolean(workspaceId),
+      isLoading: !isReady && Boolean(teamId),
     }
-  }, [sessions, issueRows, projects, userMap, isReady, workspaceId, now])
+  }, [sessions, issueRows, boards, userMap, isReady, teamId, now])
 }

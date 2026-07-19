@@ -138,7 +138,7 @@ function PropsPanel({ issue }: { issue: Issue }) {
           {issue.due ?? <span className="ide-c-muted">Due date</span>}
         </button>
       </PropGroup>
-      <PropGroup label="Project">
+      <PropGroup label="Board">
         <span className="web-prop-chip">
           <span className="web-proj-dot" style={{ background: PROJECT.color }} />
           {PROJECT.name}

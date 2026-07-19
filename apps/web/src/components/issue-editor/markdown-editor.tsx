@@ -397,7 +397,7 @@ export const MarkdownEditor = forwardRef<
     const imageUploadRef = useRef(imageUpload)
     imageUploadRef.current = imageUpload
 
-    // Optional workspace contexts (null outside a workspace layout) that
+    // Optional team contexts (null outside a team layout) that
     // resolve `#IDENTIFIER` tokens to issues and `@email` tokens to members
     // for the pill decorations + the caret autocomplete. Held in refs so the
     // extensions (created once) always read fresh data.

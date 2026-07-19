@@ -33,7 +33,7 @@ import com.exponential.app.ui.theme.glassButton
 
 /**
  * The personal tab ("My Work", EXP-58): Inbox and My Issues merged into one
- * project-independent surface — the same pairing the web UI keeps at the top
+ * board-independent surface — the same pairing the web UI keeps at the top
  * of its sidebar (Inbox + My Issues), folded into a single bottom-bar
  * destination behind a segmented control. This replaces both the old routed
  * Inbox screen and the My Issues list that used to hide inside the Search
@@ -41,13 +41,15 @@ import com.exponential.app.ui.theme.glassButton
  */
 
 // rememberSaveable-friendly segment keys (plain strings, no custom Saver).
-// Reviews moved out to its own bottom-bar destination (EXP-147).
+// Reviews (EXP-147) and Support (EXP-180) each moved out to their own
+// bottom-bar destinations.
 private const val SECTION_INBOX = "inbox"
 private const val SECTION_MY_ISSUES = "my_issues"
 
 @Composable
 fun PersonalScreen(
     onOpenIssue: (String) -> Unit,
+    onOpenSupport: () -> Unit,
     inboxViewModel: InboxViewModel = hiltViewModel(),
 ) {
     val inboxState by inboxViewModel.state.collectAsStateWithLifecycle()
@@ -73,8 +75,9 @@ fun PersonalScreen(
             ) {
                 SegmentPill(
                     label = "Inbox",
-                    // Anything but my_issues renders the inbox (incl. a saved
-                    // pre-EXP-147 "reviews" value) — highlight accordingly.
+                    // Anything but my_issues renders the inbox (incl. saved
+                    // pre-EXP-147 "reviews" / pre-EXP-180 "support" values) —
+                    // highlight accordingly.
                     active = section != SECTION_MY_ISSUES,
                     unread = inboxState.totalUnread,
                     onClick = { section = SECTION_INBOX },
@@ -97,6 +100,7 @@ fun PersonalScreen(
                 SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
                 else -> InboxListContent(
                     onOpenIssue = onOpenIssue,
+                    onOpenSupport = onOpenSupport,
                     viewModel = inboxViewModel,
                 )
             }

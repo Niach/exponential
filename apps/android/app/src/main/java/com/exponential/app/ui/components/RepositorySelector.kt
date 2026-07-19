@@ -30,26 +30,26 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.GithubPickerRepo
-import com.exponential.app.data.api.ProjectRepositoryChoice
-import com.exponential.app.data.api.WorkspaceRepo
+import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
-// The required repository picker for project creation (masterplan v4 §6). Lists
-// the workspace's already-connected registry repos AND lets the user add a
+// The required repository picker for board creation (masterplan v4 §6). Lists
+// the team's already-connected registry repos AND lets the user add a
 // brand-new repo by name via the installed-repos picker — that path connects the
-// repo inline through `projects.create`'s `repository: { fullName }`. Binds a
-// [ProjectRepositoryChoice]. Shared by the create-project sheet and onboarding.
+// repo inline through `boards.create`'s `repository: { fullName }`. Binds a
+// [BoardRepositoryChoice]. Shared by the create-board sheet and onboarding.
 @Composable
 fun RepositorySelector(
     accountId: String,
-    workspaceId: String,
-    repos: List<WorkspaceRepo>,
+    teamId: String,
+    repos: List<TeamRepo>,
     loading: Boolean,
-    selection: ProjectRepositoryChoice?,
-    onSelect: (ProjectRepositoryChoice) -> Unit,
+    selection: BoardRepositoryChoice?,
+    onSelect: (BoardRepositoryChoice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -77,14 +77,14 @@ fun RepositorySelector(
             RepoRow(
                 fullName = repo.fullName,
                 isPrivate = repo.isPrivate,
-                selected = selection == ProjectRepositoryChoice.Registry(repo.id),
+                selected = selection == BoardRepositoryChoice.Registry(repo.id),
                 secondary = secondary,
                 tertiary = tertiary,
-            ) { onSelect(ProjectRepositoryChoice.Registry(repo.id)) }
+            ) { onSelect(BoardRepositoryChoice.Registry(repo.id)) }
         }
 
         addedRepo?.let { added ->
-            val selected = (selection as? ProjectRepositoryChoice.Inline)?.fullName == added.fullName
+            val selected = (selection as? BoardRepositoryChoice.Inline)?.fullName == added.fullName
             RepoRow(
                 fullName = added.fullName,
                 isPrivate = added.isPrivate,
@@ -93,7 +93,7 @@ fun RepositorySelector(
                 tertiary = tertiary,
             ) {
                 onSelect(
-                    ProjectRepositoryChoice.Inline(
+                    BoardRepositoryChoice.Inline(
                         fullName = added.fullName,
                         defaultBranch = added.defaultBranch,
                         isPrivate = added.isPrivate,
@@ -104,7 +104,7 @@ fun RepositorySelector(
 
         if (repos.isEmpty() && addedRepo == null) {
             Text(
-                "Connect a GitHub repository to back this project.",
+                "Connect a GitHub repository to back this board.",
                 style = MaterialTheme.typography.bodySmall,
                 color = tertiary,
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -131,11 +131,11 @@ fun RepositorySelector(
     if (showPicker) {
         GithubRepoPickerSheet(
             accountId = accountId,
-            workspaceId = workspaceId,
+            teamId = teamId,
             onPick = { repo ->
                 addedRepo = repo
                 onSelect(
-                    ProjectRepositoryChoice.Inline(
+                    BoardRepositoryChoice.Inline(
                         fullName = repo.fullName,
                         defaultBranch = repo.defaultBranch,
                         isPrivate = repo.isPrivate,

@@ -3,12 +3,12 @@ import Foundation
 public struct CreateLabelInput: Encodable, Sendable {
     public let name: String
     public let color: String
-    public let workspaceId: String
+    public let teamId: String
 
-    public init(name: String, color: String, workspaceId: String) {
+    public init(name: String, color: String, teamId: String) {
         self.name = name
         self.color = color
-        self.workspaceId = workspaceId
+        self.teamId = teamId
     }
 }
 

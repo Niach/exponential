@@ -11,7 +11,7 @@ function claims(overrides: Partial<SteerTicketClaims> = {}): SteerTicketClaims {
   const now = Math.floor(Date.now() / 1000)
   return {
     sub: `user-1`,
-    ws: `ws-1`,
+    team: `team-1`,
     name: `Dennis`,
     sessionId: `sess-1`,
     role: `viewer`,

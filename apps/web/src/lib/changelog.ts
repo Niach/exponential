@@ -23,13 +23,23 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-teams-boards-helpdesk`,
+    date: `2026-07-19`,
+    title: `Boards, a simpler helpdesk, and a private-by-default product`,
+    summary: `Projects are now boards, the helpdesk moved to one team-level inbox, and public boards are gone.`,
+    body: `- **Projects are now boards** — same power, clearer name, everywhere: web, mobile, and the IDE.
+- **Public boards are gone** — nothing in a team is readable from outside anymore. The feedback widget is the one way outsiders reach you, and it's now included on every plan (1 widget on Free, 3 on Pro).
+- **One helpdesk per team** — flip a single switch under Settings → Feedback widget (Pro+) and every member shares the Support inbox. Tickets are standalone conversations with an email reply loop, and any ticket can be escalated into an issue on a board with one click.
+- **Simpler board creation** — no more board types. A board is a board; connect a repository when you want to code on it.`,
+  },
+  {
     id: `2026-07-whats-new-card`,
     date: `2026-07-17`,
     title: `A changelog, mobile coding, and support inboxes`,
     summary: `Start coding from your phone, helpdesk widget mode, and this changelog.`,
     body: `- **What's new lives here now** — each release drops a note in this changelog. Dismiss the card and it stays quiet until the next release; reopen it anytime from the user menu.
 - **Start coding from mobile** — the iOS and Android apps can now remotely start coding sessions on your desktop, including batch runs.
-- **Support inboxes** — the feedback widget gained a helpdesk mode: support tickets can file into a separate private project, away from your public feedback board.
+- **Support inboxes** — the feedback widget gained a helpdesk mode: support tickets can file into a separate private inbox, away from your feedback board.
 - **Steering polish** — stale steering sessions are cleaned up reliably, and the web agent dock and review views got a refresh.`,
   },
 ]

@@ -8,8 +8,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { PlanComparison } from "@/components/workspace/plan-comparison"
-import { AdjustSeatsDialog } from "@/components/workspace/adjust-seats-dialog"
+import { PlanComparison } from "@/components/team/plan-comparison"
+import { AdjustSeatsDialog } from "@/components/team/adjust-seats-dialog"
 import { useBillingPlan } from "@/hooks/use-billing"
 
 export function UpgradeDialog({
@@ -20,7 +20,7 @@ export function UpgradeDialog({
   proProductId,
   businessProductId,
   businessYearlyProductId,
-  workspaceId,
+  teamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -29,14 +29,14 @@ export function UpgradeDialog({
   proProductId: string | null
   businessProductId: string | null
   businessYearlyProductId?: string | null
-  // Checkout binds purchased seats to this workspace (the per-seat path —
+  // Checkout binds purchased seats to this team (the per-seat path —
   // billing.createSeatCheckout is the only checkout).
-  workspaceId: string
+  teamId: string
 }) {
-  // An already-subscribed workspace hitting a limit must switch plans on its
+  // An already-subscribed team hitting a limit must switch plans on its
   // EXISTING subscription, not run a second checkout (which would stack a
   // second full-price subscription) — resolve the real plan + subscription.
-  const billingPlan = useBillingPlan(open ? workspaceId : undefined)
+  const billingPlan = useBillingPlan(open ? teamId : undefined)
   const [seatDialogOpen, setSeatDialogOpen] = useState(false)
   const subscription = billingPlan?.subscription ?? null
   const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
@@ -78,13 +78,13 @@ export function UpgradeDialog({
           proProductId={proProductId}
           businessProductId={businessProductId}
           businessYearlyProductId={businessYearlyProductId}
-          workspaceId={workspaceId}
+          teamId={teamId}
           subscription={subscription}
         />
 
         {subscription && (
           <AdjustSeatsDialog
-            workspaceId={workspaceId}
+            teamId={teamId}
             currentSeats={subscription.seats}
             memberCount={billingPlan?.usage.members ?? 0}
             periodEnd={subscription.periodEnd}

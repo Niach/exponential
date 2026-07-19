@@ -24,14 +24,14 @@ import {
   invalidateRepoCache,
 } from "@/lib/trpc/integrations"
 
-// GitHub App OAuth callback — the PRIMARY workspace claim path. The user
+// GitHub App OAuth callback — the PRIMARY team claim path. The user
 // arrives from a single lightweight authorize screen (no configure page, no
 // forced settings change — the thing that made the install round-trip so
 // tedious, especially on mobile). We exchange the code for a TRANSIENT
 // user-to-server token, ask GitHub which installations that user can access
 // (`GET /user/installations` — GitHub's own proof of account control), mirror
 // them into github_installations, and link them to the state's target
-// workspace: directly when there's exactly one, via the /integrations/github/
+// team: directly when there's exactly one, via the /integrations/github/
 // claim picker page when there are several. The token is used for that single
 // enumeration and discarded — never persisted, so expiry/refresh never exist.
 async function handleCallback(request: Request): Promise<Response> {
@@ -55,10 +55,10 @@ async function handleCallback(request: Request): Promise<Response> {
     const claim = consumeGithubSetupState(state, sessionUserId, {
       expectOauth: true,
     })
-    if (!claim?.workspaceId || !sessionUserId) {
+    if (!claim?.teamId || !sessionUserId) {
       return errorRedirect(`session`)
     }
-    const workspaceId = claim.workspaceId
+    const teamId = claim.teamId
 
     if (!code) return errorRedirect(`exchange`)
     const userToken = await exchangeGithubOAuthCode(code)
@@ -95,7 +95,7 @@ async function handleCallback(request: Request): Promise<Response> {
     // an installation to anyone who can access even ONE of its repos, so the
     // link alone must never open the whole installation. These grant rows are
     // what integrations.repos (discovery) and assertRepoInstallationAccess
-    // (connect) gate on. REPLACE semantics per (workspace, installation, user)
+    // (connect) gate on. REPLACE semantics per (team, installation, user)
     // so a re-auth cleanly refreshes this user's set. Best-effort per
     // installation: one failed listing must not abort the linking below (that
     // installation just contributes no grants until the next re-auth).
@@ -110,7 +110,7 @@ async function handleCallback(request: Request): Promise<Response> {
             .delete(githubInstallationRepoGrants)
             .where(
               and(
-                eq(githubInstallationRepoGrants.workspaceId, workspaceId),
+                eq(githubInstallationRepoGrants.teamId, teamId),
                 eq(githubInstallationRepoGrants.installationId, inst.id),
                 eq(githubInstallationRepoGrants.grantedByUserId, sessionUserId)
               )
@@ -118,7 +118,7 @@ async function handleCallback(request: Request): Promise<Response> {
           if (repos.length > 0) {
             await tx.insert(githubInstallationRepoGrants).values(
               repos.map((repo) => ({
-                workspaceId,
+                teamId,
                 installationId: inst.id,
                 fullName: repo.fullName,
                 private: repo.private,
@@ -136,9 +136,9 @@ async function handleCallback(request: Request): Promise<Response> {
       }
     }
     // Token's job is done — it never leaves this scope. The grant set just
-    // changed, so any cached (grant-derived) repo list for this workspace is
+    // changed, so any cached (grant-derived) repo list for this team is
     // stale even when no new link lands below.
-    invalidateRepoCache(workspaceId)
+    invalidateRepoCache(teamId)
 
     if (installations.length === 0) {
       return errorRedirect(`none`)
@@ -147,7 +147,7 @@ async function handleCallback(request: Request): Promise<Response> {
     if (installations.length === 1) {
       const rowId = rowIds.get(installations[0].id)
       try {
-        await assertCanManageRepos(sessionUserId, workspaceId)
+        await assertCanManageRepos(sessionUserId, teamId)
       } catch {
         return errorRedirect(`forbidden`)
       }
@@ -155,12 +155,12 @@ async function handleCallback(request: Request): Promise<Response> {
         await db
           .insert(githubInstallationLinks)
           .values({
-            workspaceId,
+            teamId,
             githubInstallationId: rowId,
             createdByUserId: sessionUserId,
           })
           .onConflictDoNothing()
-        invalidateRepoCache(workspaceId)
+        invalidateRepoCache(teamId)
       }
       if (fromMobile) return mobileConnectedResponse()
       return new Response(null, {
@@ -172,11 +172,11 @@ async function handleCallback(request: Request): Promise<Response> {
     }
 
     // Several installations — hand off to the in-app account picker. The
-    // ticket binds user + workspace + the exact verified id set; linking is
+    // ticket binds user + team + the exact verified id set; linking is
     // idempotent, so it needs no nonce.
     const ticket = mintGithubClaimTicket({
       u: sessionUserId,
-      w: workspaceId,
+      w: teamId,
       ids: installations.map((i) => i.id),
       ...(fromMobile ? { m: true } : {}),
       ...(fromDialog ? { d: true } : {}),

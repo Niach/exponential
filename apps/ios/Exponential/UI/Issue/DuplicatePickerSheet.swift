@@ -3,11 +3,11 @@ import ExpCore
 import SwiftUI
 
 /// Issue picker for "Mark as duplicate…" (masterplan §5e): searchable list of
-/// the workspace's other issues; selecting one atomically sets
+/// the team's other issues; selecting one atomically sets
 /// `duplicateOfId` + `status = duplicate` via the caller. Matches the
 /// PickerSheet look (medium/large detent, immediate commit on tap).
 struct DuplicatePickerSheet: View {
-    /// Candidate canonical issues (same workspace, self excluded), newest first.
+    /// Candidate canonical issues (same team, self excluded), newest first.
     let loadCandidates: () async -> [IssueEntity]
     let onSelect: (IssueEntity) -> Void
 

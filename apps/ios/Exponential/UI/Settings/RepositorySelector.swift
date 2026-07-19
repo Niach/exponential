@@ -2,20 +2,20 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Required repository picker for project creation (masterplan §6). Lists the
-/// workspace's already-connected registry repos (`repositories.list`) and lets
+/// Required repository picker for board creation (masterplan §6). Lists the
+/// team's already-connected registry repos (`repositories.list`) and lets
 /// the user also add a brand-new repo by name via the installed-repos picker —
-/// that path connects the repo inline through `projects.create`'s
+/// that path connects the repo inline through `boards.create`'s
 /// `repository: { fullName }`. Empty state (nothing connected, nothing added):
-/// an inline "Add a repository from GitHub…" picker. Binds a `ProjectRepositoryChoice`.
+/// an inline "Add a repository from GitHub…" picker. Binds a `BoardRepositoryChoice`.
 struct RepositorySelector: View {
     let accountId: String
-    let workspaceId: String
-    @Binding var selection: ProjectRepositoryChoice?
+    let teamId: String
+    @Binding var selection: BoardRepositoryChoice?
 
     @Environment(AppDependencies.self) private var deps
 
-    @State private var repos: [WorkspaceRepo] = []
+    @State private var repos: [TeamRepo] = []
     @State private var loading = true
     @State private var errorText: String?
     @State private var showAddByName = false
@@ -97,11 +97,11 @@ struct RepositorySelector: View {
                 Text(errorText).font(.caption).foregroundStyle(.red.opacity(0.8))
             }
         }
-        .task(id: workspaceId) { await load() }
+        .task(id: teamId) { await load() }
         .sheet(isPresented: $showAddByName) {
             GithubRepoPicker(
                 accountId: accountId,
-                workspaceId: workspaceId,
+                teamId: teamId,
                 integrationsApi: deps.integrationsApi
             ) { repo in
                 addedRepo = repo
@@ -153,7 +153,7 @@ struct RepositorySelector: View {
         loading = true
         defer { loading = false }
         do {
-            repos = try await deps.repositoriesApi.list(accountId: accountId, workspaceId: workspaceId)
+            repos = try await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)
             errorText = nil
         } catch {
             errorText = error.trpcUserMessage

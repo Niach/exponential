@@ -319,10 +319,10 @@ describe(`url builders`, () => {
   it(`builds the issue deep link shared by push and email`, () => {
     expect(
       buildIssueDeepLinkPath({
-        workspaceSlug: `metric`,
-        projectSlug: `web`,
+        teamSlug: `metric`,
+        boardSlug: `web`,
         identifier: `MET-12`,
       })
-    ).toBe(`/t/metric/projects/web/issues/MET-12`)
+    ).toBe(`/t/metric/boards/web/issues/MET-12`)
   })
 })

@@ -76,7 +76,7 @@ fn main() {
     // macOS: clicking the dock icon with no windows open reopens one.
     app.on_reopen(|cx| {
         if cx.windows().is_empty() {
-            windows::open_workspace_window(cx);
+            windows::open_shell_window(cx);
         }
     });
 
@@ -134,11 +134,11 @@ fn main() {
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the
-        // persisted account — else the workspace boots to the login surface.
+        // persisted account — else the team boots to the login surface.
         ui::bootstrap_session(cx);
 
         // Update check (§11.2, EXP-68): at launch and periodically while
-        // running; non-blocking, offline-safe; flips a global the Workspace
+        // running; non-blocking, offline-safe; flips a global the Shell
         // renders as a dismissible "Update available" banner. Staging channel
         // skips it internally.
         ui::check_for_updates(cx);
@@ -154,9 +154,9 @@ fn main() {
         .detach();
 
         cx.activate(true);
-        windows::open_workspace_window(cx);
+        windows::open_shell_window(cx);
 
-        // Dev hook: EXP_WINDOWS=N opens N workspace windows at startup so the
+        // Dev hook: EXP_WINDOWS=N opens N shell windows at startup so the
         // §3.10 multi-window gate ("a second window opens sharing the global
         // Store") is demonstrable headlessly/in CI without synthesizing menu
         // clicks. Users open further windows via File ▸ New Window /
@@ -167,7 +167,7 @@ fn main() {
             .map(|count| count.clamp(1, 4) - 1)
         {
             for _ in 0..extra {
-                windows::open_workspace_window(cx);
+                windows::open_shell_window(cx);
             }
         }
     });

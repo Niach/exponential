@@ -15,7 +15,7 @@ func eventVerb(_ type: String) -> String {
     case "label_removed": return "removed a label"
     case "pr_opened": return "opened a pull request"
     case "pr_merged": return "merged the pull request"
-    case "project_moved": return "moved this to another project"
+    case "board_moved": return "moved this to another board"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -54,7 +54,7 @@ func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],
     labels: [String: LabelEntity]?,
-    projects: [String: ProjectEntity]? = nil
+    boards: [String: BoardEntity]? = nil
 ) -> String {
     switch event.type {
     case "status_changed":
@@ -82,14 +82,14 @@ func eventPhrase(
     case "pr_merged":
         if let n = eventField(event.payload, "prNumber") { return "merged PR #\(n)" }
         return "merged the pull request"
-    case "project_moved":
-        // EXP-57 — mirrors the web row: a deleted source project leaves no
+    case "board_moved":
+        // EXP-57 — mirrors the web row: a deleted source board leaves no
         // name behind, so fall back generically; the payload's fromIdentifier
         // keeps the row useful either way.
-        let fromName = eventField(event.payload, "fromProjectId")
-            .flatMap { projects?[$0]?.name } ?? "another project"
-        let toName = eventField(event.payload, "toProjectId")
-            .flatMap { projects?[$0]?.name } ?? "this project"
+        let fromName = eventField(event.payload, "fromBoardId")
+            .flatMap { boards?[$0]?.name } ?? "another board"
+        let toName = eventField(event.payload, "toBoardId")
+            .flatMap { boards?[$0]?.name } ?? "this board"
         let fromIdentifier = eventField(event.payload, "fromIdentifier")
             .map { " (\($0))" } ?? ""
         return "moved this from \(fromName)\(fromIdentifier) to \(toName)"

@@ -18,7 +18,7 @@ class PgBoolTest {
     private fun subscriber(unsubscribed: String) = json.decodeFromString(
         IssueSubscriberEntity.serializer(),
         """
-        {"id":"s1","issue_id":"i1","workspace_id":"w1","source":"manual",
+        {"id":"s1","issue_id":"i1","team_id":"w1","source":"manual",
          "unsubscribed":$unsubscribed,
          "created_at":"2026-07-12 00:00:00+00","updated_at":"2026-07-12 00:00:00+00"}
         """.trimIndent(),

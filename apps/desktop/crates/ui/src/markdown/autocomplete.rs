@@ -19,7 +19,7 @@ use sync::Store;
 /// What opened the completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionTrigger {
-    /// `@` — workspace members; inserts `@<email>`.
+    /// `@` — team members; inserts `@<email>`.
     Mention,
     /// `#` — issues; inserts `#<IDENTIFIER>`.
     IssueRef,
@@ -102,16 +102,16 @@ pub fn detect_trigger(text: &str, cursor: usize) -> Option<PendingToken> {
     })
 }
 
-/// The default [`CompletionSource`]: workspace members (⨝ users) for `@`,
-/// the workspace's issues for `#`, both read live from the §05 collections.
-pub fn store_completion_source(workspace_id: impl Into<String>) -> Rc<dyn CompletionSource> {
+/// The default [`CompletionSource`]: team members (⨝ users) for `@`,
+/// the team's issues for `#`, both read live from the §05 collections.
+pub fn store_completion_source(team_id: impl Into<String>) -> Rc<dyn CompletionSource> {
     Rc::new(StoreCompletionSource {
-        workspace_id: workspace_id.into(),
+        team_id: team_id.into(),
     })
 }
 
 struct StoreCompletionSource {
-    workspace_id: String,
+    team_id: String,
 }
 
 impl CompletionSource for StoreCompletionSource {
@@ -120,11 +120,11 @@ impl CompletionSource for StoreCompletionSource {
         match trigger {
             CompletionTrigger::Mention => {
                 let needle = query.to_lowercase();
-                let members = collections.workspace_members.read(cx);
+                let members = collections.team_members.read(cx);
                 let users = collections.users.read(cx);
                 let mut items: Vec<CompletionItem> = members
                     .iter()
-                    .filter(|m| m.workspace_id == self.workspace_id)
+                    .filter(|m| m.team_id == self.team_id)
                     .filter_map(|m| users.get(&m.user_id))
                     .filter_map(|user| {
                         let email = user.email.clone()?;
@@ -149,7 +149,7 @@ impl CompletionSource for StoreCompletionSource {
                 items
             }
             CompletionTrigger::IssueRef => {
-                let mut issues = collections.issues_in_workspace(&self.workspace_id, cx);
+                let mut issues = collections.issues_in_team(&self.team_id, cx);
                 filter_and_rank_issue_refs(&mut issues, query);
                 issues.truncate(MAX_ITEMS);
                 issues
@@ -262,7 +262,7 @@ mod tests {
     fn issue(identifier: &str, title: &str, created_at: Option<&str>) -> Issue {
         serde_json::from_value(serde_json::json!({
             "id": identifier,
-            "project_id": "p1",
+            "board_id": "p1",
             "number": 1,
             "identifier": identifier,
             "title": title,

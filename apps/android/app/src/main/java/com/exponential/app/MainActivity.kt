@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 is WebLinks.Parsed.IssueRef -> deepLinkBus.openWebIssueRef(
                     uri = data,
                     host = data.host ?: return,
-                    workspaceSlug = parsed.workspaceSlug,
+                    teamSlug = parsed.teamSlug,
                     identifier = parsed.identifier,
                 )
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
@@ -103,6 +103,8 @@ class MainActivity : ComponentActivity() {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openIssue(it) }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
+            // support_reply push taps (EXP-180): straight to the ticket.
+            "support" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openSupportThread(it) }
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
             // picker, which consumes this and re-fetches the repo list.
@@ -118,13 +120,21 @@ class MainActivity : ComponentActivity() {
     // guard is valid even during onCreate. AppNavHost parks the bus target
     // until the auth token is ready, so a cold-start tap navigates post-login.
     private fun handlePushExtras(intent: Intent) {
-        val issueId = intent.getStringExtra("issueId") ?: return
+        val issueId = intent.getStringExtra("issueId")
+        // support_reply pushes (EXP-180) carry a threadId and NO issue keys.
+        val threadId = intent.getStringExtra("threadId")
+        if (issueId == null && threadId == null) return
         val targetUserId = intent.getStringExtra("userId")
         if (targetUserId != null && targetUserId != authRepository.userId.value) return
         // Belt-and-braces beside the savedInstanceState gate: an in-process
         // recreation reuses this same Intent instance via getIntent().
-        intent.removeExtra("issueId")
-        deepLinkBus.openIssue(issueId)
+        if (issueId != null) {
+            intent.removeExtra("issueId")
+            deepLinkBus.openIssue(issueId)
+        } else if (threadId != null) {
+            intent.removeExtra("threadId")
+            deepLinkBus.openSupportThread(threadId)
+        }
     }
 
     private fun handleOauthReturn(data: android.net.Uri) {

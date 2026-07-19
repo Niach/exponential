@@ -1,4 +1,4 @@
-// Snippet builders shared by the workspace settings' widget section and the
+// Snippet builders shared by the team settings' widget section and the
 // "Getting started" cards (EXP-88). Origin is a parameter (callers pass
 // `window.location.origin`) so the builders stay SSR-safe and unit-testable;
 // deriving from the current origin keeps every snippet self-host correct.

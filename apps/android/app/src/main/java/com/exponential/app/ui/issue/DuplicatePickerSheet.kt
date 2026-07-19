@@ -39,7 +39,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * Issue picker for "Mark as duplicate…" (masterplan §5e): searchable list of
- * the workspace's other issues; picking one sets `duplicateOfId` + status
+ * the team's other issues; picking one sets `duplicateOfId` + status
  * `duplicate` atomically via the issues.update mutation.
  */
 @OptIn(ExperimentalMaterial3Api::class)

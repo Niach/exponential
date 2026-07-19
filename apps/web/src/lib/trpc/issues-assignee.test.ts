@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
 // Locks the REV-3 fix: issues.create/update must validate a provided
-// assigneeId against the issue's workspace membership BEFORE the transaction.
+// assigneeId against the issue's team membership BEFORE the transaction.
 // Without it, any member could assign issues to arbitrary users of the
 // instance — ensureSubscribed + fireAndForgetAssignmentNotify would then
-// subscribe and push-notify victims in workspaces they never joined
+// subscribe and push-notify victims in teams they never joined
 // (cross-tenant notification injection).
 
 // Shared mock state must be defined via vi.hoisted so the (hoisted) vi.mock
@@ -13,7 +13,7 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => {
   const state = {
     // Rows returned by the mocked db select chain — drives the REAL
-    // getWorkspaceMember used by the real assertAssigneeInWorkspace.
+    // getTeamMember used by the real assertAssigneeInTeam.
     memberRows: [] as unknown[],
   }
   const fireAndForgetAssignmentNotify = vi.fn()
@@ -38,29 +38,29 @@ vi.mock(`@/db/connection`, () => ({
 // lib/trpc.ts imports `auth` at module scope; runtime only needs the export.
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-// Override ONLY the actor-side lookups; the real assertAssigneeInWorkspace
+// Override ONLY the actor-side lookups; the real assertAssigneeInTeam
 // (the code under test) comes through the spread.
-vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
+vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/workspace-membership")>()
+    await importOriginal<typeof import("@/lib/team-membership")>()
   return {
     ...actual,
-    getProjectWorkspaceId: vi.fn(async () => ({
+    getBoardTeamId: vi.fn(async () => ({
       id: `proj-1`,
-      workspaceId: `ws-1`,
+      teamId: `ws-1`,
     })),
-    resolveWorkspaceAccess: vi.fn(async () => ({
+    resolveTeamAccess: vi.fn(async () => ({
       kind: `member`,
-      workspace: { id: `ws-1` },
-      member: { role: `member`, userId: `actor`, workspaceId: `ws-1` },
+      team: { id: `ws-1` },
+      member: { role: `member`, userId: `actor`, teamId: `ws-1` },
     })),
-    // EXP-50 solo-workspace default-assign is covered by its own test file;
+    // EXP-50 solo-team default-assign is covered by its own test file;
     // here it must stay inert (the db mock can't serve its joined query).
     getSoleHumanMemberId: vi.fn(async () => null),
     assertIssueAccess: vi.fn(async () => ({
       issueId: `issue-1`,
-      projectId: `proj-1`,
-      workspaceId: `ws-1`,
+      boardId: `proj-1`,
+      teamId: `ws-1`,
     })),
   }
 })
@@ -80,7 +80,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: vi.fn(),
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
-  resolveProjectRepository: vi.fn(),
+  resolveBoardRepository: vi.fn(),
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),
@@ -106,9 +106,9 @@ vi.mock(`@/lib/integrations/activity`, () => ({
 }))
 
 import { issuesRouter } from "@/lib/trpc/issues"
-import { assertAssigneeInWorkspace } from "@/lib/workspace-membership"
+import { assertAssigneeInTeam } from "@/lib/team-membership"
 
-const PROJECT_ID = `11111111-1111-4111-8111-111111111111`
+const BOARD_ID = `11111111-1111-4111-8111-111111111111`
 const ISSUE_ID = `22222222-2222-4222-8222-222222222222`
 
 // Sentinel: the transaction body is out of scope here — reaching it proves the
@@ -123,9 +123,9 @@ const caller = issuesRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
-const memberRow = { userId: `victim`, workspaceId: `ws-1`, role: `member` }
+const memberRow = { userId: `victim`, teamId: `ws-1`, role: `member` }
 
-describe(`issues assignee workspace-membership guard (REV-3)`, () => {
+describe(`issues assignee team-membership guard (REV-3)`, () => {
   beforeEach(() => {
     h.state.memberRows = []
     h.fireAndForgetAssignmentNotify.mockClear()
@@ -134,7 +134,7 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
 
   it(`create rejects a non-member assignee with BAD_REQUEST before the transaction`, async () => {
     const error = await caller
-      .create({ projectId: PROJECT_ID, title: `Phish`, assigneeId: `outsider` })
+      .create({ boardId: BOARD_ID, title: `Phish`, assigneeId: `outsider` })
       .then(
         () => undefined,
         (e: unknown) => e
@@ -142,7 +142,7 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Assignee must be a member of this workspace`
+      `Assignee must be a member of this team`
     )
     expect(transaction).not.toHaveBeenCalled()
     expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
@@ -158,17 +158,17 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
-      `Assignee must be a member of this workspace`
+      `Assignee must be a member of this team`
     )
     expect(transaction).not.toHaveBeenCalled()
     expect(h.fireAndForgetAssignmentNotify).not.toHaveBeenCalled()
   })
 
-  it(`create with a same-workspace member assignee passes the guard`, async () => {
+  it(`create with a same-team member assignee passes the guard`, async () => {
     h.state.memberRows = [memberRow]
     await expect(
       caller.create({
-        projectId: PROJECT_ID,
+        boardId: BOARD_ID,
         title: `Legit`,
         assigneeId: `victim`,
       })
@@ -177,7 +177,7 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
 
   it(`create without an assignee needs no membership lookup`, async () => {
     await expect(
-      caller.create({ projectId: PROJECT_ID, title: `Unassigned` })
+      caller.create({ boardId: BOARD_ID, title: `Unassigned` })
     ).rejects.toThrow(`TX_REACHED`)
   })
 
@@ -187,8 +187,8 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
     ).rejects.toThrow(`TX_REACHED`)
   })
 
-  it(`assertAssigneeInWorkspace rejects non-members and resolves for members`, async () => {
-    const error = await assertAssigneeInWorkspace(`x`, `ws-1`).then(
+  it(`assertAssigneeInTeam rejects non-members and resolves for members`, async () => {
+    const error = await assertAssigneeInTeam(`x`, `ws-1`).then(
       () => undefined,
       (e: unknown) => e
     )
@@ -196,7 +196,7 @@ describe(`issues assignee workspace-membership guard (REV-3)`, () => {
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
     h.state.memberRows = [memberRow]
-    await expect(assertAssigneeInWorkspace(`victim`, `ws-1`)).resolves.toBe(
+    await expect(assertAssigneeInTeam(`victim`, `ws-1`)).resolves.toBe(
       undefined
     )
   })
