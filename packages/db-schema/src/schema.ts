@@ -196,6 +196,9 @@ export const teamInvites = pgTable(
       .references(() => users.id, { onDelete: `cascade` }),
     role: teamMemberRoleEnum().notNull().default(`member`),
     token: varchar({ length: 255 }).notNull().unique(),
+    // Optional recipient address (EXP-188 invite-by-email). Display metadata
+    // only — accept() stays token-bound, never recipient-bound.
+    email: varchar({ length: 255 }),
     acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
     expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
     ...timestamps,

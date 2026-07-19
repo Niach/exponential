@@ -31,7 +31,9 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
     const session = sessionData?.session ?? null
     const user = sessionData?.user ?? null
 
-    // Magic "default" slug resolves to the user's default team.
+    // Magic "default" slug resolves to the user's default team. getDefault
+    // never creates (EXP-188): a team-less user goes to the onboarding
+    // create-or-join choice instead.
     if (slug === `default`) {
       if (!session) {
         throw redirect({
@@ -39,7 +41,10 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
           search: { redirect: undefined },
         })
       }
-      const { team } = await trpc.teams.ensureDefault.mutate()
+      const { team } = await trpc.teams.getDefault.query()
+      if (!team) {
+        throw redirect({ to: `/onboarding` })
+      }
       if (team.slug !== `default`) {
         throw redirect({
           to: `/t/$teamSlug`,

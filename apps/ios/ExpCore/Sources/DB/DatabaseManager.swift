@@ -299,6 +299,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Nullable: the shape's server-side columns allowlist excludes
                 // the bearer token (REV-4/14) — synced rows never carry it.
                 t.column("token", .text).indexed()
+                // Optional recipient address (EXP-188 invite-by-email) —
+                // synced for the pending-invite list.
+                t.column("email", .text)
                 t.column("expires_at", .text).notNull()
                 t.column("accepted_at", .text)
                 t.column("created_at", .text).notNull()
@@ -428,6 +431,42 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'notifications'
+                    """)
+            }
+        }
+
+        // v3 (EXP-188 invite-by-email): `team_invites.email` rides along on
+        // the team-invites shape — set when the owner sent the invite by
+        // email, NULL otherwise. Additive ALTER for `-v5` stores created
+        // before the column existed; guarded on column presence so fresh
+        // installs (which get it from the v1 create above) converge on the
+        // same schema. Never bump the `-v5` file suffix for an additive
+        // column (that would wipe every local snapshot; ALTER TABLE preserves
+        // rows + cursors).
+        migrator.registerMigration("v3_team_invite_email") { db in
+            // Table-existence guard (old v3-v6 precedent): migration-fixture
+            // DBs that carry only the minimal schema don't have the table.
+            guard try db.tableExists("team_invites") else { return }
+            let existing = Set(try db.columns(in: "team_invites").map(\.name))
+            if !existing.contains("email") {
+                try db.alter(table: "team_invites") { t in
+                    t.add(column: "email", .text)
+                }
+            }
+            // The server-side columns allowlist change rotates the shape handle
+            // anyway (409 → refetch), but mark the team-invites offset
+            // needs_refetch here too — mirroring ShapeClient's must-refetch
+            // write (handle="", offset="-1", needs_refetch set, is_live
+            // cleared) — so already-synced rows re-snapshot with email even
+            // without waiting on the server round-trip. WHERE-guarded: a fresh
+            // install has no offset row yet and snapshots from scratch anyway.
+            // NOTE: the shape key is 'team-invites' WITH A DASH (the proxy
+            // route name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'team-invites'
                     """)
             }
         }

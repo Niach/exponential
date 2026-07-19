@@ -66,9 +66,10 @@ fun CreateBoardSheet(
             val ws = resolvedTeamId
             val acct = accountId
             if (ws == null || acct == null) {
-                // ensureDefault can fail (offline, server error) — without this
-                // branch the sheet would spin "Setting up your team…"
-                // forever (EXP-46); surface the error with a retry instead.
+                // The team resolve can fail (offline, server error, no team
+                // yet — EXP-188) — without this branch the sheet would spin
+                // "Setting up your team…" forever (EXP-46); surface the
+                // error with a retry instead.
                 val setupError = state.error
                 if (setupError != null) {
                     Column(

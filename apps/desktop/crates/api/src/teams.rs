@@ -7,10 +7,9 @@
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
 //! - `teams.update({id, name?, iconUrl?})` → `{team, txId}`
 //! - `teams.delete({teamId})` → `{ok, txId}`
-//! - `teams.ensureDefault()` → `{team, txId}` (txId 0 when reused)
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
 //! - `teamMembers.remove({memberId})` → `{ok}` (also "Leave team")
-//! - `teamInvites.create({teamId, role})` → `{invite, token}`
+//! - `teamInvites.create({teamId, role, email?})` → `{invite, token, emailDelivered}`
 //! - `teamInvites.accept({token})` → `{team, alreadyMember, txId?}`
 //! - `teamInvites.list({teamId})` → `{invites}` (query)
 //! - `teamInvites.revoke({id})` → `{ok}`
@@ -107,11 +106,6 @@ pub fn teams_delete(trpc: &TrpcClient, team_id: &str) -> Result<OkTxOutput, ApiE
     trpc.mutation("teams.delete", &Input { team_id })
 }
 
-/// `teams.ensureDefault` — input-less mutation (first-run/onboarding).
-pub fn teams_ensure_default(trpc: &TrpcClient) -> Result<TeamTxOutput, ApiError> {
-    trpc.mutation_no_input("teams.ensureDefault")
-}
-
 // ---------------------------------------------------------------------------
 // teamMembers.* (Settings → Members)
 // ---------------------------------------------------------------------------
@@ -187,6 +181,10 @@ pub struct TeamInviteOut {
     pub accepted_at: Option<String>,
     #[serde(default)]
     pub expires_at: Option<String>,
+    /// Optional invitee email (EXP-188 invite-by-email; null on link-only
+    /// invites).
+    #[serde(default)]
+    pub email: Option<String>,
     /// Only on `getByToken` (joined for the preview card).
     #[serde(default)]
     pub team_name: Option<String>,
@@ -199,21 +197,30 @@ pub struct InviteCreateOutput {
     /// The raw invite token — pair it with the instance URL for the
     /// copy-to-clipboard link (`{base}/invite/{token}`).
     pub token: String,
+    /// EXP-188: `null` = no email requested, `true` = invite link mailed,
+    /// `false` = mail requested but delivery failed (show the link instead).
+    #[serde(default)]
+    pub email_delivered: Option<bool>,
 }
 
-/// `teamInvites.create` — mutation (owner-only; plan-cap gated).
+/// `teamInvites.create` — mutation (owner-only; plan-cap gated). `email`
+/// is optional (EXP-188): when set, the server mails the invite link and
+/// reports the outcome via `email_delivered`.
 pub fn team_invites_create(
     trpc: &TrpcClient,
     team_id: &str,
     role: TeamRole,
+    email: Option<&str>,
 ) -> Result<InviteCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         team_id: &'a str,
         role: TeamRole,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<&'a str>,
     }
-    trpc.mutation("teamInvites.create", &Input { team_id, role })
+    trpc.mutation("teamInvites.create", &Input { team_id, role, email })
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -319,18 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn ensure_default_posts_empty_body() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"team":{"id":"w-1","name":"My Team"},"txId":0}}}"#,
-        );
-        let out = teams_ensure_default(&client(&base)).unwrap();
-        assert_eq!(out.tx_id, Some(0));
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/teams.ensureDefault HTTP/1.1"));
-    }
-
-    #[test]
     fn update_role_serializes_lowercase_and_unwraps_member() {
         let (base, captured) = one_shot_server(
             200,
@@ -350,9 +345,11 @@ mod tests {
             r#"{"result":{"data":{"invite":{"id":"inv-1","teamId":"w-1","role":"member","expiresAt":"2026-07-10T00:00:00Z"},"token":"rawtoken123"}}}"#,
         );
         let out =
-            team_invites_create(&client(&base), "w-1", TeamRole::Member).unwrap();
+            team_invites_create(&client(&base), "w-1", TeamRole::Member, None).unwrap();
         assert_eq!(out.token, "rawtoken123");
         assert_eq!(out.invite.id, "inv-1");
+        assert_eq!(out.email_delivered, None);
+        // No email ⇒ the wire shape stays byte-identical to pre-EXP-188.
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"teamId":"w-1","role":"member"}"#));
 
@@ -373,6 +370,26 @@ mod tests {
         );
         let invite = team_invites_get_by_token(&client(&base), "t").unwrap();
         assert_eq!(invite.team_name.as_deref(), Some("Acme"));
+    }
+
+    #[test]
+    fn invite_create_with_email_serializes_and_decodes_delivery() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"invite":{"id":"inv-2","teamId":"w-1","role":"member","email":"jo@example.com"},"token":"rawtoken456","emailDelivered":true}}}"#,
+        );
+        let out = team_invites_create(
+            &client(&base),
+            "w-1",
+            TeamRole::Member,
+            Some("jo@example.com"),
+        )
+        .unwrap();
+        assert_eq!(out.email_delivered, Some(true));
+        assert_eq!(out.invite.email.as_deref(), Some("jo@example.com"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .ends_with(r#"{"teamId":"w-1","role":"member","email":"jo@example.com"}"#));
     }
 
     #[test]

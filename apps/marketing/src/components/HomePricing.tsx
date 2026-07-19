@@ -76,7 +76,7 @@ export function HomePricing() {
         </motion.div>
 
         <div className={`home-pricing-links`}>
-          <a className={`btn btn-primary`} href={LINKS.app.register}>
+          <a className={`btn btn-primary`} href={LINKS.app.login}>
             Get started free <IcArrow size={12} />
           </a>
           <a className={`btn btn-ghost`} href={`/pricing/`}>

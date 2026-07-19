@@ -52,6 +52,25 @@ class WebLinksTest {
         )
     }
 
+    // EXP-188: the onboarding/join flows accept a pasted invite LINK or a bare
+    // token — mirror of the desktop `extract_token` helper.
+    @Test
+    fun extractsInviteTokenFromLinksAndRawTokens() {
+        assertEquals("tok123", WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123"))
+        assertEquals("tok123", WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123?x=1"))
+        assertEquals("tok123", WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123#frag"))
+        assertEquals("tok123", WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123/"))
+        assertEquals("tok123", WebLinks.extractInviteToken("  tok123  "))
+    }
+
+    @Test
+    fun rejectsUnextractableInviteInput() {
+        assertNull(WebLinks.extractInviteToken(""))
+        assertNull(WebLinks.extractInviteToken("   "))
+        assertNull(WebLinks.extractInviteToken("https://app.exponential.at/invite/"))
+        assertNull(WebLinks.extractInviteToken("not a token"))
+    }
+
     @Test
     fun rejectsUnclaimedPaths() {
         for (path in listOf(

@@ -46,6 +46,10 @@ data class HomeState(
     // boardless-looking account is still syncing — the root shows "Syncing…"
     // rather than prematurely flashing "Create your first board".
     val activeAccountBoardsSynced: Boolean = false,
+    // True when the ACTIVE account belongs to at least one team. Signups no
+    // longer auto-create a team (EXP-188), so a settled false drives the
+    // root's create-or-join empty state instead of the create-board one.
+    val activeAccountHasTeam: Boolean = false,
 )
 
 @HiltViewModel
@@ -72,15 +76,16 @@ class HomeViewModel @Inject constructor(
         auth.activeAccountId,
         activeBoardsSynced,
     ) { boardTree, syncing, activeId, boardsSynced ->
-        val activeHasBoard = boardTree
-            .firstOrNull { it.accountId == activeId }
-            ?.teamBlocks
-            ?.any { it.boards.isNotEmpty() } == true
+        val activeGroup = boardTree.firstOrNull { it.accountId == activeId }
+        val activeHasBoard = activeGroup?.teamBlocks?.any { it.boards.isNotEmpty() } == true
         HomeState(
             boardTree = boardTree,
             isSyncing = syncing,
             activeAccountHasBoard = activeHasBoard,
             activeAccountBoardsSynced = boardsSynced,
+            // The tree drops accounts whose team list is empty, so a present
+            // group ⇒ at least one team (blocks include boardless teams).
+            activeAccountHasTeam = activeGroup != null,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
@@ -92,14 +97,19 @@ class HomeViewModel @Inject constructor(
             _syncing.value = true
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
-                val team = teamsApi.ensureDefault(accountId)
-                // First-run heal only: the upsert gives AppViewModel's
-                // default-team bootstrap a row to observe before Electric's
-                // first snapshot. Deliberately NO selection.select here —
-                // ensureDefault returns the PERSONAL team by server
-                // contract, and selecting it scoped Agents/Reviews to a
-                // team without repo boards or PRs (EXP-166/EXP-168).
-                holder.database(forAccountId = accountId).teamDao().upsert(team)
+                // Resolve-only (EXP-188): getDefault never creates — null just
+                // means the account has no team yet, which the root renders as
+                // the create-or-join empty state (not an error).
+                val team = teamsApi.getDefault(accountId)
+                if (team != null) {
+                    // First-run head-start only: the upsert gives AppViewModel's
+                    // default-team bootstrap a row to observe before Electric's
+                    // first snapshot. Deliberately NO selection.select here —
+                    // getDefault returns the oldest membership by server
+                    // contract, and selecting it scoped Agents/Reviews to a
+                    // team without repo boards or PRs (EXP-166/EXP-168).
+                    holder.database(forAccountId = accountId).teamDao().upsert(team)
+                }
                 _error.value = null
             } catch (error: Throwable) {
                 // A rejected session (expired/revoked token) can't be recovered by
@@ -117,6 +127,23 @@ class HomeViewModel @Inject constructor(
                 // perpetual "Syncing…" state.
                 _syncing.value = false
             }
+        }
+    }
+
+    /// Root zero-team empty state's "Create team" (EXP-188): creator becomes
+    /// owner. The upsert is the usual idempotent head-start so the empty state
+    /// flips to create-board without waiting for the teams shape; selecting it
+    /// points the settings/create-board flows at the new team.
+    fun createTeam(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                val team = teamsApi.create(accountId, trimmed)
+                runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
+                selection.select(team.id)
+            }.onFailure { _error.value = it.message ?: "Couldn't create the team" }
         }
     }
 

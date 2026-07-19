@@ -36,7 +36,7 @@ export function SiteHeader() {
             <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
               Sign in
             </a>
-            <a className="btn btn-primary btn-sm" href={LINKS.app.register}>
+            <a className="btn btn-primary btn-sm" href={LINKS.app.login}>
               Get started free
             </a>
           </div>
@@ -59,7 +59,7 @@ export function FooterCTA({
         <h2>{title}</h2>
         <p>{subtitle}</p>
         <div className="footer-cta-buttons">
-          <a className="btn btn-primary" href={LINKS.app.register}>
+          <a className="btn btn-primary" href={LINKS.app.login}>
             Sign up free <IcArrow size={12} />
           </a>
           <a className="btn btn-ghost" href="/docs/self-host/">

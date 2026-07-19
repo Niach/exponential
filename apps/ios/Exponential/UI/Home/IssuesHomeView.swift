@@ -17,6 +17,11 @@ struct IssuesHomeView: View {
     @State private var showSwitcher = false
     @State private var preparingCreate = false
     @State private var createTarget: CreateTarget?
+    @State private var showTeamSetup = false
+    // The active account's locally-synced teams (nil until the first
+    // observation delivers) — drives the zero-team empty state (EXP-188:
+    // signups get no auto-created team, so an account can be team-less).
+    @State private var syncedTeams: [TeamEntity]?
 
     private struct CreateTarget: Identifiable {
         let accountId: String
@@ -77,13 +82,13 @@ struct IssuesHomeView: View {
             )
             .presentationBackground(.ultraThinMaterial)
         }
-        // Android-parity self-heal (EXP-82): Android's home bootstrap calls
-        // teams.ensureDefault on every appearance, so an account that
-        // ends up team-less (legacy signup, or an owner deleted a shared
-        // team out from under us) heals itself. Deleting your LAST
-        // team is server-refused, so this can never resurrect a
-        // deliberately deleted one.
-        .task { await healDefaultTeam() }
+        .sheet(isPresented: $showTeamSetup) {
+            TeamSetupSheet()
+                .presentationBackground(.ultraThinMaterial)
+        }
+        // Observe the active account's synced teams so the empty state can
+        // distinguish "no boards yet" from "no team at all" (EXP-188).
+        .task(id: deps.auth.activeAccountId) { await observeTeams() }
     }
 
     // MARK: - Switcher control
@@ -139,47 +144,91 @@ struct IssuesHomeView: View {
 
     // MARK: - Empty state
 
-    // Nothing synced yet — offer to create the first board inline (a board
-    // is backed by a GitHub repo, connected in the create sheet).
-    private var emptyStateHint: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray")
-                .font(.title2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No boards yet")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Create your first board to get started.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-
-            Button {
-                Task { await beginCreateBoard() }
-            } label: {
-                HStack(spacing: 6) {
-                    if preparingCreate {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.semibold))
-                    }
-                    Text("Create board")
-                        .font(.subheadline.weight(.medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .glassButton()
-            }
-            .buttonStyle(.plain)
-            .disabled(preparingCreate)
-        }
-        .padding(.horizontal, 40)
+    /// True when the teams observation has delivered and the account has no
+    /// membership beyond the shared feedback team — the EXP-188 zero-team
+    /// state (fresh signup that skipped onboarding's team step, or an owner
+    /// who deleted their last team).
+    private var hasNoTeam: Bool {
+        guard let syncedTeams else { return false }
+        return !syncedTeams.contains { $0.slug != "feedback" }
     }
 
-    /// Resolve (creating if needed) the default team, then open the create
-    /// sheet targeting it.
+    // Nothing synced yet. Team-less accounts get the create-or-join choice
+    // (EXP-188 — there is no auto-created team to target a board at);
+    // everyone else gets the create-first-board path.
+    @ViewBuilder
+    private var emptyStateHint: some View {
+        if hasNoTeam {
+            VStack(spacing: 12) {
+                Image(systemName: "person.2")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text("No team yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("Create a team, or join one with an invite link from a teammate.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showTeamSetup = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.semibold))
+                        Text("Create or join a team")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassButton()
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 40)
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "tray")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text("No boards yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("Create your first board to get started.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    Task { await beginCreateBoard() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if preparingCreate {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: "plus")
+                                .font(.caption.weight(.semibold))
+                        }
+                        Text("Create board")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassButton()
+                }
+                .buttonStyle(.plain)
+                .disabled(preparingCreate)
+            }
+            .padding(.horizontal, 40)
+        }
+    }
+
+    /// Resolve the default team, then open the create sheet targeting it.
+    /// A team-less account never reaches this path (the empty state offers
+    /// create-or-join instead), so a nil resolution just no-ops.
     private func beginCreateBoard() async {
         guard !preparingCreate, let accountId = deps.auth.activeAccountId else { return }
         preparingCreate = true
@@ -189,20 +238,17 @@ struct IssuesHomeView: View {
         }
     }
 
-    private func healDefaultTeam() async {
-        guard let accountId = deps.auth.activeAccountId else { return }
-        _ = await resolveDefaultTeam(accountId: accountId)
-    }
-
-    /// Resolve (creating if needed) the account's default team.
+    /// Resolve the account's default team (teams.getDefault NEVER creates —
+    /// EXP-188; oldest non-feedback membership or nil).
     private func resolveDefaultTeam(accountId: String) async -> TeamResult? {
-        guard let team = try? await deps.teamsApi.ensureDefault(accountId: accountId) else {
+        // `try?` flattens the optional (SE-0230): a thrown error and a nil
+        // resolution both land here as nil — either way there's no team.
+        guard let team = try? await deps.teamsApi.getDefault(accountId: accountId) else {
             return nil
         }
-        // If the team isn't in the local synced set, ensureDefault
-        // just CREATED it — the membership change rotates every shape's
-        // server-derived where clause, and the in-flight live long-polls
-        // would keep the OLD scope for up to ~60s, so anything created
+        // If the resolved team isn't in the local synced set yet, the sync
+        // pipeline is lagging behind a membership change — the in-flight live
+        // long-polls keep the OLD scope for up to ~60s, so anything created
         // next would "show up nowhere". Relaunch the pipeline so the fresh
         // scope syncs in seconds (EXP-46; same drain-lag gap as EXP-43).
         var alreadySynced = false
@@ -215,5 +261,24 @@ struct IssuesHomeView: View {
             await deps.syncManager.restartPipeline(accountId: accountId)
         }
         return team
+    }
+
+    /// Long-lived teams observation for the active account (cancelled and
+    /// restarted by `.task(id:)` when the account switches).
+    private func observeTeams() async {
+        syncedTeams = nil
+        guard let accountId = deps.auth.activeAccountId,
+              let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let obs = ValueObservation.tracking { db in
+            try TeamEntity.fetchAll(db)
+        }
+        do {
+            for try await teams in obs.values(in: pool) {
+                await MainActor.run { syncedTeams = teams }
+            }
+        } catch {
+            // Observation ended (pool closed on sign-out) — leave the last
+            // snapshot in place; the .task(id:) restart handles account swaps.
+        }
     }
 }

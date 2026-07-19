@@ -60,21 +60,12 @@ data class TeamSettingsState(
     val createdInviteToken: String? = null,
     val instanceUrl: String? = null,
     val teamDeleted: Boolean = false,
-    // All synced teams of the account (membership-scoped shape), for the
-    // only-team derivation below.
-    val allTeams: List<TeamEntity> = emptyList(),
 ) {
     // Owner-gated controls key off this (hidden for non-owners — web parity).
     val isOwner: Boolean
         get() = currentUserId != null && members.any {
             it.member.userId == currentUserId && it.member.role == DomainContract.teamRoleOwner
         }
-
-    // Synced teams minus the bootstrap feedback team == "my personal
-    // teams". Deleting the last one is server-refused (EXP-82);
-    // empty-while-loading biases the delete affordance to disabled.
-    val isOnlyTeam: Boolean
-        get() = allTeams.count { it.slug != "feedback" } <= 1
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -179,7 +170,6 @@ class TeamSettingsViewModel @Inject constructor(
             _transient,
             _createdInviteToken,
             _teamDeleted,
-            dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() },
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -202,8 +192,6 @@ class TeamSettingsViewModel @Inject constructor(
         val transient = values[10] as String?
         val invite = values[11] as String?
         val deleted = values[12] as Boolean
-        @Suppress("UNCHECKED_CAST")
-        val allTeams = values[13] as List<TeamEntity>
         TeamSettingsState(
             team = team,
             // Synthetic agent users (widget reporters etc.) are team
@@ -223,7 +211,6 @@ class TeamSettingsViewModel @Inject constructor(
             createdInviteToken = invite,
             instanceUrl = instance,
             teamDeleted = deleted,
-            allTeams = allTeams,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamSettingsState())
 
@@ -239,11 +226,24 @@ class TeamSettingsViewModel @Inject constructor(
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the member") }
     }
 
-    fun createInvite(role: String = DomainContract.teamRoleMember) = viewModelScope.launch {
+    fun createInvite(role: String = DomainContract.teamRoleMember, email: String? = null) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
-        runCatching { invitesApi.create(accountId, teamId, role) }
-            .onSuccess { _createdInviteToken.value = it.token }
+        val trimmedEmail = email?.trim()?.takeIf { it.isNotEmpty() }
+        runCatching { invitesApi.create(accountId, teamId, role, email = trimmedEmail) }
+            .onSuccess { result ->
+                _createdInviteToken.value = result.token
+                // Delivery feedback (EXP-188 invite-by-email): the invite row is
+                // created either way; a failed/unconfigured send falls back to
+                // sharing the link by hand.
+                if (trimmedEmail != null) {
+                    _transient.value = if (result.emailDelivered == true) {
+                        "Invite sent to $trimmedEmail"
+                    } else {
+                        "Couldn't email $trimmedEmail — share the invite link instead"
+                    }
+                }
+            }
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't create the invite") }
     }
 

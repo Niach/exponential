@@ -32,7 +32,7 @@ const cloudPlans: Plan[] = [
       `Real-time sync`,
       `Push & steer`,
     ],
-    cta: { label: `Sign up free`, href: LINKS.app.register },
+    cta: { label: `Sign up free`, href: LINKS.app.login },
   },
   {
     name: `Pro`,
@@ -47,7 +47,7 @@ const cloudPlans: Plan[] = [
       `3 feedback widgets`,
       `Helpdesk & support inbox`,
     ],
-    cta: { label: `Start with Pro`, href: LINKS.app.register },
+    cta: { label: `Start with Pro`, href: LINKS.app.login },
   },
   {
     name: `Business`,
@@ -61,7 +61,7 @@ const cloudPlans: Plan[] = [
       `Unlimited feedback widgets`,
       `Priority support`,
     ],
-    cta: { label: `Start with Business`, href: LINKS.app.register },
+    cta: { label: `Start with Business`, href: LINKS.app.login },
   },
   {
     name: `Enterprise`,

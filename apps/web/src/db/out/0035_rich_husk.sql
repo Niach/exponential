@@ -1,0 +1,1 @@
+ALTER TABLE "team_invites" ADD COLUMN "email" varchar(255);

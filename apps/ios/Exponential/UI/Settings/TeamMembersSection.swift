@@ -20,6 +20,11 @@ struct TeamMembersSection: View {
     @State private var generatedLink: String?
     @State private var copied = false
     @State private var generating = false
+    @State private var inviteEmail = ""
+    @State private var sendingEmail = false
+    // Post-send feedback for the email path ("Invite sent to …" or the
+    // link-fallback explainer when no mail transport is configured).
+    @State private var sentNotice: String?
     @State private var confirm: MemberConfirm?
     @State private var inviteError: String?
     @State private var actionError: String?
@@ -181,9 +186,54 @@ struct TeamMembersSection: View {
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.white)
 
-        Text("Generate a link to invite someone to this team.")
+        Text("Send an invite by email, or generate a link to share yourself.")
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+        // Invite by email (EXP-188): the server persists the address on the
+        // invite and mails the link; falls back to showing the link here
+        // when the instance has no mail transport configured.
+        HStack(spacing: 8) {
+            TextField("teammate@example.com", text: $inviteEmail)
+                .font(.subheadline)
+                .textFieldStyle(.plain)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            Button {
+                Task { await sendEmailInvite(teamId: wId, api: api) }
+            } label: {
+                HStack(spacing: 6) {
+                    if sendingEmail {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "paperplane")
+                            .font(.caption)
+                    }
+                    Text("Send")
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .glassButton()
+            .disabled(sendingEmail || inviteEmail.trimmingCharacters(in: .whitespaces).isEmpty)
+            .buttonStyle(.plain)
+        }
+
+        if let sentNotice {
+            Text(sentNotice)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
 
         // Generate link button
         Button {
@@ -256,6 +306,14 @@ struct TeamMembersSection: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .glassButton()
+
+                    if let email = invite.email, !email.isEmpty {
+                        Text(email)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
 
                     Text("Expires \(invite.expiresAt.prefix(10))")
                         .font(.caption)
@@ -354,8 +412,40 @@ struct TeamMembersSection: View {
             let result = try await api.create(
                 accountId: accountId, teamId: teamId, role: DomainContract.teamRoleMember
             )
-            generatedLink = "\(base)/invite/\(result.token)"
+            generatedLink = "\(base)/invite/\(result.invite.token)"
+            sentNotice = nil
             inviteError = nil
+        } catch {
+            inviteError = error.trpcUserMessage
+        }
+    }
+
+    private func sendEmailInvite(teamId: String, api: TeamInvitesApi) async {
+        let email = inviteEmail.trimmingCharacters(in: .whitespaces)
+        guard !email.isEmpty else { return }
+        sendingEmail = true
+        defer { sendingEmail = false }
+        do {
+            let result = try await api.create(
+                accountId: accountId,
+                teamId: teamId,
+                role: DomainContract.teamRoleMember,
+                email: email
+            )
+            inviteError = nil
+            inviteEmail = ""
+            if result.emailDelivered == true {
+                sentNotice = "Invite sent to \(email)."
+                generatedLink = nil
+            } else {
+                // Requested but not delivered (no mail transport configured /
+                // send error) — the invite still exists, so fall back to the
+                // link the owner can share by hand.
+                sentNotice = "The email couldn't be sent — share this link with \(email) instead."
+                if let base = WebLinks.normalizedBase(instanceBaseURL?.absoluteString) {
+                    generatedLink = "\(base)/invite/\(result.invite.token)"
+                }
+            }
         } catch {
             inviteError = error.trpcUserMessage
         }

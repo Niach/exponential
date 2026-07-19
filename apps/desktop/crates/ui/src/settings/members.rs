@@ -3,8 +3,8 @@
 //! Web parity: `components/team/members-section.tsx` — the member list
 //! (avatar + name + role badge + per-row actions `DropdownMenu`: Make owner /
 //! Make member / Remove member / Leave team) and the owner-only
-//! `InviteControls` (Generate invite link → copy-to-clipboard, pending
-//! invites with revoke).
+//! `InviteControls` (optional invitee email → server mails the link,
+//! Generate invite link → copy-to-clipboard, pending invites with revoke).
 //!
 //! Reads are live: members/users/invites come from the synced collections
 //! (the web reads the same shapes); role/remove/revoke are §4.1 un-gated
@@ -13,14 +13,15 @@
 //! neutral "Upgrade on the web" notice — never an upgrade dialog.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, ElementId, Entity, FontWeight, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, ElementId, Entity, FontWeight,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
     clipboard::Clipboard,
     h_flex,
+    input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
@@ -46,35 +47,54 @@ struct MemberRow {
 
 pub struct MembersPane {
     nav: Entity<Navigation>,
+    /// Optional invitee email (EXP-188 invite-by-email) — empty = link-only.
+    email_input: Entity<InputState>,
     invite_url: Option<SharedString>,
     generating: bool,
     error: Option<SharedString>,
     limit_notice: Option<SharedString>,
+    /// "Invite sent to X" after a delivered email invite.
+    sent_notice: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl MembersPane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(
+        nav: Entity<Navigation>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         let collections = Store::global(cx).collections().clone();
+        let email_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Email (optional)"));
         let subscriptions = vec![
             cx.observe(&nav, |this, _, cx| {
                 // Team switch: the generated URL belongs to the old one.
                 this.invite_url = None;
                 this.error = None;
                 this.limit_notice = None;
+                this.sent_notice = None;
                 cx.notify();
             }),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_invites, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
+            // The button label switches with the email field's emptiness.
+            cx.subscribe(&email_input, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            }),
         ];
 
         Self {
             nav,
+            email_input,
             invite_url: None,
             generating: false,
             error: None,
             limit_notice: None,
+            sent_notice: None,
             _subscriptions: subscriptions,
         }
     }
@@ -123,7 +143,12 @@ impl MembersPane {
         invites
     }
 
-    fn generate_invite(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
+    fn generate_invite(
+        &mut self,
+        team_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if self.generating {
             return;
         }
@@ -134,29 +159,57 @@ impl MembersPane {
             return;
         };
         let base = account.instance_url;
+        let email = {
+            let value = self.email_input.read(cx).value().trim().to_string();
+            (!value.is_empty()).then_some(value)
+        };
 
         self.generating = true;
         self.error = None;
         self.limit_notice = None;
+        self.sent_notice = None;
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let result = cx
+        cx.spawn_in(window, async move |this, window| {
+            let request_email = email.clone();
+            let result = window
                 .background_executor()
                 .spawn(async move {
                     api::teams::team_invites_create(
                         &trpc,
                         &team_id,
                         api::teams::TeamRole::Member,
+                        request_email.as_deref(),
                     )
                 })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(window, |this, window, cx| {
                 this.generating = false;
                 match result {
                     Ok(out) => {
-                        this.invite_url =
-                            Some(format!("{base}/invite/{}", out.token).into());
+                        let url: SharedString =
+                            format!("{base}/invite/{}", out.token).into();
+                        match (&email, out.email_delivered) {
+                            (Some(sent_to), Some(true)) => {
+                                // Delivered — clear the field and confirm; the
+                                // link stays available as a manual fallback.
+                                this.sent_notice =
+                                    Some(format!("Invite sent to {sent_to}").into());
+                                this.email_input.update(cx, |state, cx| {
+                                    state.set_value("", window, cx);
+                                });
+                            }
+                            (Some(_), _) => {
+                                // Requested but not delivered (transport down
+                                // or unconfigured) — fall back to the link.
+                                this.error = Some(
+                                    "Couldn't email the invite — copy the link and share it instead."
+                                        .into(),
+                                );
+                            }
+                            (None, _) => {}
+                        }
+                        this.invite_url = Some(url);
                     }
                     Err(err) if is_plan_limit(&err) => {
                         this.limit_notice = Some(
@@ -388,7 +441,7 @@ impl Render for MembersPane {
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
-                                    "Generate an invite link to share with people you want to add",
+                                    "Enter an email to send the invite directly, or generate a link to share",
                                 ),
                         ),
                 );
@@ -422,24 +475,46 @@ impl Render for MembersPane {
                 );
             }
 
+            let email_empty = self
+                .email_input
+                .read(cx)
+                .value()
+                .trim()
+                .is_empty();
             invite_section = invite_section.child(
-                h_flex().child(
-                    Button::new("invite-generate")
-                        .primary()
-                        .small()
-                        .label("Generate invite link")
-                        .icon(IconName::Plus)
-                        .loading(self.generating)
-                        .disabled(self.generating)
-                        .on_click(cx.listener({
-                            let team_id = team_id.clone();
-                            move |this, _, _, cx| {
-                                this.generate_invite(team_id.clone(), cx);
-                            }
-                        })),
-                ),
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.email_input).small()),
+                    )
+                    .child(
+                        Button::new("invite-generate")
+                            .primary()
+                            .small()
+                            .label(if email_empty {
+                                "Generate invite link"
+                            } else {
+                                "Send invite"
+                            })
+                            .icon(IconName::Plus)
+                            .loading(self.generating)
+                            .disabled(self.generating)
+                            .on_click(cx.listener({
+                                let team_id = team_id.clone();
+                                move |this, _, window, cx| {
+                                    this.generate_invite(team_id.clone(), window, cx);
+                                }
+                            })),
+                    ),
             );
 
+            if let Some(notice) = &self.sent_notice {
+                invite_section = invite_section.child(sent_notice(notice.clone(), cx));
+            }
             if let Some(notice) = &self.limit_notice {
                 invite_section = invite_section.child(upgrade_notice(notice.clone(), cx));
             }
@@ -469,6 +544,25 @@ impl Render for MembersPane {
                         .map(|at| format!("Expires {}", format_short_date(at)))
                         .unwrap_or_else(|| "No expiry".to_string())
                         .into();
+                    // Emailed invites show who they went to as the primary
+                    // text; link-only invites keep the chip-first row.
+                    let mut invite_identity = h_flex().gap_2().items_center();
+                    if let Some(email) = invite.email.clone() {
+                        invite_identity = invite_identity.child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(SharedString::from(email)),
+                        );
+                    }
+                    invite_identity = invite_identity
+                        .child(role_chip(IconName::User, role, cx))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(expires),
+                        );
                     pending = pending.child(
                         h_flex()
                             .justify_between()
@@ -478,18 +572,7 @@ impl Render for MembersPane {
                             .rounded(cx.theme().radius)
                             .border_1()
                             .border_color(cx.theme().border)
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(role_chip(IconName::User, role, cx))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(expires),
-                                    ),
-                            )
+                            .child(invite_identity)
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))
                                     .ghost()
@@ -522,6 +605,20 @@ fn display_name(row: &MemberRow) -> String {
         .as_ref()
         .and_then(|user| user.name.clone())
         .unwrap_or_else(|| row.member.user_id.clone())
+}
+
+/// "Invite sent to X" confirmation (EXP-188 invite-by-email).
+fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
+    div()
+        .px_3()
+        .py_2()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_color(theme::tokens::GREEN.to_hsla().opacity(0.5))
+        .bg(theme::tokens::GREEN.to_hsla().opacity(0.1))
+        .text_sm()
+        .text_color(theme::tokens::GREEN.to_hsla())
+        .child(message)
 }
 
 /// Web role `Badge`: secondary chip with the role icon.

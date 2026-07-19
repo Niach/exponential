@@ -15,7 +15,6 @@ struct TeamSettingsView: View {
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
     @State private var users: [UserEntity] = []
-    @State private var allTeams: [TeamEntity] = []
     @State private var observationTask: Task<Void, Never>?
     @State private var showDeleteTeam = false
     @State private var deletingTeam = false
@@ -94,7 +93,7 @@ struct TeamSettingsView: View {
                                     Text("Delete Team")
                                 }
                                 .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.red.opacity(isOnlyTeam ? 0.4 : 1))
+                                .foregroundStyle(.red)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                                 // Full-capsule hit target — .plain hit-tests only opaque pixels.
@@ -102,13 +101,6 @@ struct TeamSettingsView: View {
                             }
                             .glassButton()
                             .buttonStyle(.plain)
-                            .disabled(isOnlyTeam)
-
-                            if isOnlyTeam {
-                                Text("This is your only team, so it can't be deleted.")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            }
 
                             if let dangerError {
                                 Text(dangerError)
@@ -164,29 +156,18 @@ struct TeamSettingsView: View {
         Set(boards.filter { $0.isProtected }.compactMap { $0.repositoryId })
     }
 
-    /// The GRDB teams table mirrors the membership-scoped Electric shape,
-    /// so "synced teams minus feedback" == "my personal teams".
-    /// Deleting the last one is server-refused (EXP-82); empty-while-loading
-    /// biases the affordance to disabled, the safe default.
-    private var isOnlyTeam: Bool {
-        allTeams.filter { $0.slug != "feedback" }.count <= 1
-    }
-
     private func deleteTeam() async {
         deletingTeam = true
         defer { deletingTeam = false }
         do {
+            // An owner may delete ANY of their teams, including the last one
+            // (EXP-188 dropped the last-team guard) — a team-less account
+            // lands on the zero-team create-or-join empty state.
             try await deps.teamsApi.delete(accountId: accountId, teamId: teamId)
-            // Deleting the LAST team is server-refused (EXP-82), so a
-            // successful delete always leaves a surviving membership —
-            // ensureDefault is idempotent and resolves it as the new
-            // landing spot without creating anything.
-            _ = try? await deps.teamsApi.ensureDefault(accountId: accountId)
             // Membership changed, so every shape's server-derived where clause
-            // rotated — relaunch the pipeline so all 15 shapes re-scope
+            // rotated — relaunch the pipeline so all shapes re-scope
             // immediately instead of waiting out the in-flight live long-polls
-            // (up to ~60s of "deleted team still there / new personal
-            // team missing").
+            // (up to ~60s of "deleted team still there").
             await deps.syncManager.restartPipeline(accountId: accountId)
             await MainActor.run {
                 // Pop the whole stack to root — parent views (server detail /
@@ -255,12 +236,6 @@ struct TeamSettingsView: View {
                 let obs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { users = items }
-                }
-            }
-            Task {
-                let obs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
-                for try await items in obs.values(in: pool) {
-                    await MainActor.run { allTeams = items }
                 }
             }
         }

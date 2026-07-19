@@ -45,7 +45,7 @@ use gpui_component::{
 use sync::Store;
 
 
-use crate::actions::{CreateTeam, OpenSettings, SignOut};
+use crate::actions::{CreateTeam, JoinTeam, OpenSettings, SignOut};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::git_bar::GitBar;
@@ -425,6 +425,7 @@ impl RailView {
                         Box::new(crate::actions::OpenAccount),
                     )
                     .menu_with_icon("New team", IconName::Plus, Box::new(CreateTeam))
+                    .menu_with_icon("Join team", IconName::User, Box::new(JoinTeam))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))
             })

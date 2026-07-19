@@ -1,12 +1,14 @@
 import { z } from "zod"
 import { router, procedure, authedProcedure, generateTxId } from "@/lib/trpc"
-import { teamInvites, teamMembers, teams } from "@/db/schema"
+import { teamInvites, teamMembers, teams, users } from "@/db/schema"
 import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { assertCanInviteMember } from "@/lib/billing"
 import { isUserAdmin } from "@/lib/admin"
+import { sendTeamInviteEmail } from "@/lib/email"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 
 // Invites are member management, so mint/revoke match assertCanManageMembers
 // (team-members.ts): a team owner OR a global instance admin.
@@ -27,6 +29,7 @@ export const inviteListSelection = {
   teamId: teamInvites.teamId,
   invitedById: teamInvites.invitedById,
   role: teamInvites.role,
+  email: teamInvites.email,
   acceptedAt: teamInvites.acceptedAt,
   expiresAt: teamInvites.expiresAt,
   createdAt: teamInvites.createdAt,
@@ -39,6 +42,10 @@ export const teamInvitesRouter = router({
       z.object({
         teamId: z.string().uuid(),
         role: z.enum([`owner`, `member`]).default(`member`),
+        // Optional recipient address (EXP-188): persisted for the pending
+        // list and used to deliver the invite link by email. Display/delivery
+        // metadata only — accept() stays token-bound.
+        email: z.string().email().max(255).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -55,11 +62,41 @@ export const teamInvitesRouter = router({
           invitedById: ctx.session.user.id,
           role: input.role,
           token,
+          email: input.email,
           expiresAt,
         })
         .returning()
 
-      return { invite, token }
+      // Email delivery is best-effort AFTER the insert — a transport failure
+      // must never roll back the invite (the owner still holds the link and
+      // can share it by hand). null = no email requested; false = requested
+      // but not delivered (no transport / send error).
+      let emailDelivered: boolean | null = null
+      if (input.email) {
+        try {
+          const [team] = await ctx.db
+            .select({ name: teams.name })
+            .from(teams)
+            .where(eq(teams.id, input.teamId))
+            .limit(1)
+          const result = await sendTeamInviteEmail({
+            to: input.email,
+            teamName: team?.name ?? `a team`,
+            inviterName:
+              ctx.session.user.name || ctx.session.user.email || `A teammate`,
+            inviteUrl: `${appBaseUrl()}/invite/${token}`,
+          })
+          emailDelivered = result.delivered
+        } catch (err) {
+          console.error(
+            `[team-invites] invite email to ${input.email} failed:`,
+            err
+          )
+          emailDelivered = false
+        }
+      }
+
+      return { invite, token, emailDelivered }
     }),
 
   accept: authedProcedure
@@ -119,6 +156,21 @@ export const teamInvitesRouter = router({
           .from(teams)
           .where(eq(teams.id, invite.teamId))
           .limit(1)
+
+        // Accepting an invite is onboarding evidence (EXP-188): stamp the
+        // flag so an invite-link signup skips the first-run wizard — also on
+        // the alreadyMember path below. The IS NULL predicate keeps an
+        // existing timestamp untouched.
+        const now = new Date()
+        await tx
+          .update(users)
+          .set({ onboardingCompletedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(users.id, ctx.session.user.id),
+              isNull(users.onboardingCompletedAt)
+            )
+          )
 
         // An existing member must not burn the single-use invite.
         if (existing) {

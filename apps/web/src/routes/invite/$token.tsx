@@ -158,24 +158,16 @@ function InviteAcceptPage() {
                   </Button>
                 </>
               ) : (
-                <div className="space-y-2">
-                  <Button className="w-full" asChild>
-                    <Link
-                      to="/auth/login"
-                      search={{ redirect: `/invite/${token}` }}
-                    >
-                      Sign in to accept
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="w-full" asChild>
-                    <Link
-                      to="/auth/register"
-                      search={{ redirect: `/invite/${token}` }}
-                    >
-                      Create account
-                    </Link>
-                  </Button>
-                </div>
+                /* Signup and login are one merged page (EXP-188), so a
+                   single button covers both. */
+                <Button className="w-full" asChild>
+                  <Link
+                    to="/auth/login"
+                    search={{ redirect: `/invite/${token}` }}
+                  >
+                    Sign in or create account
+                  </Link>
+                </Button>
               )}
             </>
           )}

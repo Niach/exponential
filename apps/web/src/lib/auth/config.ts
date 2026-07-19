@@ -4,12 +4,26 @@ import { emailEnabled } from "@/lib/email"
 
 export type AuthConfig = {
   passwordEnabled: boolean
+  // Password sign-up is open — gates the "Create account" mode on the merged
+  // /auth/login page.
+  signupEnabled: boolean
   // Email sending is configured (AWS_SES_REGION) — gates "Forgot password?".
   passwordResetEnabled: boolean
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean
   appleLoginEnabled: boolean
   githubEnabled: boolean
+}
+
+// Public password sign-up: historically OFF in production (invite/OAuth
+// only). AUTH_SIGNUP_ENABLED overrides in either direction so the cloud
+// instance can open registration for launch. Shared by the Better Auth
+// server config (emailAndPassword.disableSignUp in lib/auth/index.ts) and
+// buildAuthConfig's signupEnabled.
+export function isPasswordSignupDisabled(): boolean {
+  return process.env.AUTH_SIGNUP_ENABLED
+    ? process.env.AUTH_SIGNUP_ENABLED === `false`
+    : process.env.NODE_ENV === `production`
 }
 
 export function buildAuthConfig(): AuthConfig {
@@ -19,6 +33,7 @@ export function buildAuthConfig(): AuthConfig {
   const passwordEnabled = process.env.AUTH_PASSWORD_ENABLED !== `false`
   return {
     passwordEnabled,
+    signupEnabled: passwordEnabled && !isPasswordSignupDisabled(),
     passwordResetEnabled: passwordEnabled && emailEnabled,
     oidcProviders: parseOidcProviders().map(({ id, name }) => ({ id, name })),
     googleLoginEnabled:

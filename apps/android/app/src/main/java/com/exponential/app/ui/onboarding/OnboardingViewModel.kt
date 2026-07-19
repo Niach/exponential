@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.OnboardingApi
+import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamsApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.domain.WebLinks
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,13 +18,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// First-run flow (shared iOS/Android spec): welcome → create-first-board (name
-// + required repository, with inline GitHub connect) → done. On load it resolves
-// the user's default team (`teams.ensureDefault`) so the create form has
-// a teamId. A successful create marks onboarding complete server-side and
-// remembers the board as last-used so the Issues tab opens on it; the local
-// flag lands in finish() — the done step's single action — which drops into the
-// app.
+// First-run flow (shared iOS/Android spec, EXP-188): welcome → team
+// (create-or-join — signups get NO auto-created team anymore) →
+// create-first-board (name + optional repository, with inline GitHub connect)
+// → done. On load it RESOLVES the user's default team (`teams.getDefault`,
+// which never creates); null routes to the create-or-join choice. Creating a
+// team advances to the board step; joining via a pasted invite link completes
+// onboarding immediately (the server stamps onboardingCompletedAt in accept)
+// and skips the board step. A successful board create marks onboarding
+// complete server-side and remembers the board as last-used so the Issues tab
+// opens on it; the local flag lands in finish() — the done step's single
+// action — which drops into the app.
 //
 // The server also backfills onboardingCompletedAt on session reads for users who
 // already have a board in a non-public team (lib/auth/onboarding.ts), so a
@@ -32,6 +39,7 @@ class OnboardingViewModel @Inject constructor(
     private val authApi: AuthApi,
     private val onboardingApi: OnboardingApi,
     private val teamsApi: TeamsApi,
+    private val invitesApi: TeamInvitesApi,
     private val holder: DatabaseHolder,
     private val selection: TeamSelection,
 ) : ViewModel() {
@@ -51,6 +59,17 @@ class OnboardingViewModel @Inject constructor(
     private val _done = MutableStateFlow(false)
     val done: StateFlow<Boolean> = _done.asStateFlow()
 
+    // True when getDefault resolved to NO team — the team step shows the
+    // create-or-join choice instead of advancing to the board step.
+    private val _needsTeamChoice = MutableStateFlow(false)
+    val needsTeamChoice: StateFlow<Boolean> = _needsTeamChoice.asStateFlow()
+
+    private val _teamSubmitting = MutableStateFlow(false)
+    val teamSubmitting: StateFlow<Boolean> = _teamSubmitting.asStateFlow()
+
+    private val _teamError = MutableStateFlow<String?>(null)
+    val teamError: StateFlow<String?> = _teamError.asStateFlow()
+
     private var reconciled = false
 
     /** Re-read the session on appear so an account whose onboardingCompletedAt was
@@ -69,7 +88,8 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** Resolve (or create) the default team so the create form has a target. */
+    /** Resolve the default team (never creates — EXP-188): an existing team
+     * skips the choice, null shows the create-or-join step. */
     fun prepare() {
         viewModelScope.launch {
             _preparing.value = true
@@ -80,13 +100,67 @@ class OnboardingViewModel @Inject constructor(
                 return@launch
             }
             runCatching {
-                val team = teamsApi.ensureDefault(accountId)
-                holder.database(forAccountId = accountId).teamDao().upsert(team)
-                if (selection.selectedId.value == null) selection.select(team.id)
+                val team = teamsApi.getDefault(accountId)
+                if (team != null) {
+                    holder.database(forAccountId = accountId).teamDao().upsert(team)
+                    if (selection.selectedId.value == null) selection.select(team.id)
+                }
+                team?.id
+            }.onSuccess { teamId ->
+                if (teamId != null) _teamId.value = teamId else _needsTeamChoice.value = true
+            }.onFailure { _error.value = it.message ?: "Failed to prepare team" }
+            _preparing.value = false
+        }
+    }
+
+    /** Choice-step "Create team": creator becomes owner; advances to the board step. */
+    fun createTeam(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || _teamSubmitting.value) return
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            _teamSubmitting.value = true
+            _teamError.value = null
+            runCatching {
+                val team = teamsApi.create(accountId, trimmed)
+                // Local head-start (idempotent REPLACE — Electric re-delivers
+                // the same row) so downstream screens see the team immediately.
+                runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
+                selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
-                .onFailure { _error.value = it.message ?: "Failed to prepare team" }
-            _preparing.value = false
+                .onFailure { _teamError.value = trpcErrorMessage(it, "Couldn't create the team") }
+            _teamSubmitting.value = false
+        }
+    }
+
+    /** Choice-step "Join team": paste tolerance via extractInviteToken. Accepting
+     * completes onboarding (the server stamps onboardingCompletedAt in-tx), so
+     * the LOCAL flag must flip too — without it AppNavHost's needsOnboarding
+     * gate bounces straight back into this wizard — and _done exits, skipping
+     * the board step (the joined team already has its owner's boards). */
+    fun joinTeam(input: String) {
+        if (_teamSubmitting.value) return
+        val token = WebLinks.extractInviteToken(input)
+        if (token == null) {
+            _teamError.value = "Paste an invite link or code."
+            return
+        }
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            _teamSubmitting.value = true
+            _teamError.value = null
+            runCatching {
+                val result = invitesApi.accept(accountId, token)
+                runCatching {
+                    holder.database(forAccountId = accountId).teamDao().upsert(result.team)
+                }
+                selection.select(result.team.id)
+            }.onSuccess {
+                auth.markOnboardingCompleted(java.time.Instant.now().toString())
+                _done.value = true
+            }.onFailure { _teamError.value = trpcErrorMessage(it, "Couldn't join the team") }
+            _teamSubmitting.value = false
         }
     }
 

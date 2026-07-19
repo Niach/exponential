@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { registerUser } from "./helpers/auth"
+import { createTeamThroughOnboarding, registerUser } from "./helpers/auth"
 import { expect, test } from "./fixtures"
 
 function getTeamSlug(currentUrl: string) {
@@ -10,8 +10,7 @@ function getTeamSlug(currentUrl: string) {
 // Settings is split into per-section pages (EXP-146) — the member list and
 // invite UI live on the Members page. The heading is "Settings" while the
 // team is still solo and "Team Settings" once it has members.
-async function openTeamSettings(page: Page) {
-  const teamSlug = getTeamSlug(page.url())
+async function openTeamSettings(page: Page, teamSlug: string) {
   await page.goto(`/t/${teamSlug}/settings/members`)
   await expect(
     page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
@@ -24,9 +23,14 @@ test(`generates an invite and accepts it with a second user`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-
-  await openTeamSettings(page)
+  await createTeamThroughOnboarding(
+    page,
+    `${app.namespace} team`,
+    app.boardName
+  )
   const teamSlug = getTeamSlug(page.url())
+
+  await openTeamSettings(page, teamSlug)
 
   await page.getByRole(`button`, { name: `Generate invite link` }).click()
 
@@ -56,7 +60,11 @@ test(`generates an invite and accepts it with a second user`, async ({
         .locator(`[data-slot="card-title"]`)
         .filter({ hasText: `Team Invite` })
     ).toBeVisible()
-    await memberPage.getByRole(`link`, { name: `Create account` }).click()
+    // Signup and login are one merged page (EXP-188) — a single button
+    // covers both for anonymous invitees.
+    await memberPage
+      .getByRole(`link`, { name: `Sign in or create account` })
+      .click()
 
     const invitePath = new URL(inviteUrl).pathname
     await registerUser(memberPage, app.member, {
@@ -69,9 +77,11 @@ test(`generates an invite and accepts it with a second user`, async ({
     ).toBeVisible()
     await memberPage.getByRole(`button`, { name: `Accept Invite` }).click()
 
+    // Accepting the invite stamps onboardingCompletedAt server-side, so the
+    // invited member lands straight in the team — never in the wizard.
     await expect(memberPage).toHaveURL(new RegExp(`/t/${teamSlug}/?$`))
 
-    await openTeamSettings(memberPage)
+    await openTeamSettings(memberPage, teamSlug)
     await expect(
       memberPage.getByRole(`button`, { name: `Generate invite link` })
     ).toHaveCount(0)

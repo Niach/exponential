@@ -184,7 +184,7 @@ impl SettingsView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
-        let members = cx.new(|cx| MembersPane::new(nav.clone(), cx));
+        let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let boards = cx.new(|cx| BoardsPane::new(nav.clone(), cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));

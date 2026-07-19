@@ -225,9 +225,9 @@ export function TeamSidebar({
                     </DropdownMenuItem>
                   ))}
                 {isAuthed && <DropdownMenuSeparator />}
-                {/* Team creation is admin-only: regular users live in
-                    their single personal team (server enforces too). */}
-                {isAdminUser(session?.user) && (
+                {/* Any signed-in user can create teams (EXP-188) — the
+                    server's only gate is the free-tier owned-team cap. */}
+                {isAuthed && (
                   <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
                     <Plus className="h-4 w-4" />
                     New team
@@ -464,7 +464,7 @@ export function TeamSidebar({
                   <Megaphone className="mr-2 h-4 w-4" />
                   What&apos;s new
                 </DropdownMenuItem>
-                {!showChrome && isAdminUser(session?.user) && (
+                {!showChrome && (
                   <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
                     New team
@@ -505,7 +505,7 @@ export function TeamSidebar({
           team={team}
         />
       )}
-      {isAdminUser(session?.user) && (
+      {isAuthed && (
         <CreateTeamDialog
           open={createTeamOpen}
           onOpenChange={setCreateTeamOpen}

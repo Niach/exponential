@@ -56,4 +56,30 @@ final class WebLinksTests: XCTestCase {
             XCTAssertNil(WebLinks.parse(url), "expected nil for \(path)")
         }
     }
+
+    // EXP-188 join-team paste tolerance: a full invite link or a raw token —
+    // mirror of the desktop `extract_token` (join_team.rs) test cases.
+    func testExtractInviteTokenAcceptsLinksAndRawTokens() {
+        XCTAssertEqual(
+            WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123"),
+            "tok123"
+        )
+        XCTAssertEqual(
+            WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123?x=1"),
+            "tok123"
+        )
+        XCTAssertEqual(
+            WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123#frag"),
+            "tok123"
+        )
+        XCTAssertEqual(
+            WebLinks.extractInviteToken("https://app.exponential.at/invite/tok123/"),
+            "tok123"
+        )
+        XCTAssertEqual(WebLinks.extractInviteToken(" tok123 "), "tok123")
+        XCTAssertNil(WebLinks.extractInviteToken("not a token"))
+        XCTAssertNil(WebLinks.extractInviteToken(""))
+        XCTAssertNil(WebLinks.extractInviteToken("   "))
+        XCTAssertNil(WebLinks.extractInviteToken("https://x/invite/"))
+    }
 }
