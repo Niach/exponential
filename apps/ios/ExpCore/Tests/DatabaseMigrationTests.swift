@@ -109,9 +109,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNotNil(sessionIssueId)
         XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
 
-        // The public-board columns (and the legacy `type` relic) are gone;
-        // helpdesk_enabled is deliberately NOT stored yet (a later stage adds
-        // it — the tolerant apply path drops the unknown wire column).
+        // The public-board columns (and the legacy `type` relic) are gone.
         let boardCols = try columnNames(pool, "boards")
         XCTAssertFalse(boardCols.contains("type"))
         XCTAssertFalse(boardCols.contains("public_show_comments"))
@@ -120,7 +118,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(boardCols.contains("public_show_coding"))
         XCTAssertTrue(boardCols.contains("is_protected"))
         XCTAssertTrue(boardCols.contains("icon"))
-        XCTAssertFalse(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // The team-level helpdesk switch (EXP-180 Support inbox) IS stored —
+        // the teams shape serves it and the Support segment gates on it.
+        XCTAssertTrue(try columnNames(pool, "teams").contains("helpdesk_enabled"))
 
         // The invite bearer token is not synced (server allowlist), so the
         // local column must be nullable.

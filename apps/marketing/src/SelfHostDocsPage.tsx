@@ -431,12 +431,6 @@ PUSH_RELAY_SECRET=<shared secret>
                 a secret, so a secretless web app just collects{` `}
                 <code>401</code>s.
               </EnvVar>
-              <EnvVar name="PUBLIC_FEEDBACK_URL">
-                Where the in-app &quot;Send feedback&quot; button sends your
-                users — defaults to the Exponential cloud (
-                <code>https://app.exponential.at</code>), where feedback about
-                Exponential itself belongs.
-              </EnvVar>
             </dl>
           </DocsSection>
 

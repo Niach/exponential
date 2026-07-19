@@ -35,13 +35,16 @@ public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Senda
 
 // MARK: - Team
 
-public struct TeamEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "teams"
 
     public let id: String
     public let name: String
     public let slug: String
     public let iconUrl: String?
+    // Team-level helpdesk switch (EXP-180): when true, every member sees the
+    // Support inbox (standalone tickets via the helpdesk tRPC router).
+    public let helpdeskEnabled: Bool
     public let createdAt: String
     public let updatedAt: String
 
@@ -50,6 +53,7 @@ public struct TeamEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         name: String,
         slug: String,
         iconUrl: String?,
+        helpdeskEnabled: Bool = false,
         createdAt: String,
         updatedAt: String
     ) {
@@ -57,6 +61,7 @@ public struct TeamEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         self.name = name
         self.slug = slug
         self.iconUrl = iconUrl
+        self.helpdeskEnabled = helpdeskEnabled
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -68,8 +73,26 @@ public struct TeamEntity: Codable, FetchableRecord, PersistableRecord, Identifia
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case iconUrl = "icon_url"
+        case helpdeskEnabled = "helpdesk_enabled"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `helpdesk_enabled` arrives as Postgres text off the Electric
+// wire ("t"/"true"/…) but as a native scalar from tRPC/fixtures, and a
+// pre-rotation snapshot may omit it — decode permissively with the schema
+// default (the BoardEntity `is_protected` precedent).
+extension TeamEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        slug = try c.decode(String.self, forKey: .slug)
+        iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
+        helpdeskEnabled = c.decodeWireBool(forKey: .helpdeskEnabled, default: false)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 

@@ -43,8 +43,9 @@ export function Panel(props: {
   onBack(): void
   successFlavor: `feedback` | `support`
   successIdentifier: string | null
-  // Absolute public issue URL — non-null only when the target project is a
-  // public feedback board (older servers never send it).
+  // Absolute issue URL. Current servers always send null (EXP-180 removed
+  // public boards); kept so the card still links when an older self-hosted
+  // server sends one.
   successUrl: string | null
   position: `bottom-right` | `bottom-left`
   screenshot: Screenshot | null

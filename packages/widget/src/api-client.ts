@@ -132,8 +132,8 @@ export async function submitFeedback(args: {
     }
     const body = (await response.json().catch(() => null)) as {
       identifier?: string
-      // Absolute public issue URL when the target project is a live public
-      // feedback board; null otherwise. Absent on older servers.
+      // Absolute issue URL. Current servers always send null (EXP-180
+      // removed public boards); tolerated for older self-hosted servers.
       url?: string | null
     } | null
     return {

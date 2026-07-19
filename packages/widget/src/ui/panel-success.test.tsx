@@ -1,6 +1,6 @@
 // Success card (EXP-42a): the "Filed as EXP-n" line links to the public
 // issue when the server sent a url, and stays plain text when it did not
-// (older servers / non-public projects).
+// (current servers always send null; older self-hosted ones may link).
 import { beforeEach, describe, expect, it } from "vitest"
 import { render } from "preact"
 import { Panel } from "./Panel"

@@ -58,6 +58,29 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(label.name, "true")
     }
 
+    // MARK: - Team (helpdesk_enabled rides the teams shape as Postgres text)
+
+    func testTeamDecodesWireHelpdeskEnabled() throws {
+        let team = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team", "helpdesk_enabled": "t",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertTrue(team.helpdeskEnabled)
+    }
+
+    func testTeamHelpdeskEnabledDefaultsFalseWhenAbsent() throws {
+        // A pre-rotation snapshot may omit the column — schema default wins.
+        let team = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertFalse(team.helpdeskEnabled)
+    }
+
     // MARK: - Board (locks the t/f Postgres text forms too)
 
     func testBoardDecodesWireBoolsAndSortOrder() throws {

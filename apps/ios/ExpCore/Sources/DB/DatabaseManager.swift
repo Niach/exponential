@@ -170,11 +170,6 @@ public final class DatabaseManager: @unchecked Sendable {
         // affinities are looser than Postgres — uuid/timestamp/date columns are
         // stored as text (ISO-8601 for timestamps), enums as text, jsonb
         // (issues.description, comments.body) as text.
-        //
-        // NOTE: the teams shape additionally serves `helpdesk_enabled`; it is
-        // deliberately NOT stored yet (a later stage adds it) — the tolerant
-        // partial-update path drops unknown columns and full-row Codable
-        // decoding ignores unknown keys, so the extra wire column is harmless.
         migrator.registerMigration("v1_initial") { db in
             try db.create(table: "electric_offsets", ifNotExists: true) { t in
                 t.primaryKey("shape", .text)
@@ -194,6 +189,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("icon_url", .text)
+                // Team-level helpdesk switch (EXP-180): gates the Support
+                // inbox on every client. Synced on the teams shape.
+                t.column("helpdesk_enabled", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }

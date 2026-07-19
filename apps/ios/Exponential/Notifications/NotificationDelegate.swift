@@ -44,7 +44,12 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        if let issueId = userInfo["issueId"] as? String {
+        if userInfo["type"] as? String == "support_reply",
+           let threadId = userInfo["threadId"] as? String {
+            // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys —
+            // route to the Support thread view instead of an issue.
+            deepLinkBus.navigateToSupportThread(threadId, userId: userInfo["userId"] as? String)
+        } else if let issueId = userInfo["issueId"] as? String {
             // The payload's userId identifies which signed-in account the
             // push was for; the navigator opens the issue under that account
             // instead of whichever one is active.

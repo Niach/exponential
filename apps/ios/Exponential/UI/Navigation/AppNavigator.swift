@@ -16,6 +16,9 @@ enum AppRoute: Hashable {
     case reviews
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
+    /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
+    /// My Work Support segment or a support_reply push tap.
+    case supportThread(accountId: String, threadId: String)
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
@@ -288,6 +291,15 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeInvite()
             }
         }
+        // A support_reply push tap (EXP-180): open the ticket's conversation
+        // under the recipient's account (helpdesk pushes carry no issue keys).
+        .onChange(of: deps.deepLinkBus.pendingSupportThreadId) { _, threadId in
+            if let threadId {
+                let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSupportThreadUserId)
+                path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
+                _ = deps.deepLinkBus.consumeSupportThread()
+            }
+        }
         // A team was deleted in-app (EXP-43): pop to root so no pushed
         // view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
@@ -305,6 +317,11 @@ struct MainNavigator: View {
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
+            }
+            let supportUserId = deps.deepLinkBus.pendingSupportThreadUserId
+            if let threadId = deps.deepLinkBus.consumeSupportThread() {
+                let accountId = issueAccountId(forUserId: supportUserId)
+                path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
@@ -433,6 +450,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
             IssueDetailView(issueId: id)
+                .environment(\.accountId, accountId)
+        case let .supportThread(accountId, threadId):
+            SupportThreadView(threadId: threadId)
                 .environment(\.accountId, accountId)
         case let .changes(accountId, issueId):
             ChangesView(issueId: issueId)
