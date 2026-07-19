@@ -1,4 +1,4 @@
-• Create or join a team on first launch — no more auto-created workspace
-• Support gets an unread badge in the tab bar
-• Clearer account labels and an honest empty state on filtered boards
+• Answer agent questions with a tap — steering cards with options, multi-select included
+• Coding sessions show a "ready for review" state once the PR is open
+• Cleaner segmented tabs on My Work and Support
 • Assorted fixes and polish

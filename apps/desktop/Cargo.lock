@@ -216,7 +216,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "api"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "dirs",
  "domain",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "anyhow",
  "api",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "coding"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "anyhow",
  "api",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "serde",
  "serde_json",
@@ -6401,7 +6401,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steer"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "api",
  "flume",
@@ -6620,7 +6620,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "domain",
  "flume",
@@ -6761,7 +6761,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -6776,7 +6776,7 @@ dependencies = [
 
 [[package]]
 name = "theme"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "gpui",
  "gpui-component",
@@ -7596,7 +7596,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "anyhow",
  "api",
@@ -7723,7 +7723,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "anyhow",
  "dirs",
