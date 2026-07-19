@@ -104,20 +104,26 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func serverRow(_ account: ServerAccount) -> some View {
+        // With a single connected server the "Cloud"/hostname label is noise —
+        // the signed-in email alone identifies the account. A signed-out
+        // account keeps its server label so the row stays identifiable.
+        let emailAsTitle = deps.auth.accounts.count == 1
+            && account.token != nil
+            && !(account.userEmail ?? "").isEmpty
         HStack(spacing: 12) {
             Image(systemName: "server.rack")
                 .font(.body)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.displayName)
+                Text(emailAsTitle ? (account.userEmail ?? "") : account.displayName)
                     .font(.body)
                     .foregroundStyle(.white)
                 if account.token == nil {
                     Text("Signed out")
                         .font(.caption)
                         .foregroundStyle(.orange.opacity(0.85))
-                } else if let email = account.userEmail, !email.isEmpty {
+                } else if !emailAsTitle, let email = account.userEmail, !email.isEmpty {
                     Text(email)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -154,10 +160,14 @@ struct SettingsView: View {
     @ViewBuilder
     private func teamGroupBlock(_ group: ServerTeamGroup) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(group.hostname)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 4)
+            // The server header only disambiguates when several servers are
+            // connected — with a single server it's noise.
+            if (teamLoader?.groups.count ?? 0) > 1 {
+                Text(group.hostname)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.horizontal, 4)
+            }
 
             VStack(spacing: 6) {
                 ForEach(group.teams) { team in

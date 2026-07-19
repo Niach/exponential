@@ -29,12 +29,13 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Centered empty-state with optional icon + message (replaces 4 ad-hoc copies). */
+/** Centered empty-state with optional icon + message + detail line (replaces 4 ad-hoc copies). */
 @Composable
 fun EmptyState(
     message: String,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    detail: String? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     Box(
@@ -61,6 +62,15 @@ fun EmptyState(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 textAlign = TextAlign.Center,
             )
+            if (detail != null) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
             action?.invoke()
         }
     }

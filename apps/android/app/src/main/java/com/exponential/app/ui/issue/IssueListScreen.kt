@@ -233,10 +233,6 @@ fun IssueListScreen(
                 showSwitcher = false
             },
             onDismiss = { showSwitcher = false },
-            onCreateBoard = {
-                showSwitcher = false
-                showCreateBoard = true
-            },
         )
     }
 
@@ -274,17 +270,6 @@ private fun IssueListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            // Large board title (scrolls with content, iOS .navigationTitle).
-            item(key = "title") {
-                Text(
-                    state.board?.name ?: "Board",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-                )
-            }
             item(key = "pills") {
                 FilterPills(
                     active = state.tab,

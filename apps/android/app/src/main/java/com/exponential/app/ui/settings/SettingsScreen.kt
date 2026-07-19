@@ -131,7 +131,11 @@ fun SettingsScreen(
                     Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                         accounts.forEachIndexed { i, account ->
                             if (i > 0) CardDivider()
-                            ServerRow(account = account, onClick = { onOpenServerDetail(account.id) })
+                            ServerRow(
+                                account = account,
+                                soleServer = accounts.size == 1,
+                                onClick = { onOpenServerDetail(account.id) },
+                            )
                         }
                         if (accounts.isNotEmpty()) CardDivider()
                         SettingsRow(
@@ -160,6 +164,7 @@ fun SettingsScreen(
                             serverGroups.forEach { group ->
                                 TeamGroupBlock(
                                     group = group,
+                                    showHeader = serverGroups.size > 1,
                                     onTeamTap = { teamId ->
                                         viewModel.onTeamSettingsTap(group.accountId, teamId)
                                         onOpenTeamSettings()
@@ -241,7 +246,11 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
+private fun ServerRow(account: ServerAccount, soleServer: Boolean, onClick: () -> Unit) {
+    // With a single connected server the "Cloud"/hostname label is noise —
+    // the signed-in email alone identifies the account (iOS parity). A
+    // signed-out account keeps its server label so the row stays identifiable.
+    val emailAsTitle = soleServer && account.token != null && !account.userEmail.isNullOrBlank()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -258,9 +267,11 @@ private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                account.displayHost,
+                if (emailAsTitle) account.userEmail!! else account.displayName,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             when {
                 account.token == null -> Text(
@@ -268,6 +279,7 @@ private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary,
                 )
+                emailAsTitle -> Unit
                 !account.userEmail.isNullOrBlank() -> Text(
                     account.userEmail!!,
                     style = MaterialTheme.typography.labelSmall,
@@ -293,28 +305,33 @@ private fun ServerRow(account: ServerAccount, onClick: () -> Unit) {
 }
 
 // One server's hostname header + a glass card of its teams (the switcher).
+// The header only disambiguates when several servers are connected — with a
+// single server it's noise (iOS parity), so the caller hides it.
 @Composable
 private fun TeamGroupBlock(
     group: ServerTeamGroup,
+    showHeader: Boolean,
     onTeamTap: (teamId: String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 4.dp)) {
-            Text(
-                group.hostname,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!group.userEmail.isNullOrBlank()) {
+        if (showHeader) {
+            Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                 Text(
-                    group.userEmail!!,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                    group.hostname,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (!group.userEmail.isNullOrBlank()) {
+                    Text(
+                        group.userEmail!!,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {

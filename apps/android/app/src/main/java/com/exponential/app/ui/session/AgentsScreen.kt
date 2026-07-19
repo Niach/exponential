@@ -123,11 +123,15 @@ fun AgentsScreen(
 
                     if (state.rows.isEmpty()) {
                         item(key = "__no_running__") {
+                            // iOS noAgentsRow: caption/tertiary text in a glass row.
                             Text(
-                                "No agents running",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                "No agents running right now.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .glassRow()
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
                             )
                         }
                     } else {
@@ -336,10 +340,12 @@ private fun AgentSessionRow(
 
 @Composable
 private fun AgentsEmptyState() {
-    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+    // Mirrors iOS AgentsView.emptyState: tertiary icon, secondary subheadline
+    // title, tertiary caption body.
+    Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
                 Icons.Filled.SmartToy,
@@ -349,13 +355,13 @@ private fun AgentsEmptyState() {
             )
             Text(
                 "No agents running",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
             Text(
                 "Start coding on an issue from the desktop IDE — live sessions show up here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 textAlign = TextAlign.Center,
             )
         }

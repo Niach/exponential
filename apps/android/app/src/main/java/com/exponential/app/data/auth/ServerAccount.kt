@@ -32,6 +32,17 @@ data class ServerAccount(
     val displayHost: String
         get() = runCatching { URI(instanceUrl).host }.getOrNull() ?: instanceUrl
 
+    // User-facing server label (iOS ServerAccount.displayName): the known cloud
+    // instances get friendly names, everything else shows its host. URL-literal
+    // on purpose — AppConstants.PUBLIC_CLOUD_URL is flavor-dependent, but the
+    // label should not change with the build flavor.
+    val displayName: String
+        get() = when (instanceUrl) {
+            "https://app.exponential.at" -> "Cloud"
+            "https://next.exponential.at" -> "Staging"
+            else -> displayHost
+        }
+
     companion object {
         // Pre-login "pending" id: keyed by URL only, before a user is resolved.
         fun makeId(instanceUrl: String): String = hash(instanceUrl)
