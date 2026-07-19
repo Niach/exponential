@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import type { CodingSession, Issue } from "@/db/schema"
@@ -38,6 +38,13 @@ export function AgentDock({
   const boards = useTeamBoards(teamId)
 
   const expandedId = dock?.expandedSessionId ?? null
+
+  // Fullscreen (EXP-184) lives here — outside the per-session `key` remount,
+  // so switching dock tabs keeps fullscreen; any collapse exits it.
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    if (!expandedId) setFullscreen(false)
+  }, [expandedId])
 
   // Query the expanded session by id in ANY status, so a session that flips to
   // `ended` while expanded stays visible until the user collapses it.
@@ -102,15 +109,29 @@ export function AgentDock({
       : running
 
   return (
-    <div className="sticky bottom-0 z-30 border-t border-border bg-background">
+    <div
+      className={cn(
+        // z-40 covers the layout while staying under every z-50 overlay
+        // (dialogs, dropdowns) so kill-confirm etc. still stack above.
+        fullscreen && expandedRow
+          ? `fixed inset-0 z-40 flex flex-col`
+          : `sticky bottom-0 z-30 border-t`,
+        `border-border bg-background`
+      )}
+    >
       {expandedRow && (
-        <div className="h-[70dvh] md:h-96">
+        <div className={fullscreen ? `min-h-0 flex-1` : `h-[70dvh] md:h-96`}>
           <AgentSessionView
             key={expandedRow.session.id}
             session={expandedRow.session}
             currentUserId={currentUserId}
             title={<SessionTitle row={expandedRow} teamSlug={teamSlug} />}
-            onCollapse={() => dock?.collapseDock()}
+            onCollapse={() => {
+              setFullscreen(false)
+              dock?.collapseDock()
+            }}
+            isFullscreen={fullscreen}
+            onToggleFullscreen={() => setFullscreen((f) => !f)}
           />
         </div>
       )}

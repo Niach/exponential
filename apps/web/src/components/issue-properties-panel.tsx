@@ -45,6 +45,10 @@ export interface IssuePropertiesPanelProps {
   onBoardChange?: (boardId: string) => void | Promise<void>
   disabled?: boolean
   restrictModeration?: boolean
+  // Coding "Agent" section (EXP-184) — sidebar layout only. The slot owns its
+  // own PropertyGroup (its gating lives in issue-coding-rows.tsx, so the panel
+  // can't know whether it renders anything).
+  codingSlot?: React.ReactNode
 }
 
 function DueDateControl({
@@ -291,6 +295,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
         <PropertyGroup label="Due date">{dueDateControl}</PropertyGroup>
         <PropertyGroup label="Board">{boardChip}</PropertyGroup>
+        {props.codingSlot}
       </aside>
     )
   }
@@ -308,7 +313,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   )
 }
 
-function PropertyGroup({
+export function PropertyGroup({
   label,
   children,
 }: {

@@ -10,6 +10,8 @@ import {
   ClipboardList,
   Eye,
   Loader2,
+  Maximize2,
+  Minimize2,
   OctagonX,
   RotateCw,
   Sparkles,
@@ -217,6 +219,8 @@ export function AgentSessionView({
   currentUserId,
   title,
   onCollapse,
+  isFullscreen,
+  onToggleFullscreen,
 }: {
   session: CodingSession
   currentUserId: string
@@ -224,6 +228,9 @@ export function AgentSessionView({
   title: React.ReactNode
   /** Collapse the dock panel (the socket tears down on unmount). */
   onCollapse: () => void
+  /** Fullscreen toggle chrome (EXP-184) — owned by the dock; absent = no button. */
+  isFullscreen?: boolean
+  onToggleFullscreen?: () => void
 }) {
   // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh ticket.
   // Always starts at 1 — the dock only mounts this while it should be live.
@@ -662,6 +669,17 @@ export function AgentSessionView({
           >
             <OctagonX />
             <span className="hidden md:inline">Kill session</span>
+          </Button>
+        )}
+        {onToggleFullscreen && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label={isFullscreen ? `Exit fullscreen` : `Fullscreen`}
+            onClick={onToggleFullscreen}
+          >
+            {isFullscreen ? <Minimize2 /> : <Maximize2 />}
           </Button>
         )}
         <Button

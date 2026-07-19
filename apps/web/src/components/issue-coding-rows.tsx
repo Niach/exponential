@@ -22,16 +22,20 @@ import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PropertyGroup } from "@/components/issue-properties-panel"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { useRemoteCodingStart } from "@/hooks/use-remote-coding-start"
 import { StartCodingDialog } from "@/components/start-coding-dialog"
 
-// The coding section of the issue detail (EXP-106): a compact "coding now" /
-// remote-start row that FOCUSES the global dock (never mounts the live viewer
-// itself), plus a PR / pushed-branch row that links to the review-detail route.
-// Repo presence + membership + relay availability gate it (the same signals the
-// server enforces); everything degrades to nothing when they're absent.
+// The coding affordances of the issue detail (EXP-106): a compact "coding now"
+// / remote-start control that FOCUSES the global dock (never mounts the live
+// viewer itself), plus a PR / pushed-branch row that links to the review-detail
+// route. Repo presence + membership + relay availability gate them (the same
+// signals the server enforces); everything degrades to nothing when absent.
+// EXP-184 split them: IssueCodingControl renders as a sidebar "Agent" property
+// group on desktop (variant='sidebar') or the classic full-width row on mobile
+// (variant='row'); IssuePrRow always stays a main-column row.
 
 /** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
@@ -69,27 +73,11 @@ function RunningPing() {
   )
 }
 
-interface IssueCodingRowsProps {
-  issue: Issue
-  board: Board
-  teamId: string
-  teamSlug: string
-  currentUserId: string
-  users: User[]
-}
+export type CodingControlVariant = `row` | `sidebar`
 
-export function IssueCodingRows({
-  issue,
-  board,
-  teamId,
-  teamSlug,
-  currentUserId,
-  users,
-}: IssueCodingRowsProps) {
-  const config = useSteerConfig()
-
-  // Steer + branch-probe affordances require team membership (the server
-  // enforces this regardless; this only decides what renders).
+// Membership gate shared by both exported pieces (the server enforces it
+// regardless; this only decides what renders).
+function useIsTeamMember(teamId: string, currentUserId: string) {
   const { data: memberRows } = useLiveQuery(
     (query) =>
       query
@@ -99,25 +87,64 @@ export function IssueCodingRows({
         ),
     [teamId, currentUserId]
   )
-  const isMember = (memberRows?.length ?? 0) > 0
+  return (memberRows?.length ?? 0) > 0
+}
+
+/** The "coding now" / remote-start control — sidebar property group or row. */
+export function IssueCodingControl({
+  issue,
+  board,
+  teamId,
+  currentUserId,
+  users,
+  variant,
+}: {
+  issue: Issue
+  board: Board
+  teamId: string
+  currentUserId: string
+  users: User[]
+  variant: CodingControlVariant
+}) {
+  const config = useSteerConfig()
+  const isMember = useIsTeamMember(teamId, currentUserId)
 
   return (
-    <>
-      <AgentRow
-        issue={issue}
-        board={board}
-        teamId={teamId}
-        users={users}
-        isMember={isMember}
-        steerEnabled={config?.enabled ?? null}
-      />
-      <PrRow
-        issue={issue}
-        board={board}
-        teamSlug={teamSlug}
-        isMember={isMember}
-      />
-    </>
+    <AgentRow
+      issue={issue}
+      board={board}
+      teamId={teamId}
+      users={users}
+      isMember={isMember}
+      steerEnabled={config?.enabled ?? null}
+      variant={variant}
+    />
+  )
+}
+
+/** The PR / pushed-branch main-column row. */
+export function IssuePrRow({
+  issue,
+  board,
+  teamId,
+  teamSlug,
+  currentUserId,
+}: {
+  issue: Issue
+  board: Board
+  teamId: string
+  teamSlug: string
+  currentUserId: string
+}) {
+  const isMember = useIsTeamMember(teamId, currentUserId)
+
+  return (
+    <PrRow
+      issue={issue}
+      board={board}
+      teamSlug={teamSlug}
+      isMember={isMember}
+    />
   )
 }
 
@@ -130,6 +157,7 @@ function AgentRow({
   users,
   isMember,
   steerEnabled,
+  variant,
 }: {
   issue: Issue
   board: Board
@@ -138,6 +166,7 @@ function AgentRow({
   isMember: boolean
   /** null while steer.config is still loading. */
   steerEnabled: boolean | null
+  variant: CodingControlVariant
 }) {
   const dock = useAgentDock()
 
@@ -145,7 +174,9 @@ function AgentRow({
     (query) =>
       query
         .from({ s: codingSessionCollection })
-        .where(({ s }) => and(eq(s.issueId, issue.id), eq(s.status, `running`))),
+        .where(({ s }) =>
+          and(eq(s.issueId, issue.id), eq(s.status, `running`))
+        ),
     [issue.id]
   )
   // Staleness guard (EXP-153): heartbeat-dead `running` rows render as absent.
@@ -164,20 +195,55 @@ function AgentRow({
 
   if (latest) {
     const owner = users.find((u) => u.id === latest.userId)
+    const codingBadge = (
+      <Badge
+        variant="outline"
+        className="gap-1.5 border-emerald-500/40 text-emerald-400"
+      >
+        <RunningPing />
+        Coding now
+        {sessions.length > 1 ? ` (·${sessions.length})` : ``}
+      </Badge>
+    )
+    const ownerLabel = (
+      <span className="truncate text-xs text-muted-foreground">
+        {displayUserName(owner, latest.userId)}
+        {latest.deviceLabel ? ` · ${latest.deviceLabel}` : ``}
+      </span>
+    )
+
+    if (variant === `sidebar`) {
+      return (
+        <PropertyGroup label="Agent">
+          <div className="w-full space-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+              {codingBadge}
+              {ownerLabel}
+            </div>
+            {isMember && steerEnabled ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => dock?.openDock(latest.id)}
+              >
+                <MonitorPlay />
+                Watch
+              </Button>
+            ) : isMember && steerEnabled === false ? (
+              <p className="text-xs text-muted-foreground">
+                Live steering is unavailable on this instance.
+              </p>
+            ) : null}
+          </div>
+        </PropertyGroup>
+      )
+    }
+
     return (
       <div className="flex min-w-0 items-center gap-2 border-t border-border px-4 py-3">
-        <Badge
-          variant="outline"
-          className="gap-1.5 border-emerald-500/40 text-emerald-400"
-        >
-          <RunningPing />
-          Coding now
-          {sessions.length > 1 ? ` (·${sessions.length})` : ``}
-        </Badge>
-        <span className="truncate text-xs text-muted-foreground">
-          {displayUserName(owner, latest.userId)}
-          {latest.deviceLabel ? ` · ${latest.deviceLabel}` : ``}
-        </span>
+        {codingBadge}
+        {ownerLabel}
         {isMember && steerEnabled ? (
           <Button
             variant="outline"
@@ -203,7 +269,7 @@ function AgentRow({
   // non-member / steer-off / repo-less / already-running issue view never fires
   // an ungated steer.myDevices round-trip.
   if (!isMember || !steerEnabled || !board.repositoryId) return null
-  return <RemoteStartRow issue={issue} teamId={teamId} />
+  return <RemoteStartRow issue={issue} teamId={teamId} variant={variant} />
 }
 
 // The remote-start affordance — split out so its steer.myDevices fetch only
@@ -211,9 +277,11 @@ function AgentRow({
 function RemoteStartRow({
   issue,
   teamId,
+  variant,
 }: {
   issue: Issue
   teamId: string
+  variant: CodingControlVariant
 }) {
   const remote = useRemoteCodingStart()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -221,6 +289,19 @@ function RemoteStartRow({
   // Presence lookup still in flight — keep the section quiet.
   if (remote.devices === null) return null
   if (remote.devices.length === 0) {
+    if (variant === `sidebar`) {
+      return (
+        <PropertyGroup label="Agent">
+          <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <MonitorOff className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              No desktop online — open the Exponential desktop app to run this
+              issue there.
+            </span>
+          </div>
+        </PropertyGroup>
+      )
+    }
     return (
       <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
         <MonitorOff className="size-3.5 shrink-0" />
@@ -231,31 +312,56 @@ function RemoteStartRow({
   }
 
   const busy = remote.starting || remote.sentTo !== null
+  const startButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      className={variant === `sidebar` ? `w-full` : undefined}
+      onClick={() => setDialogOpen(true)}
+      disabled={busy}
+    >
+      {remote.starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
+      Start coding
+    </Button>
+  )
+  const dialog = (
+    <StartCodingDialog
+      open={dialogOpen}
+      onOpenChange={setDialogOpen}
+      devices={remote.devices}
+      starting={remote.starting}
+      teamId={teamId}
+      initialIssueIds={[issue.id]}
+      onStart={(device, options, issueIds) => {
+        remote
+          .start(device, options, issueIds)
+          .then(() => setDialogOpen(false))
+          .catch(() => {})
+      }}
+    />
+  )
+
+  if (variant === `sidebar`) {
+    return (
+      <PropertyGroup label="Agent">
+        <div className="w-full space-y-2">
+          {startButton}
+          {dialog}
+          {remote.sentTo && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="size-3 shrink-0 animate-spin" />
+              Start sent to {remote.sentTo} — waiting for the desktop…
+            </p>
+          )}
+        </div>
+      </PropertyGroup>
+    )
+  }
+
   return (
     <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setDialogOpen(true)}
-        disabled={busy}
-      >
-        {remote.starting ? <Loader2 className="animate-spin" /> : <MonitorUp />}
-        Start coding
-      </Button>
-      <StartCodingDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        devices={remote.devices}
-        starting={remote.starting}
-        teamId={teamId}
-        initialIssueIds={[issue.id]}
-        onStart={(device, options, issueIds) => {
-          remote
-            .start(device, options, issueIds)
-            .then(() => setDialogOpen(false))
-            .catch(() => {})
-        }}
-      />
+      {startButton}
+      {dialog}
       {remote.sentTo && (
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin" />
@@ -308,8 +414,7 @@ function PrRow({
     }
   }, [canProbe, issue.id])
 
-  const rowClass =
-    `flex min-w-0 items-center gap-2 border-t border-border px-4 py-3 text-sm hover:bg-muted/50`
+  const rowClass = `flex min-w-0 items-center gap-2 border-t border-border px-4 py-3 text-sm hover:bg-muted/50`
 
   if (hasPr) {
     return (

@@ -90,23 +90,19 @@ export function McpSetupTabs() {
 
   return (
     <div className="space-y-3">
+      {/* Two-level tabs (EXP-184): six flat client tabs overflowed the card
+          horizontally — group by brand (Claude / OpenAI) with a compact
+          sub-switcher inside; each nested Tabs is its own Radix root, so the
+          original per-client panels move in unchanged. */}
       <Tabs defaultValue="claude">
         <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="claude" title="Claude (Desktop / claude.ai)">
+          <TabsTrigger value="claude" title="Claude & Claude Code">
             <ClaudeIcon className="size-4" />
             <span className="max-sm:hidden">Claude</span>
           </TabsTrigger>
-          <TabsTrigger value="chatgpt" title="ChatGPT">
+          <TabsTrigger value="openai" title="ChatGPT & Codex CLI">
             <OpenAiIcon className="size-4" />
-            <span className="max-sm:hidden">ChatGPT</span>
-          </TabsTrigger>
-          <TabsTrigger value="codex" title="Codex CLI">
-            <OpenAiIcon className="size-4" />
-            <span className="max-sm:hidden">Codex CLI</span>
-          </TabsTrigger>
-          <TabsTrigger value="claude-code" title="Claude Code">
-            <ClaudeIcon className="size-4" />
-            <span className="max-sm:hidden">Claude Code</span>
+            <span className="max-sm:hidden">OpenAI</span>
           </TabsTrigger>
           <TabsTrigger value="cursor" title="Cursor">
             <CursorIcon className="size-4" />
@@ -118,80 +114,120 @@ export function McpSetupTabs() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="claude" className="space-y-3">
-          <Steps>
-            <li>Settings → Connectors → Add custom connector.</li>
-            <li>Paste the URL below and click Add.</li>
-            <li>
-              Click Connect — the browser OAuth flow lets you pick which teams
-              and boards to share.
-            </li>
-          </Steps>
-          <Snippet text={endpoint} copyLabel="Copy URL" />
-          <Note>
-            Connectors connect from Anthropic&apos;s cloud — a self-hosted
-            instance must be reachable from the internet.
-          </Note>
+        <TabsContent value="claude">
+          <Tabs defaultValue="claude" className="gap-3">
+            <TabsList className="h-8 p-[2px]">
+              <TabsTrigger value="claude" className="px-2.5 text-xs">
+                Claude app
+              </TabsTrigger>
+              <TabsTrigger value="claude-code" className="px-2.5 text-xs">
+                Claude Code
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="claude" className="space-y-3">
+              <Steps>
+                <li>Settings → Connectors → Add custom connector.</li>
+                <li>Paste the URL below and click Add.</li>
+                <li>
+                  Click Connect — the browser OAuth flow lets you pick which
+                  teams and boards to share.
+                </li>
+              </Steps>
+              <Snippet text={endpoint} copyLabel="Copy URL" />
+              <Note>
+                Connectors connect from Anthropic&apos;s cloud — a self-hosted
+                instance must be reachable from the internet.
+              </Note>
+            </TabsContent>
+
+            <TabsContent value="claude-code" className="space-y-3">
+              <Steps>
+                <li>Register the server:</li>
+              </Steps>
+              <Snippet
+                text={buildMcpAddCommand(origin)}
+                copyLabel="Copy command"
+              />
+              <Steps>
+                <li value={2}>
+                  Run <code>/mcp</code> inside claude to sign in (OAuth).
+                </li>
+              </Steps>
+              <Note>
+                API-key alternative: append{` `}
+                <code>
+                  --header &quot;Authorization: Bearer expu_...&quot;
+                </code>{" "}
+                to the add command — with a header set it won&apos;t fall back
+                to OAuth.
+              </Note>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
-        <TabsContent value="chatgpt" className="space-y-3">
-          <Steps>
-            <li>
-              On chatgpt.com, enable Settings → Apps &amp; Connectors →
-              Advanced → Developer mode (menu location may vary; Plus, Pro, or
-              Business).
-            </li>
-            <li>
-              Create a connector with the MCP server URL below and
-              Authentication: OAuth.
-            </li>
-            <li>In a chat, choose it via + → More.</li>
-          </Steps>
-          <Snippet text={endpoint} copyLabel="Copy URL" />
-          <Note>
-            ChatGPT connectors are OAuth-only — API-key headers are not
-            supported.
-          </Note>
-        </TabsContent>
+        <TabsContent value="openai">
+          <Tabs defaultValue="chatgpt" className="gap-3">
+            <TabsList className="h-8 p-[2px]">
+              <TabsTrigger value="chatgpt" className="px-2.5 text-xs">
+                ChatGPT
+              </TabsTrigger>
+              <TabsTrigger value="codex" className="px-2.5 text-xs">
+                Codex CLI
+              </TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="codex" className="space-y-3">
-          <Steps>
-            <li>Add the server, then sign in via OAuth:</li>
-          </Steps>
-          <Snippet text={buildCodexMcpAddCommand(origin)} copyLabel="Copy commands" />
-          <Note>
-            Alternatively, configure the server in <code>~/.codex/config.toml</code>{` `}
-            with <code>bearer_token_env_var</code> pointing at an env var
-            holding a personal <code>expu_</code> API key.
-          </Note>
-        </TabsContent>
+            <TabsContent value="chatgpt" className="space-y-3">
+              <Steps>
+                <li>
+                  On chatgpt.com, enable Settings → Apps &amp; Connectors →
+                  Advanced → Developer mode (menu location may vary; Plus, Pro,
+                  or Business).
+                </li>
+                <li>
+                  Create a connector with the MCP server URL below and
+                  Authentication: OAuth.
+                </li>
+                <li>In a chat, choose it via + → More.</li>
+              </Steps>
+              <Snippet text={endpoint} copyLabel="Copy URL" />
+              <Note>
+                ChatGPT connectors are OAuth-only — API-key headers are not
+                supported.
+              </Note>
+            </TabsContent>
 
-        <TabsContent value="claude-code" className="space-y-3">
-          <Steps>
-            <li>Register the server:</li>
-          </Steps>
-          <Snippet text={buildMcpAddCommand(origin)} copyLabel="Copy command" />
-          <Steps>
-            <li value={2}>
-              Run <code>/mcp</code> inside claude to sign in (OAuth).
-            </li>
-          </Steps>
-          <Note>
-            API-key alternative: append{` `}
-            <code>--header &quot;Authorization: Bearer expu_...&quot;</code> to
-            the add command — with a header set it won&apos;t fall back to
-            OAuth.
-          </Note>
+            <TabsContent value="codex" className="space-y-3">
+              <Steps>
+                <li>Add the server, then sign in via OAuth:</li>
+              </Steps>
+              <Snippet
+                text={buildCodexMcpAddCommand(origin)}
+                copyLabel="Copy commands"
+              />
+              <Note>
+                Alternatively, configure the server in{" "}
+                <code>~/.codex/config.toml</code>
+                {` `}
+                with <code>bearer_token_env_var</code> pointing at an env var
+                holding a personal <code>expu_</code> API key.
+              </Note>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="cursor" className="space-y-3">
           <Steps>
             <li>
-              Add this to <code>~/.cursor/mcp.json</code> (or a board&apos;s{` `}
+              Add this to <code>~/.cursor/mcp.json</code> (or a board&apos;s
+              {` `}
               <code>.cursor/mcp.json</code>):
             </li>
           </Steps>
-          <Snippet text={buildMcpServersConfig(origin)} copyLabel="Copy config" />
+          <Snippet
+            text={buildMcpServersConfig(origin)}
+            copyLabel="Copy config"
+          />
           <Steps>
             <li value={2}>
               Hit Connect / login in Cursor&apos;s MCP list to complete the
@@ -202,7 +238,8 @@ export function McpSetupTabs() {
             Optional for headless use: add{` `}
             <code>
               &quot;headers&quot;: {`{"Authorization": "Bearer expu_..."}`}
-            </code>{` `}
+            </code>
+            {` `}
             to the server entry.
           </Note>
         </TabsContent>
@@ -213,7 +250,10 @@ export function McpSetupTabs() {
               Most MCP clients accept an <code>mcpServers</code> config:
             </li>
           </Steps>
-          <Snippet text={buildMcpServersConfig(origin)} copyLabel="Copy config" />
+          <Snippet
+            text={buildMcpServersConfig(origin)}
+            copyLabel="Copy config"
+          />
           <Note>
             Clients that only speak stdio can bridge via{` `}
             <code>{buildMcpRemoteBridgeCommand(origin)}</code>; VS Code uses a
@@ -233,8 +273,8 @@ export function McpSetupTabs() {
         </TabsContent>
       </Tabs>
       <Note>
-        Signing in via OAuth lets you scope access per team/board; personal
-        API keys (Bearer expu_…) work for headless use.
+        Signing in via OAuth lets you scope access per team/board; personal API
+        keys (Bearer expu_…) work for headless use.
       </Note>
     </div>
   )

@@ -141,7 +141,7 @@ function SeatStepper({
   onChange: (n: number) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <Label className="text-xs text-muted-foreground">Seats</Label>
       <div className="flex items-center gap-1">
         <Button
@@ -269,8 +269,12 @@ export function PlanComparison({
     return null
   }
 
+  // Container-query columns (EXP-184): this grid renders inside fixed-width
+  // containers (settings content ~640px, upgrade dialog) where viewport
+  // breakpoints overflowed the cards — column count must follow the CONTAINER.
+  // @4xl (56rem) is the narrowest that fits four seat-stepper cards.
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="@container grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-4">
       {TIERS.map((t) => {
         const isCurrent = t.tier === currentPlan
         const productId = getProductId(t.tier)
@@ -294,7 +298,7 @@ export function PlanComparison({
           <Card
             key={t.tier}
             className={cn(
-              `flex h-full flex-col gap-4 py-4`,
+              `flex h-full min-w-0 flex-col gap-4 overflow-hidden py-4`,
               isCurrent && `border-primary/40`
             )}
           >
@@ -346,7 +350,7 @@ export function PlanComparison({
                     <>
                       <SeatStepper seats={seats} onChange={setSeats} />
                       <Button
-                        className="w-full"
+                        className="w-full min-w-0"
                         size="sm"
                         onClick={() => handleCheckout(t.tier)}
                         disabled={loading !== null}
@@ -356,9 +360,11 @@ export function PlanComparison({
                         ) : (
                           <CreditCard className="mr-1.5 size-3.5" />
                         )}
-                        {loading === t.tier
-                          ? `Loading...`
-                          : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
+                        <span className="truncate">
+                          {loading === t.tier
+                            ? `Loading...`
+                            : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
+                        </span>
                       </Button>
                     </>
                   )}
