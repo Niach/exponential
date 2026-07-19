@@ -34,13 +34,14 @@ internal fun planPartialUpdate(
     pkColumns: List<String>,
     knownColumns: Set<String>,
     wireColumns: Map<String, JsonElement>,
+    integerColumns: Set<String> = emptySet(),
 ): PartialUpdatePlan? {
     if (pkColumns != listOf("id")) return null
     val candidates = wireColumns.filterKeys { it != "id" }
     val known = candidates.filterKeys { it in knownColumns }
     return PartialUpdatePlan(
         setClause = known.keys.joinToString(", ") { "\"$it\" = ?" },
-        args = known.values.map(::bindJsonValue),
+        args = known.map { (col, value) -> bindJsonValue(value, col in integerColumns) },
         droppedColumns = candidates.keys - known.keys,
     )
 }
@@ -81,16 +82,24 @@ internal fun parseKeyComponents(key: String): List<String> {
 }
 
 /** Bind a wire JSON value to a SQLite arg: null for JSON null, the serialized
- *  form for objects/arrays, and for scalars the raw content — except an
- *  unquoted JSON boolean, which binds as 1L/0L. Room's Boolean columns are
- *  INTEGER-affinity, so a "true"/"false" TEXT would read back as false (a web
- *  unsubscribe → partial `{unsubscribed:true}` would leave the bell on). Only
- *  unquoted booleans are converted — a quoted string that happens to be "true"
- *  stays the text "true". */
-internal fun bindJsonValue(value: JsonElement): Any? = when (value) {
+ *  form for objects/arrays, and for scalars the raw content — except booleans,
+ *  which must bind as 1L/0L. Room's Boolean columns are INTEGER-affinity, so a
+ *  "true"/"t" TEXT would read back as false (that's how the Support tab went
+ *  missing: the server's `helpdesk_enabled` flip arrives as a partial update
+ *  carrying the Postgres text form "t", EXP-185). An unquoted JSON boolean
+ *  converts unconditionally; the quoted Postgres text forms (t/true/1 —
+ *  PgBoolSerializer's vocabulary, iOS `sqlValue` parity) convert only when the
+ *  target column is INTEGER-affinity — a TEXT column's literal "true" must
+ *  stay the text "true". */
+internal fun bindJsonValue(value: JsonElement, isIntegerColumn: Boolean = false): Any? = when (value) {
     is JsonNull -> null
     is JsonPrimitive ->
         if (!value.isString) value.booleanOrNull?.let { if (it) 1L else 0L } ?: value.content
+        else if (isIntegerColumn) when (value.content.lowercase()) {
+            "t", "true", "1" -> 1L
+            "f", "false", "0" -> 0L
+            else -> value.content
+        }
         else value.content
     else -> value.toString()
 }
