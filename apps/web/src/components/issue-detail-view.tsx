@@ -53,7 +53,7 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
-import { IssueCodingRows } from "@/components/issue-coding-rows"
+import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
@@ -452,6 +452,21 @@ export function IssueDetailView({
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
 
+  // Coding "coding now" / remote-start control (EXP-184): a sidebar "Agent"
+  // property group on desktop, the classic full-width row on mobile. The
+  // component owns the repo/membership/relay gating and focuses the global
+  // dock rather than mounting the live viewer inline.
+  const codingControl = currentUserId ? (
+    <IssueCodingControl
+      issue={issue}
+      board={board}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      users={users}
+      variant={isMobile ? `row` : `sidebar`}
+    />
+  ) : null
+
   const propsPanel = (
     <IssuePropertiesPanel
       layout={isMobile ? `chiprow` : `sidebar`}
@@ -527,6 +542,7 @@ export function IssueDetailView({
       }}
       disabled={readOnly}
       restrictModeration={restrictModeration}
+      codingSlot={isMobile ? undefined : codingControl}
     />
   )
 
@@ -730,18 +746,15 @@ export function IssueDetailView({
     </div>
   )
 
-  // Coding section (EXP-106): the compact "coding now" / remote-start row plus
-  // the PR / pushed-branch link to the review-detail route. The component owns
-  // the repo/membership/relay gating and focuses the global dock rather than
-  // mounting the live viewer inline.
-  const codingRows = currentUserId ? (
-    <IssueCodingRows
+  // PR / pushed-branch link to the review-detail route (EXP-106) — stays in
+  // the main column on every layout.
+  const prRow = currentUserId ? (
+    <IssuePrRow
       issue={issue}
       board={board}
       teamId={teamId}
       teamSlug={teamSlug}
       currentUserId={currentUserId}
-      users={users}
     />
   ) : null
 
@@ -770,7 +783,8 @@ export function IssueDetailView({
           {titleField}
           {editor}
           {attachmentRail}
-          {codingRows}
+          {codingControl}
+          {prRow}
           {widgetCard}
           {timeline}
         </div>
@@ -790,7 +804,7 @@ export function IssueDetailView({
               {titleField}
               {editor}
               {attachmentRail}
-              {codingRows}
+              {prRow}
               {widgetCard}
               {timeline}
             </div>

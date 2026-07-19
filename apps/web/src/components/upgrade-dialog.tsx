@@ -46,7 +46,7 @@ export function UpgradeDialog({
       {/* `sm:` prefix required — the base DialogContent class has `sm:max-w-lg`
           and tailwind-merge only dedupes same-variant classes, so an unprefixed
           max-w-* silently loses on desktop. */}
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[min(64rem,calc(100vw-2rem))]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4" />
