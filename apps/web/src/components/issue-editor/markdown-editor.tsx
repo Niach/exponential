@@ -53,6 +53,10 @@ import {
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
+import {
+  releaseKeyboardClearance,
+  revealCaretAboveKeyboard,
+} from "@/lib/keyboard-caret"
 import { cn } from "@/lib/utils"
 
 export interface MarkdownEditorImageUploadConfig {
@@ -541,6 +545,43 @@ export const MarkdownEditor = forwardRef<
       editor.commands.setContent(markdown, { emitUpdate: false })
     }, [editor, editable, markdown])
 
+    // EXP-198: mobile keyboards overlay the layout viewport without resizing
+    // it, so ProseMirror's own scrollIntoView cannot tell that the caret has
+    // slipped behind the keyboard. While the editor is focused, chase every
+    // caret move (and keyboard show/hide — visualViewport resize) with a
+    // visual-viewport-aware reveal.
+    useEffect(() => {
+      if (!editor) return
+      let frame = 0
+      const reveal = () => {
+        cancelAnimationFrame(frame)
+        frame = requestAnimationFrame(() => {
+          if (editor.isDestroyed) return
+          if (!editor.isFocused) {
+            releaseKeyboardClearance()
+            return
+          }
+          revealCaretAboveKeyboard(editor.view)
+        })
+      }
+      const release = () => {
+        cancelAnimationFrame(frame)
+        releaseKeyboardClearance()
+      }
+      editor.on(`selectionUpdate`, reveal)
+      editor.on(`focus`, reveal)
+      editor.on(`blur`, release)
+      const vv = window.visualViewport
+      vv?.addEventListener(`resize`, reveal)
+      return () => {
+        editor.off(`selectionUpdate`, reveal)
+        editor.off(`focus`, reveal)
+        editor.off(`blur`, release)
+        vv?.removeEventListener(`resize`, reveal)
+        release()
+      }
+    }, [editor])
+
     // Re-run the issue-ref/mention decorations when resolution data changes
     // (issues/members sync in live) — a no-op transaction recomputes plugin
     // decorations without touching the document (onUpdate only fires on doc
@@ -625,12 +666,18 @@ export const MarkdownEditor = forwardRef<
         const coords = editor.view.coordsAtPos(autocomplete.from)
         const menuWidth = 288 // w-72
         const viewportPad = 8
+        // Fit within the VISUAL viewport — with the mobile keyboard open it
+        // is shorter than window.innerHeight, and a menu sized against the
+        // layout viewport would open underneath the keyboard (EXP-198).
+        const vv = window.visualViewport
+        const visibleTop = vv?.offsetTop ?? 0
+        const visibleBottom = visibleTop + (vv?.height ?? window.innerHeight)
         const left = Math.max(
           viewportPad,
           Math.min(coords.left, window.innerWidth - menuWidth - viewportPad)
         )
-        const spaceBelow = window.innerHeight - coords.bottom - viewportPad
-        const spaceAbove = coords.top - viewportPad
+        const spaceBelow = visibleBottom - coords.bottom - viewportPad
+        const spaceAbove = coords.top - visibleTop - viewportPad
         // Above the dialog (shadcn DialogContent is z-50).
         const base = { left, zIndex: 60 }
         if (spaceBelow < 200 && spaceAbove > spaceBelow) {
