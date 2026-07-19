@@ -37,8 +37,8 @@ export const Route = createFileRoute(
   // navigating from a filtered board carries them here so the header's
   // prev/next switcher walks the board's exact filtered+sorted sequence, and
   // the board breadcrumb links back to the same filtered view. All params
-  // are optional: links from my-issues / inbox / search arrive bare and fall
-  // back to the unfiltered board ordering.
+  // are optional: links from the inbox (either tab) / search arrive bare and
+  // fall back to the unfiltered board ordering.
   validateSearch: (search: Record<string, unknown>): IssueFilterSearch =>
     parseIssueFilterSearch(search),
   component: IssueDetailPage,
