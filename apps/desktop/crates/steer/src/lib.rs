@@ -47,6 +47,7 @@ pub mod control_channel;
 pub mod frames;
 pub mod plan_picker;
 pub mod publisher;
+pub mod question_picker;
 pub mod ring;
 
 use std::sync::Arc;

@@ -4,6 +4,7 @@ import { TRPCClientError } from "@trpc/client"
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
@@ -20,10 +21,14 @@ import {
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
+  attachQuestionAnswer,
   consumeEcho,
+  dismissPendingQuestions,
   groupToolRuns,
   pushEcho,
   activeQuestionIds,
+  QUESTION_ANSWERED_PREFIX,
+  QUESTION_DISMISSED_NARRATION,
   type EchoEntry,
 } from "@/lib/agent-feed"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -200,6 +205,10 @@ type FeedItem =
       options: QuestionOption[]
       multiSelect: boolean
       planMode: boolean
+      /** Set once the desktop's resolution narration folds into this card
+       *  (EXP-197) — a resolved card renders `answer` and is never active. */
+      resolved?: boolean
+      answer?: string
     }
 
 /** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
@@ -289,7 +298,31 @@ export function AgentSessionView({
     const handleActivity = (event: ActivityEvent) => {
       switch (event.kind) {
         case `narration`: {
-          if (!event.text.trim()) return
+          const trimmed = event.text.trim()
+          if (!trimmed) return
+          // Question-resolution signals fold into the pending card instead
+          // of rendering as narration rows (EXP-197). When no card is
+          // waiting, the answer still renders as a narration.
+          if (trimmed.startsWith(QUESTION_ANSWERED_PREFIX)) {
+            const answer = trimmed.slice(QUESTION_ANSWERED_PREFIX.length)
+            setFeed(
+              (prev) =>
+                attachQuestionAnswer(prev, answer) ??
+                [
+                  ...prev,
+                  {
+                    id: nextIdRef.current++,
+                    kind: `narration` as const,
+                    text: event.text,
+                  },
+                ].slice(-FEED_CAP)
+            )
+            return
+          }
+          if (trimmed === QUESTION_DISMISSED_NARRATION) {
+            setFeed((prev) => dismissPendingQuestions(prev) ?? prev)
+            return
+          }
           append({ kind: `narration`, text: event.text })
           return
         }
@@ -762,6 +795,7 @@ export function AgentSessionView({
                             options={item.options}
                             multiSelect={item.multiSelect}
                             planMode={item.planMode}
+                            answer={item.answer}
                             active={questionIds.has(item.id)}
                             canAnswer={canAnswer}
                             onAnswer={sendAnswer}
@@ -1031,6 +1065,7 @@ function QuestionCard({
   options,
   multiSelect,
   planMode,
+  answer,
   active,
   canAnswer,
   onAnswer,
@@ -1039,6 +1074,9 @@ function QuestionCard({
   options: QuestionOption[]
   multiSelect: boolean
   planMode: boolean
+  /** The chosen answer once the question resolved (EXP-197) — replaces the
+   *  option rows. */
+  answer?: string
   /** Still answerable per the feed — the session is blocked on this card. */
   active: boolean
   /** Live + steer perm — whether this client may answer at all. */
@@ -1112,6 +1150,15 @@ function QuestionCard({
               onToggle={() => setExpanded((v) => !v)}
             />
           )}
+          {answer !== undefined ? (
+            // Answered (EXP-197): the chosen answer replaces the options.
+            <div className="mt-2 flex items-start gap-1.5 text-xs">
+              <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+              <span className="whitespace-pre-wrap break-words font-medium text-foreground/90">
+                {answer}
+              </span>
+            </div>
+          ) : (
           <div
             className={cn(
               `mt-2 flex items-start gap-1`,
@@ -1158,14 +1205,19 @@ function QuestionCard({
               )
             )}
           </div>
+          )}
           {answerable && multiSelect && (
+            // Advances to the picker's next tab / review step. Tab, NOT
+            // Enter: with the cursor on an option row Enter TOGGLES it
+            // (verified against claude v2.1.215), silently corrupting the
+            // selection (EXP-197).
             <Button
               variant="secondary"
               size="sm"
               className="mt-2 h-7 text-xs"
-              onClick={() => onAnswer(`\r`)}
+              onClick={() => onAnswer(`\t`)}
             >
-              Submit selection
+              Continue
             </Button>
           )}
           {active && !canAnswer && (

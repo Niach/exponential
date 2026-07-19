@@ -91,19 +91,58 @@ sealed interface AgentFeedItem {
 
     /** An interactive question (AskUserQuestion / plan approval, EXP-78).
      *  [planMode] marks an ExitPlanMode plan-approval picker (EXP-97) —
-     *  presentation-only, absent on events from older desktops/relays. */
+     *  presentation-only, absent on events from older desktops/relays.
+     *  [resolved]/[answer] are set client-side when the desktop's
+     *  `Question answered:` / `Question dismissed.` narration folds into the
+     *  card (EXP-197) — a resolved card renders its answer and is never
+     *  answerable again. */
     data class Question(
         override val id: Long,
         val text: String,
         val options: List<QuestionOption>,
         val multiSelect: Boolean,
         val planMode: Boolean = false,
+        val resolved: Boolean = false,
+        val answer: String? = null,
     ) : AgentFeedItem
 }
 
 /** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
  *  the no-protocol-change signal that a pending plan approval was answered. */
 const val PLAN_RESOLVED_NARRATION = "Plan approval answered."
+
+/** The desktop's answered-question narration prefix (steer/src/activity.rs,
+ *  EXP-197): one `Question answered: <answer>` narration per question flushes
+ *  with the transcript once an AskUserQuestion resolves — folded into the
+ *  earliest unanswered question card instead of rendering as a narration. */
+const val QUESTION_ANSWERED_PREFIX = "Question answered: "
+
+/** The desktop's dismissed-question narration (EXP-197) — the ask resolved
+ *  WITHOUT answers (Esc / rejected); retires every pending question card. */
+const val QUESTION_DISMISSED_NARRATION = "Question dismissed."
+
+/** Fold an answer into the EARLIEST unanswered non-plan question card
+ *  (answers arrive in question order, so earliest-first keeps multi-question
+ *  asks aligned). Null when no card is waiting — the caller falls back to
+ *  rendering the narration so the answer is never lost. */
+fun attachQuestionAnswer(feed: List<AgentFeedItem>, answer: String): List<AgentFeedItem>? {
+    val index = feed.indexOfFirst { it is AgentFeedItem.Question && !it.planMode && !it.resolved }
+    if (index < 0) return null
+    val item = feed[index] as AgentFeedItem.Question
+    return feed.toMutableList().apply {
+        this[index] = item.copy(resolved = true, answer = answer)
+    }
+}
+
+/** Retire every pending non-plan question card (the ask was dismissed).
+ *  Null when nothing was pending. */
+fun dismissPendingQuestions(feed: List<AgentFeedItem>): List<AgentFeedItem>? {
+    if (feed.none { it is AgentFeedItem.Question && !it.planMode && !it.resolved }) return null
+    return feed.map {
+        if (it is AgentFeedItem.Question && !it.planMode && !it.resolved) it.copy(resolved = true)
+        else it
+    }
+}
 
 /**
  * Ids of the [AgentFeedItem.Question] items still answerable (EXP-174):
@@ -124,8 +163,15 @@ fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
     for (item in feed.asReversed()) {
         when (item) {
             is AgentFeedItem.Question -> {
-                if (trailing || (item.planMode && !retired)) ids.add(item.id)
-                retired = true
+                if (item.resolved) {
+                    // An answered/dismissed card is itself a resolution signal
+                    // (it proves the TUI moved past it) and is never active.
+                    trailing = false
+                    retired = true
+                } else {
+                    if (trailing || (item.planMode && !retired)) ids.add(item.id)
+                    retired = true
+                }
             }
             is AgentFeedItem.UserMessage -> {
                 trailing = false
@@ -443,7 +489,22 @@ class AgentSessionViewModel @Inject constructor(
         when ((event["kind"] as? JsonPrimitive)?.contentOrNull) {
             "narration" -> {
                 val text = (event["text"] as? JsonPrimitive)?.contentOrNull ?: return
-                if (text.isNotBlank()) append(AgentFeedItem.Narration(nextEventId++, text))
+                if (text.isBlank()) return
+                val trimmed = text.trim()
+                // Question-resolution signals fold into the pending card
+                // instead of rendering as narration rows (EXP-197).
+                if (trimmed.startsWith(QUESTION_ANSWERED_PREFIX)) {
+                    val answer = trimmed.removePrefix(QUESTION_ANSWERED_PREFIX)
+                    attachQuestionAnswer(_feed.value, answer)?.let {
+                        _feed.value = it
+                        return
+                    }
+                    // No card waiting — fall through so the answer still shows.
+                } else if (trimmed == QUESTION_DISMISSED_NARRATION) {
+                    dismissPendingQuestions(_feed.value)?.let { _feed.value = it }
+                    return
+                }
+                append(AgentFeedItem.Narration(nextEventId++, text))
             }
             "tool" -> {
                 val name = (event["name"] as? JsonPrimitive)?.contentOrNull ?: return
@@ -566,8 +627,12 @@ class AgentSessionViewModel @Inject constructor(
         }
     }
 
-    /** Submit a multi-select question (Enter). */
-    fun sendSubmit() = sendAnswer("\r")
+    /** Advance a multi-select question. Tab, NOT Enter: with the cursor on an
+     *  option row Enter TOGGLES it (verified against claude v2.1.215 —
+     *  silently corrupting the selection), while Tab moves to the next
+     *  tab/review step, whose picker the grid watcher publishes as its own
+     *  card (EXP-197). */
+    fun sendSubmit() = sendAnswer("\t")
 
     /** Auto-release the claim after 60s of no sends (timer resets per send). */
     private fun scheduleIdleRelease() {

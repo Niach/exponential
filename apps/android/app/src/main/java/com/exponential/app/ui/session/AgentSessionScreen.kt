@@ -7,6 +7,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ExpandLess
@@ -307,9 +309,9 @@ fun AgentSessionScreen(
             // ── Steering input (perm-gated; sending steals the claim) ────────
             val inputVisible = perm == "steer" && phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
-                if (steering) {
-                    SteerCaption("You're steering")
-                } else if (otherSteerer != null) {
+                // No own-steering notice — steering should feel seamless
+                // (EXP-197); only another person's claim is worth a caption.
+                if (otherSteerer != null) {
                     SteerCaption(
                         "${otherSteerer.name.ifBlank { "Someone" }} is steering",
                     )
@@ -414,8 +416,15 @@ private fun ActivityFeed(
                 if (dragging) follow = !canForward
             }
     }
-    LaunchedEffect(rows.size, follow) {
-        if (follow && rows.isNotEmpty()) listState.scrollToItem(rows.size - 1)
+    // Keyed on feed.size (not rows.size) — a growing trailing tool run adds
+    // feed items without adding rows. scrollToItem alone lands on the last
+    // item's TOP, which for a long message is nowhere near the end — the
+    // scrollBy finishes the scroll to the true bottom (EXP-197).
+    LaunchedEffect(feed.size, follow) {
+        if (follow && rows.isNotEmpty()) {
+            listState.scrollToItem(rows.size - 1)
+            listState.scrollBy(1_000_000f)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -599,9 +608,8 @@ private fun QuestionCard(
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                     color = PlanAccent,
                 )
-            }
-            if (item.planMode && expanded) {
-                // The plan is GFM markdown — render it properly once unfolded.
+                // The plan is GFM markdown — always fully rendered, never
+                // folded behind a Show more (EXP-197).
                 MarkdownView(item.text)
             } else {
                 SelectionContainer {
@@ -613,45 +621,70 @@ private fun QuestionCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (folds) {
+                    ShowMoreToggle(expanded) { expanded = !expanded }
+                }
             }
-            if (folds) {
-                ShowMoreToggle(expanded) { expanded = !expanded }
-            }
-            item.options.forEachIndexed { index, option ->
-                if (answerable) {
-                    // The wire's first option of a plan is the primary approve
-                    // action ("Approve — auto-accept edits") — promote it.
-                    val primary = item.planMode && index == 0
-                    Row(
-                        modifier = Modifier
-                            .glassButton(active = primary || option.key in picked)
-                            .clickable {
-                                onAnswer(option.key, !item.multiSelect)
-                                picked = if (item.multiSelect) {
-                                    if (option.key in picked) picked - option.key
-                                    else picked + option.key
-                                } else {
-                                    setOf(option.key)
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        QuestionOptionLabel(option, showKey = !item.planMode)
+            val answer = item.answer
+            if (answer != null) {
+                // Answered (EXP-197): the chosen answer replaces the options.
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp).padding(top = 1.dp),
+                        tint = LiveGreen,
+                    )
+                    SelectionContainer {
+                        Text(
+                            answer,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        QuestionOptionLabel(option)
+                }
+            } else {
+                item.options.forEachIndexed { index, option ->
+                    if (answerable) {
+                        // The wire's first option of a plan is the primary approve
+                        // action ("Approve — auto-accept edits") — promote it.
+                        val primary = item.planMode && index == 0
+                        Row(
+                            modifier = Modifier
+                                .glassButton(active = primary || option.key in picked)
+                                .clickable {
+                                    onAnswer(option.key, !item.multiSelect)
+                                    picked = if (item.multiSelect) {
+                                        if (option.key in picked) picked - option.key
+                                        else picked + option.key
+                                    } else {
+                                        setOf(option.key)
+                                    }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            QuestionOptionLabel(option, showKey = !item.planMode)
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            QuestionOptionLabel(option)
+                        }
                     }
                 }
             }
             if (answerable && item.multiSelect) {
+                // Advances to the picker's next tab / review step (Tab on the
+                // wire — see AgentSessionViewModel.sendSubmit).
                 Text(
-                    "Submit selection",
+                    "Continue",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
