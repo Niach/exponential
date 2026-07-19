@@ -7,7 +7,8 @@ const REPO = `https://github.com/Niach/exponential`
 export const LINKS = {
   downloadPage: `/download/`,
   app: {
-    register: `${APP}/auth/register`,
+    // Signup and login are ONE merged page (EXP-188) — every auth CTA
+    // points here; /auth/register is a pure redirect and must not be linked.
     login: `${APP}/auth/login`,
     mcp: `${APP}/api/mcp`,
     // Enterprise contact-form endpoint (pricing page). JSON POST; the web

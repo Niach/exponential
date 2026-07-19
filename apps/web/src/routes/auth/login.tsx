@@ -30,10 +30,15 @@ export const Route = createFileRoute(`/auth/login`)({
   }),
 })
 
+// Signup and login are ONE merged page (EXP-188): a sign-in/create-account
+// mode toggle, shown only when password auth is on AND public sign-up is
+// open (signupEnabled from buildAuthConfig). /auth/register is a pure
+// redirect here.
 function LoginPage() {
   const { redirect: redirectTo } = Route.useSearch()
   const {
     passwordEnabled,
+    signupEnabled,
     passwordResetEnabled,
     oidcProviders,
     googleLoginEnabled,
@@ -44,6 +49,9 @@ function LoginPage() {
   // internally composed relative URL) — only the router-provided redirect
   // needs the same-origin-path clamp (re-applied here as sink-side defense).
   const destination = oauthResumeUrl || sanitizeRedirectPath(redirectTo)
+  const [mode, setMode] = useState<`signin` | `signup`>(`signin`)
+  const isSignup = mode === `signup` && passwordEnabled && signupEnabled
+  const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
@@ -56,24 +64,34 @@ function LoginPage() {
     signInWithApple,
   } = useOAuthSignIn(destination)
 
+  const toggleMode = (next: `signin` | `signup`) => {
+    setMode(next)
+    setError(``)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError(``)
 
     try {
-      const { error } = await authClient.signIn.email(
-        { email, password },
-        {
-          onSuccess: async () => {
-            await authClient.getSession()
-            window.location.href = destination || `/`
-          },
-        }
-      )
+      const onSuccess = async () => {
+        await authClient.getSession()
+        window.location.href = destination || `/`
+      }
+      const { error } = isSignup
+        ? await authClient.signUp.email({ name, email, password }, { onSuccess })
+        : await authClient.signIn.email({ email, password }, { onSuccess })
 
       if (error) {
-        setError(authErrorMessage(error, `Couldn't sign you in. Try again.`))
+        setError(
+          authErrorMessage(
+            error,
+            isSignup
+              ? `Couldn't create your account. Try again.`
+              : `Couldn't sign you in. Try again.`
+          )
+        )
       }
     } catch {
       setError(`An unexpected error occurred`)
@@ -84,23 +102,42 @@ function LoginPage() {
 
   return (
     <AuthFormShell
-      title="Sign in"
+      title={isSignup ? `Create an account` : `Sign in`}
       description={
-        passwordEnabled
-          ? `Enter your email and password to continue`
-          : `Sign in with your account`
+        isSignup
+          ? `Enter your details to get started`
+          : passwordEnabled
+            ? `Enter your email and password to continue`
+            : `Sign in with your account`
       }
       footer={
-        passwordEnabled ? (
+        passwordEnabled && signupEnabled ? (
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{` `}
-            <Link
-              to="/auth/register"
-              search={(current) => current}
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Register
-            </Link>
+            {isSignup ? (
+              <>
+                Already have an account?{` `}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-primary underline-offset-4 hover:underline"
+                  onClick={() => toggleMode(`signin`)}
+                >
+                  Sign in
+                </Button>
+              </>
+            ) : (
+              <>
+                Don&apos;t have an account?{` `}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-primary underline-offset-4 hover:underline"
+                  onClick={() => toggleMode(`signup`)}
+                >
+                  Create one
+                </Button>
+              </>
+            )}
           </p>
         ) : null
       }
@@ -110,7 +147,7 @@ function LoginPage() {
           oidcProviders={oidcProviders}
           googleLoginEnabled={googleLoginEnabled}
           appleLoginEnabled={appleLoginEnabled}
-          verb="Sign in"
+          verb={isSignup ? `Sign up` : `Sign in`}
           pendingProvider={pendingProvider}
           showDivider={passwordEnabled}
           onOidc={signInWithOidc}
@@ -120,6 +157,20 @@ function LoginPage() {
 
         {passwordEnabled && (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isSignup && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  autoComplete="name"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -135,7 +186,7 @@ function LoginPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                {passwordResetEnabled && (
+                {!isSignup && passwordResetEnabled && (
                   <Link
                     to="/auth/forgot-password"
                     className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
@@ -146,7 +197,7 @@ function LoginPage() {
               </div>
               <PasswordInput
                 id="password"
-                autoComplete="current-password"
+                autoComplete={isSignup ? `new-password` : `current-password`}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -157,7 +208,13 @@ function LoginPage() {
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? `Signing in...` : `Sign in`}
+              {isSignup
+                ? isLoading
+                  ? `Creating account...`
+                  : `Create account`
+                : isLoading
+                  ? `Signing in...`
+                  : `Sign in`}
             </Button>
           </form>
         )}

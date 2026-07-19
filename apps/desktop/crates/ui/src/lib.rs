@@ -73,7 +73,6 @@ mod undock;
 mod undocked_terminal;
 mod update;
 mod shell;
-mod team_heal;
 
 pub use actions::*;
 pub use icons::ExpIcon;

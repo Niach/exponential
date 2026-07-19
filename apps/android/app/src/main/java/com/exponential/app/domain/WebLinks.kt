@@ -51,4 +51,26 @@ object WebLinks {
             else -> null
         }
     }
+
+    /**
+     * Paste tolerance for the join-team flows (EXP-188): accepts a full
+     * `https://…/invite/<token>` link OR a bare token — the mirror of the
+     * desktop `extract_token` helper. Query/fragment and a trailing slash are
+     * trimmed off link forms; a non-link paste containing whitespace is
+     * rejected (it can't be a token).
+     */
+    fun extractInviteToken(input: String): String? {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return null
+        val marker = "/invite/"
+        val pos = trimmed.indexOf(marker)
+        if (pos >= 0) {
+            val token = trimmed.substring(pos + marker.length)
+                .substringBefore('?')
+                .substringBefore('#')
+                .trimEnd('/')
+            return token.ifEmpty { null }
+        }
+        return if (trimmed.any { it.isWhitespace() }) null else trimmed
+    }
 }

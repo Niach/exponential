@@ -66,7 +66,12 @@ class CreateBoardViewModel @Inject constructor(
             // A retry (the sheet's error state re-calls this) starts clean.
             _state.value = _state.value.copy(error = null)
             runCatching {
-                val team = teamsApi.ensureDefault(accountId)
+                // Resolve-only (EXP-188): getDefault never creates. A null team
+                // is an actionable error here — boards need a team to land in,
+                // and the create-or-join flows live on the root empty state /
+                // onboarding wizard, not in this sheet.
+                val team = teamsApi.getDefault(accountId)
+                    ?: error("Create a team first.")
                 holder.database(forAccountId = accountId).teamDao().upsert(team)
                 if (selection.selectedId.value == null) selection.select(team.id)
                 team.id

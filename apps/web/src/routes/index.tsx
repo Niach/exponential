@@ -43,6 +43,9 @@ export const Route = createFileRoute(`/`)({
         }
       }
     }
+    // The /t/default guard resolves the oldest membership via
+    // teams.getDefault (never creates — EXP-188) and routes team-less users
+    // to the onboarding create-or-join choice.
     throw redirect({
       to: `/t/$teamSlug`,
       params: { teamSlug: `default` },

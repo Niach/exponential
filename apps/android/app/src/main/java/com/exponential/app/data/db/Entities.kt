@@ -165,6 +165,9 @@ data class TeamInviteEntity(
     // bearer secret; owners get it once from the create mutation). Nullable
     // default so token-less shape rows decode.
     val token: String? = null,
+    // Optional invited address (EXP-188 invite-by-email) — display metadata
+    // for the pending list; the server mails the invite link when it's set.
+    val email: String? = null,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
     @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

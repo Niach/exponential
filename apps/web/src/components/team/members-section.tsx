@@ -5,6 +5,7 @@ import {
   Crown,
   Link as LinkIcon,
   Loader2,
+  Mail,
   MoreHorizontal,
   Shield,
   Trash2,
@@ -218,6 +219,8 @@ function InviteControls({ teamId }: { teamId: string }) {
   const [copied, setCopied] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
+  const [email, setEmail] = useState(``)
+  const [sending, setSending] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
     pro: string | null
@@ -261,6 +264,43 @@ function InviteControls({ teamId }: { teamId: string }) {
     }
   }
 
+  // Invite by email (EXP-188): the server persists the address on the invite
+  // and mails the link itself. Delivery is best-effort — when no transport is
+  // configured (or the send fails) we fall back to showing the link so the
+  // owner can share it by hand.
+  const handleSendEmail = async () => {
+    const to = email.trim()
+    if (!to) return
+    setSending(true)
+
+    try {
+      const { token, emailDelivered } = await trpc.teamInvites.create.mutate(
+        { teamId, email: to },
+        // The plan-limit (PRECONDITION_FAILED) case opens the upgrade dialog;
+        // the global mutation-error toast would be redundant noise on top of it.
+        { context: { skipErrorToast: true } }
+      )
+
+      if (emailDelivered) {
+        toast.success(`Invite sent to ${to}`)
+        setEmail(``)
+      } else {
+        setInviteUrl(`${window.location.origin}/invite/${token}`)
+        toast.error(
+          `Couldn't email the invite — copy the link below and share it instead`
+        )
+      }
+    } catch (err) {
+      if (isPlanLimitError(err)) {
+        setUpgradeOpen(true)
+      } else {
+        toast.error(`Couldn't create the invite`)
+      }
+    } finally {
+      setSending(false)
+    }
+  }
+
   const handleCopy = async () => {
     if (!inviteUrl) {
       return
@@ -283,8 +323,30 @@ function InviteControls({ teamId }: { teamId: string }) {
         <div>
           <div className="text-sm font-medium">Invite Members</div>
           <div className="text-xs text-muted-foreground">
-            Generate an invite link to share with people you want to add
+            Send an invite by email, or generate a link to share yourself
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="teammate@example.com"
+            aria-label="Invite email address"
+          />
+          <Button
+            className="shrink-0"
+            onClick={handleSendEmail}
+            disabled={sending || !email.trim()}
+          >
+            {sending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Mail className="mr-2 h-4 w-4" />
+            )}
+            Send invite
+          </Button>
         </div>
 
         {inviteUrl && (
@@ -311,7 +373,11 @@ function InviteControls({ teamId }: { teamId: string }) {
           </div>
         )}
 
-        <Button onClick={handleGenerate} disabled={generating}>
+        <Button
+          variant="outline"
+          onClick={handleGenerate}
+          disabled={generating}
+        >
           {generating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           <LinkIcon className="mr-2 h-4 w-4" />
           Generate invite link
@@ -327,9 +393,14 @@ function InviteControls({ teamId }: { teamId: string }) {
                 key={invite.id}
                 className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <Badge variant="secondary">{invite.role}</Badge>
-                  <span className="text-muted-foreground">
+                  {invite.email && (
+                    <span className="min-w-0 truncate font-medium">
+                      {invite.email}
+                    </span>
+                  )}
+                  <span className="shrink-0 text-muted-foreground">
                     Expires{` `}
                     {new Date(invite.expiresAt).toLocaleDateString()}
                   </span>

@@ -12,9 +12,10 @@ import XCTest
 // that creates the renamed tables (teams/boards/team_members/team_invites,
 // team_id/board_id columns) directly. Additive columns added AFTER `-v5`
 // stores shipped ride incremental guarded-ALTER steps again (the old v3…v6
-// precedent) — v2_notification_team_id is the first. These tests pin the
-// fresh-install schema and the exact migration identifiers so a new
-// incremental migration is a conscious decision, not an accident.
+// precedent) — v2_notification_team_id was the first, v3_team_invite_email
+// (EXP-188) the second. These tests pin the fresh-install schema and the
+// exact migration identifiers so a new incremental migration is a conscious
+// decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
     private var tempDir: URL!
 
@@ -47,7 +48,10 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
+        XCTAssertEqual(
+            try appliedMigrations(pool),
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+        )
     }
 
     // Idempotency: running the full migrator twice on the same file is a no-op,
@@ -56,7 +60,10 @@ final class DatabaseMigrationTests: XCTestCase {
         let pool = try makePool("twice")
         try DatabaseManager.runMigrations(on: pool)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
+        XCTAssertEqual(
+            try appliedMigrations(pool),
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+        )
     }
 
     // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
@@ -93,7 +100,10 @@ final class DatabaseMigrationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
+        XCTAssertEqual(
+            try appliedMigrations(pool),
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+        )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
         }
@@ -106,6 +116,66 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: """
                     SELECT "handle", "offset", "needs_refetch", "is_live"
                     FROM "electric_offsets" WHERE "shape" = 'notifications'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
+    // v3 (EXP-188 invite-by-email): a `-v5` store created before
+    // team_invites.email existed must gain the column via the guarded ALTER
+    // and get its team-invites shape offset reset (the shape key is
+    // 'team-invites' WITH A DASH — the proxy route name, not the table name).
+    func testTeamInviteEmailAddedToExistingV5Store() throws {
+        let pool = try makePool("invite-email")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v2_notification_team_id")
+        try pool.write { db in
+            // Hand-build the pre-v3 state: team_invites without email
+            // (today's v1 create already declares it — that overlap is exactly
+            // what the guarded ALTER has to tolerate) + a live offset row.
+            try db.drop(table: "team_invites")
+            try db.create(table: "team_invites") { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("role", .text).notNull()
+                t.column("token", .text).indexed()
+                t.column("expires_at", .text).notNull()
+                t.column("accepted_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('team-invites', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertEqual(
+            try appliedMigrations(pool),
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+        )
+        let emailColumn = try pool.read { db in
+            try db.columns(in: "team_invites").first { $0.name == "email" }
+        }
+        XCTAssertNotNil(emailColumn)
+        XCTAssertFalse(emailColumn?.isNotNull ?? true)
+        // The ALTER must force a refetch of the team-invites shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'team-invites'
                     """
             )
         }
@@ -199,6 +269,14 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(inviteToken)
         XCTAssertFalse(inviteToken?.isNotNull ?? true)
+
+        // team_invites.email (nullable, EXP-188): set when the invite was
+        // sent by email; rides the team-invites shape for the pending list.
+        let inviteEmail = try pool.read { db in
+            try db.columns(in: "team_invites").first { $0.name == "email" }
+        }
+        XCTAssertNotNil(inviteEmail)
+        XCTAssertFalse(inviteEmail?.isNotNull ?? true)
     }
 
     // The `-v5` canonical file name + the legacy-file purge list are the wipe

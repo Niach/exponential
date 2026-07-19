@@ -64,4 +64,26 @@ public enum WebLinks {
         }
         return nil
     }
+
+    /// Paste tolerance for the join-team flows (EXP-188): accept a full
+    /// `https://…/invite/<token>` link OR a raw token (mirror of the desktop
+    /// `extract_token` in join_team.rs). Link form: everything after the first
+    /// `/invite/` up to a `?`/`#`, trailing slash trimmed. Raw form: any
+    /// non-empty whitespace-free string. Returns nil otherwise.
+    public static func extractInviteToken(_ input: String) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let range = trimmed.range(of: "/invite/") {
+            var token = String(trimmed[range.upperBound...])
+            if let cut = token.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+                token = String(token[..<cut])
+            }
+            while token.hasSuffix("/") { token = String(token.dropLast()) }
+            return token.isEmpty ? nil : token
+        }
+        let hasWhitespace = trimmed.unicodeScalars.contains {
+            CharacterSet.whitespacesAndNewlines.contains($0)
+        }
+        return hasWhitespace ? nil : trimmed
+    }
 }

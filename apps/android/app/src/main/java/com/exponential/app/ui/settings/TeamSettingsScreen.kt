@@ -289,7 +289,7 @@ private fun BoardsSection(
         }
         // "New board" is owner-only in team settings (web parity); the
         // empty-state and switcher create entries elsewhere stay open (they
-        // target the user's own personal team via ensureDefault).
+        // target the user's default team via getDefault).
         if (isOwner) {
             OutlinedButton(onClick = { showCreateBoard = true }) {
                 Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
@@ -323,31 +323,19 @@ private fun DangerZone(
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     // Delete team: owner-only, and never for the bootstrap feedback
-    // team (the server rejects it too).
+    // team (the server rejects it too). An owner may delete ANY of their
+    // teams including the last one (EXP-188) — a team-less account lands
+    // back in the create-or-join flow.
     if (isOwner && state.team?.slug != "feedback") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader("Danger zone")
             OutlinedButton(
                 onClick = { confirmDelete = true },
-                enabled = !state.isOnlyTeam,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                // Disabled content is auto-dimmed — only tint the label red
-                // while the action is actually available.
-                if (state.isOnlyTeam) {
-                    Text("Delete team")
-                } else {
-                    Text("Delete team", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            if (state.isOnlyTeam) {
-                Text(
-                    "This is your only team, so it can't be deleted.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
+                Text("Delete team", color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -719,8 +707,9 @@ private fun MembersSection(
     }
 }
 
-// Owner-only invite management (iOS TeamMembersSection.inviteSection): a
-// "Generate invite link" button, the freshly-minted link with copy, then the
+// Owner-only invite management (iOS TeamMembersSection.inviteSection): an
+// optional email field (EXP-188 — the server mails the invite link when set),
+// a generate/send button, the freshly-minted link with copy, then the
 // pending-invite list with revoke.
 @Composable
 private fun InviteSection(
@@ -729,6 +718,7 @@ private fun InviteSection(
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
+    var inviteEmail by remember { mutableStateOf("") }
     // Invite links are https deep links into the web invite page; a null
     // instance URL disables Copy rather than minting a broken link.
     val inviteBase = state.instanceUrl?.trimEnd('/')
@@ -736,14 +726,27 @@ private fun InviteSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Invite members")
         Text(
-            "Generate a link to invite someone to this team.",
+            "Send an invite by email, or generate a link to share yourself.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        OutlinedButton(onClick = { viewModel.createInvite() }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = inviteEmail,
+            onValueChange = { inviteEmail = it },
+            singleLine = true,
+            label = { Text("Email (optional)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedButton(
+            onClick = {
+                viewModel.createInvite(email = inviteEmail.takeIf { it.isNotBlank() })
+                inviteEmail = ""
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Generate invite link")
+            Text(if (inviteEmail.isBlank()) "Generate invite link" else "Send invite")
         }
         if (state.createdInviteToken != null) {
             Row(
@@ -779,14 +782,20 @@ private fun InviteSection(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            // Emailed invites lead with the invited address
+                            // (EXP-188); link-only ones keep the role as the
+                            // primary line.
                             Text(
-                                invite.role,
+                                invite.email ?: invite.role,
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                "expires ${invite.expiresAt.substringBefore('T')}",
+                                listOfNotNull(
+                                    invite.role.takeIf { invite.email != null },
+                                    "expires ${invite.expiresAt.substringBefore('T')}",
+                                ).joinToString(" · "),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )

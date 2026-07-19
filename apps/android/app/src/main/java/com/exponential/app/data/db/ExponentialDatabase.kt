@@ -88,9 +88,13 @@ import androidx.room.RoomDatabase
     //      issue-less support_reply rows so the inbox can group them per team.
     //      Additive column on the existing notifications shape; destructive
     //      fallback wipes + resyncs.
+    // v23: team_invites.email (EXP-188 invite-by-email) — optional invited
+    //      address, synced for the pending-invite list (the bearer token stays
+    //      excluded). Additive column on the existing team-invites shape;
+    //      destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

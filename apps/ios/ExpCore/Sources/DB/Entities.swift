@@ -608,6 +608,9 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
     // bearer secret; owners get it once from the create mutation). Kept
     // nullable for pre-fix local rows.
     public let token: String?
+    // Optional recipient address (EXP-188): set when the owner sent the
+    // invite by email; rides the team-invites shape for the pending list.
+    public let email: String?
     public let expiresAt: String
     public let acceptedAt: String?
     public let createdAt: String
@@ -618,6 +621,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         teamId: String,
         role: String,
         token: String?,
+        email: String? = nil,
         expiresAt: String,
         acceptedAt: String?,
         createdAt: String,
@@ -627,6 +631,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         self.teamId = teamId
         self.role = role
         self.token = token
+        self.email = email
         self.expiresAt = expiresAt
         self.acceptedAt = acceptedAt
         self.createdAt = createdAt
@@ -634,7 +639,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, role, token
+        case id, role, token, email
         case teamId = "team_id"
         case expiresAt = "expires_at"
         case acceptedAt = "accepted_at"

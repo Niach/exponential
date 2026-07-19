@@ -11,7 +11,7 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
-import { ensurePersonalTeam } from "@/lib/auth/personal-team"
+import { isPasswordSignupDisabled } from "@/lib/auth/config"
 import {
   emailEnabled,
   sendPasswordResetEmail,
@@ -141,10 +141,9 @@ export const auth = betterAuth({
     enabled: process.env.AUTH_PASSWORD_ENABLED !== `false`,
     // Public password sign-up: historically OFF in production (invite/OAuth
     // only). AUTH_SIGNUP_ENABLED overrides in either direction so the cloud
-    // instance can open registration for launch.
-    disableSignUp: process.env.AUTH_SIGNUP_ENABLED
-      ? process.env.AUTH_SIGNUP_ENABLED === `false`
-      : process.env.NODE_ENV === `production`,
+    // instance can open registration for launch (shared helper — also feeds
+    // buildAuthConfig's signupEnabled).
+    disableSignUp: isPasswordSignupDisabled(),
     minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail({ to: user.email, url })
@@ -305,24 +304,8 @@ export const auth = betterAuth({
               err
             )
           }
-          // Every real account gets its personal team at signup so any
-          // client (web, mobile, desktop) sees a consistent state. Synthetic
-          // agent users are inserted directly via Drizzle and never hit this
-          // hook; the guard is defense-in-depth. Failures never block signup —
-          // teams.ensureDefault self-heals later.
-          try {
-            if (!(user as { isAgent?: boolean }).isAgent) {
-              await ensurePersonalTeam({
-                userId: user.id,
-                userName: user.name ?? null,
-              })
-            }
-          } catch (err) {
-            console.error(
-              `[auth] ensurePersonalTeam failed for ${user.email}:`,
-              err
-            )
-          }
+          // No team auto-creation (EXP-188): new accounts start team-less
+          // and the first-run onboarding offers "create a team or join one".
         },
       },
     },

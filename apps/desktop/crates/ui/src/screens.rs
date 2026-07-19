@@ -26,7 +26,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use crate::actions::NewBoard;
+use crate::actions::{CreateTeam, JoinTeam, NewBoard};
 use crate::icons::ExpIcon;
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
@@ -320,8 +320,61 @@ impl ScreensPanel {
     }
 
     /// Nothing open: point at the sidebar (or at board creation when the
-    /// team has none).
+    /// team has none, or team creation when the account has none).
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        // EXP-188 zero-team state (signup no longer auto-creates a personal
+        // team, and the last team is deletable): offer create-or-join. Only
+        // a READY-and-empty teams shape counts — empty-because-loading must
+        // never show this (§4.1), though `shapes_ready` already gates us.
+        {
+            let teams = Store::global(cx).collections().teams.read(cx);
+            if teams.is_ready() && teams.is_empty() {
+                return v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(
+                        Icon::new(IconName::User)
+                            .size_6()
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("No team yet"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Create a team to get started, or join one with an invite link."),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("screens-create-team")
+                                    .primary()
+                                    .small()
+                                    .label("Create team…")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(CreateTeam), cx);
+                                    }),
+                            )
+                            .child(
+                                Button::new("screens-join-team")
+                                    .small()
+                                    .label("Join team…")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(JoinTeam), cx);
+                                    }),
+                            ),
+                    )
+                    .into_any_element();
+            }
+        }
         let active_team = active_team_id(&self.nav, cx);
         let has_boards = active_team
             .as_deref()
@@ -379,9 +432,9 @@ impl ScreensPanel {
                     .text_color(cx.theme().muted_foreground)
                     .child("Create a board to start tracking issues. Connect a repository to code on it."),
             );
-        // No team resolves (e.g. the last one was just deleted — the
-        // EXP-43 self-heal is creating a fresh personal one): the create
-        // action would silently no-op, so don't offer a dead button.
+        // No team resolves (e.g. mid team-switch churn): the create
+        // action would silently no-op, so don't offer a dead button. (The
+        // fully-teamless account is handled by the zero-team branch above.)
         if active_team.is_some() {
             column = column.child(
                 Button::new("screens-new-board")

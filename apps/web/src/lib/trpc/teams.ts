@@ -7,21 +7,18 @@ import {
   generateTxId,
 } from "@/lib/trpc"
 import { attachments, teams, teamMembers } from "@/db/schema"
-import { eq } from "drizzle-orm"
+import { and, asc, eq, ne } from "drizzle-orm"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { randomBytes } from "crypto"
-import { isUserAdmin } from "@/lib/admin"
-import {
-  createPersonalTeam,
-  findOtherPersonalMembership,
-  findPersonalMembership,
-} from "@/lib/auth/personal-team"
 import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 import {
   assertTeamOwner,
   getTeamMember,
 } from "@/lib/team-membership"
-import { assertCanUseHelpdesk } from "@/lib/billing"
+import {
+  assertCanCreateTeam,
+  assertCanUseHelpdesk,
+} from "@/lib/billing"
 import {
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForTeams,
@@ -42,6 +39,27 @@ type DbOrTx = {
   select: typeof import("@/db/connection").db.select
 }
 
+// Oldest non-feedback membership — the user's "default" team. The
+// bootstrap feedback team never counts: INITIAL_ADMIN accounts get owner
+// membership there on promotion, which must not read as "has a team".
+async function findNonFeedbackMembership(db: DbOrTx, userId: string) {
+  const feedbackTeamId = await getFeedbackTeamId()
+  const [membership] = await db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.userId, userId),
+        feedbackTeamId
+          ? ne(teamMembers.teamId, feedbackTeamId)
+          : undefined
+      )
+    )
+    .orderBy(asc(teamMembers.createdAt))
+    .limit(1)
+  return membership
+}
+
 async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
   const root = slugify(base) || `team`
   let candidate = root
@@ -60,36 +78,27 @@ async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
 }
 
 export const teamsRouter = router({
-  ensureDefault: authedProcedure.mutation(async ({ ctx }) => {
-    const userId = ctx.session.user.id
-    const userName = ctx.session.user.name || `My`
+  // The user's default landing team (EXP-188): oldest non-feedback
+  // membership, or null when the user has none — signup no longer
+  // auto-creates a team, so clients route null to the onboarding
+  // create-or-join choice. Never creates anything.
+  getDefault: authedProcedure.query(async ({ ctx }) => {
+    const membership = await findNonFeedbackMembership(
+      ctx.db,
+      ctx.session.user.id
+    )
+    if (!membership) return { team: null }
 
-    return await ctx.db.transaction(async (tx) => {
-      // Normally the signup hook already created the personal team
-      // (lib/auth/personal-team.ts); this is the self-heal path for
-      // legacy accounts. We never pick the bootstrap feedback team as
-      // the user's "default" landing spot.
-      const membership = await findPersonalMembership(tx, userId)
-
-      if (membership) {
-        const [team] = await tx
-          .select()
-          .from(teams)
-          .where(eq(teams.id, membership.teamId))
-          .limit(1)
-        return { team, txId: 0 }
-      }
-
-      const txId = await generateTxId(tx)
-      const team = await createPersonalTeam(tx, {
-        userId,
-        userName,
-      })
-
-      return { team, txId }
-    })
+    const [team] = await ctx.db
+      .select()
+      .from(teams)
+      .where(eq(teams.id, membership.teamId))
+      .limit(1)
+    return { team: team ?? null }
   }),
 
+  // Open to every user (EXP-188) — the creator becomes owner. The only gate
+  // is the invisible free-tier owned-team abuse cap (lib/billing.ts).
   create: authedProcedure
     .input(
       z.object({
@@ -99,16 +108,7 @@ export const teamsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      // Regular users live in their single auto-created personal team and
-      // collaborate via invites — only instance admins may create additional
-      // teams. (ensureDefault is the personal-team path and stays
-      // open to everyone.)
-      if (!(await isUserAdmin(userId))) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Only instance admins can create teams`,
-        })
-      }
+      await assertCanCreateTeam(userId)
 
       return await ctx.db.transaction(async (tx) => {
         const slug = await uniqueSlug(tx, input.name)
@@ -190,23 +190,10 @@ export const teamsRouter = router({
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
       // the cascade never touches S3, so without this the blobs orphan.
       let storageKeys: string[] = []
+      // No last-team guard (EXP-188): deleting your only team is allowed —
+      // nothing self-heals a replacement anymore, clients route the
+      // team-less state back into onboarding.
       const result = await ctx.db.transaction(async (tx) => {
-        // EXP-82: never delete the user's LAST personal team — the
-        // EXP-43 ensureDefault self-heal would recreate it on the next home
-        // load with a fresh id/slug, which reads as data corruption. Checked
-        // in-tx so two concurrent deletes can't both slip past a stale
-        // pre-check.
-        const remaining = await findOtherPersonalMembership(
-          tx,
-          ctx.session.user.id,
-          input.teamId
-        )
-        if (!remaining) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `You can't delete your only team.`,
-          })
-        }
         const txId = await generateTxId(tx)
         storageKeys = (
           await tx

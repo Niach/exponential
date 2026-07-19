@@ -28,9 +28,11 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,7 +40,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +68,7 @@ import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.domain.WebLinks
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InitialsAvatar
@@ -99,6 +105,9 @@ fun IssueListScreen(
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    // Root zero-team empty state's "Join team" (EXP-188): hands the extracted
+    // invite token to the existing invite/{token} route.
+    onOpenInvite: (String) -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -107,6 +116,8 @@ fun IssueListScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
+    var showCreateTeam by remember { mutableStateOf(false) }
+    var showJoinTeam by remember { mutableStateOf(false) }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
 
     // Root mode resolves the board outside the nav args (last-used → first),
@@ -171,31 +182,57 @@ fun IssueListScreen(
                 if (homeState?.activeAccountHasBoard == true) {
                     LoadingState()
                 } else {
-                    // Still syncing until the team bootstrap finishes AND
+                    // Still syncing until the team resolve finishes AND
                     // the boards shape has reached up-to-date at least once —
                     // otherwise a companion account that DOES have boards would
                     // briefly flash "Create your first board" before its
                     // boards snapshot lands. Only a settled, genuinely empty
-                    // account shows the create-board copy.
+                    // account shows the create copy.
                     val stillSyncing = homeState == null ||
                         homeState.isSyncing ||
                         !homeState.activeAccountBoardsSynced
-                    val syncingOrError = stillSyncing || homeError != null
-                    EmptyState(
-                        message = when {
-                            homeError != null -> homeError
-                            stillSyncing -> "Syncing…"
-                            else -> "No boards yet. Create your first board to get started."
-                        },
-                        icon = Icons.Filled.UnfoldMore,
-                        action = if (syncingOrError) null else {
-                            {
-                                Button(onClick = { showCreateBoard = true }) {
-                                    Text("Create board")
+                    val hasTeam = homeState?.activeAccountHasTeam == true
+                    if (!stillSyncing && !hasTeam) {
+                        // Zero teams (EXP-188 — signups get no auto-created
+                        // team): create-or-join, mirroring the onboarding
+                        // choice. Kept visible even after an error so a failed
+                        // create can simply be retried.
+                        EmptyState(
+                            message = homeError
+                                ?: "You're not in a team yet. Create one, or join a teammate's with an invite link.",
+                            icon = Icons.Filled.Groups,
+                            action = {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(onClick = { showCreateTeam = true }) {
+                                        Text("Create team")
+                                    }
+                                    OutlinedButton(onClick = { showJoinTeam = true }) {
+                                        Text("Join team")
+                                    }
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
+                    } else {
+                        val syncingOrError = stillSyncing || homeError != null
+                        EmptyState(
+                            message = when {
+                                homeError != null -> homeError
+                                stillSyncing -> "Syncing…"
+                                else -> "No boards yet. Create your first board to get started."
+                            },
+                            icon = Icons.Filled.UnfoldMore,
+                            action = if (syncingOrError) null else {
+                                {
+                                    Button(onClick = { showCreateBoard = true }) {
+                                        Text("Create board")
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             } else {
                 IssueListContent(
@@ -245,6 +282,93 @@ fun IssueListScreen(
             onDismiss = { showCreateBoard = false },
         )
     }
+
+    if (showCreateTeam && homeViewModel != null) {
+        CreateTeamDialog(
+            onCreate = { name ->
+                homeViewModel.createTeam(name)
+                showCreateTeam = false
+            },
+            onDismiss = { showCreateTeam = false },
+        )
+    }
+
+    if (showJoinTeam) {
+        JoinTeamDialog(
+            onJoin = { token ->
+                showJoinTeam = false
+                onOpenInvite(token)
+            },
+            onDismiss = { showJoinTeam = false },
+        )
+    }
+}
+
+// Zero-team "Create team" (EXP-188): a plain name dialog — the create runs in
+// HomeViewModel; success flips the empty state to create-board via the synced
+// (head-started) teams table.
+@Composable
+private fun CreateTeamDialog(
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create a team") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text("Team name") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) {
+                Text("Create")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+// Zero-team "Join team" (EXP-188): paste an invite link (or bare token); the
+// extracted token routes into the existing invite/{token} accept screen.
+@Composable
+private fun JoinTeamDialog(
+    onJoin: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    val token = WebLinks.extractInviteToken(input)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Join a team") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Ask a teammate for an invite link and paste it here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    singleLine = true,
+                    label = { Text("Invite link or code") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { token?.let(onJoin) }, enabled = token != null) {
+                Text("Join")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

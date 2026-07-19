@@ -54,7 +54,7 @@ export function GettingStartedDocsPage() {
               teammates — about five minutes.
             </p>
             <div className="docs-hero-cta">
-              <a className="btn btn-primary" href={LINKS.app.register}>
+              <a className="btn btn-primary" href={LINKS.app.login}>
                 Sign up free <IcArrow size={12} />
               </a>
               <a className="btn btn-ghost" href="/docs/self-host/">
@@ -69,7 +69,7 @@ export function GettingStartedDocsPage() {
           <DocsSection id="sign-up" num="01" label="Sign up & your team">
             <h2>Sign up &amp; your team</h2>
             <p>
-              Sign in at <a href={LINKS.app.register}>app.exponential.at</a>{` `}
+              Sign in at <a href={LINKS.app.login}>app.exponential.at</a>{` `}
               with Google — your account is created on first sign-in, no
               separate registration step. A personal team (
               <em>&lt;Your name&gt;&apos;s Workspace</em>) is created for you

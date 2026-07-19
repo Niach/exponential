@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { TeamGeneralSection } from "@/components/team/general-section"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useTeamMemberships } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import {
   SettingsSectionGuard,
@@ -32,27 +31,21 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/general`)({
 
 function SettingsGeneral() {
   const { teamSlug } = Route.useParams()
-  const navigate = useNavigate()
-  const { session, team, permissions, solo, resolved } =
-    useSettingsPage(teamSlug)
+  const { team, permissions, solo, resolved } = useSettingsPage(teamSlug)
 
   const [showDeleteTeam, setShowDeleteTeam] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState(``)
   const [deletingTeam, setDeletingTeam] = useState(false)
-
-  const { myTeams } = useTeamMemberships(session?.user?.id)
-  // Deleting your LAST personal team is server-refused (EXP-82) — the
-  // bootstrap feedback team (slug `feedback`) never counts as one.
-  // Empty-while-loading biases to disabled, the safe default.
-  const isOnlyTeam =
-    myTeams.filter((w) => w.slug !== `feedback`).length <= 1
 
   const handleDeleteTeam = async () => {
     if (!team || deleteConfirmation !== team.name) return
     setDeletingTeam(true)
     try {
       await trpc.teams.delete.mutate({ teamId: team.id })
-      void navigate({ to: `/` })
+      // Deleting a team rotates every shape's scope — hard-navigate so all
+      // Electric collections restart cleanly. Deleting your LAST team is
+      // allowed (EXP-188): the root redirect then lands on /onboarding.
+      window.location.assign(`/`)
     } catch {
       setDeletingTeam(false)
     }
@@ -68,7 +61,7 @@ function SettingsGeneral() {
           <TeamGeneralSection team={team} solo={solo} />
         )}
 
-        {team && !solo && (
+        {team && (
           <>
             <Card className="border-destructive/50">
               <CardHeader>
@@ -82,16 +75,10 @@ function SettingsGeneral() {
               <CardContent className="space-y-2">
                 <Button
                   variant="destructive"
-                  disabled={isOnlyTeam}
                   onClick={() => setShowDeleteTeam(true)}
                 >
                   Delete team
                 </Button>
-                {isOnlyTeam && (
-                  <p className="text-sm text-muted-foreground">
-                    This is your only team, so it can't be deleted.
-                  </p>
-                )}
               </CardContent>
             </Card>
 

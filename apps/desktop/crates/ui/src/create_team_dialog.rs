@@ -5,9 +5,9 @@
 //! `teams.create`; the close is gated on the new team appearing in
 //! the synced collection (§4.1), then the window switches to it (the desktop
 //! analog of the web's navigate-to-new-slug). Errors render verbatim in the
-//! dialog — v7 makes `teams.create` instance-admin-only, so a FORBIDDEN
-//! here is a real permission denial, NOT a plan cap (EXP-43: the old
-//! `is_plan_limit` mapping mislabeled it "upgrade on the web").
+//! dialog — `teams.create` is open to every authed user (EXP-188); a
+//! FORBIDDEN here is the cloud free-tier owned-teams cap (or a real
+//! server-side denial) and renders verbatim.
 //!
 //! Opened from the team picker's "Create team…" item
 //! via the [`CreateTeam`] action; [`init`] owns the handler.
@@ -128,8 +128,8 @@ impl CreateTeamDialogView {
                 Err(err) => {
                     let _ = this.update_in(window, |this, _window, cx| {
                         // Web keeps the dialog open and shows the message —
-                        // including the admin-only FORBIDDEN (the server's
-                        // real permission error, never a plan-cap nudge).
+                        // including the free-tier owned-teams-cap FORBIDDEN
+                        // (the server's message says "upgrade" itself).
                         this.error = Some(format!("{err}").into());
                         this.submitting = false;
                         cx.notify();

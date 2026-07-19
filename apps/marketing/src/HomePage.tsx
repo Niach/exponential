@@ -143,7 +143,7 @@ export function HomePage() {
               requests out. Ship faster.
             </motion.p>
             <motion.div className={`hero-cta`} variants={heroChild}>
-              <a className={`btn btn-primary`} href={LINKS.app.register}>
+              <a className={`btn btn-primary`} href={LINKS.app.login}>
                 Get started free <IcArrow size={12} />
               </a>
               <a className={`btn btn-ghost`} href={LINKS.downloadPage}>

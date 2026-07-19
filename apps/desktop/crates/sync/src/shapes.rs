@@ -227,6 +227,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "team_id",
             "invited_by_id",
             "role",
+            "email",
             "accepted_at",
             "expires_at",
             "created_at",

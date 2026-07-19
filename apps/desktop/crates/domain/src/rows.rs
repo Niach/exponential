@@ -219,6 +219,10 @@ pub struct TeamInvite {
     pub invited_by_id: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
+    /// Optional invitee email (EXP-188 invite-by-email; null on link-only
+    /// invites).
+    #[serde(default)]
+    pub email: Option<String>,
     #[serde(default)]
     pub accepted_at: Option<String>,
     #[serde(default)]

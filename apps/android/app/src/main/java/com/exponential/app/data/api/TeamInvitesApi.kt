@@ -6,11 +6,24 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 
+// `email` is optional (EXP-188 invite-by-email): when set the server persists
+// it on the invite and mails the link. explicitNulls=false omits it when null,
+// so token-only invites keep the old wire shape.
 @Serializable
-data class CreateInviteInput(val teamId: String, val role: String = "member")
+data class CreateInviteInput(
+    val teamId: String,
+    val role: String = "member",
+    val email: String? = null,
+)
 
+// `emailDelivered`: null = no email requested; false = requested but the
+// send failed (surface the link so the owner can share it by hand).
 @Serializable
-data class CreateInviteResult(val invite: TeamInviteEntity, val token: String)
+data class CreateInviteResult(
+    val invite: TeamInviteEntity,
+    val token: String,
+    val emailDelivered: Boolean? = null,
+)
 
 @Serializable
 data class AcceptInviteInput(val token: String)
@@ -48,11 +61,16 @@ data class GetByTokenResult(val invite: InvitePreview)
 
 @Singleton
 class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun create(accountId: String, teamId: String, role: String = "member"): CreateInviteResult =
+    suspend fun create(
+        accountId: String,
+        teamId: String,
+        role: String = "member",
+        email: String? = null,
+    ): CreateInviteResult =
         trpc.mutation(
             accountId,
             path = "teamInvites.create",
-            input = CreateInviteInput(teamId, role),
+            input = CreateInviteInput(teamId, role, email),
             inputSerializer = CreateInviteInput.serializer(),
             outputSerializer = CreateInviteResult.serializer(),
         )

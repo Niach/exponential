@@ -199,6 +199,30 @@ export async function sendPasswordResetEmail(args: {
   })
 }
 
+// Team invite (EXP-188 invite-by-email): an owner entered the recipient's
+// address, so the server delivers the join link directly. The URL embeds the
+// single-use bearer token — never log it. The caller builds the URL
+// (appBaseUrl() + /invite/{token}); team/inviter names are user content
+// and are escaped by the template.
+export async function sendTeamInviteEmail(args: {
+  to: string
+  teamName: string
+  inviterName: string
+  inviteUrl: string
+}): Promise<EmailSendResult> {
+  return await sendEmail({
+    to: args.to,
+    subject: `${args.inviterName} invited you to ${args.teamName} on Exponential`,
+    html: actionEmailHtml({
+      heading: `Join ${args.teamName}`,
+      body: `${args.inviterName} invited you to the ${args.teamName} team on Exponential. Accept below — the link expires in 7 days and can be used once.`,
+      actionLabel: `Accept invite`,
+      actionUrl: args.inviteUrl,
+    }),
+    text: `${args.inviterName} invited you to ${args.teamName} on Exponential.\n\nAccept the invite: ${args.inviteUrl}\n\nThe link expires in 7 days and can be used once.`,
+  })
+}
+
 export async function sendVerificationEmail(args: {
   to: string
   url: string

@@ -1,6 +1,16 @@
 import Foundation
 
-public struct EnsureDefaultResult: Decodable, Sendable {
+public struct GetDefaultResult: Decodable, Sendable {
+    // Nullable: teams.getDefault never creates (EXP-188) — a fresh signup
+    // (or an owner who deleted their last team) resolves to nil.
+    public let team: TeamResult?
+
+    public init(team: TeamResult?) {
+        self.team = team
+    }
+}
+
+public struct CreateTeamResult: Decodable, Sendable {
     public let team: TeamResult
 
     public init(team: TeamResult) {
@@ -46,8 +56,6 @@ public struct DeleteBoardInput: Encodable, Sendable {
     }
 }
 
-private struct EmptyInput: Encodable {}
-
 public final class TeamsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -55,13 +63,17 @@ public final class TeamsApi: Sendable {
         self.trpc = trpc
     }
 
-    public func ensureDefault(accountId: String) async throws -> TeamResult {
-        let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "teams.ensureDefault", input: EmptyInput())
+    /// The NON-CREATING default-team resolver (EXP-188, replaced
+    /// `teams.ensureDefault`): the user's oldest non-feedback membership team,
+    /// or nil when they have none. An input-less tRPC query, so it goes over
+    /// GET like the other reads.
+    public func getDefault(accountId: String) async throws -> TeamResult? {
+        let result: GetDefaultResult = try await trpc.query(accountId: accountId, path: "teams.getDefault")
         return result.team
     }
 
     public func create(accountId: String, name: String, iconUrl: String? = nil) async throws -> TeamResult {
-        let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "teams.create", input: CreateTeamInput(name: name, iconUrl: iconUrl))
+        let result: CreateTeamResult = try await trpc.mutation(accountId: accountId, path: "teams.create", input: CreateTeamInput(name: name, iconUrl: iconUrl))
         return result.team
     }
 

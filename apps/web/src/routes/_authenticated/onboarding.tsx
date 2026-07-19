@@ -10,31 +10,37 @@ export const Route = createFileRoute(`/_authenticated/onboarding`)({
   component: OnboardingPage,
 })
 
+// EXP-188: signups get no team, so the wizard starts at a create-or-join
+// choice. We decide from TEAM EXISTENCE (teams.getDefault — never creates),
+// not from the onboarding flag alone: the session cookie's flag can be up to
+// 5 minutes stale, and a completed user who deleted their last team must
+// land back on the choice step, not bounce forever.
 function OnboardingPage() {
   const navigate = useNavigate()
   const { data: session } = useSession()
-  const [team, setTeam] = useState<{
-    id: string
-    slug: string
+  const [resolved, setResolved] = useState<{
+    team: { id: string; slug: string } | null
   } | null>(null)
 
   useEffect(() => {
     if (!session?.user) return
-    if (hasCompletedOnboarding(session.user)) {
-      navigate({ to: `/t/$teamSlug`, params: { teamSlug: `default` } })
-      return
-    }
-    void trpc.teams.ensureDefault
-      .mutate()
-      .then(({ team: ws }) => setTeam({ id: ws.id, slug: ws.slug }))
+    const completed = hasCompletedOnboarding(session.user)
+    void trpc.teams.getDefault.query().then(({ team }) => {
+      if (team && completed) {
+        // Nothing left to onboard — go to the default team.
+        navigate({ to: `/t/$teamSlug`, params: { teamSlug: team.slug } })
+        return
+      }
+      // team + !completed → wizard resumes at the board step;
+      // no team → choice step (even when the flag says completed — the
+      // deleted-last-team case).
+      setResolved({
+        team: team ? { id: team.id, slug: team.slug } : null,
+      })
+    })
   }, [session, navigate])
 
-  if (!team) return null
+  if (!resolved) return null
 
-  return (
-    <OnboardingWizard
-      teamId={team.id}
-      teamSlug={team.slug}
-    />
-  )
+  return <OnboardingWizard initialTeam={resolved.team} />
 }

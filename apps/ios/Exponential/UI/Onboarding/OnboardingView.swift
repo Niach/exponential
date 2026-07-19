@@ -2,20 +2,24 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// First-run wizard (shared mobile onboarding spec, EXP-8): a clean linear flow —
-/// Step 1 welcome (app name + one-line value prop + "Get started"), Step 2
-/// create-first-board (name + REQUIRED repository with inline GitHub connect),
-/// Step 3 done → drops into the app. `onboarding.complete` (and the local
-/// `needsOnboarding` flag) is flipped on the final step so the nav gate in
-/// AppNavigator stops showing this screen. The server also backfills
-/// onboardingCompletedAt on session reads for users who already have a board
-/// in a non-public team (lib/auth/onboarding.ts), so a stale account
+/// First-run wizard (shared mobile onboarding spec, EXP-8 + EXP-188): a clean
+/// linear flow — Step 1 welcome (app name + one-line value prop + "Get
+/// started"), Step 2 create-or-join team (signups get NO auto-created team;
+/// create → owner, join → paste an invite link and exit the wizard entirely),
+/// Step 3 create-first-board (name + optional repository with inline GitHub
+/// connect), Step 4 done → drops into the app. `onboarding.complete` (and the
+/// local `needsOnboarding` flag) is flipped on the final step so the nav gate
+/// in AppNavigator stops showing this screen; the join path is flipped by
+/// `teamInvites.accept` server-side (mirrored locally). The server also
+/// backfills onboardingCompletedAt on session reads for users who already
+/// have a board in a team (lib/auth/onboarding.ts), so a stale account
 /// self-heals via reconcileWithServer before the user ever creates anything.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
 
     @State private var page = 0
     @State private var teamId: String?
+    @State private var resolvingTeam = true
     @State private var teamError: String?
     // Deliberately sticky once set: flipping needsOnboarding swaps this view out.
     @State private var finishing = false
@@ -28,7 +32,8 @@ struct OnboardingView: View {
                 VStack(spacing: 0) {
                     switch page {
                     case 0: welcomePage
-                    case 1: boardPage
+                    case 1: teamPage
+                    case 2: boardPage
                     default: donePage
                     }
                 }
@@ -66,7 +71,68 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 2: Create your first board
+    // MARK: - Step 2: Create or join a team
+
+    private var teamPage: some View {
+        VStack(spacing: 0) {
+            Text("Set up your team")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 8)
+
+            Text("Create a team, or join one with an invite link from a teammate.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 24)
+
+            Group {
+                if resolvingTeam {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small).tint(.white.opacity(0.6))
+                        Text("Checking your teams…")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .padding(.vertical, 32)
+                } else if let teamError {
+                    VStack(spacing: 12) {
+                        Text(teamError)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .multilineTextAlignment(.center)
+                        primaryButton("Try again", enabled: true) {
+                            Task { await resolveTeam() }
+                        }
+                    }
+                    .padding(24)
+                    .glassCard()
+                } else {
+                    TeamSetupView(
+                        onCreated: { team in
+                            teamId = team.id
+                            page = 2
+                        },
+                        onJoined: {
+                            // teamInvites.accept stamps onboardingCompletedAt
+                            // server-side; mirror it locally so the nav gate
+                            // exits the wizard — joiners land in the team they
+                            // just joined, no board step.
+                            deps.auth.markOnboardingCompleted(
+                                ISO8601DateFormatter().string(from: Date())
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        .task { await resolveTeam() }
+    }
+
+    // MARK: - Step 3: Create your first board
 
     private var boardPage: some View {
         VStack(spacing: 0) {
@@ -84,43 +150,24 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 24)
 
-            Group {
-                if let teamId {
-                    CreateBoardForm(
-                        accountId: deps.auth.activeAccountId ?? "",
-                        teamId: teamId,
-                        minimal: true,
-                        onCreated: { _ in page = 2 }
-                    )
-                    .padding(24)
-                    .glassCard()
-                } else if let teamError {
-                    VStack(spacing: 12) {
-                        Text(teamError)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .multilineTextAlignment(.center)
-                        primaryButton("Try again", enabled: true) {
-                            Task { await prepareTeam() }
-                        }
-                    }
-                    .padding(24)
-                    .glassCard()
-                } else {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(.white.opacity(0.6))
-                        Text("Preparing your team…")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    .padding(.vertical, 32)
-                }
+            if let teamId {
+                CreateBoardForm(
+                    accountId: deps.auth.activeAccountId ?? "",
+                    teamId: teamId,
+                    minimal: true,
+                    onCreated: { _ in page = 3 }
+                )
+                .padding(24)
+                .glassCard()
+            } else {
+                // Unreachable in practice — the team step always sets teamId
+                // before advancing here.
+                ProgressView().tint(.white.opacity(0.6)).padding(.vertical, 32)
             }
         }
-        .task { await prepareTeam() }
     }
 
-    // MARK: - Step 3: Done
+    // MARK: - Step 4: Done
 
     private var donePage: some View {
         VStack(spacing: 0) {
@@ -172,8 +219,8 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     /// The server backfills onboardingCompletedAt on session reads for users
-    /// who already have a board in a non-public team (the unified rule
-    /// in lib/auth/onboarding.ts). Re-read the session on appear so an account
+    /// who already have a board in a team (the unified rule in
+    /// lib/auth/onboarding.ts). Re-read the session on appear so an account
     /// whose flag was still null at login self-heals here instead of showing
     /// this screen again.
     private func reconcileWithServer() async {
@@ -184,17 +231,26 @@ struct OnboardingView: View {
         deps.auth.markOnboardingCompleted(completedAt)
     }
 
-    /// Resolve (creating if needed) the default team the first board
-    /// lands in — invited users never reach onboarding, so this is always the
-    /// user's own auto-created team.
-    private func prepareTeam() async {
-        guard teamId == nil, let accountId = deps.auth.activeAccountId else { return }
+    /// Resolve an existing default team (teams.getDefault NEVER creates —
+    /// EXP-188). A user who already has a membership (e.g. re-running a
+    /// half-finished wizard) skips straight to the board step; a fresh signup
+    /// gets the create-or-join choice.
+    private func resolveTeam() async {
+        guard teamId == nil, let accountId = deps.auth.activeAccountId else {
+            resolvingTeam = false
+            return
+        }
+        resolvingTeam = true
         teamError = nil
         do {
-            teamId = try await deps.teamsApi.ensureDefault(accountId: accountId).id
+            if let team = try await deps.teamsApi.getDefault(accountId: accountId) {
+                teamId = team.id
+                page = 2
+            }
         } catch {
             teamError = error.trpcUserMessage
         }
+        resolvingTeam = false
     }
 
     private func finish() async {

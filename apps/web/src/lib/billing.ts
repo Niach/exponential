@@ -311,6 +311,24 @@ export function assertSeatAvailable(
   }
 }
 
+// Team-create gate (teams.create): the invisible free-tier abuse guard —
+// a FREE user may own at most FREE_OWNED_TEAMS_CAP teams (storage
+// farming: N free teams × the per-team storage budget). Paid users and
+// self-hosted instances are uncapped.
+export async function assertCanCreateTeam(userId: string): Promise<void> {
+  if (!isCloudInstance()) return
+
+  const { plan } = await getUserPlan(userId)
+  if (plan !== `free`) return
+
+  const owned = await countOwnedTeams(userId)
+  if (owned >= FREE_OWNED_TEAMS_CAP) {
+    throw planLimitError(
+      `up to ${FREE_OWNED_TEAMS_CAP} teams on the free plan. Upgrade to create more.`
+    )
+  }
+}
+
 // Invite-time seat check (team-invites.create/accept). Current member
 // count EXCLUDING isAgent users must be below the purchased seat count.
 // Downgrade policy (L19/§3.2): this ONLY blocks NEW invites — it never removes
