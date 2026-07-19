@@ -757,5 +757,3 @@ fn labeled(cx: &App, label: &'static str, input: Input) -> impl IntoElement {
         )
         .child(input)
 }
-
-use gpui::prelude::FluentBuilder as _;

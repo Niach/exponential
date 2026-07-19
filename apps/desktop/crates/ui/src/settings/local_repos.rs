@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use gpui::{
-    div, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, App, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -42,7 +42,7 @@ use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 
 use crate::coding_flow::CodingHub;
 
-use super::{card, card_header, error_notice};
+use super::{card, card_header};
 
 // ---------------------------------------------------------------------------
 // Background scan model
