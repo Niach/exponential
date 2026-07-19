@@ -232,6 +232,13 @@
       "when": 1784439042484,
       "tag": "0032_sour_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1784452788009,
+      "tag": "0033_bizarre_swordsman",
+      "breakpoints": true
     }
   ]
 }

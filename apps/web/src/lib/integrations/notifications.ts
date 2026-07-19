@@ -463,7 +463,9 @@ export function fireAndForgetPrNotify(args: {
 // `issue_id IS NULL` (the trigger-denormalized board_id stays NULL too, so
 // the notifications shape's `board_id IS NULL` arm keeps these rows synced)
 // and the same push-first delivery; the push payload carries no issue keys —
-// natives route on `type` alone.
+// natives route on `type` alone. The row DOES carry the team id (synced) so
+// every client's inbox can route the notification to the right team's
+// Support surface.
 async function deliverToTeam(args: {
   teamId: string
   recipientIds: string[]
@@ -480,10 +482,11 @@ async function deliverToTeam(args: {
   const now = new Date()
 
   const inserted = await db.execute(sql`
-    insert into notifications (user_id, issue_id, type, title, body, pushed_at)
+    insert into notifications (user_id, issue_id, team_id, type, title, body, pushed_at)
     select
       r.user_id,
       null,
+      ${args.teamId}::uuid,
       ${args.type}::notification_type,
       ${args.title},
       ${args.body},

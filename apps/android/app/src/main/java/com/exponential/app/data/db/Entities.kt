@@ -256,6 +256,8 @@ data class NotificationEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
+    // Set on issue-less support_reply rows (the helpdesk ticket's team); NULL on issue-anchored rows.
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String? = null,
     val type: String,
     val title: String,
     val body: String? = null,

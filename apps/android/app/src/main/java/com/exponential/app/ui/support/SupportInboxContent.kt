@@ -44,9 +44,10 @@ import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * The Support segment of the "My Work" tab (EXP-180): the active team's
- * support tickets, Open/Resolved filter pills over rows in the Inbox list's
- * visual language. Tap → the conversation (support/{threadId}).
+ * The Support tab's list (EXP-180): the active team's support tickets,
+ * Open/Resolved filter pills over rows in the Inbox list's visual language.
+ * Tap → the conversation (support/{threadId}). SupportScreen owns the screen
+ * chrome; this owns the poll lifecycle via its ViewModel.
  */
 @Composable
 fun SupportInboxContent(

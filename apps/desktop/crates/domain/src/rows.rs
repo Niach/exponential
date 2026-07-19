@@ -289,6 +289,11 @@ pub struct Notification {
     pub user_id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
+    /// EXP-180: set on issue-less `support_reply` rows (the ticket's team) so
+    /// the inbox can group helpdesk activity per team; NULL on issue-anchored
+    /// rows (their team resolves via the issue) and on pre-column rows.
+    #[serde(default)]
+    pub team_id: Option<String>,
     /// `notification_type` wire value — typed enum lands with the Phase-3
     /// inbox (§4.7); Phase 2 carries the raw string.
     #[serde(default, rename = "type")]
@@ -487,6 +492,34 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(team.helpdesk_enabled, None);
+    }
+
+    #[test]
+    fn notification_team_id_hydrates_and_degrades_to_none() {
+        // EXP-180: an issue-less support_reply row carries the ticket's team.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-1",
+            "user_id": "u-1",
+            "issue_id": null,
+            "team_id": "w-1",
+            "type": "support_reply",
+            "title": "Reporter replied",
+            "body": "Thanks, that fixed it!"
+        }))
+        .unwrap();
+        assert_eq!(n.issue_id, None);
+        assert_eq!(n.team_id.as_deref(), Some("w-1"));
+        assert_eq!(n.kind.as_deref(), Some("support_reply"));
+
+        // Issue-anchored / pre-column rows degrade to None, never a drop.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-2",
+            "user_id": "u-1",
+            "issue_id": "i-1",
+            "type": "issue_assigned"
+        }))
+        .unwrap();
+        assert_eq!(n.team_id, None);
     }
 
     #[test]

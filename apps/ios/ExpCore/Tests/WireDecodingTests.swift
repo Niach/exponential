@@ -125,6 +125,36 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertTrue(user.isAgent)
     }
 
+    // MARK: - Notification (issue-less support_reply rows carry team_id)
+
+    func testNotificationDecodesIssuelessSupportReplyWithTeamId() throws {
+        let notification = try decode(NotificationEntity.self, #"""
+        {
+          "id": "n1", "user_id": "u1", "issue_id": null, "team_id": "w1",
+          "type": "support_reply", "title": "New reply on ticket",
+          "body": "A customer replied",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(notification.issueId)
+        XCTAssertEqual(notification.teamId, "w1")
+        XCTAssertEqual(notification.type, "support_reply")
+    }
+
+    func testNotificationTeamIdAbsentOrNullIsNil() throws {
+        // Issue-anchored rows carry team_id: null; pre-rotation snapshots may
+        // omit the key entirely — both must decode with a nil teamId.
+        let notification = try decode(NotificationEntity.self, #"""
+        {
+          "id": "n2", "user_id": "u1", "issue_id": "i1",
+          "type": "issue_comment", "title": "New comment",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(notification.issueId, "i1")
+        XCTAssertNil(notification.teamId)
+    }
+
     // MARK: - IssueSubscriber (bare Postgres "t")
 
     func testIssueSubscriberDecodesWirePostgresTrue() throws {

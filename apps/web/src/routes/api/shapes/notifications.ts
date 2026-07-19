@@ -20,8 +20,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 //
 // `emailed_at` (the hourly digest sweep's server-side claim stamp) and
 // `board_id` (trash-scoping bookkeeping, filtered on above) are
-// deliberately excluded via the columns allowlist — neither is inbox state,
-// and pinning them out keeps client row payloads unchanged.
+// deliberately excluded via the columns allowlist — neither is inbox state.
+// `team_id` IS synced: issue-less rows (helpdesk support_reply) carry it so
+// clients can route the notification to the right team's Support inbox;
+// issue-anchored rows leave it NULL (their team comes from the issue).
 export const Route = createFileRoute(`/api/shapes/notifications`)({
   server: {
     handlers: {
@@ -32,6 +34,7 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
           `id`,
           `user_id`,
           `issue_id`,
+          `team_id`,
           `type`,
           `title`,
           `body`,

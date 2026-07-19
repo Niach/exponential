@@ -11,43 +11,26 @@ import SwiftUI
 struct MyWorkView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(TeamState.self) private var teamState
     @State private var inboxViewModel: InboxViewModel?
     @AppStorage("myWorkSegment") private var segmentRaw = Segment.inbox.rawValue
 
-    // Reviews moved out to its own bottom-bar destination (EXP-147); a
-    // persisted "reviews" rawValue falls back to .inbox via the `segment`
-    // computed property.
+    // Reviews (EXP-147) and Support (EXP-180) each moved out to their own
+    // bottom-bar destinations; a persisted "reviews"/"support" rawValue falls
+    // back to .inbox via the `segment` computed property.
     private enum Segment: String, CaseIterable {
         case inbox
         case myIssues
-        case support
 
         var label: String {
             switch self {
             case .inbox: return "Inbox"
             case .myIssues: return "My Issues"
-            case .support: return "Support"
             }
         }
     }
 
-    /// Support (EXP-180) appears only when the active team has the helpdesk
-    /// enabled — the synced `teams.helpdesk_enabled` flag via TeamState.
-    private var helpdeskEnabled: Bool {
-        teamState.activeTeam?.helpdeskEnabled == true
-    }
-
-    private var availableSegments: [Segment] {
-        helpdeskEnabled ? Segment.allCases : [.inbox, .myIssues]
-    }
-
     private var segment: Segment {
-        let stored = Segment(rawValue: segmentRaw) ?? .inbox
-        // A persisted "support" choice falls back to Inbox when the active
-        // team has no helpdesk (team switch / flag turned off).
-        if stored == .support, !helpdeskEnabled { return .inbox }
-        return stored
+        Segment(rawValue: segmentRaw) ?? .inbox
     }
 
     var body: some View {
@@ -68,12 +51,6 @@ struct MyWorkView: View {
                     }
                 case .myIssues:
                     MyIssuesListContent()
-                case .support:
-                    if let teamId = teamState.activeTeam?.id {
-                        SupportInboxListContent(teamId: teamId)
-                    } else {
-                        Color.clear
-                    }
                 }
             }
         }
@@ -106,7 +83,7 @@ struct MyWorkView: View {
     // Glass-pill segmented control — same pill language as MobileTabBar.
     private var segmentControl: some View {
         HStack(spacing: 4) {
-            ForEach(availableSegments, id: \.rawValue) { seg in
+            ForEach(Segment.allCases, id: \.rawValue) { seg in
                 segmentButton(seg)
             }
         }

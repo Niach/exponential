@@ -57,9 +57,15 @@ type IssueGroup = {
 
 // Issue-less support_reply notifications (EXP-180: support threads are
 // standalone; legacy issue-anchored rows keep flowing through the issue
-// grouping above). One synthetic group linking to the Support inbox.
+// grouping above). One synthetic group PER TEAM, each linking to that
+// team's Support inbox — the rows carry a synced team_id for exactly this
+// (rows from before the column existed fall into one null-team group that
+// links to the current team's inbox).
 type SupportGroup = {
   kind: `support`
+  teamId: string | null
+  teamSlug: string | null
+  teamName: string | null
   items: Notification[]
   unread: number
 }
@@ -97,24 +103,37 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     () => new Map((boards ?? []).map((p) => [p.id, p as Board])),
     [boards]
   )
-  const teamSlugMap = useMemo(
-    () =>
-      new Map((teams ?? []).map((w) => [w.id, (w as Team).slug])),
+  const teamMap = useMemo(
+    () => new Map((teams ?? []).map((w) => [w.id, w as Team])),
     [teams]
   )
 
   // Group notifications by issue (newest first, tracking unread count), plus
-  // ONE synthetic Support group for issue-less support_reply rows. Each issue
-  // group links into the issue's OWN team — linking with the current
-  // route's slug would dead-end for issues from other teams.
+  // synthetic per-team Support groups for issue-less support_reply rows.
+  // Each group links into its OWN team — linking with the current route's
+  // slug would dead-end for issues/tickets from other teams.
   const groups = useMemo<Group[]>(() => {
     const byIssue = new Map<string, IssueGroup>()
-    const support: SupportGroup = { kind: `support`, items: [], unread: 0 }
+    const supportByTeam = new Map<string | null, SupportGroup>()
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
         if (n.type === `support_reply`) {
-          support.items.push(n)
-          if (!n.readAt) support.unread += 1
+          const team = n.teamId ? teamMap.get(n.teamId) : undefined
+          const key = team?.id ?? null
+          let g = supportByTeam.get(key)
+          if (!g) {
+            g = {
+              kind: `support`,
+              teamId: key,
+              teamSlug: team?.slug ?? null,
+              teamName: team?.name ?? null,
+              items: [],
+              unread: 0,
+            }
+            supportByTeam.set(key, g)
+          }
+          g.items.push(n)
+          if (!n.readAt) g.unread += 1
         }
         continue
       }
@@ -122,7 +141,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       if (!issue) continue
       const board = boardMap.get(issue.boardId)
       if (!board) continue
-      const slug = teamSlugMap.get(board.teamId)
+      const slug = teamMap.get(board.teamId)?.slug
       if (!slug) continue
       let g = byIssue.get(n.issueId)
       if (!g) {
@@ -139,14 +158,13 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       g.items.push(n)
       if (!n.readAt) g.unread += 1
     }
-    const all: Group[] = [...byIssue.values()]
-    if (support.items.length > 0) all.push(support)
+    const all: Group[] = [...byIssue.values(), ...supportByTeam.values()]
     return all.sort(
       (a, b) =>
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
     )
-  }, [notifications, issueMap, boardMap, teamSlugMap])
+  }, [notifications, issueMap, boardMap, teamMap])
 
   const totalUnread = groups.reduce((sum, g) => sum + g.unread, 0)
 
@@ -189,9 +207,9 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
             if (g.kind === `support`) {
               return (
                 <Link
-                  key="support"
+                  key={`support:${g.teamId ?? `unknown`}`}
                   to="/t/$teamSlug/support"
-                  params={{ teamSlug }}
+                  params={{ teamSlug: g.teamSlug ?? teamSlug }}
                   onClick={() => void markGroupRead(g.items)}
                   className={cn(
                     `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
@@ -211,6 +229,11 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                       >
                         Support
                       </span>
+                      {g.teamName != null && teamMap.size > 1 && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {g.teamName}
+                        </span>
+                      )}
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {relativeTime(latest.createdAt)}
                       </span>

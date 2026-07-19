@@ -14,6 +14,9 @@ enum AppRoute: Hashable {
     /// Reviews (EXP-147): the open-PR list, its own tab beside My Work —
     /// no longer a segment inside it.
     case reviews
+    /// Support (EXP-180): the team helpdesk inbox, its own tab — shown only
+    /// while the active team's synced `helpdesk_enabled` flag is on.
+    case support
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
@@ -338,16 +341,27 @@ struct MainNavigator: View {
                     agentsActive: isOnAgents,
                     myWorkActive: isOnMyWork,
                     reviewsActive: isOnReviews,
+                    supportActive: isOnSupport,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
+                    showsSupport: helpdeskEnabled,
                     showsCompose: resolvedComposeTarget != nil,
                     onIssues: { path = [] },
                     onSearch: { if !isOnSearch { path = [.search] } },
                     onAgents: { if !isOnAgents { path = [.agents] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
+                    onSupport: { if !isOnSupport { path = [.support] } },
                     onCompose: { composeTarget = resolvedComposeTarget }
                 )
+            }
+        }
+        // The Support tab exists only while the flag is on — if it flips off
+        // (team switch, feature disabled) while the Support surface is up,
+        // land back on Issues instead of stranding a tab-less screen.
+        .onChange(of: helpdeskEnabled) { _, enabled in
+            if !enabled {
+                path.removeAll { $0 == .support }
             }
         }
         .sheet(item: $composeTarget) { target in
@@ -365,15 +379,26 @@ struct MainNavigator: View {
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .search, .agents, .myWork, .reviews, .board:
+        case .search, .agents, .myWork, .reviews, .support, .board:
             return true
         default:
             return false
         }
     }
 
+    /// Support (EXP-180) gets a tab only while the active team's synced
+    /// `teams.helpdesk_enabled` flag is on.
+    private var helpdeskEnabled: Bool {
+        teamState.activeTeam?.helpdeskEnabled == true
+    }
+
     private var isOnMyWork: Bool {
         if case .myWork = path.last { return true }
+        return false
+    }
+
+    private var isOnSupport: Bool {
+        if case .support = path.last { return true }
         return false
     }
 
@@ -444,6 +469,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .reviews:
             ReviewsView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case .support:
+            SupportView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .board(accountId, id):
             IssueListView(boardId: id)

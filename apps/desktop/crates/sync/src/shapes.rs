@@ -277,6 +277,12 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "id",
             "user_id",
             "issue_id",
+            // EXP-180: nullable — set on issue-less `support_reply` rows (the
+            // ticket's team) so the inbox can group helpdesk activity per
+            // team; NULL on issue-anchored rows. `heal_missing_columns`
+            // ALTERs it onto existing store tables and stamps a refetch so
+            // old rows get real values, not NULLs.
+            "team_id",
             "type",
             "title",
             "body",
@@ -376,6 +382,14 @@ mod tests {
     fn issue_subscribers_never_models_email() {
         let spec = shape_by_name("issue_subscribers").unwrap();
         assert!(!spec.columns.contains(&"email"));
+    }
+
+    #[test]
+    fn notifications_model_team_id_for_support_grouping() {
+        // EXP-180: issue-less `support_reply` rows carry the ticket's team —
+        // the inbox's only handle on which Support inbox to open.
+        let spec = shape_by_name("notifications").unwrap();
+        assert!(spec.columns.contains(&"team_id"));
     }
 
     #[test]

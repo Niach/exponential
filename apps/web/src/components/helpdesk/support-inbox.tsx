@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  Info,
   LifeBuoy,
   Loader2,
   Lock,
@@ -27,6 +28,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 
 type ThreadRow = Awaited<
@@ -53,7 +60,9 @@ function reporterLabel(row: {
 // open/resolved status; an issue exists only once a member escalates the
 // ticket — the escalated issue IS synced, so the details rail resolves it
 // live from the issues collection. On small screens the list and the
-// conversation stack (back button); the details rail is desktop-only.
+// conversation stack (back button) and the details rail becomes a sheet
+// behind the header's info button — escalate/linked-issue stay reachable
+// on every viewport.
 export function SupportInbox({
   teamId,
   teamSlug,
@@ -203,6 +212,10 @@ function ConversationPane({
   const [mode, setMode] = useState<`reply` | `note`>(`reply`)
   const [sending, setSending] = useState(false)
   const [statusBusy, setStatusBusy] = useState(false)
+  // Below lg the details rail has no room — the same content opens in a
+  // Sheet from the header's info button instead (phone web keeps escalate +
+  // linked-issue parity with the native apps).
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const { userMap } = useTeamUsers(teamId)
 
@@ -300,6 +313,15 @@ function ConversationPane({
               <Check className="size-3" />
             )}
             {isResolved ? `Reopen ticket` : `Close ticket`}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground lg:hidden"
+            onClick={() => setDetailsOpen(true)}
+            aria-label="Ticket details"
+          >
+            <Info className="size-4" />
           </Button>
         </div>
 
@@ -425,20 +447,46 @@ function ConversationPane({
         </div>
       </div>
 
-      {/* Right — details rail (desktop only) */}
-      <DetailsRail
-        thread={thread}
-        teamId={teamId}
-        teamSlug={teamSlug}
-        onEscalated={async () => {
-          await Promise.all([loadDetail(), onChanged()])
-        }}
-      />
+      {/* Right — details rail (≥lg) */}
+      <div className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4 lg:flex">
+        <ThreadDetails
+          thread={thread}
+          teamId={teamId}
+          teamSlug={teamSlug}
+          onEscalated={async () => {
+            await Promise.all([loadDetail(), onChanged()])
+          }}
+        />
+      </div>
+
+      {/* Below lg the same details open in a sheet from the header. */}
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetContent
+          side="right"
+          className="flex w-80 flex-col gap-4 overflow-y-auto px-4 py-4"
+        >
+          <SheetHeader className="p-0">
+            <SheetTitle className="text-sm">Ticket details</SheetTitle>
+          </SheetHeader>
+          <ThreadDetails
+            thread={thread}
+            teamId={teamId}
+            teamSlug={teamSlug}
+            onEscalated={async () => {
+              await Promise.all([loadDetail(), onChanged()])
+            }}
+          />
+        </SheetContent>
+      </Sheet>
     </>
   )
 }
 
-function DetailsRail({
+// The ticket's metadata + actions: reporter block, widget context, escalate
+// board picker / linked-issue chip. Rendered twice — in the ≥lg details rail
+// and in the <lg details sheet — so every viewport can escalate and reach
+// the linked issue.
+function ThreadDetails({
   thread,
   teamId,
   teamSlug,
@@ -526,7 +574,7 @@ function DetailsRail({
   }, [thread.id])
 
   return (
-    <div className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4 lg:flex">
+    <>
       <section>
         <h2 className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
           Reporter
@@ -644,6 +692,6 @@ function DetailsRail({
           link.
         </p>
       </section>
-    </div>
+    </>
   )
 }

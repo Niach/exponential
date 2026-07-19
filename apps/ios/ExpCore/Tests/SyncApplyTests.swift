@@ -143,6 +143,26 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored?.isProtected, true)
     }
 
+    func testSupportReplyNotificationInsertPersistsTeamId() async throws {
+        // The notifications shape now carries team_id — set on issue-less
+        // support_reply rows (the helpdesk ticket's team). An inserted row must
+        // round-trip both the NULL issue_id and the team_id into the v2 column.
+        let notification = NotificationEntity(
+            id: "n1", userId: "u1", issueId: nil, teamId: "ws1",
+            type: "support_reply", title: "New reply on ticket",
+            body: "A customer replied", readAt: nil, pushedAt: nil,
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+        )
+        let message = ShapeMessage<NotificationEntity>.insert(
+            key: #""public"."notifications"/"n1""#, value: notification
+        )
+        try await applyBatch(messages: [message], name: "notifications", table: "notifications", pool: pool)
+        let stored = try await pool.read { try NotificationEntity.fetchOne($0, key: "n1") }
+        XCTAssertNil(stored?.issueId)
+        XCTAssertEqual(stored?.teamId, "ws1")
+        XCTAssertEqual(stored?.type, "support_reply")
+    }
+
     func testPoisonedPartialDoesNotAbortBatch() async throws {
         try seedUser(id: "target", name: "Old")
         // A batch that used to abort at the poisoned partial (unknown column)

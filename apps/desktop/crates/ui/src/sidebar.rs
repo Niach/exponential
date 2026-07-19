@@ -52,8 +52,8 @@ use crate::git_bar::GitBar;
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
-    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, Navigation,
-    Screen,
+    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
+    Navigation, Screen,
 };
 use crate::properties_panel::parse_hex_color;
 use crate::queries;
@@ -641,6 +641,27 @@ fn close_pr_key(issue_id: &str) -> String {
     format!("close:{issue_id}")
 }
 
+/// Fire-and-forget `notifications.markRead` over a group's unread rows (the
+/// web `markGroupRead`) — the Electric echo clears the dots.
+fn mark_group_read(unread_ids: &[String], cx: &mut App) {
+    if unread_ids.is_empty() {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let ids = unread_ids.to_vec();
+    cx.background_executor()
+        .spawn(async move {
+            for id in ids {
+                if let Err(err) = api::notifications::notifications_mark_read(&trpc, &id) {
+                    log::warn!("[ui] notifications.markRead({id}) failed: {err}");
+                }
+            }
+        })
+        .detach();
+}
+
 /// Latest-notification kind → the inbox row's leading type-badge glyph (the
 /// meaning table shared across all clients).
 fn notification_type_icon(kind: Option<&str>) -> Icon {
@@ -655,6 +676,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         }
         Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
         Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
+        // EXP-180: the helpdesk fan-out — the Support rail tool's glyph.
+        Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY) => {
+            Icon::from(ExpIcon::MessageSquare)
+        }
         _ => Icon::new(IconName::Bell),
     }
 }
@@ -803,81 +828,90 @@ impl SidebarPanel {
         } else if data.groups.is_empty() {
             self.list_note("All caught up.", cx)
         } else {
-            let theme_radius = cx.theme().radius;
             let rows: Vec<gpui::AnyElement> = data
                 .groups
                 .iter()
-                .map(|group| {
-                    let theme = cx.theme();
-                    let unread = group.unread > 0;
-                    let selected = matches!(
-                        resolved_screen(&self.nav, cx),
-                        Some(Screen::IssueDetail { issue_id }) if issue_id == group.issue.id
-                    );
-                    let issue_id = group.issue.id.clone();
-                    let unread_ids: Vec<String> = group
-                        .items
-                        .iter()
-                        .filter(|n| n.read_at.is_none())
-                        .map(|n| n.id.clone())
-                        .collect();
-                    // Items are newest first — `first()` IS the latest.
-                    let latest = group.items.first();
-                    let time: SharedString = latest
-                        .and_then(|n| n.created_at.as_deref())
-                        .map(crate::inbox::relative_time)
-                        .unwrap_or_default()
-                        .into();
-                    // Notification titles are full human sentences ("Danny
-                    // merged the pull request for …") — shown verbatim.
-                    let sentence: SharedString = latest
-                        .and_then(|n| n.title.clone())
-                        .unwrap_or_default()
-                        .into();
-                    let type_icon =
-                        notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
-                    h_flex()
-                        .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
-                        .w_full()
-                        .items_start()
-                        .gap_2()
-                        .px_2()
-                        .py_1p5()
-                        .rounded(theme_radius)
-                        .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-                        .hover(|this| this.bg(theme.accent.opacity(0.3)))
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            // Web `markGroupRead`: clear the group's unreads
-                            // (the Electric echo removes the dot), then open.
-                            if !unread_ids.is_empty() {
-                                if let Some(trpc) = queries::trpc_client(cx) {
-                                    let ids = unread_ids.clone();
-                                    cx.background_executor()
-                                        .spawn(async move {
-                                            for id in ids {
-                                                if let Err(err) =
-                                                    api::notifications::notifications_mark_read(
-                                                        &trpc, &id,
-                                                    )
-                                                {
-                                                    log::warn!(
-                                                        "[ui] notifications.markRead({id}) failed: {err}"
-                                                    );
-                                                }
-                                            }
-                                        })
-                                        .detach();
-                                }
-                            }
-                            navigate(
-                                window,
-                                cx,
-                                Screen::IssueDetail {
-                                    issue_id: issue_id.clone(),
-                                },
-                            );
-                        }))
+                .map(|entry| match entry {
+                    queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
+                    queries::InboxEntry::Support(group) => self.inbox_support_row(group, cx),
+                })
+                .collect();
+            div()
+                .id("mini-inbox-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .child(v_flex().p_1().gap_0p5().children(rows))
+                .into_any_element()
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One issue-group inbox row: the latest notification's type icon +
+    /// sentence; click marks the group read and opens the issue detail.
+    fn inbox_issue_row(
+        &self,
+        group: &queries::InboxGroup,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = group.unread > 0;
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::IssueDetail { issue_id }) if issue_id == group.issue.id
+        );
+        let issue_id = group.issue.id.clone();
+        let unread_ids: Vec<String> = group
+            .items
+            .iter()
+            .filter(|n| n.read_at.is_none())
+            .map(|n| n.id.clone())
+            .collect();
+        // Items are newest first — `first()` IS the latest.
+        let latest = group.items.first();
+        let time: SharedString = latest
+            .and_then(|n| n.created_at.as_deref())
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        // Notification titles are full human sentences ("Danny
+        // merged the pull request for …") — shown verbatim.
+        let sentence: SharedString = latest
+            .and_then(|n| n.title.clone())
+            .unwrap_or_default()
+            .into();
+        let type_icon = notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
+        h_flex()
+            .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                // Web `markGroupRead`: clear the group's unreads
+                // (the Electric echo removes the dot), then open.
+                mark_group_read(&unread_ids, cx);
+                navigate(
+                    window,
+                    cx,
+                    Screen::IssueDetail {
+                        issue_id: issue_id.clone(),
+                    },
+                );
+            }))
                         // Leading circular type badge (the latest item's kind).
                         .child(
                             h_flex()
@@ -958,23 +992,146 @@ impl SidebarPanel {
                                 ),
                         )
                         .into_any_element()
-                })
-                .collect();
-            div()
-                .id("mini-inbox-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(v_flex().p_1().gap_0p5().children(rows))
-                .into_any_element()
-        };
+    }
 
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            .child(body)
+    /// One synthetic Support inbox row (EXP-180): the group's latest
+    /// `support_reply` sentence under a plain "Support" label (+ the team
+    /// name when the ticket team is synced — web parity). Click marks the
+    /// group read and opens that team's Support tool, switching the active
+    /// team first when it differs; the generic NULL-team group opens
+    /// Support for the current team.
+    fn inbox_support_row(
+        &self,
+        group: &queries::SupportInboxGroup,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = group.unread > 0;
+        let unread_ids: Vec<String> = group
+            .items
+            .iter()
+            .filter(|n| n.read_at.is_none())
+            .map(|n| n.id.clone())
+            .collect();
+        // Items are newest first — `first()` IS the latest.
+        let latest = group.items.first();
+        let time: SharedString = latest
+            .and_then(|n| n.created_at.as_deref())
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        // Notification titles are full human sentences ("A reporter replied
+        // to …") — shown verbatim.
+        let sentence: SharedString = latest
+            .and_then(|n| n.title.clone())
+            .unwrap_or_default()
+            .into();
+        let team_name: Option<SharedString> = group.team_name.clone().map(Into::into);
+        let target_team = group.team_id.clone();
+        let type_icon =
+            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY));
+        h_flex()
+            .id(SharedString::from(format!(
+                "mini-inbox-support-{}",
+                group.team_id.as_deref().unwrap_or("unknown")
+            )))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // Web `markGroupRead`, then open the ticket team's Support
+                // inbox (a cross-team group switches the window's team; the
+                // NULL-team legacy group stays on the current one).
+                mark_group_read(&unread_ids, cx);
+                if let Some(team_id) = target_team.clone() {
+                    if active_team_id(&this.nav, cx).as_deref() != Some(team_id.as_str()) {
+                        switch_team(window, cx, team_id);
+                    }
+                }
+                activate_tool(window, cx, ToolWindow::Support);
+            }))
+            // Leading circular type badge — the Support glyph.
+            .child(
+                h_flex()
+                    .size_6()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(theme.muted)
+                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .when(unread, |this| {
+                                        this.font_weight(FontWeight::MEDIUM)
+                                    })
+                                    // Read groups render dimmed.
+                                    .text_color(if unread {
+                                        theme.foreground
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child("Support"),
+                            )
+                            .when_some(team_name, |this, name| {
+                                this.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .truncate()
+                                        .text_color(theme.muted_foreground)
+                                        .child(name),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_xs()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(sentence),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1p5()
+                    .pt_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(time),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(theme.primary)),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -1880,6 +2037,16 @@ impl SidebarPanel {
             .map(crate::inbox::relative_time)
             .unwrap_or_default()
             .into();
+        // One-line latest-PUBLIC-message preview (web/iOS/Android row
+        // parity); newlines collapse so `truncate` sees a single line.
+        // Absent/blank bodies render nothing.
+        let preview: Option<SharedString> = thread
+            .last_message
+            .as_ref()
+            .and_then(|message| message.body.as_deref())
+            .map(|body| body.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|body| !body.is_empty())
+            .map(Into::into);
         let nav_id = thread.id.clone();
         let nav_title = thread.title.clone();
 
@@ -1927,6 +2094,16 @@ impl SidebarPanel {
                             .when(unread, |this| this.bg(unread_dot)),
                     ),
             )
+            .when_some(preview, |this, preview| {
+                this.child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .truncate()
+                        .text_color(muted)
+                        .child(preview),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()

@@ -7,8 +7,6 @@ import com.exponential.app.data.api.HelpdeskApi
 import com.exponential.app.data.api.SupportThreadRow
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.accountDatabaseFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -21,8 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 
@@ -43,32 +39,17 @@ data class SupportInboxState(
  * support tables are server-only (never an Electric shape), so the list is
  * polled over tRPC every 30s — the poll loop lives inside the state flow's
  * upstream, so WhileSubscribed starts it with the first collector (the
- * Support segment mounting) and cancels it when the segment goes away.
+ * Support tab mounting) and cancels it when the screen goes away. (The
+ * helpdesk_enabled gate for the Support TAB itself lives in AppViewModel —
+ * the bottom bar needs it whether or not this ViewModel exists yet.)
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SupportInboxViewModel @Inject constructor(
     private val auth: AuthRepository,
-    holder: DatabaseHolder,
     selection: TeamSelection,
     private val helpdeskApi: HelpdeskApi,
 ) : ViewModel() {
-
-    // Reactive account scoping, like every feature ViewModel.
-    private val dbFlow = accountDatabaseFlow(auth, holder)
-
-    /**
-     * The active team's synced `helpdesk_enabled` flag — gates the "Support"
-     * segment pill. A Room-observing flow (the teams shape syncs the column),
-     * so collecting it never triggers HTTP polling.
-     */
-    val helpdeskEnabled: StateFlow<Boolean> =
-        combine(dbFlow, selection.selectedId) { db, id -> db to id }
-            .flatMapLatest { (db, id) ->
-                if (db == null || id == null) flowOf(false)
-                else db.teamDao().observeById(id).map { it?.helpdeskEnabled == true }
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _filter = MutableStateFlow(SupportFilter.Open)
 

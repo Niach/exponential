@@ -622,6 +622,14 @@ export const notifications = pgTable(
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
+    // App-written team pointer for ISSUE-LESS rows (helpdesk support_reply):
+    // with no issue to resolve a team from, clients need this to route the
+    // notification to the right team's Support inbox. Synced (in the shape
+    // allowlist), unlike board_id. Stays NULL on issue-anchored rows — their
+    // team comes from the issue.
+    teamId: uuid(`team_id`).references(() => teams.id, {
+      onDelete: `cascade`,
+    }),
     type: notificationTypeEnum().notNull(),
     title: varchar({ length: 500 }).notNull(),
     body: text(),

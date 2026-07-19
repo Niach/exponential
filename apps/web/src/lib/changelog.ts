@@ -39,7 +39,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Start coding from your phone, helpdesk widget mode, and this changelog.`,
     body: `- **What's new lives here now** — each release drops a note in this changelog. Dismiss the card and it stays quiet until the next release; reopen it anytime from the user menu.
 - **Start coding from mobile** — the iOS and Android apps can now remotely start coding sessions on your desktop, including batch runs.
-- **Support inboxes** — the feedback widget gained a helpdesk mode: support tickets can file into a separate private project, away from your public feedback board.
+- **Support inboxes** — the feedback widget gained a helpdesk mode: support tickets can file into a separate private inbox, away from your feedback board.
 - **Steering polish** — stale steering sessions are cleaned up reliably, and the web agent dock and review views got a refresh.`,
   },
 ]

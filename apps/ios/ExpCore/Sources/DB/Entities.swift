@@ -836,8 +836,11 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     public let id: String
     public let userId: String
     public let issueId: String?
+    // Set on issue-less support_reply rows (the ticket's team); NULL on
+    // issue-anchored rows (their team resolves through the issue).
+    public let teamId: String?
     // notification_type: issue_assigned|issue_comment|issue_status_changed|
-    //                    issue_mention|pr_opened|pr_merged
+    //                    issue_mention|pr_opened|pr_merged|support_reply
     public let type: String
     public let title: String
     public let body: String?
@@ -850,6 +853,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         id: String,
         userId: String,
         issueId: String?,
+        teamId: String? = nil,
         type: String,
         title: String,
         body: String?,
@@ -861,6 +865,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         self.id = id
         self.userId = userId
         self.issueId = issueId
+        self.teamId = teamId
         self.type = type
         self.title = title
         self.body = body
@@ -874,6 +879,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         case id, type, title, body
         case userId = "user_id"
         case issueId = "issue_id"
+        case teamId = "team_id"
         case readAt = "read_at"
         case pushedAt = "pushed_at"
         case createdAt = "created_at"

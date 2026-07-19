@@ -180,6 +180,20 @@ class AppViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    // The active team's synced `helpdesk_enabled` flag — gates the bottom
+    // bar's Support tab (EXP-180). Room-observing only (the teams shape syncs
+    // the column); the ticket poll starts when the Support screen mounts.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val helpdeskEnabled: StateFlow<Boolean> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        teamSelection.selectedId,
+    ) { db, teamId -> db to teamId }
+        .flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) flowOf(false)
+            else db.teamDao().observeById(teamId).map { it?.helpdeskEnabled == true }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // The Issues tab root's current board: last-used on the active account
     // (validated against the live Room table, so deleted/archived boards fall
     // through), else the first board of the first team, else none. The

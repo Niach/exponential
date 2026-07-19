@@ -84,9 +84,13 @@ import androidx.room.RoomDatabase
     // v21: teams.helpdesk_enabled (EXP-180 helpdesk) — the synced team-level
     //      flag gating the Support inbox. Additive column on the existing teams
     //      shape; destructive fallback wipes + resyncs.
+    // v22: notifications.team_id (EXP-180 helpdesk) — nullable, set on
+    //      issue-less support_reply rows so the inbox can group them per team.
+    //      Additive column on the existing notifications shape; destructive
+    //      fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

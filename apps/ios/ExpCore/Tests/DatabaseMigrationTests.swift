@@ -8,11 +8,13 @@ import XCTest
 // os.Logger).
 //
 // EXP-180 (the great rename): the `-v5` file suffix wiped every previous local
-// snapshot, so the migration list is collapsed back to a single `v1_initial`
+// snapshot, so the migration list was collapsed back to a single `v1_initial`
 // that creates the renamed tables (teams/boards/team_members/team_invites,
-// team_id/board_id columns) directly. There is deliberately NO upgrade path —
-// these tests pin the fresh-install schema and the migration count so a
-// reintroduced incremental migration is a conscious decision, not an accident.
+// team_id/board_id columns) directly. Additive columns added AFTER `-v5`
+// stores shipped ride incremental guarded-ALTER steps again (the old v3…v6
+// precedent) — v2_notification_team_id is the first. These tests pin the
+// fresh-install schema and the exact migration identifiers so a new
+// incremental migration is a conscious decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
     private var tempDir: URL!
 
@@ -39,12 +41,13 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.read { db in try DatabaseManager.makeMigrator().appliedIdentifiers(db) }
     }
 
-    // A brand-new `-v5` DB must migrate green, and the collapsed migrator is
-    // exactly ONE migration — the v2…v11 incrementals died with the `-v4` file.
+    // A brand-new `-v5` DB must migrate green. The collapsed v1_initial plus
+    // the additive post-`-v5` steps — the old v2…v11 incrementals died with
+    // the `-v4` file.
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial"])
+        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
     }
 
     // Idempotency: running the full migrator twice on the same file is a no-op,
@@ -53,7 +56,67 @@ final class DatabaseMigrationTests: XCTestCase {
         let pool = try makePool("twice")
         try DatabaseManager.runMigrations(on: pool)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial"])
+        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
+    }
+
+    // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
+    // notifications.team_id existed must gain the column via the guarded ALTER
+    // and get its notifications shape offset reset so already-synced rows
+    // re-snapshot with the new column (the old invite-token test's playbook:
+    // hand-build the pre-migration state, then run the full migrator).
+    func testNotificationTeamIdAddedToExistingV5Store() throws {
+        let pool = try makePool("notif-team-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v1_initial")
+        try pool.write { db in
+            // Hand-build the pre-v2 state: notifications without team_id
+            // (today's v1 create already declares it — that overlap is exactly
+            // what the guarded ALTER has to tolerate) + a live offset row.
+            try db.drop(table: "notifications")
+            try db.create(table: "notifications") { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("issue_id", .text)
+                t.column("type", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("body", .text)
+                t.column("read_at", .text)
+                t.column("pushed_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('notifications', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertEqual(try appliedMigrations(pool), ["v1_initial", "v2_notification_team_id"])
+        let teamIdColumn = try pool.read { db in
+            try db.columns(in: "notifications").first { $0.name == "team_id" }
+        }
+        XCTAssertNotNil(teamIdColumn)
+        XCTAssertFalse(teamIdColumn?.isNotNull ?? true)
+        // The ALTER must force a refetch of the notifications shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'notifications'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
     }
 
     // The end-state schema must expose the tables + key columns sync writes to,
@@ -121,6 +184,13 @@ final class DatabaseMigrationTests: XCTestCase {
         // The team-level helpdesk switch (EXP-180 Support inbox) IS stored —
         // the teams shape serves it and the Support segment gates on it.
         XCTAssertTrue(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // notifications.team_id (nullable): set on issue-less support_reply
+        // rows so the inbox can group them per team.
+        let notifTeamId = try pool.read { db in
+            try db.columns(in: "notifications").first { $0.name == "team_id" }
+        }
+        XCTAssertNotNil(notifTeamId)
+        XCTAssertFalse(notifTeamId?.isNotNull ?? true)
 
         // The invite bearer token is not synced (server allowlist), so the
         // local column must be nullable.

@@ -339,6 +339,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.primaryKey("id", .text)
                 t.column("user_id", .text).notNull()
                 t.column("issue_id", .text)
+                // Set on issue-less support_reply rows (the ticket's team);
+                // NULL on issue-anchored rows. Rides the notifications shape.
+                t.column("team_id", .text)
                 t.column("type", .text).notNull()
                 t.column("title", .text).notNull()
                 t.column("body", .text)
@@ -393,6 +396,39 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
+            }
+        }
+
+        // v2 (EXP-180 helpdesk follow-up): `notifications.team_id` rides along
+        // on the notifications shape — set on issue-less support_reply rows,
+        // NULL otherwise. Additive ALTER for `-v5` stores created before the
+        // column existed; guarded on column presence so fresh installs (which
+        // get it from the v1 create above) converge on the same schema. Never
+        // bump the `-v5` file suffix for an additive column (that would wipe
+        // every local snapshot; ALTER TABLE preserves rows + cursors).
+        migrator.registerMigration("v2_notification_team_id") { db in
+            // Table-existence guard (old v3-v6 precedent): migration-fixture
+            // DBs that carry only the minimal schema don't have the table.
+            guard try db.tableExists("notifications") else { return }
+            let existing = Set(try db.columns(in: "notifications").map(\.name))
+            if !existing.contains("team_id") {
+                try db.alter(table: "notifications") { t in
+                    t.add(column: "team_id", .text)
+                }
+            }
+            // The server-side columns allowlist change rotates the shape handle
+            // anyway (409 → refetch), but mark the notifications offset
+            // needs_refetch here too — mirroring ShapeClient's must-refetch
+            // write (handle="", offset="-1", needs_refetch set, is_live
+            // cleared) — so already-synced rows re-snapshot with team_id even
+            // without waiting on the server round-trip. WHERE-guarded: a fresh
+            // install has no offset row yet and snapshots from scratch anyway.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'notifications'
+                    """)
             }
         }
 

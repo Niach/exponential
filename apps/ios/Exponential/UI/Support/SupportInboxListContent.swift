@@ -2,10 +2,10 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Support inbox list (EXP-180): the My Work "Support" segment's content.
-/// No chrome of its own (the InboxListContent precedent) — MyWorkView owns the
-/// segment control; this view owns its poll lifecycle (re-armed on appear,
-/// cancelled on disappear, restarted on a team switch).
+/// The Support inbox list (EXP-180): the Support tab's content. No chrome of
+/// its own (the InboxListContent precedent) — SupportView owns the screen
+/// chrome; this view owns its poll lifecycle (re-armed on appear, cancelled
+/// on disappear, restarted on a team switch).
 struct SupportInboxListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId

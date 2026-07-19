@@ -1,0 +1,2 @@
+ALTER TABLE "notifications" ADD COLUMN "team_id" uuid;--> statement-breakpoint
+ALTER TABLE "notifications" ADD CONSTRAINT "notifications_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
