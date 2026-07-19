@@ -1,0 +1,1 @@
+Workspaces and projects are now teams and boards across the whole app, joined by a new per-team support inbox and plenty of polish and fixes.

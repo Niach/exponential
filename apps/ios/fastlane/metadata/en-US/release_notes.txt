@@ -1,4 +1,4 @@
-• Polished start-coding sheet with a scrollable, issue-list-style picker
-• Plan approvals stay answerable until they're actually resolved
-• Richer activity phrases and tolerant timestamp parsing
-• Slimmer issue detail: single repo chip, due date in the metadata card
+• Workspaces and projects are now teams and boards — simpler names, same power
+• New Support inbox: helpdesk tickets from your feedback widget, right in the app
+• Notifications now route support replies to the right team
+• Assorted fixes and polish across issue detail and sync
