@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-mobile-steering-review`,
+    date: `2026-07-20`,
+    title: `Answer your agent from anywhere, and sessions that wait for review`,
+    summary: `Tap to answer agent questions from your phone, and coding sessions now show a "ready for review" state once the PR is open.`,
+    body: `- **Steer from your phone** — when an agent asks a question, iOS, Android, and web now show it as a tappable card: pick an option (multi-select included) instead of typing keystrokes.
+- **Ready for review** — a coding session no longer just vanishes when the PR opens; it moves to an in-review state across all clients so you can see what's waiting on you.
+- **Better tabs on mobile** — My Work and Support switched to a cleaner segmented control on iOS and Android, and agent sessions open full-screen on the mobile web app.
+- **Editing on phones** — the issue description editor keeps your cursor visible above the keyboard while you type.
+- **Fresh marketing pages** — new agents, teamwork, and helpdesk sections plus clearer pricing at exponential.at.`,
+  },
+  {
     id: `2026-07-create-or-join-mobile-web`,
     date: `2026-07-19`,
     title: `Create or join a team, a merged inbox, and a mobile-friendly web app`,
