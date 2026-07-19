@@ -86,79 +86,92 @@ struct IssueListView: View {
                     .padding(.bottom, 8)
             }
 
-            List {
-                ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                    let statusIssues = vm.issuesForStatus(status)
-                    if !statusIssues.isEmpty {
-                        Section {
-                            if !vm.collapsedStatuses.contains(status) {
-                                ForEach(statusIssues, id: \.id) { issue in
-                                    issueRow(issue: issue, vm: vm)
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
-                                        .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                            if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
-                                                Button {
-                                                    Task { await vm.setStatus(issueId: issue.id, status: .done) }
-                                                } label: {
-                                                    Label("Done", systemImage: "checkmark.circle.fill")
-                                                }
-                                                // Track done's status color (EXP-120: now blue).
-                                                .tint(IssueStatus.done.color)
+            if IssueStatus.displayOrder.allSatisfy({ vm.issuesForStatus($0).isEmpty }) {
+                // Android parity: an empty (or fully filtered-out) board says
+                // so instead of rendering a blank list.
+                VStack {
+                    Text("No issues yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.top, 64)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                List {
+                    ForEach(IssueStatus.displayOrder, id: \.self) { status in
+                        let statusIssues = vm.issuesForStatus(status)
+                        if !statusIssues.isEmpty {
+                            Section {
+                                if !vm.collapsedStatuses.contains(status) {
+                                    ForEach(statusIssues, id: \.id) { issue in
+                                        issueRow(issue: issue, vm: vm)
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
+                                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                    Button {
+                                                        Task { await vm.setStatus(issueId: issue.id, status: .done) }
+                                                    } label: {
+                                                        Label("Done", systemImage: "checkmark.circle.fill")
+                                                    }
+                                                    // Track done's status color (EXP-120: now blue).
+                                                    .tint(IssueStatus.done.color)
 
-                                                Button {
-                                                    Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }
-                                                } label: {
-                                                    Label("Cancel", systemImage: "xmark.circle.fill")
+                                                    Button {
+                                                        Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }
+                                                    } label: {
+                                                        Label("Cancel", systemImage: "xmark.circle.fill")
+                                                    }
+                                                    .tint(.gray)
                                                 }
-                                                .tint(.gray)
                                             }
-                                        }
-                                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                            if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
-                                                Button {
-                                                    Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
-                                                } label: {
-                                                    Label("Backlog", systemImage: "circle.dashed")
+                                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                                if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                    Button {
+                                                        Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
+                                                    } label: {
+                                                        Label("Backlog", systemImage: "circle.dashed")
+                                                    }
+                                                    .tint(.orange)
                                                 }
-                                                .tint(.orange)
                                             }
-                                        }
+                                    }
                                 }
+                            } header: {
+                                statusHeader(status: status, count: statusIssues.count, vm: vm)
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                                    .listRowBackground(Color.clear)
                             }
-                        } header: {
-                            statusHeader(status: status, count: statusIssues.count, vm: vm)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
-                                .listRowBackground(Color.clear)
                         }
                     }
                 }
+                .listStyle(.plain)
+                // Zero the List's own default horizontal content margins so the
+                // 16pt listRowInsets alone govern the gutter (Android parity) — the
+                // default extra margin made rows sit noticeably inboard of the bar.
+                .contentMargins(.horizontal, 0, for: .scrollContent)
+                // …and the top margin: the default put ~40pt of dead space between
+                // the filter chips and the first section header (Android: 8dp bar
+                // padding + 3dp flow + the header's own 8dp = ~19dp total).
+                .contentMargins(.top, 0, for: .scrollContent)
+                // Kill List's implicit 44pt minimum row height: Android rows are
+                // content-hugging (~40dp) with 3dp gaps, and the floor made every
+                // iOS row visibly chunkier than its Android twin (EXP-24 redux).
+                .environment(\.defaultMinListRowHeight, 0)
+                // Sections flow like Android's single 3dp-spaced column — without
+                // this, plain List inserts its own inter-section band.
+                .listSectionSpacing(0)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .refreshable {
+                    await vm.refresh()
+                }
+                // Clearance for the floating tab bar (EXP-36) — the bar is an
+                // ancestor overlay, so the List must reserve the space itself.
+                .tabBarBottomInset(showsTabBarClearance)
             }
-            .listStyle(.plain)
-            // Zero the List's own default horizontal content margins so the
-            // 16pt listRowInsets alone govern the gutter (Android parity) — the
-            // default extra margin made rows sit noticeably inboard of the bar.
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            // …and the top margin: the default put ~40pt of dead space between
-            // the filter chips and the first section header (Android: 8dp bar
-            // padding + 3dp flow + the header's own 8dp = ~19dp total).
-            .contentMargins(.top, 0, for: .scrollContent)
-            // Kill List's implicit 44pt minimum row height: Android rows are
-            // content-hugging (~40dp) with 3dp gaps, and the floor made every
-            // iOS row visibly chunkier than its Android twin (EXP-24 redux).
-            .environment(\.defaultMinListRowHeight, 0)
-            // Sections flow like Android's single 3dp-spaced column — without
-            // this, plain List inserts its own inter-section band.
-            .listSectionSpacing(0)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .refreshable {
-                await vm.refresh()
-            }
-            // Clearance for the floating tab bar (EXP-36) — the bar is an
-            // ancestor overlay, so the List must reserve the space itself.
-            .tabBarBottomInset(showsTabBarClearance)
         }
     }
 

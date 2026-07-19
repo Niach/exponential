@@ -66,7 +66,7 @@ class MultiAccountTeamRepository @Inject constructor(
                             } else {
                                 ServerTeamGroup(
                                     accountId = account.id,
-                                    hostname = account.displayHost,
+                                    hostname = account.displayName,
                                     userEmail = account.userEmail,
                                     teams = ws.sortedBy { it.name.lowercase() },
                                 )

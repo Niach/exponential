@@ -156,7 +156,7 @@ fun ServerDetailScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(account?.displayHost ?: "Server") },
+                title = { Text(account?.displayName ?: "Server") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -194,7 +194,7 @@ fun ServerDetailScreen(
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            account?.displayHost.orEmpty(),
+                            account?.displayName.orEmpty(),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )

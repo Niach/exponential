@@ -80,7 +80,7 @@ class MultiAccountBoardRepository @Inject constructor(
                             if (blocks.isEmpty()) null
                             else ServerBoardGroup(
                                 accountId = account.id,
-                                hostname = account.displayHost,
+                                hostname = account.displayName,
                                 userEmail = account.userEmail,
                                 teamBlocks = blocks,
                             )

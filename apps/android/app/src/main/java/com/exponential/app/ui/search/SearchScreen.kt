@@ -83,20 +83,14 @@ fun SearchScreen(
 
             when {
                 state.query.isEmpty() -> EmptyState(
-                    message = "Search issues across all your boards.\nMatches identifiers, titles, and full text.",
+                    message = "Search issues across all your boards.",
+                    detail = "Matches identifiers, titles, and full text.",
                     icon = Icons.Filled.Search,
                 )
-                state.groups.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "No issues match",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
-                }
+                state.groups.isEmpty() -> EmptyState(
+                    message = "No issues match",
+                    icon = Icons.Filled.Search,
+                )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = BottomBarInset),
