@@ -31,6 +31,9 @@ class FcmService : FirebaseMessagingService() {
         val title = message.notification?.title ?: data["title"] ?: "Exponential"
         val body = message.notification?.body ?: data["body"]
         val issueId = data["issueId"]
+        // support_reply pushes (EXP-180) carry a threadId and NO issue keys —
+        // route their taps straight to the ticket conversation.
+        val threadId = if (data["type"] == "support_reply") data["threadId"] else null
 
         // The push carries its recipient's server user id. The issue route is
         // active-account-scoped, so only deep-link when the push targets the
@@ -41,20 +44,25 @@ class FcmService : FirebaseMessagingService() {
         val targetUserId = data["userId"]
         val targetsActiveAccount = targetUserId == null || targetUserId == auth.userId.value
 
-        val intent = if (issueId != null && targetsActiveAccount) {
-            Intent(Intent.ACTION_VIEW, Uri.parse("exponential://issue/$issueId")).apply {
-                setPackage(packageName)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-        } else {
-            Intent(this, MainActivity::class.java).apply {
+        val intent = when {
+            issueId != null && targetsActiveAccount ->
+                Intent(Intent.ACTION_VIEW, Uri.parse("exponential://issue/$issueId")).apply {
+                    setPackage(packageName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+            threadId != null && targetsActiveAccount ->
+                Intent(Intent.ACTION_VIEW, Uri.parse("exponential://support/$threadId")).apply {
+                    setPackage(packageName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+            else -> Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
         }
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            issueId?.hashCode() ?: 0,
+            issueId?.hashCode() ?: threadId?.hashCode() ?: 0,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -68,7 +76,8 @@ class FcmService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .build()
 
-        val notificationId = issueId?.hashCode() ?: System.currentTimeMillis().toInt()
+        val notificationId = issueId?.hashCode() ?: threadId?.hashCode()
+            ?: System.currentTimeMillis().toInt()
         try {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
         } catch (err: SecurityException) {

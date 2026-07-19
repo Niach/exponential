@@ -20,6 +20,9 @@ data class TeamEntity(
     val name: String,
     val slug: String,
     @ColumnInfo(name = "icon_url") @SerialName("icon_url") @JsonNames("iconUrl") val iconUrl: String? = null,
+    // Team-level helpdesk switch (EXP-180): when on, every member gets the
+    // "Support" inbox (standalone tickets with external reporters — not issues).
+    @ColumnInfo(name = "helpdesk_enabled") @SerialName("helpdesk_enabled") @JsonNames("helpdeskEnabled") val helpdeskEnabled: PgBool = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

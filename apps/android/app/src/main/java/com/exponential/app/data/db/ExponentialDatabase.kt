@@ -81,9 +81,12 @@ import androidx.room.RoomDatabase
     //      (team_id / board_id on every child table) renamed to the new server
     //      contract. Destructive fallback wipes + resyncs from the renamed
     //      shapes.
+    // v21: teams.helpdesk_enabled (EXP-180 helpdesk) — the synced team-level
+    //      flag gating the Support inbox. Additive column on the existing teams
+    //      shape; destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 20,
+    version = 21,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

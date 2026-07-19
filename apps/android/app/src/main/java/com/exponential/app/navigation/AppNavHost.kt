@@ -49,6 +49,7 @@ import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
+import com.exponential.app.ui.support.SupportThreadScreen
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
@@ -87,6 +88,8 @@ fun AppNavHost() {
                 navController.navigate("issue/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.Invite ->
                 navController.navigate("invite/${target.token}") { launchSingleTop = true }
+            is DeepLinkBus.Target.SupportThread ->
+                navController.navigate("support/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -312,6 +315,7 @@ private fun AuthenticatedNav(
             // "inbox" route is safe.
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenSupportThread = { id -> navController.navigate("support/$id") },
             )
         }
         composable("reviews") {
@@ -411,6 +415,16 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
+            )
+        }
+        composable("support/{threadId}") {
+            // A support ticket's conversation (EXP-180) — reached from the
+            // Support segment of My Work or a support_reply push tap. The
+            // ViewModel reads threadId from its SavedStateHandle like the
+            // issue-detail route.
+            SupportThreadScreen(
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("issue/{issueId}") { entry ->

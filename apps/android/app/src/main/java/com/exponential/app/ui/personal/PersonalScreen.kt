@@ -28,6 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.inbox.InboxListContent
 import com.exponential.app.ui.inbox.InboxViewModel
 import com.exponential.app.ui.myissues.MyIssuesListContent
+import com.exponential.app.ui.support.SupportInboxContent
+import com.exponential.app.ui.support.SupportInboxViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 
@@ -44,14 +46,25 @@ import com.exponential.app.ui.theme.glassButton
 // Reviews moved out to its own bottom-bar destination (EXP-147).
 private const val SECTION_INBOX = "inbox"
 private const val SECTION_MY_ISSUES = "my_issues"
+private const val SECTION_SUPPORT = "support"
 
 @Composable
 fun PersonalScreen(
     onOpenIssue: (String) -> Unit,
+    onOpenSupportThread: (String) -> Unit,
     inboxViewModel: InboxViewModel = hiltViewModel(),
+    supportViewModel: SupportInboxViewModel = hiltViewModel(),
 ) {
     val inboxState by inboxViewModel.state.collectAsStateWithLifecycle()
+    // The Support segment exists only while the active team's synced
+    // helpdesk_enabled flag is on (EXP-180). Collecting the flag observes Room
+    // only — the ticket poll starts when SupportInboxContent collects `state`.
+    val helpdeskEnabled by supportViewModel.helpdeskEnabled.collectAsStateWithLifecycle()
     var section by rememberSaveable { mutableStateOf(SECTION_INBOX) }
+    // A saved "support" selection outlives the flag (team switch, feature
+    // turned off) — degrade to the inbox instead of a blank pane.
+    val effectiveSection =
+        if (section == SECTION_SUPPORT && !helpdeskEnabled) SECTION_INBOX else section
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -73,28 +86,44 @@ fun PersonalScreen(
             ) {
                 SegmentPill(
                     label = "Inbox",
-                    // Anything but my_issues renders the inbox (incl. a saved
-                    // pre-EXP-147 "reviews" value) — highlight accordingly.
-                    active = section != SECTION_MY_ISSUES,
+                    // Anything but my_issues/support renders the inbox (incl. a
+                    // saved pre-EXP-147 "reviews" value) — highlight accordingly.
+                    active = effectiveSection != SECTION_MY_ISSUES &&
+                        effectiveSection != SECTION_SUPPORT,
                     unread = inboxState.totalUnread,
                     onClick = { section = SECTION_INBOX },
                 )
                 Spacer(Modifier.width(8.dp))
                 SegmentPill(
                     label = "My Issues",
-                    active = section == SECTION_MY_ISSUES,
+                    active = effectiveSection == SECTION_MY_ISSUES,
                     onClick = { section = SECTION_MY_ISSUES },
                 )
+                if (helpdeskEnabled) {
+                    Spacer(Modifier.width(8.dp))
+                    SegmentPill(
+                        label = "Support",
+                        active = effectiveSection == SECTION_SUPPORT,
+                        onClick = { section = SECTION_SUPPORT },
+                    )
+                }
                 Spacer(Modifier.weight(1f))
-                if (section != SECTION_MY_ISSUES && inboxState.totalUnread > 0) {
+                if (effectiveSection != SECTION_MY_ISSUES &&
+                    effectiveSection != SECTION_SUPPORT &&
+                    inboxState.totalUnread > 0
+                ) {
                     TextButton(onClick = { inboxViewModel.markAllRead() }) {
                         Text("Mark all read")
                     }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            when (section) {
+            when (effectiveSection) {
                 SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
+                SECTION_SUPPORT -> SupportInboxContent(
+                    onOpenThread = onOpenSupportThread,
+                    viewModel = supportViewModel,
+                )
                 else -> InboxListContent(
                     onOpenIssue = onOpenIssue,
                     viewModel = inboxViewModel,
