@@ -88,8 +88,9 @@ export const teamInvitesRouter = router({
           })
           emailDelivered = result.delivered
         } catch (err) {
+          // Log the invite id, not the recipient address — no PII in server logs.
           console.error(
-            `[team-invites] invite email to ${input.email} failed:`,
+            `[team-invites] invite email for invite ${invite.id} failed:`,
             err
           )
           emailDelivered = false
