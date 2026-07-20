@@ -45,13 +45,21 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Settings keys retired by past reworks, scrubbed from the file on every
 /// [`Settings::save`] (the merge-save would otherwise carry them forever):
 /// the release-run subagent knobs and the release toggles (EXP-106 — batch
-/// runs replaced release runs), plus the even older `releaseAutonomous`.
-const DEAD_KEYS: [&str; 5] = [
+/// runs replaced release runs), the even older `releaseAutonomous`, and the
+/// EXP-201 per-run-mode toggle pairs (EXP-206 merged them into the
+/// per-AGENT fields below — issue and batch runs share one default).
+const DEAD_KEYS: [&str; 11] = [
     "subagentModel",
     "subagentEffort",
     "releaseUltracode",
     "releasePlanMode",
     "releaseAutonomous",
+    "issueUltracode",
+    "batchUltracode",
+    "issuePlanMode",
+    "batchPlanMode",
+    "issueSkipPermissions",
+    "batchSkipPermissions",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -96,31 +104,25 @@ pub struct Settings {
     pub pi_model: String,
     /// pi thinking level (`--thinking`); one of [`PI_THINKING`] or blank.
     pub pi_thinking: String,
-    /// BATCH-run (multi-issue) "dynamic workflows" (ultracode) default — ON
-    /// by default. A MISSING key fills from this struct's manual [`Default`]
-    /// impl (the container-level `#[serde(default)]` uses
-    /// `Settings::default()`, not `bool::default()`), so absent stays `true`
+    /// Claude "dynamic workflows" (`--effort ultracode`) default — OFF by
+    /// default. EXP-206: ONE default for issue and batch runs alike (the old
+    /// per-run-mode pairs are dead keys); the Start-coding dialog prefills
+    /// from it and every launch can still override. A MISSING key fills from
+    /// this struct's manual [`Default`] impl (the container-level
+    /// `#[serde(default)]` uses `Settings::default()`, not `bool::default()`)
     /// — locked by a test below.
-    pub batch_ultracode: bool,
-    /// BATCH-run native plan mode default — OFF by default (a batch session
-    /// usually runs unattended).
-    pub batch_plan_mode: bool,
-    /// SINGLE-ISSUE-run "dynamic workflows" (ultracode) default — OFF by
-    /// default (a plain issue run stays cheap unless opted in).
-    pub issue_ultracode: bool,
-    /// SINGLE-ISSUE-run native plan mode default — ON by default (Claude
-    /// presents a plan for approval in the terminal before editing).
-    pub issue_plan_mode: bool,
-    /// SINGLE-ISSUE-run "skip permissions" default — OFF by default
-    /// (EXP-201: sessions start in the agent's guarded AUTO mode; the
-    /// checkbox opts into the full bypass — claude
-    /// `--dangerously-skip-permissions` / codex
-    /// `--dangerously-bypass-approvals-and-sandbox`; pi has no permission
-    /// system, the toggle is inert there).
-    pub issue_skip_permissions: bool,
-    /// BATCH-run "skip permissions" default — OFF by default (same semantics
-    /// as [`Self::issue_skip_permissions`]).
-    pub batch_skip_permissions: bool,
+    pub claude_ultracode: bool,
+    /// Claude native plan-mode default — ON by default (Claude presents a
+    /// plan for approval in the terminal before editing).
+    pub claude_plan_mode: bool,
+    /// Claude "skip permissions" default — OFF by default (sessions start in
+    /// the guarded `--permission-mode auto`; ON opts into the full
+    /// `--dangerously-skip-permissions` bypass).
+    pub claude_skip_permissions: bool,
+    /// Codex "skip permissions" default — OFF by default (the guarded auto
+    /// preset; ON is `--dangerously-bypass-approvals-and-sandbox`). pi has no
+    /// permission system, hence no field ([`Self::skip_permissions_for`]).
+    pub codex_skip_permissions: bool,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -151,12 +153,10 @@ impl Default for Settings {
             codex_effort: String::new(),
             pi_model: String::new(),
             pi_thinking: String::new(),
-            batch_ultracode: true,
-            batch_plan_mode: false,
-            issue_ultracode: false,
-            issue_plan_mode: true,
-            issue_skip_permissions: false,
-            batch_skip_permissions: false,
+            claude_ultracode: false,
+            claude_plan_mode: true,
+            claude_skip_permissions: false,
+            codex_skip_permissions: false,
         }
     }
 }
@@ -288,6 +288,17 @@ impl Settings {
             CodingAgent::Claude => &self.claude_effort,
             CodingAgent::Codex => &self.codex_effort,
             CodingAgent::Pi => &self.pi_thinking,
+        }
+    }
+
+    /// The skip-permissions default for `agent` (EXP-206 — per agent, not
+    /// per run mode). Always `false` for pi: it has no permission system, so
+    /// there is nothing to bypass.
+    pub fn skip_permissions_for(&self, agent: CodingAgent) -> bool {
+        match agent {
+            CodingAgent::Claude => self.claude_skip_permissions,
+            CodingAgent::Codex => self.codex_skip_permissions,
+            CodingAgent::Pi => false,
         }
     }
 
@@ -437,15 +448,13 @@ mod tests {
         assert_eq!(settings.codex_effort, "");
         assert_eq!(settings.pi_model, "");
         assert_eq!(settings.pi_thinking, "");
-        // Per-mode run defaults: batch runs — ultracode ON, plan mode OFF;
-        // issue runs — ultracode OFF, plan mode ON. Skip-permissions OFF for
-        // both (EXP-201: guarded AUTO mode is the default posture).
-        assert!(settings.batch_ultracode);
-        assert!(!settings.batch_plan_mode);
-        assert!(!settings.issue_ultracode);
-        assert!(settings.issue_plan_mode);
-        assert!(!settings.issue_skip_permissions);
-        assert!(!settings.batch_skip_permissions);
+        // Per-agent run defaults (EXP-206 — no issue/batch split): Claude
+        // plan mode ON, ultracode OFF; skip-permissions OFF everywhere
+        // (guarded auto mode is the default posture).
+        assert!(!settings.claude_ultracode);
+        assert!(settings.claude_plan_mode);
+        assert!(!settings.claude_skip_permissions);
+        assert!(!settings.codex_skip_permissions);
     }
 
     /// EXP-201: `defaultAgent` round-trips; unknown or mistyped values
@@ -560,42 +569,56 @@ mod tests {
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
     }
 
-    /// Per-mode run fields: MISSING keys must fill from the manual `Default`
-    /// impl (container-level `#[serde(default)]`) — batch ultracode TRUE,
-    /// issue plan mode TRUE, batch plan mode / issue ultracode FALSE.
-    /// Explicit bools round-trip; the dead release-era keys are ignored on
-    /// load and scrubbed from the file on save.
+    /// Per-agent run fields (EXP-206): MISSING keys must fill from the
+    /// manual `Default` impl (container-level `#[serde(default)]`) — Claude
+    /// plan mode TRUE, everything else FALSE. Explicit bools round-trip; the
+    /// dead release-era AND per-run-mode keys are ignored on load and
+    /// scrubbed from the file on save.
     #[test]
-    fn batch_run_fields_fill_from_defaults_and_dead_keys_are_scrubbed() {
-        let dir = TempDir::new("batch-fields");
+    fn agent_run_fields_fill_from_defaults_and_dead_keys_are_scrubbed() {
+        let dir = TempDir::new("agent-fields");
         let path = dir.0.join("settings.json");
         fs::write(&path, r#"{"claudeModel":"sonnet"}"#).unwrap();
         let settings = Settings::load(&path);
-        assert!(settings.batch_ultracode, "missing key must default TRUE");
-        assert!(!settings.batch_plan_mode, "missing key must default FALSE");
-        assert!(!settings.issue_ultracode, "missing key must default FALSE");
-        assert!(settings.issue_plan_mode, "missing key must default TRUE");
+        assert!(!settings.claude_ultracode, "missing key must default FALSE");
+        assert!(settings.claude_plan_mode, "missing key must default TRUE");
+        assert!(!settings.claude_skip_permissions);
+        assert!(!settings.codex_skip_permissions);
 
         fs::write(
             &path,
-            r#"{"batchUltracode":false,"batchPlanMode":true,"issueUltracode":true,"issuePlanMode":false,"subagentModel":"opus","releaseUltracode":false,"releaseAutonomous":false}"#,
+            r#"{"claudeUltracode":true,"claudePlanMode":false,"claudeSkipPermissions":true,"codexSkipPermissions":true,"subagentModel":"opus","releaseUltracode":false,"issueUltracode":true,"batchPlanMode":true,"issueSkipPermissions":true}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
-        assert!(!settings.batch_ultracode);
-        assert!(settings.batch_plan_mode);
-        assert!(settings.issue_ultracode);
-        assert!(!settings.issue_plan_mode);
+        assert!(settings.claude_ultracode);
+        assert!(!settings.claude_plan_mode);
+        assert!(settings.claude_skip_permissions);
+        assert!(settings.codex_skip_permissions);
+
+        // skip_permissions_for maps per agent; pi is always false.
+        assert!(settings.skip_permissions_for(CodingAgent::Claude));
+        assert!(settings.skip_permissions_for(CodingAgent::Codex));
+        assert!(!settings.skip_permissions_for(CodingAgent::Pi));
 
         // Saving scrubs the retired keys the merge-save would otherwise
         // carry forever.
         settings.save(&path).unwrap();
         let root: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        for dead in ["subagentModel", "releaseUltracode", "releaseAutonomous"] {
+        for dead in [
+            "subagentModel",
+            "releaseUltracode",
+            "issueUltracode",
+            "batchUltracode",
+            "issuePlanMode",
+            "batchPlanMode",
+            "issueSkipPermissions",
+            "batchSkipPermissions",
+        ] {
             assert!(root.get(dead).is_none(), "{dead} must be scrubbed");
         }
-        assert_eq!(root["batchUltracode"], false);
+        assert_eq!(root["claudeUltracode"], true);
     }
 
     #[test]
@@ -615,22 +638,26 @@ mod tests {
             codex_effort: "high".to_string(),
             pi_model: "grok-4.5".to_string(),
             pi_thinking: "high".to_string(),
-            batch_ultracode: false,
-            batch_plan_mode: true,
-            issue_ultracode: true,
-            issue_plan_mode: false,
-            issue_skip_permissions: true,
-            batch_skip_permissions: true,
+            claude_ultracode: true,
+            claude_plan_mode: false,
+            claude_skip_permissions: true,
+            codex_skip_permissions: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"batchUltracode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"batchPlanMode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"issueUltracode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"issuePlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
+        assert!(
+            raw.contains("\"claudeSkipPermissions\""),
+            "camelCase keys: {raw}"
+        );
+        assert!(
+            raw.contains("\"codexSkipPermissions\""),
+            "camelCase keys: {raw}"
+        );
         assert_eq!(Settings::load(&path), settings);
     }
 

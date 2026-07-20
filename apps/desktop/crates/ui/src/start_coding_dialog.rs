@@ -21,9 +21,10 @@
 //!
 //! Options: Model + Effort [`ChoiceSelect`]s, the ULTRACODE switch
 //! (`--effort ultracode`, model-independent; disables the Effort select) and
-//! the native "Plan mode" checkbox. Defaults follow the mode:
-//! [`coding::Settings`]' `issue_*` pair for a single selection, the `batch_*`
-//! pair for 2+; flipping modes re-applies that mode's defaults.
+//! the native "Plan mode" checkbox. Defaults come from [`coding::Settings`]'
+//! per-AGENT fields (EXP-206 — one set for single-issue and batch runs
+//! alike); switching the agent tab re-seeds them. The agent tab strip offers
+//! only the doctor-installed agents.
 //!
 //! Launch = snapshot → [`coding::prepare`] on the background executor → the
 //! shared `coding_flow::spawn_into_window` foreground spawn. A
@@ -58,7 +59,7 @@ use domain::IssueStatus;
 
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
-    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, AGENT_CHOICES,
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
 use crate::queries;
 
@@ -154,39 +155,16 @@ enum RepoState {
     Error(String),
 }
 
-/// Which settings pair the ultracode/plan-mode toggles were last defaulted
-/// from — flipping the checked count across the 1↔2 boundary re-applies the
-/// other mode's defaults (user tweaks persist WITHIN a mode).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DefaultsMode {
-    Single,
-    Batch,
-}
-
-/// The per-mode `(ultracode, plan_mode, skip_permissions)` settings defaults
-/// for `agent`, capability-masked (EXP-201: ultracode/plan are Claude-only,
-/// skip does not exist for pi).
-fn mode_defaults(
-    settings: &coding::Settings,
-    mode: DefaultsMode,
-    agent: CodingAgent,
-) -> (bool, bool, bool) {
-    let (ultracode, plan, skip) = match mode {
-        DefaultsMode::Single => (
-            settings.issue_ultracode,
-            settings.issue_plan_mode,
-            settings.issue_skip_permissions,
-        ),
-        DefaultsMode::Batch => (
-            settings.batch_ultracode,
-            settings.batch_plan_mode,
-            settings.batch_skip_permissions,
-        ),
-    };
+/// The `(ultracode, plan_mode, skip_permissions)` settings defaults for
+/// `agent`, capability-masked (EXP-201: ultracode/plan are Claude-only, skip
+/// does not exist for pi). EXP-206: ONE set of defaults — a single-issue run
+/// and a multi-issue batch run seed identically, and skip permissions is a
+/// per-AGENT setting.
+fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool, bool) {
     (
-        ultracode && agent.supports_ultracode(),
-        plan && agent.supports_plan_mode(),
-        skip && agent.supports_skip_permissions(),
+        settings.claude_ultracode && agent.supports_ultracode(),
+        settings.claude_plan_mode && agent.supports_plan_mode(),
+        settings.skip_permissions_for(agent) && agent.supports_skip_permissions(),
     )
 }
 
@@ -222,7 +200,6 @@ pub struct StartCodingDialogView {
     plan_mode: bool,
     /// Full permission bypass (claude/codex; pi has no permission system).
     skip_permissions: bool,
-    defaults_mode: DefaultsMode,
     launching: bool,
     error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
@@ -318,8 +295,13 @@ impl StartCodingDialogView {
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         let subscriptions = vec![
-            // Doctor lands / re-runs → the footer gate moves.
-            cx.observe(&hub, |_: &mut Self, _, cx| cx.notify()),
+            // Doctor lands / re-runs → the footer gate moves AND the agent
+            // tab strip re-filters to the installed agents (EXP-206), so a
+            // selection whose tab just vanished hops to an installed one.
+            cx.observe_in(&hub, window, |this: &mut Self, _, window, cx| {
+                this.reconcile_agent(window, cx);
+                cx.notify();
+            }),
             // EXP-202: the one-session-per-issue blocker tracks both the
             // local registry (this process) and the synced rows (other
             // devices) — re-render whenever either moves.
@@ -332,14 +314,8 @@ impl StartCodingDialogView {
             }),
         ];
 
-        let defaults_mode = if checked.len() >= 2 {
-            DefaultsMode::Batch
-        } else {
-            DefaultsMode::Single
-        };
         let agent = settings.default_agent;
-        let (ultracode, plan_mode, skip_permissions) =
-            mode_defaults(&settings, defaults_mode, agent);
+        let (ultracode, plan_mode, skip_permissions) = agent_defaults(&settings, agent);
 
         let mut this = Self {
             team_id,
@@ -367,7 +343,6 @@ impl StartCodingDialogView {
             ultracode,
             plan_mode,
             skip_permissions,
-            defaults_mode,
             launching: false,
             error: None,
             _subscriptions: subscriptions,
@@ -377,6 +352,10 @@ impl StartCodingDialogView {
         for issue_id in ids {
             this.ensure_probe(issue_id, cx);
         }
+        // The doctor usually ran long before the dialog opens — if the
+        // settings default agent isn't installed, preselect one that is
+        // (EXP-206: the tab strip only shows installed agents).
+        this.reconcile_agent(window, cx);
         this
     }
 
@@ -434,7 +413,6 @@ impl StartCodingDialogView {
                 // Unresolvable issues can never launch — uncheck them.
                 if !matches!(state, RepoState::Ready(Some(_))) {
                     this.checked.remove(&issue_id);
-                    this.apply_mode_defaults(cx);
                 }
                 this.repos.insert(issue_id.clone(), state);
                 this.worktrees.insert(issue_id.clone(), worktree_exists);
@@ -463,21 +441,33 @@ impl StartCodingDialogView {
         self.resume && self.resume_candidate().is_some()
     }
 
-    /// Re-apply the per-mode settings defaults when the checked count crosses
-    /// the 1↔2+ boundary (user tweaks persist within a mode).
-    fn apply_mode_defaults(&mut self, cx: &mut gpui::Context<Self>) {
-        let mode = if self.checked.len() >= 2 {
-            DefaultsMode::Batch
+    /// The agents the tab strip offers (EXP-206): only the ones the doctor
+    /// found installed. While the report is pending — or when NOTHING is
+    /// installed — every agent stays visible, so the strip never goes empty
+    /// and the footer blocker can name the selected agent's failure.
+    fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<CodingAgent> {
+        let installed = report
+            .map(|report| report.installed_agents())
+            .unwrap_or_default();
+        if installed.is_empty() {
+            CodingAgent::ALL.to_vec()
         } else {
-            DefaultsMode::Single
-        };
-        if mode == self.defaults_mode {
-            return;
+            installed
         }
-        self.defaults_mode = mode;
-        let settings = CodingHub::global(cx).read(cx).settings.clone();
-        (self.ultracode, self.plan_mode, self.skip_permissions) =
-            mode_defaults(&settings, mode, self.agent);
+    }
+
+    /// Keep the selection inside the pickable set: when the doctor report
+    /// (re)lands and the selected agent has no tab anymore, hop to the first
+    /// installed agent (mirrors the remote pickers, which only offer the
+    /// device's advertised agents).
+    fn reconcile_agent(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let report = CodingHub::global(cx).read(cx).doctor.report.clone();
+        let pickable = Self::pickable_agents(report.as_ref());
+        if !pickable.contains(&self.agent) {
+            if let Some(&first) = pickable.first() {
+                self.set_agent(first, window, cx);
+            }
+        }
     }
 
     /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
@@ -507,7 +497,7 @@ impl StartCodingDialogView {
             cx,
         );
         (self.ultracode, self.plan_mode, self.skip_permissions) =
-            mode_defaults(&settings, self.defaults_mode, agent);
+            agent_defaults(&settings, agent);
         cx.notify();
     }
 
@@ -518,7 +508,6 @@ impl StartCodingDialogView {
         } else {
             self.checked.remove(&issue_id);
         }
-        self.apply_mode_defaults(cx);
         cx.notify();
     }
 
@@ -947,24 +936,29 @@ impl StartCodingDialogView {
             )
     }
 
-    /// The agent tab strip (EXP-201) — compact, above the pickers.
+    /// The agent tab strip (EXP-201) — compact, above the pickers. Offers
+    /// only the installed agents (EXP-206; all of them while the doctor is
+    /// still probing or found none).
     fn agent_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let active_ix = CodingAgent::ALL
+        let report = CodingHub::global(cx).read(cx).doctor.report.clone();
+        let pickable = Self::pickable_agents(report.as_ref());
+        let active_ix = pickable
             .iter()
             .position(|agent| *agent == self.agent)
             .unwrap_or(0);
+        let click_agents = pickable.clone();
         TabBar::new("sc-agent-tabs")
             .with_size(Size::Small)
             .selected_index(active_ix)
-            .on_click(cx.listener(|this, ix: &usize, window, cx| {
-                if let Some(agent) = CodingAgent::ALL.get(*ix).copied() {
+            .on_click(cx.listener(move |this, ix: &usize, window, cx| {
+                if let Some(agent) = click_agents.get(*ix).copied() {
                     this.set_agent(agent, window, cx);
                 }
             }))
             .children(
-                AGENT_CHOICES
+                pickable
                     .iter()
-                    .map(|(label, _)| Tab::new().label(SharedString::from(*label))),
+                    .map(|agent| Tab::new().label(SharedString::from(agent.label()))),
             )
     }
 

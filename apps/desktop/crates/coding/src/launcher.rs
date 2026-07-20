@@ -103,7 +103,7 @@ pub struct LaunchRequest {
     pub device_label: String,
     pub origin: LaunchOrigin,
     /// The Start-coding dialog's model/effort/mode choices (settings
-    /// defaults for relay starts — [`LaunchOptions::issue_defaults`]).
+    /// defaults for relay starts — [`LaunchOptions::remote`]).
     pub options: LaunchOptions,
     /// EXP-202: reuse the issue's persisted worktree and CONTINUE the
     /// previous agent conversation instead of seeding a fresh prompt.
