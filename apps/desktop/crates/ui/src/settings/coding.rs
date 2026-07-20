@@ -1,21 +1,25 @@
 //! Settings → Coding (masterplan-v3 §7.7 DC-3, §7.2).
 //!
-//! The JetBrains-SDK-settings-style pane for the Start-coding launcher:
+//! The JetBrains-SDK-settings-style pane for the Start-coding launcher,
+//! grouped into one card per concern (EXP-206 — the old single flat card
+//! buried the run-default toggles):
 //!
-//! | Setting                | Default               |
-//! |------------------------|-----------------------|
-//! | Claude CLI path        | `claude`              |
-//! | Claude model           | Fable (select)        |
-//! | Claude effort          | CLI default (select)  |
-//! | Repos & worktrees root | `~/Exponential/repos` |
-//! | Branch prefix          | `exp/`                |
-//! | Tooling doctor         | "Check tools"         |
+//! | Card       | Contents                                                |
+//! |------------|---------------------------------------------------------|
+//! | Coding     | Default agent, repos & worktrees root, branch prefix    |
+//! | Claude Code| CLI path, model, effort                                 |
+//! | Codex      | CLI path, model, reasoning effort                       |
+//! | pi         | CLI path, model, thinking level                         |
+//! | Issue runs | Plan mode, ultracode, skip-permissions defaults         |
+//! | Batch runs | Plan mode, ultracode, skip-permissions defaults         |
+//! | Doctor     | "Check tools" report                                    |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
-//! text — the closed alias sets the CLI accepts), plus four per-mode toggles
-//! the shared Start-coding dialog prefills from: ultracode (issue runs OFF /
-//! batch runs ON) and the NATIVE plan-mode defaults (issue runs ON / batch
-//! runs OFF).
+//! text — the closed alias sets the CLI accepts). The per-mode toggle cards
+//! are what the shared Start-coding dialog prefills from: ultracode (issue
+//! runs OFF / batch runs ON), the NATIVE plan-mode defaults (issue runs ON /
+//! batch runs OFF), and skip permissions (OFF everywhere — Claude & Codex
+//! only; pi has no permission system).
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
@@ -494,15 +498,8 @@ impl CodingPane {
 impl Render for CodingPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let dirty = self.dirty(cx);
-        let section = |label: &'static str| {
-            div()
-                .pt_2()
-                .text_sm()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .child(label)
-        };
 
-        let mut settings_card = card(cx)
+        let general_card = card(cx)
             .child(card_header(
                 "Coding",
                 "Local launcher settings for \u{201c}Start coding\u{201d} — per machine, never synced.",
@@ -514,64 +511,6 @@ impl Render for CodingPane {
                 &self.agent_select,
                 cx,
             ))
-            .child(section("Claude Code"))
-            .child(Self::labeled_input(
-                "Claude CLI path",
-                "Command name or absolute path — used verbatim to launch coding sessions.",
-                &self.claude_input,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Claude model",
-                "Passed as --model on every claude session. Default: Fable.",
-                &self.model_select,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Claude effort",
-                "CLI default leaves --effort unset.",
-                &self.effort_select,
-                cx,
-            ))
-            .child(section("Codex"))
-            .child(Self::labeled_input(
-                "Codex CLI path",
-                "Command name or absolute path of OpenAI's codex CLI.",
-                &self.codex_input,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Codex model",
-                "Passed as -m; CLI default uses codex's own configured model.",
-                &self.codex_model_select,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "Codex reasoning",
-                "Sets model_reasoning_effort; CLI default leaves it unset.",
-                &self.codex_effort_select,
-                cx,
-            ))
-            .child(section("pi"))
-            .child(Self::labeled_input(
-                "pi CLI path",
-                "Command name or absolute path of the pi coding agent (pi.dev).",
-                &self.pi_input,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "pi model",
-                "Passed as --model (pi resolves fuzzy patterns); CLI default uses pi's own.",
-                &self.pi_model_select,
-                cx,
-            ))
-            .child(Self::labeled_select(
-                "pi thinking",
-                "Passed as --thinking; CLI default leaves it unset.",
-                &self.pi_thinking_select,
-                cx,
-            ))
-            .child(section("Repos & branches"))
             .child(Self::labeled_input(
                 "Repos & worktrees root",
                 "Where repositories are cloned and per-issue worktrees are created (~ works).",
@@ -583,64 +522,153 @@ impl Render for CodingPane {
                 "Prepended to the issue identifier for the coding branch (exp/EXP-42).",
                 &self.prefix_input,
                 cx,
+            ));
+
+        let claude_card = card(cx)
+            .child(card_header(
+                "Claude Code",
+                "Anthropic's claude CLI — the default agent.",
+                cx,
             ))
-            .child(section("Issue runs"))
+            .child(Self::labeled_input(
+                "CLI path",
+                "Command name or absolute path — used verbatim to launch coding sessions.",
+                &self.claude_input,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Model",
+                "Passed as --model on every claude session. Default: Fable.",
+                &self.model_select,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Effort",
+                "CLI default leaves --effort unset.",
+                &self.effort_select,
+                cx,
+            ));
+
+        let codex_card = card(cx)
+            .child(card_header("Codex", "OpenAI's codex CLI.", cx))
+            .child(Self::labeled_input(
+                "CLI path",
+                "Command name or absolute path of the codex CLI.",
+                &self.codex_input,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Model",
+                "Passed as -m; CLI default uses codex's own configured model.",
+                &self.codex_model_select,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Reasoning effort",
+                "Sets model_reasoning_effort; CLI default leaves it unset.",
+                &self.codex_effort_select,
+                cx,
+            ));
+
+        let pi_card = card(cx)
+            .child(card_header("pi", "The pi coding agent (pi.dev).", cx))
+            .child(Self::labeled_input(
+                "CLI path",
+                "Command name or absolute path of the pi CLI.",
+                &self.pi_input,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Model",
+                "Passed as --model (pi resolves fuzzy patterns); CLI default uses pi's own.",
+                &self.pi_model_select,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Thinking level",
+                "Passed as --thinking; CLI default leaves it unset.",
+                &self.pi_thinking_select,
+                cx,
+            ));
+
+        let issue_card = card(cx)
+            .child(card_header(
+                "Issue runs",
+                "Defaults for single-issue coding sessions — the Start-coding dialog \
+                 prefills these, and every launch can still override them.",
+                cx,
+            ))
             .child(Self::toggle_row(
                 "issue-plan-mode",
-                "Plan mode — issue runs (Claude only)",
-                "Claude presents a plan and waits for your approval in the terminal before editing.",
+                "Plan mode",
+                "Claude only — presents a plan and waits for your approval in the \
+                 terminal before editing.",
                 self.issue_plan_mode,
                 |this, checked, _| this.issue_plan_mode = *checked,
                 cx,
             ))
             .child(Self::toggle_row(
                 "issue-ultracode",
-                "Dynamic workflows (ultracode) — issue runs (Claude only)",
-                "Runs single-issue sessions with --effort ultracode — works with any model.",
+                "Dynamic workflows (ultracode)",
+                "Claude only — runs the session with --effort ultracode (works with \
+                 any model).",
                 self.issue_ultracode,
                 |this, checked, _| this.issue_ultracode = *checked,
                 cx,
             ))
             .child(Self::toggle_row(
                 "issue-skip-permissions",
-                "Skip permissions — issue runs",
-                "Full bypass instead of the agent's guarded auto mode (claude \
-                 --dangerously-skip-permissions / codex --dangerously-bypass-approvals-and-sandbox).",
+                "Skip permissions",
+                "Claude & Codex — full bypass (claude --dangerously-skip-permissions / \
+                 codex --dangerously-bypass-approvals-and-sandbox) instead of the \
+                 agent's guarded auto mode. pi has no permission system.",
                 self.issue_skip_permissions,
                 |this, checked, _| this.issue_skip_permissions = *checked,
                 cx,
-            ))
-            // Defaults for "Start coding" on SEVERAL issues at once — the
-            // launch dialog prefills from these when 2+ are checked.
-            .child(section("Batch runs (multiple issues)"))
-            .child(Self::toggle_row(
-                "batch-ultracode",
-                "Dynamic workflows (ultracode) — batch runs (Claude only)",
-                "Runs batch sessions with --effort ultracode — works with any model.",
-                self.batch_ultracode,
-                |this, checked, _| this.batch_ultracode = *checked,
+            ));
+
+        // Defaults for "Start coding" on SEVERAL issues at once — the launch
+        // dialog prefills from these when 2+ are checked.
+        let batch_card = card(cx)
+            .child(card_header(
+                "Batch runs",
+                "Defaults when one session works several issues at once (2+ checked \
+                 in the Start-coding dialog).",
                 cx,
             ))
             .child(Self::toggle_row(
                 "batch-plan-mode",
-                "Plan mode — batch runs (Claude only)",
-                "Claude presents its plan for approval before editing or pushing anything.",
+                "Plan mode",
+                "Claude only — presents its plan for approval before editing or \
+                 pushing anything.",
                 self.batch_plan_mode,
                 |this, checked, _| this.batch_plan_mode = *checked,
                 cx,
             ))
             .child(Self::toggle_row(
+                "batch-ultracode",
+                "Dynamic workflows (ultracode)",
+                "Claude only — runs the session with --effort ultracode (works with \
+                 any model).",
+                self.batch_ultracode,
+                |this, checked, _| this.batch_ultracode = *checked,
+                cx,
+            ))
+            .child(Self::toggle_row(
                 "batch-skip-permissions",
-                "Skip permissions — batch runs",
-                "Full bypass instead of the agent's guarded auto mode for multi-issue sessions.",
+                "Skip permissions",
+                "Claude & Codex — full bypass instead of the agent's guarded auto \
+                 mode for multi-issue sessions.",
                 self.batch_skip_permissions,
                 |this, checked, _| this.batch_skip_permissions = *checked,
                 cx,
             ));
+
+        let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {
-            settings_card = settings_card.child(error_notice(error.clone(), cx));
+            save_area = save_area.child(error_notice(error.clone(), cx));
         }
-        settings_card = settings_card.child(
+        save_area = save_area.child(
             h_flex().justify_end().child(
                 Button::new("coding-save")
                     .primary()
@@ -653,7 +681,13 @@ impl Render for CodingPane {
 
         v_flex()
             .gap_4()
-            .child(settings_card)
+            .child(general_card)
+            .child(claude_card)
+            .child(codex_card)
+            .child(pi_card)
+            .child(issue_card)
+            .child(batch_card)
+            .child(save_area)
             .child(self.render_doctor_card(cx))
     }
 }
