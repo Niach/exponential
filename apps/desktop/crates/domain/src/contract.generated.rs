@@ -13,8 +13,13 @@ pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
 pub const CODING_SESSION_STATUS_VALUES: &[&str] = &["running", "in_review", "ended"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"];
 pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved"];
+pub const CODING_AGENT_VALUES: &[&str] = &["claude", "codex", "pi"];
 pub const CODING_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet"];
 pub const CODING_EFFORT_VALUES: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+pub const CODEX_MODEL_VALUES: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+pub const CODEX_EFFORT_VALUES: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+pub const PI_MODEL_VALUES: &[&str] = &["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"];
+pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
 

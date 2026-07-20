@@ -230,10 +230,12 @@ fn main() {
         device_label: "dryrunbox".to_string(),
         origin: LaunchOrigin::Local,
         options: LaunchOptions {
+            agent: coding::CodingAgent::Claude,
             model: "opus".to_string(),
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            skip_permissions: true,
         },
     });
 

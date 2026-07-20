@@ -21,7 +21,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::agent::{CodingAgent, CODEX_EFFORTS, CODEX_MODELS, PI_MODELS, PI_THINKING};
+
 pub const DEFAULT_CLAUDE_PATH: &str = "claude";
+pub const DEFAULT_CODEX_PATH: &str = "codex";
+pub const DEFAULT_PI_PATH: &str = "pi";
 pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// §7.7 default coding model — passed as `--model fable` on every spawn.
@@ -56,9 +60,19 @@ const DEAD_KEYS: [&str; 5] = [
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
+    /// The agent the Start-coding dialog preselects (EXP-201) — still
+    /// overridable per launch. Lenient on load: an unknown/hand-edited value
+    /// degrades to Claude WITHOUT failing the whole settings parse (a typed
+    /// enum error would silently reset every other setting).
+    #[serde(deserialize_with = "lenient_agent")]
+    pub default_agent: CodingAgent,
     /// Program name or absolute path of the Claude CLI (§7.7 — the doctor's
     /// target and the launcher's spawn program, used verbatim).
     pub claude_path: String,
+    /// Program name or absolute path of the Codex CLI (EXP-201).
+    pub codex_path: String,
+    /// Program name or absolute path of the pi CLI (EXP-201).
+    pub pi_path: String,
     /// Raw repos-&-worktrees root; may start with `~`.
     pub repos_root: String,
     /// Prepended to the issue identifier for the coding branch (`exp/EXP-42`).
@@ -71,6 +85,17 @@ pub struct Settings {
     /// [`EFFORT_LEVELS`] or blank (= omit the flag); `load` normalizes
     /// anything else to blank.
     pub claude_effort: String,
+    /// Codex model slug (`-m`); one of [`CODEX_MODELS`] or blank (= omit the
+    /// flag — Codex's own default model applies).
+    pub codex_model: String,
+    /// Codex reasoning effort (`-c model_reasoning_effort=<v>`); one of
+    /// [`CODEX_EFFORTS`] or blank (= omit).
+    pub codex_effort: String,
+    /// pi model pattern (`--model`, fuzzy-resolved by pi); one of
+    /// [`PI_MODELS`] or blank (= omit — pi's own default model applies).
+    pub pi_model: String,
+    /// pi thinking level (`--thinking`); one of [`PI_THINKING`] or blank.
+    pub pi_thinking: String,
     /// BATCH-run (multi-issue) "dynamic workflows" (ultracode) default — ON
     /// by default. A MISSING key fills from this struct's manual [`Default`]
     /// impl (the container-level `#[serde(default)]` uses
@@ -86,20 +111,52 @@ pub struct Settings {
     /// SINGLE-ISSUE-run native plan mode default — ON by default (Claude
     /// presents a plan for approval in the terminal before editing).
     pub issue_plan_mode: bool,
+    /// SINGLE-ISSUE-run "skip permissions" default — OFF by default
+    /// (EXP-201: sessions start in the agent's guarded AUTO mode; the
+    /// checkbox opts into the full bypass — claude
+    /// `--dangerously-skip-permissions` / codex
+    /// `--dangerously-bypass-approvals-and-sandbox`; pi has no permission
+    /// system, the toggle is inert there).
+    pub issue_skip_permissions: bool,
+    /// BATCH-run "skip permissions" default — OFF by default (same semantics
+    /// as [`Self::issue_skip_permissions`]).
+    pub batch_skip_permissions: bool,
+}
+
+/// Deserialize [`Settings::default_agent`] leniently: any non-string or
+/// unknown value degrades to Claude instead of failing the WHOLE settings
+/// parse (which would silently reset every other field to defaults).
+fn lenient_agent<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<CodingAgent, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_str()
+        .and_then(CodingAgent::parse)
+        .unwrap_or_default())
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            default_agent: CodingAgent::Claude,
             claude_path: DEFAULT_CLAUDE_PATH.to_string(),
+            codex_path: DEFAULT_CODEX_PATH.to_string(),
+            pi_path: DEFAULT_PI_PATH.to_string(),
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
+            codex_model: String::new(),
+            codex_effort: String::new(),
+            pi_model: String::new(),
+            pi_thinking: String::new(),
             batch_ultracode: true,
             batch_plan_mode: false,
             issue_ultracode: false,
             issue_plan_mode: true,
+            issue_skip_permissions: false,
+            batch_skip_permissions: false,
         }
     }
 }
@@ -125,6 +182,12 @@ impl Settings {
         if settings.claude_path.trim().is_empty() {
             settings.claude_path = defaults.claude_path;
         }
+        if settings.codex_path.trim().is_empty() {
+            settings.codex_path = defaults.codex_path;
+        }
+        if settings.pi_path.trim().is_empty() {
+            settings.pi_path = defaults.pi_path;
+        }
         if settings.repos_root.trim().is_empty() {
             settings.repos_root = defaults.repos_root;
         }
@@ -134,6 +197,11 @@ impl Settings {
         settings.claude_model =
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
+        // Codex/pi allow BLANK ("CLI default") — unknown values degrade to it.
+        settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
+        settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
+        settings.pi_model = normalize_choice(&settings.pi_model, &PI_MODELS, "");
+        settings.pi_thinking = normalize_choice(&settings.pi_thinking, &PI_THINKING, "");
         settings
     }
 
@@ -175,6 +243,54 @@ impl Settings {
         resolve_claude_program(&self.claude_path, dirs::home_dir())
     }
 
+    /// The configured program for `agent`, probed like
+    /// [`Self::resolved_claude_path`] (bare default names check the per-user
+    /// install locations before PATH).
+    pub fn resolved_path_for(&self, agent: CodingAgent) -> String {
+        match agent {
+            CodingAgent::Claude => self.resolved_claude_path(),
+            CodingAgent::Codex => resolve_program(
+                &self.codex_path,
+                DEFAULT_CODEX_PATH,
+                &[&[".local", "bin", "codex"]],
+                dirs::home_dir(),
+            ),
+            CodingAgent::Pi => resolve_program(
+                &self.pi_path,
+                DEFAULT_PI_PATH,
+                &[&[".local", "bin", "pi"]],
+                dirs::home_dir(),
+            ),
+        }
+    }
+
+    /// The RAW configured path field for `agent` (settings UI + doctor copy).
+    pub fn path_for(&self, agent: CodingAgent) -> &str {
+        match agent {
+            CodingAgent::Claude => &self.claude_path,
+            CodingAgent::Codex => &self.codex_path,
+            CodingAgent::Pi => &self.pi_path,
+        }
+    }
+
+    /// The default model choice for `agent` (dialog seed).
+    pub fn model_for(&self, agent: CodingAgent) -> &str {
+        match agent {
+            CodingAgent::Claude => &self.claude_model,
+            CodingAgent::Codex => &self.codex_model,
+            CodingAgent::Pi => &self.pi_model,
+        }
+    }
+
+    /// The default effort/thinking choice for `agent` (dialog seed).
+    pub fn effort_for(&self, agent: CodingAgent) -> &str {
+        match agent {
+            CodingAgent::Claude => &self.claude_effort,
+            CodingAgent::Codex => &self.codex_effort,
+            CodingAgent::Pi => &self.pi_thinking,
+        }
+    }
+
     /// The `<repos_root>` of §7.1's worktree layout, tilde-expanded.
     pub fn repos_root_path(&self) -> PathBuf {
         expand_tilde(
@@ -199,18 +315,39 @@ pub(crate) fn normalize_choice(raw: &str, allowed: &[&str], fallback: &str) -> S
 /// See [`Settings::resolved_claude_path`]. Split out (with `home` injected)
 /// for testability.
 pub fn resolve_claude_program(raw: &str, home: Option<PathBuf>) -> String {
-    if raw != DEFAULT_CLAUDE_PATH {
+    resolve_program(
+        raw,
+        DEFAULT_CLAUDE_PATH,
+        &[
+            // The official native installer's location — the install the
+            // user's login shell almost certainly runs.
+            &[".local", "bin", "claude"],
+            // Older `claude install` local location.
+            &[".claude", "local", "claude"],
+        ],
+        home,
+    )
+}
+
+/// The shared bare-name probe (see [`Settings::resolved_claude_path`] for
+/// the PATH-skew rationale): an explicit non-default `raw` is used verbatim;
+/// the bare default probes each home-relative `candidates` segment list
+/// before falling back to PATH resolution.
+pub fn resolve_program(
+    raw: &str,
+    default: &str,
+    candidates: &[&[&str]],
+    home: Option<PathBuf>,
+) -> String {
+    if raw != default {
         return raw.to_string();
     }
     if let Some(home) = home {
-        let candidates = [
-            // The official native installer's location — the install the
-            // user's login shell almost certainly runs.
-            home.join(".local").join("bin").join("claude"),
-            // Older `claude install` local location.
-            home.join(".claude").join("local").join("claude"),
-        ];
-        for candidate in candidates {
+        for segments in candidates {
+            let mut candidate = home.clone();
+            for segment in *segments {
+                candidate.push(segment);
+            }
             if candidate.is_file() {
                 return candidate.to_string_lossy().into_owned();
             }
@@ -287,17 +424,80 @@ mod tests {
     #[test]
     fn defaults_match_the_spec_table() {
         let settings = Settings::default();
+        assert_eq!(settings.default_agent, CodingAgent::Claude);
         assert_eq!(settings.claude_path, "claude");
+        assert_eq!(settings.codex_path, "codex");
+        assert_eq!(settings.pi_path, "pi");
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
         assert_eq!(settings.claude_model, "fable");
         assert_eq!(settings.claude_effort, "");
+        // Codex/pi default to the CLI's own model + effort (blank = omit).
+        assert_eq!(settings.codex_model, "");
+        assert_eq!(settings.codex_effort, "");
+        assert_eq!(settings.pi_model, "");
+        assert_eq!(settings.pi_thinking, "");
         // Per-mode run defaults: batch runs — ultracode ON, plan mode OFF;
-        // issue runs — ultracode OFF, plan mode ON.
+        // issue runs — ultracode OFF, plan mode ON. Skip-permissions OFF for
+        // both (EXP-201: guarded AUTO mode is the default posture).
         assert!(settings.batch_ultracode);
         assert!(!settings.batch_plan_mode);
         assert!(!settings.issue_ultracode);
         assert!(settings.issue_plan_mode);
+        assert!(!settings.issue_skip_permissions);
+        assert!(!settings.batch_skip_permissions);
+    }
+
+    /// EXP-201: `defaultAgent` round-trips; unknown or mistyped values
+    /// degrade to Claude WITHOUT resetting the rest of the file (the lenient
+    /// deserializer must never fail the whole parse).
+    #[test]
+    fn default_agent_round_trips_and_degrades_leniently() {
+        let dir = TempDir::new("agent");
+        let path = dir.0.join("settings.json");
+
+        fs::write(&path, r#"{"defaultAgent":"codex","claudeModel":"sonnet"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.default_agent, CodingAgent::Codex);
+        assert_eq!(settings.claude_model, "sonnet");
+
+        // Unknown string → Claude, other fields intact.
+        fs::write(&path, r#"{"defaultAgent":"cursor","claudeModel":"sonnet"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.default_agent, CodingAgent::Claude);
+        assert_eq!(settings.claude_model, "sonnet", "parse must not reset the file");
+
+        // Wrong TYPE → Claude, other fields intact.
+        fs::write(&path, r#"{"defaultAgent":42,"claudeModel":"sonnet"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.default_agent, CodingAgent::Claude);
+        assert_eq!(settings.claude_model, "sonnet");
+
+        // Save writes the lowercase id.
+        let mut settings = Settings::default();
+        settings.default_agent = CodingAgent::Pi;
+        settings.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains(r#""defaultAgent": "pi""#), "raw: {raw}");
+        assert_eq!(Settings::load(&path).default_agent, CodingAgent::Pi);
+    }
+
+    /// EXP-201: the codex/pi model + effort fields normalize into their own
+    /// closed sets, with blank ("CLI default") as the fallback.
+    #[test]
+    fn codex_and_pi_choices_normalize_on_load() {
+        let dir = TempDir::new("agent-choices");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"codexModel":" GPT-5.6-Sol ","codexEffort":"max","piModel":"grok-4.5","piThinking":" XHigh "}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.codex_model, "gpt-5.6-sol");
+        assert_eq!(settings.codex_effort, "", "codex has no max — degrade to blank");
+        assert_eq!(settings.pi_model, "grok-4.5");
+        assert_eq!(settings.pi_thinking, "xhigh");
     }
 
     #[test]
@@ -403,15 +603,24 @@ mod tests {
         let dir = TempDir::new("roundtrip");
         let path = dir.0.join("settings.json");
         let settings = Settings {
+            default_agent: CodingAgent::Codex,
             claude_path: "/opt/homebrew/bin/claude".to_string(),
+            codex_path: "/opt/homebrew/bin/codex".to_string(),
+            pi_path: "/opt/homebrew/bin/pi".to_string(),
             repos_root: "~/code/repos".to_string(),
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
+            codex_model: "gpt-5.6-terra".to_string(),
+            codex_effort: "high".to_string(),
+            pi_model: "grok-4.5".to_string(),
+            pi_thinking: "high".to_string(),
             batch_ultracode: false,
             batch_plan_mode: true,
             issue_ultracode: true,
             issue_plan_mode: false,
+            issue_skip_permissions: true,
+            batch_skip_permissions: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();

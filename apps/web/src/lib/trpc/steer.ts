@@ -43,13 +43,20 @@ async function loadCodingSession(id: string) {
   return session
 }
 
-// The Start-coding dialog value sets (EXP-149). Blank effort is the explicit
-// "CLI default" (omit --effort) — a per-client extra row, not a contract value.
-const codingModelValues = contract.codingModel.values as [string, ...string[]]
-const codingEffortValues = [``, ...contract.codingEffort.values] as [
-  string,
-  ...string[],
-]
+// The Start-coding dialog value sets (EXP-149/EXP-201). Blank model/effort is
+// the explicit "CLI default" (omit the flag) — a per-client extra row, not a
+// contract value; claude's model stays explicit-always (no blank).
+const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
+const agentModelValues: Record<string, readonly string[]> = {
+  claude: contract.codingModel.values,
+  codex: [``, ...contract.codexModel.values],
+  pi: [``, ...contract.piModel.values],
+}
+const agentEffortValues: Record<string, readonly string[]> = {
+  claude: [``, ...contract.codingEffort.values],
+  codex: [``, ...contract.codexEffort.values],
+  pi: [``, ...contract.piThinking.values],
+}
 
 const mintTicketInput = z.discriminatedUnion(`kind`, [
   // Desktop device-presence socket (no sessionId yet).
@@ -153,15 +160,57 @@ export const steerRouter = router({
           issueId: z.string().uuid().optional(),
           issueIds: z.array(z.string().uuid()).min(1).max(30).optional(),
           deviceId: z.string().min(1).max(128),
-          model: z.enum(codingModelValues).optional(),
-          effort: z.enum(codingEffortValues).optional(),
+          agent: z.enum(codingAgentValues).optional(),
+          model: z.string().max(64).optional(),
+          effort: z.string().max(32).optional(),
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
+          skipPermissions: z.boolean().optional(),
         })
         .refine(
           (value) => Boolean(value.issueId) !== Boolean(value.issueIds?.length),
           { message: `Exactly one of issueId/issueIds is required` }
         )
+        .superRefine((value, ctx) => {
+          // Per-agent vocabulary (EXP-201): model/effort must come from the
+          // (agent ?? claude) contract lists, and the claude-only toggles may
+          // not ride a codex/pi start (pi additionally has no permission
+          // system to skip).
+          const agent = value.agent ?? `claude`
+          if (
+            value.model !== undefined &&
+            !agentModelValues[agent]!.includes(value.model)
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`model`],
+              message: `Unknown ${agent} model`,
+            })
+          }
+          if (
+            value.effort !== undefined &&
+            !agentEffortValues[agent]!.includes(value.effort)
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`effort`],
+              message: `Unknown ${agent} effort`,
+            })
+          }
+          if (agent !== `claude` && (value.ultracode || value.planMode)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `ultracode/planMode are Claude-only options`,
+            })
+          }
+          if (agent === `pi` && value.skipPermissions) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`skipPermissions`],
+              message: `pi has no permission system to skip`,
+            })
+          }
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const config = getSteerRelayConfig()
@@ -220,11 +269,28 @@ export const steerRouter = router({
         }
       }
 
+      // EXP-201: the target device advertised which agent CLIs it can run —
+      // refuse a start naming one it didn't (an old desktop advertises
+      // nothing ⇒ claude-only, exactly what it can do).
+      const agent = input.agent ?? `claude`
+      const { devices } = await relayGetDevices(config, userId)
+      const device = devices.find((d) => d.deviceId === input.deviceId)
+      const deviceAgentIds =
+        device?.agents && device.agents.length > 0 ? device.agents : [`claude`]
+      if (device && !deviceAgentIds.includes(agent)) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${agent} is not installed on that device`,
+        })
+      }
+
       const options = {
+        agent: input.agent,
         model: input.model,
         effort: input.effort,
         ultracode: input.ultracode,
         planMode: input.planMode,
+        skipPermissions: input.skipPermissions,
       }
       const result =
         ids.length === 1

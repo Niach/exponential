@@ -418,6 +418,7 @@ fn full_protocol_flow_against_the_real_relay() {
     let control = spawn_control_channel(
         &runtime,
         DeviceIdentity {
+            agents: vec![],
             device_id: "device-int-1".to_string(),
             device_label: "IntTestBox".to_string(),
         },

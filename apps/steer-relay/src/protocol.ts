@@ -19,6 +19,11 @@ export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
   deviceLabel: z.string().max(255).optional(),
+  // EXP-201: the agent CLIs installed on the device (`claude`/`codex`/`pi`).
+  // The relay is a dumb pipe — plain bounded strings here; the WEB SERVER
+  // validates the vocabulary when a start names one. Absent (old desktop) ⇒
+  // the hub defaults to ["claude"].
+  agents: z.array(z.string().min(1).max(32)).max(16).optional(),
 })
 
 export const helloFrame = z.object({
@@ -150,13 +155,16 @@ export interface PresenceViewer {
   perm: `view` | `steer`
 }
 
-/** Launch options a remote start may carry (EXP-149). All optional — an
- * absent field means "desktop settings default" (and plan mode OFF). */
+/** Launch options a remote start may carry (EXP-149; agent/skipPermissions
+ * are EXP-201). All optional — an absent field means "desktop settings
+ * default" (plan mode OFF; absent agent = claude). */
 export interface StartSessionOptions {
+  agent?: string
   model?: string
   effort?: string
   ultracode?: boolean
   planMode?: boolean
+  skipPermissions?: boolean
 }
 
 /** Server-resolved repo group for a BATCH remote start — the desktop syncs no

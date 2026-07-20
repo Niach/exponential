@@ -63,6 +63,12 @@ pub enum ClientFrame<'a> {
         device_id: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         device_label: Option<&'a str>,
+        /// EXP-201: the agent CLIs installed on this device (contract
+        /// `codingAgent` ids) — remote Start-coding pickers only offer
+        /// these. Absent (old desktop) = the relay defaults to
+        /// `["claude"]`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agents: Option<&'a [String]>,
     },
     #[serde(rename_all = "camelCase")]
     Hello {
@@ -217,6 +223,10 @@ pub enum ServerFrame {
         repo: Option<StartRepoGroup>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
+        /// `agent`/`skip_permissions` are the EXP-201 additions (absent
+        /// agent = claude, the exact pre-EXP-201 behavior).
+        #[serde(default)]
+        agent: Option<String>,
         #[serde(default)]
         model: Option<String>,
         #[serde(default)]
@@ -225,6 +235,8 @@ pub enum ServerFrame {
         ultracode: Option<bool>,
         #[serde(default)]
         plan_mode: Option<bool>,
+        #[serde(default)]
+        skip_permissions: Option<bool>,
     },
     /// Steerer keystrokes, relay → publisher.
     Input {
@@ -265,6 +277,7 @@ mod tests {
             ClientFrame::Online {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
+                agents: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook"}"#
@@ -273,9 +286,21 @@ mod tests {
             ClientFrame::Online {
                 device_id: "dev-1",
                 device_label: None,
+                agents: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
+        );
+        // EXP-201: the installed-agent advertisement rides `agents`.
+        let agents = vec!["claude".to_string(), "pi".to_string()];
+        assert_eq!(
+            ClientFrame::Online {
+                device_id: "dev-1",
+                device_label: Some("MacBook"),
+                agents: Some(&agents),
+            }
+            .to_json(),
+            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"]}"#
         );
     }
 
@@ -483,6 +508,7 @@ mod tests {
                 ClientFrame::Online {
                     device_id: "d",
                     device_label: None,
+                    agents: None,
                 },
                 "online",
             ),
@@ -555,10 +581,12 @@ mod tests {
                 issue_ids: None,
                 team_id: None,
                 repo: None,
+                agent: None,
                 model: None,
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                skip_permissions: None,
             }
         );
     }
@@ -569,7 +597,7 @@ mod tests {
         // `effort: ""` is a real value (explicit "CLI default"), not absent.
         assert_eq!(
             ServerFrame::parse(
-                r#"{"t":"start_session","issueId":"issue-9","model":"opus","effort":"","ultracode":true,"planMode":false}"#
+                r#"{"t":"start_session","issueId":"issue-9","agent":"codex","model":"opus","effort":"","ultracode":true,"planMode":false,"skipPermissions":true}"#
             )
             .unwrap(),
             ServerFrame::StartSession {
@@ -577,10 +605,12 @@ mod tests {
                 issue_ids: None,
                 team_id: None,
                 repo: None,
+                agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: Some(String::new()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
+                skip_permissions: Some(true),
             }
         );
     }
@@ -602,10 +632,12 @@ mod tests {
                     full_name: "acme/api".into(),
                     default_branch: "main".into(),
                 }),
+                agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
+                skip_permissions: None,
             }
         );
     }
@@ -628,10 +660,12 @@ mod tests {
                     full_name: "acme/api".into(),
                     default_branch: "main".into(),
                 }),
+                agent: None,
                 model: None,
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
+                skip_permissions: None,
             }
         );
     }

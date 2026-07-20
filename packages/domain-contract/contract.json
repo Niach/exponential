@@ -70,10 +70,33 @@
       "board_moved"
     ]
   },
+  "codingAgent": {
+    "values": ["claude", "codex", "pi"]
+  },
   "codingModel": {
     "values": ["fable", "opus", "sonnet"]
   },
   "codingEffort": {
     "values": ["low", "medium", "high", "xhigh", "max"]
+  },
+  "codexModel": {
+    "values": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+  },
+  "codexEffort": {
+    "values": ["minimal", "low", "medium", "high", "xhigh"]
+  },
+  "piModel": {
+    "values": [
+      "fable",
+      "opus",
+      "sonnet",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "grok-4.5"
+    ]
+  },
+  "piThinking": {
+    "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
   }
 }

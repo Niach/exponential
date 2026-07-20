@@ -33,8 +33,13 @@ interface Contract {
   codingSession: { staleHours: number }
   subscriberSource: Section
   issueEventType: Section
+  codingAgent: Section
   codingModel: Section
   codingEffort: Section
+  codexModel: Section
+  codexEffort: Section
+  piModel: Section
+  piThinking: Section
 }
 
 const contract: Contract = JSON.parse(
@@ -135,8 +140,13 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
 ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
+${swiftStringArray("codexModelValues", contract.codexModel.values)}
+${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
+${swiftStringArray("piModelValues", contract.piModel.values)}
+${swiftStringArray("piThinkingValues", contract.piThinking.values)}
 
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
 
@@ -165,8 +175,13 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
 ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
+${kotlinStringArray("codexModelValues", contract.codexModel.values)}
+${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
+${kotlinStringArray("piModelValues", contract.piModel.values)}
+${kotlinStringArray("piThinkingValues", contract.piThinking.values)}
 
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
 
@@ -197,8 +212,13 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
+${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
 ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
+${rustStrSlice("codexModelValues", contract.codexModel.values)}
+${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
+${rustStrSlice("piModelValues", contract.piModel.values)}
+${rustStrSlice("piThinkingValues", contract.piThinking.values)}
 
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 

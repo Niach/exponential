@@ -165,24 +165,56 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let provider = auth.auth.token_provider(&account.id);
     let trpc = Arc::new(api::TrpcClient::new(&account.instance_url, provider));
 
-    let device = DeviceIdentity {
-        device_id: steer::persistent_device_id(&auth.data_dir),
-        device_label: api::users::hostname(),
-    };
+    // EXP-201: advertise which agent CLIs this machine can actually run —
+    // remote Start-coding pickers only offer these. Probed via the coding
+    // doctor (blocking `--version` spawns) on the BACKGROUND executor, then
+    // the channel starts on the foreground with the result. A settings
+    // change re-advertises on the next channel restart (sign-in / account
+    // switch / relay reconnect cycles re-run this whole function).
+    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+    let device_id = steer::persistent_device_id(&auth.data_dir);
+    let device_label = api::users::hostname();
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
-    let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
-        let _ = inbox.send(start);
-    });
-    let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
-    let handle = spawn_control_channel(&runtime, device, control_api, on_start);
-
-    let channels = ControlChannels::global(cx);
     let account_id = account.id.clone();
-    channels.update(cx, |channels, _| {
-        if let Some(previous) = channels.by_account.insert(account_id, handle) {
-            previous.stop(); // never accumulate two sockets for one account
-        }
-    });
+    cx.spawn(async move |cx| {
+        let agents: Vec<String> = cx
+            .background_executor()
+            .spawn(async move {
+                coding::run_doctor(&settings)
+                    .installed_agents()
+                    .into_iter()
+                    .map(|agent| agent.id().to_string())
+                    .collect()
+            })
+            .await;
+        let _ = cx.update(|cx| {
+            // The probe raced a sign-out/switch: starting a socket for a
+            // no-longer-active account would leak it past its stop call.
+            if queries::active_account(cx).map(|account| account.id)
+                != Some(account_id.clone())
+            {
+                return;
+            }
+            let device = DeviceIdentity {
+                device_id,
+                device_label,
+                agents,
+            };
+            let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
+                let _ = inbox.send(start);
+            });
+            let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
+            let handle = spawn_control_channel(&runtime, device, control_api, on_start);
+
+            let channels = ControlChannels::global(cx);
+            channels.update(cx, |channels, _| {
+                if let Some(previous) = channels.by_account.insert(account_id, handle) {
+                    previous.stop(); // never accumulate two sockets for one account
+                }
+            });
+        });
+    })
+    .detach();
 }
 
 /// Stop the control socket for `account_id` (§8.3) — from
@@ -271,10 +303,12 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
     let options = LaunchOptions::remote_issue(
         &settings,
+        start.agent.as_deref(),
         start.model.as_deref(),
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
+        start.skip_permissions,
     );
     let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, cx) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
@@ -372,10 +406,12 @@ fn remote_batch_start(
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
     let options = LaunchOptions::remote_batch(
         &settings,
+        start.agent.as_deref(),
         start.model.as_deref(),
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
+        start.skip_permissions,
     );
 
     // Same field construction the dialog's `batch_request` uses (device_label

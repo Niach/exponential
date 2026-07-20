@@ -11,6 +11,7 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   getSteerRelayConfig: vi.fn(),
   relayPostStart: vi.fn(),
+  relayGetDevices: vi.fn(),
   assertTeamMember: vi.fn(),
   getIssueTeamContext: vi.fn(),
   resolveBoardRepository: vi.fn(),
@@ -31,9 +32,9 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostStart: h.relayPostStart,
+  relayGetDevices: h.relayGetDevices,
   // Referenced (not called) by sibling procedures we never invoke here.
   mintSteerTicket: vi.fn(),
-  relayGetDevices: vi.fn(),
   relayPostKill: vi.fn(),
 }))
 
@@ -71,6 +72,18 @@ beforeEach(() => {
   })
   h.relayPostStart.mockReset()
   h.relayPostStart.mockResolvedValue({ ok: true })
+  h.relayGetDevices.mockReset()
+  // Default: the target device is online and advertises all three agents.
+  h.relayGetDevices.mockResolvedValue({
+    devices: [
+      {
+        deviceId: `dev-1`,
+        deviceLabel: `MacBook`,
+        connectedAt: 0,
+        agents: [`claude`, `codex`, `pi`],
+      },
+    ],
+  })
   h.assertTeamMember.mockReset()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.getIssueTeamContext.mockReset()
@@ -232,5 +245,121 @@ describe(`steer.startSession — routed body shape`, () => {
     expect(`installationId` in (body.repo as Record<string, unknown>)).toBe(
       false
     )
+  })
+})
+
+describe(`steer.startSession — agent selection (EXP-201)`, () => {
+  it(`forwards agent + skipPermissions to the relay body`, async () => {
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `codex`,
+      model: `gpt-5.6-sol`,
+      effort: `xhigh`,
+      skipPermissions: true,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueId: ISSUE_A,
+      agent: `codex`,
+      model: `gpt-5.6-sol`,
+      effort: `xhigh`,
+      skipPermissions: true,
+    })
+  })
+
+  it(`rejects an agent the device did not advertise`, async () => {
+    h.relayGetDevices.mockResolvedValue({
+      devices: [
+        { deviceId: `dev-1`, deviceLabel: `Mac`, connectedAt: 0, agents: [`claude`] },
+      ],
+    })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `codex` })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`codex is not installed`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`treats a device without an advertisement as claude-only`, async () => {
+    h.relayGetDevices.mockResolvedValue({
+      devices: [{ deviceId: `dev-1`, deviceLabel: `Mac`, connectedAt: 0 }],
+    })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `pi` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+
+    // Claude (explicit or absent) still routes.
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`validates model/effort against the AGENT's contract lists`, async () => {
+    // A claude model on a codex start is unknown vocabulary.
+    let error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        agent: `codex`,
+        model: `fable`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    // codex has no `max` effort.
+    error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        agent: `codex`,
+        effort: `max`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    // Blank model is the codex/pi "CLI default" — valid.
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `pi`,
+      model: ``,
+      effort: `max`,
+    })
+    expect(lastStartBody()).toMatchObject({ agent: `pi`, model: ``, effort: `max` })
+  })
+
+  it(`rejects claude-only toggles on a non-claude start`, async () => {
+    let error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        agent: `codex`,
+        ultracode: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        agent: `pi`,
+        planMode: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    // pi has no permission system to skip.
+    error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        agent: `pi`,
+        skipPermissions: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
   })
 })
