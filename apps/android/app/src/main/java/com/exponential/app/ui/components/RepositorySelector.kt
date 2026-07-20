@@ -37,7 +37,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
-// The required repository picker for board creation (masterplan v4 §6). Lists
+// The (optional) repository picker for board creation (masterplan v4 §6 —
+// boards no longer require a repo; coding features gate on presence). Lists
 // the team's already-connected registry repos AND lets the user add a
 // brand-new repo by name via the installed-repos picker — that path connects the
 // repo inline through `boards.create`'s `repository: { fullName }`. Binds a

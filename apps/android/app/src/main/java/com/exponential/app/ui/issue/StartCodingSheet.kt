@@ -1,17 +1,19 @@
 package com.exponential.app.ui.issue
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,16 +22,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -44,11 +48,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.R
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.domain.DomainContract
@@ -58,19 +65,22 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassButton
 
 // The unified remote Start-coding sheet (EXP-156) — the Android twin of the
-// desktop IDE's ONE Start-coding dialog: an agent picker (EXP-201: claude /
-// codex / pi, shown only when the chosen desktop offers more than one), a
-// searchable multi-issue picker over per-agent Model / Effort chips, the
-// claude-only ultracode switch (it IS `--effort ultracode`, so it disables the
-// Effort chips) and plan-mode switch, a skip-permissions switch (claude +
-// codex — pi is always unguarded), plus a desktop picker when more than one is
-// online. Exactly 1 checked issue launches a plain single session; 2+ launch a
-// BATCH session (one agent on one `exp/batch-<id8>` branch spanning every
-// issue, all from one repository). Last-used options persist via
-// SharedPreferences; stored values are validated against the contract on read
-// so a stale entry can never send a value the server rejects.
+// desktop IDE's ONE Start-coding dialog, restyled to mirror the iOS sheet
+// (EXP-208): a full-height sheet whose body scrolls above a pinned Start
+// button, iOS-Form-style grouped picker rows for Desktop / Model / Effort, a
+// brand-icon agent pill strip (EXP-201: claude / codex / pi, shown only when
+// the chosen desktop offers more than one), the claude-only ultracode switch
+// (it IS `--effort ultracode`, so it disables the Effort row) and plan-mode
+// switch, and a skip-permissions switch (claude + codex — pi is always
+// unguarded, so the row is simply absent). Exactly 1 checked issue launches a
+// plain single session; 2+ launch a BATCH session (one agent on one
+// `exp/batch-<id8>` branch spanning every issue, all from one repository).
+// Last-used options persist via SharedPreferences; stored values are validated
+// against the contract on read so a stale entry can never send a value the
+// server rejects.
 
 /** Sentinel-free UI state: an empty effort means "CLI default" (omit --effort). */
 private const val CLI_DEFAULT_EFFORT = ""
@@ -103,7 +113,7 @@ data class StartIssueOption(
     val priority: String?,
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartCodingSheet(
     devices: List<SteerDevice>,
@@ -252,6 +262,8 @@ fun StartCodingSheet(
     val tooMany = checkedCount > MAX_BATCH_ISSUES
     val canStart = device != null && checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
 
+    // Full-height sheet (EXP-208): the body scrolls in the weight(1f) area and
+    // the Start button stays pinned at the bottom, always visible.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -260,237 +272,231 @@ fun StartCodingSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 24.dp),
+                .fillMaxHeight(),
         ) {
-            Text(
-                text = "Start coding",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-            )
-
-            // ── Issues ───────────────────────────────────────────────────────
-            SectionLabel("Issues")
-            TextField(
-                value = query,
-                onValueChange = { query = it },
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                placeholder = {
-                    Text(
-                        "Search issues",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = GlassTokens.RowFill,
-                    unfocusedContainerColor = GlassTokens.RowFill,
-                    disabledContainerColor = GlassTokens.RowFill,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                ),
-            )
-            Spacer(Modifier.height(4.dp))
-            if (checkedInOrder.isEmpty() && uncheckedFiltered.isEmpty()) {
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(
-                    if (issues.isEmpty()) "No eligible issues" else "No matching issues",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    text = "Start coding",
+                    style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
-            } else {
-                // The issues scroll INSIDE this bounded area (EXP-173) so the
-                // Model/Effort/switch/Start controls stay near the fold. The
-                // heightIn(max) cap makes the lazy child's constraints finite,
-                // which is what legalizes nesting it in the outer scroll Column
-                // (~5.5 rows — the half row is the scroll affordance).
-                LazyColumn(
+
+                // ── Issues ───────────────────────────────────────────────────
+                SectionLabel("Issues")
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 264.dp),
-                ) {
-                    items(checkedInOrder + uncheckedFiltered, key = { it.id }) { option ->
-                        IssueCheckRow(
-                            option = option,
-                            checked = option.id in checked,
-                            onToggle = { toggleIssue(option.id) },
+                        .padding(horizontal = 16.dp),
+                    placeholder = {
+                        Text(
+                            "Search issues",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
-                    }
-                }
-            }
-
-            // Validation captions (blocking) + the large-batch soft note.
-            val validationCaption = when {
-                multiRepo -> "Pick issues from a single repository per run."
-                tooMany -> "At most $MAX_BATCH_ISSUES issues per run — split the batch."
-                else -> null
-            }
-            if (validationCaption != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    validationCaption,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 24.dp),
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = GlassTokens.RowFill,
+                        unfocusedContainerColor = GlassTokens.RowFill,
+                        disabledContainerColor = GlassTokens.RowFill,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
                 )
-            } else if (checkedCount > LARGE_BATCH_HINT_THRESHOLD) {
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "Large batches are token-expensive.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-            }
-
-            // ── Desktop ──────────────────────────────────────────────────────
-            if (devices.size > 1) {
-                Spacer(Modifier.height(8.dp))
-                SectionLabel("Desktop")
-                devices.forEach { candidate ->
-                    ListItem(
-                        headlineContent = {
-                            Text(candidate.deviceLabel.ifBlank { candidate.deviceId })
-                        },
-                        leadingContent = {
-                            Icon(Icons.Filled.Computer, contentDescription = null)
-                        },
-                        trailingContent = if (candidate.deviceId == device?.deviceId) {
-                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
-                        } else null,
+                if (checkedInOrder.isEmpty() && uncheckedFiltered.isEmpty()) {
+                    Text(
+                        if (issues.isEmpty()) "No eligible issues" else "No matching issues",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    )
+                } else {
+                    // The issues scroll INSIDE this bounded area (EXP-173) so
+                    // the Model/Effort/switch controls stay reachable. The
+                    // heightIn(max) cap makes the lazy child's constraints
+                    // finite, which is what legalizes nesting it in the outer
+                    // scroll Column (~5.5 rows — the half row is the scroll
+                    // affordance).
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                deviceId = candidate.deviceId
+                            .heightIn(max = 264.dp),
+                    ) {
+                        items(checkedInOrder + uncheckedFiltered, key = { it.id }) { option ->
+                            IssueCheckRow(
+                                option = option,
+                                checked = option.id in checked,
+                                onToggle = { toggleIssue(option.id) },
+                            )
+                        }
+                    }
+                }
+
+                // Validation captions (blocking) + the large-batch soft note.
+                val validationCaption = when {
+                    multiRepo -> "Pick issues from a single repository per run."
+                    tooMany -> "At most $MAX_BATCH_ISSUES issues per run — split the batch."
+                    else -> null
+                }
+                if (validationCaption != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        validationCaption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                } else if (checkedCount > LARGE_BATCH_HINT_THRESHOLD) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Large batches are token-expensive.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+
+                // ── Desktop ──────────────────────────────────────────────────
+                if (devices.size > 1) {
+                    OptionGroup {
+                        PickerRow(
+                            label = "Desktop",
+                            value = device?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: "",
+                            options = devices.map { it.deviceId },
+                            selected = device?.deviceId,
+                            optionLabel = { id ->
+                                devices.firstOrNull { it.deviceId == id }
+                                    ?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: id
+                            },
+                            onSelect = { id ->
+                                deviceId = id
                                 // The new desktop may not run the current agent
                                 // — fall back to its first available one.
+                                val candidate = devices.firstOrNull { it.deviceId == id }
                                 val available = availableAgentsFor(candidate)
                                 if (agent !in available) selectAgent(available.first())
                             },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+
+                // Agent pill strip — hidden when the chosen desktop offers just
+                // one; brand icons match the desktop IDE dialog's agent tabs.
+                if (availableAgents.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    ) {
+                        availableAgents.forEach { value ->
+                            AgentTab(
+                                value = value,
+                                selected = agent == value,
+                                onClick = { selectAgent(value) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+
+                // ── Model / Effort ───────────────────────────────────────────
+                OptionGroup {
+                    val modelOptions = when (agent) {
+                        "codex" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.codexModelValues
+                        "pi" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.piModelValues
+                        else -> DomainContract.codingModelValues
+                    }
+                    PickerRow(
+                        label = "Model",
+                        value = modelLabel(model),
+                        options = modelOptions,
+                        selected = model,
+                        optionLabel = ::modelLabel,
+                        onSelect = {
+                            model = it
+                            touchedToggles = true
+                        },
+                    )
+                    GroupDivider()
+                    PickerRow(
+                        label = when (agent) {
+                            "codex" -> "Reasoning"
+                            "pi" -> "Thinking"
+                            else -> "Effort"
+                        },
+                        value = effortLabel(effort),
+                        options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
+                        selected = effort,
+                        optionLabel = ::effortLabel,
+                        // Ultracode IS `--effort ultracode` — it owns the row.
+                        enabled = !ultracode,
+                        onSelect = {
+                            effort = it
+                            touchedToggles = true
+                        },
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-            } else {
-                Spacer(Modifier.height(8.dp))
-            }
+                Spacer(Modifier.height(4.dp))
 
-            // Agent picker — hidden when the chosen desktop offers just one.
-            if (availableAgents.size > 1) {
-                SectionLabel("Agent")
-                FlowRow(
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    availableAgents.forEach { value ->
-                        FilterChip(
-                            selected = agent == value,
-                            onClick = { selectAgent(value) },
-                            label = { Text(agentLabel(value)) },
+                // ── Toggles ──────────────────────────────────────────────────
+                // ONE group: claude gets Ultracode + Plan mode + Skip
+                // permissions, codex just Skip permissions, pi nothing at all
+                // (it is always unguarded — no row, no notice; EXP-208).
+                if (agent != "pi") {
+                    OptionGroup {
+                        if (agent == DEFAULT_AGENT) {
+                            SwitchRow(
+                                title = "Ultracode",
+                                checked = ultracode,
+                                onCheckedChange = {
+                                    ultracode = it
+                                    touchedToggles = true
+                                },
+                            )
+                            GroupDivider()
+                            SwitchRow(
+                                title = "Plan mode",
+                                checked = planMode,
+                                onCheckedChange = {
+                                    planMode = it
+                                    touchedToggles = true
+                                },
+                            )
+                            GroupDivider()
+                        }
+                        SwitchRow(
+                            title = "Skip permissions",
+                            checked = skipPermissions,
+                            onCheckedChange = {
+                                skipPermissions = it
+                                touchedToggles = true
+                            },
                         )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
             }
 
-            SectionLabel("Model")
-            FlowRow(
-                modifier = Modifier.padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val modelOptions = when (agent) {
-                    "codex" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.codexModelValues
-                    "pi" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.piModelValues
-                    else -> DomainContract.codingModelValues
-                }
-                modelOptions.forEach { value ->
-                    FilterChip(
-                        selected = model == value,
-                        onClick = {
-                            model = value
-                            touchedToggles = true
-                        },
-                        label = { Text(modelLabel(value)) },
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            SectionLabel(
-                when (agent) {
-                    "codex" -> "Reasoning"
-                    "pi" -> "Thinking"
-                    else -> "Effort"
-                },
-            )
-            FlowRow(
-                modifier = Modifier.padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent)).forEach { value ->
-                    FilterChip(
-                        selected = effort == value,
-                        onClick = {
-                            effort = value
-                            touchedToggles = true
-                        },
-                        label = { Text(effortLabel(value)) },
-                        enabled = !ultracode,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            if (agent == DEFAULT_AGENT) {
-                SwitchRow(
-                    title = "Ultracode",
-                    subtitle = "Dynamic multi-agent workflows — overrides the effort level.",
-                    checked = ultracode,
-                    onCheckedChange = {
-                        ultracode = it
-                        touchedToggles = true
-                    },
-                )
-                SwitchRow(
-                    title = "Plan mode",
-                    subtitle = "Starts with a plan that needs approval — from the web or at the desktop.",
-                    checked = planMode,
-                    onCheckedChange = {
-                        planMode = it
-                        touchedToggles = true
-                    },
-                )
-            }
-            if (agent == "pi") {
-                Text(
-                    "pi has no permission prompts — it always runs unguarded.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                )
-            } else {
-                SwitchRow(
-                    title = "Skip permissions",
-                    subtitle = "Full bypass instead of the agent's guarded auto mode.",
-                    checked = skipPermissions,
-                    onCheckedChange = {
-                        skipPermissions = it
-                        touchedToggles = true
-                    },
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
+            // Pinned below the scroll area — always visible (EXP-208).
             Button(
                 onClick = {
                     val target = device ?: return@Button
@@ -530,7 +536,8 @@ fun StartCodingSheet(
                 enabled = canStart,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 12.dp, bottom = 24.dp),
             ) {
                 Text(
                     if (checkedCount >= 2) "Start coding ($checkedCount issues)" else "Start coding",
@@ -541,8 +548,8 @@ fun StartCodingSheet(
 }
 
 // One checkable issue, styled like the regular issue-list row (EXP-173):
-// Checkbox, priority icon, mono identifier column, status icon, title —
-// the IssueRow anatomy with the checkbox as the selection affordance.
+// circle toggle icon (RepoRow's selection affordance — EXP-208), priority
+// icon, mono identifier column, status icon, title.
 @Composable
 private fun IssueCheckRow(
     option: StartIssueOption,
@@ -555,11 +562,20 @@ private fun IssueCheckRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 20.dp, vertical = 2.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = checked, onCheckedChange = { onToggle() })
-        Spacer(Modifier.width(4.dp))
+        Icon(
+            if (checked) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (checked) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+            },
+        )
+        Spacer(Modifier.width(10.dp))
         PriorityIcon(priority, size = 16.dp)
         Spacer(Modifier.width(10.dp))
         Text(
@@ -591,31 +607,144 @@ private fun SectionLabel(text: String) {
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
     )
+}
+
+// iOS-inset-grouped-section analog (EXP-208): a rounded glass container that
+// wraps a group of rows, separated inside by [GroupDivider] hairlines.
+@Composable
+private fun OptionGroup(content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(GlassTokens.RowFill, RoundedCornerShape(12.dp)),
+    ) {
+        content()
+    }
+}
+
+/** Hairline between rows in an [OptionGroup] (TeamSettingsScreen's idiom). */
+@Composable
+private fun GroupDivider() {
+    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+}
+
+// iOS-Form-style picker row: label left, selected value + chevron right; tap
+// opens a DropdownMenu of the options. Disabled = dimmed + non-interactive.
+@Composable
+private fun PickerRow(
+    label: String,
+    value: String,
+    options: List<String>,
+    selected: String?,
+    optionLabel: (String) -> String,
+    onSelect: (String) -> Unit,
+    enabled: Boolean = true,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled) { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
+                ),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel(option)) },
+                    trailingIcon = if (option == selected) {
+                        {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "Selected",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
+                )
+            }
+        }
+    }
+}
+
+// One agent tab in the pill strip: brand icon + label; the selected tab is a
+// filled pill, unselected tabs are subdued (desktop agent_tabs parity).
+@Composable
+private fun AgentTab(
+    value: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = MaterialTheme.colorScheme.onSurface.copy(
+        alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .glassButton(active = selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Icon(
+            painterResource(agentIconRes(value)),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = tint,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(agentLabel(value), style = MaterialTheme.typography.labelLarge, color = tint)
+    }
 }
 
 @Composable
 private fun SwitchRow(
     title: String,
-    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
@@ -641,7 +770,7 @@ private fun effortValuesFor(agent: String): List<String> = when (agent) {
     else -> DomainContract.codingEffortValues
 }
 
-/** claude has no CLI-default model chip; codex/pi default to the blank one. */
+/** claude has no CLI-default model entry; codex/pi default to the blank one. */
 private fun defaultModelFor(agent: String): String =
     if (agent == DEFAULT_AGENT) DomainContract.codingModelValues.first() else CLI_DEFAULT_MODEL
 
@@ -650,6 +779,13 @@ private fun agentLabel(value: String): String = when (value) {
     "codex" -> "Codex"
     "pi" -> "pi"
     else -> value
+}
+
+/** Monochrome brand marks derived from the desktop IDE's SVG icons (EXP-208). */
+private fun agentIconRes(value: String): Int = when (value) {
+    "codex" -> R.drawable.ic_agent_codex
+    "pi" -> R.drawable.ic_agent_pi
+    else -> R.drawable.ic_agent_claude
 }
 
 private fun modelLabel(value: String): String = when (value) {

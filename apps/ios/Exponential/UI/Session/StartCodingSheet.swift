@@ -11,8 +11,9 @@ import SwiftUI
 // shared `exp/batch-<id8>` branch ending in ONE combined PR.
 //
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
-// agent picker shows only the SELECTED device's agents (an old desktop
-// reports none = claude-only, hiding the picker); model/effort lists, the
+// agent switcher — a brand-icon pill tab strip (EXP-208), the iOS twin of the
+// desktop dialog's agent_tabs — shows only the SELECTED device's agents (an
+// old desktop reports none = claude-only, hiding it); model/effort lists, the
 // claude-only toggles, and the skip-permissions toggle all follow the agent.
 //
 // Last-used Agent/Model/Effort persist on every submit; ultracode/plan-mode
@@ -155,12 +156,9 @@ struct StartCodingSheet: View {
 
                 if availableAgents.count > 1 {
                     Section {
-                        Picker("Agent", selection: agentBinding) {
-                            ForEach(availableAgents, id: \.self) { value in
-                                Text(Self.agentLabel(value)).tag(value)
-                            }
-                        }
-                        .pickerStyle(.segmented)
+                        agentTabStrip
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
                     }
                 }
 
@@ -179,34 +177,20 @@ struct StartCodingSheet: View {
                     .disabled(ultracode)
                 }
 
-                if agent == "claude" {
+                // One footer-less toggle section (EXP-208 — no helper notices,
+                // like the IDE). pi has no toggles at all, so the whole section
+                // is absent for it.
+                if agent != "pi" {
                     Section {
-                        Toggle("Ultracode", isOn: ultracodeBinding)
-                    } footer: {
-                        Text("Dynamic multi-agent workflows — overrides the effort level.")
-                    }
-
-                    Section {
-                        Toggle("Plan mode", isOn: planModeBinding)
-                    } footer: {
-                        Text("Starts with a plan that needs approval — from the web or at the desktop.")
-                    }
-                }
-
-                if agent == "pi" {
-                    Section {
-                        Text("pi has no permission prompts — it always runs unguarded.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Section {
+                        if agent == "claude" {
+                            Toggle("Ultracode", isOn: ultracodeBinding)
+                            Toggle("Plan mode", isOn: planModeBinding)
+                        }
                         Toggle("Skip permissions", isOn: skipPermissionsBinding)
-                    } footer: {
-                        Text("Full bypass instead of the agent's guarded auto mode.")
                     }
                 }
             }
+            .listSectionSpacing(12)
             .navigationTitle("Start coding")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -219,7 +203,7 @@ struct StartCodingSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .onAppear { seed() }
         // Crossing into/out of batch flips the mode defaults — unless the user
         // has already touched the option controls, and only for claude (the
@@ -371,6 +355,45 @@ struct StartCodingSheet: View {
         } else {
             checked.insert(id)
         }
+    }
+
+    // MARK: - Agent tab strip (EXP-208)
+
+    /// Horizontal centered pill tab strip with brand icons — the iOS twin of
+    /// the desktop dialog's `agent_tabs`. Selection goes through `agentBinding`
+    /// so it keeps the exact selectAgent + touchedToggles side effects.
+    private var agentTabStrip: some View {
+        HStack(spacing: 8) {
+            ForEach(availableAgents, id: \.self) { value in
+                agentTab(value)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func agentTab(_ value: String) -> some View {
+        let selected = value == agent
+        return Button {
+            // Same no-op-on-reselect semantics as the old segmented Picker:
+            // only a CHANGE goes through the binding (and marks touched).
+            guard value != agent else { return }
+            agentBinding.wrappedValue = value
+        } label: {
+            HStack(spacing: 6) {
+                Image("agent-\(value)")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+                Text(Self.agentLabel(value))
+                    .font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(selected ? .white : .white.opacity(TextOpacity.secondary))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(selected ? Accent.indigo : Color.white.opacity(0.06), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Bindings (touch tracking)
