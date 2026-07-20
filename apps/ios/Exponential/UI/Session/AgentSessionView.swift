@@ -16,8 +16,9 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     @State private var inputText = ""
     @State private var showDiffSheet = false
-    /// Whether the feed's bottom sentinel is on screen — auto-scroll only
-    /// while pinned; scrolling up pauses follow.
+    /// Whether the feed is scrolled to (within slack of) its bottom —
+    /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
+    /// the "Jump to latest" pill.
     @State private var atBottom = true
     @FocusState private var inputFocused: Bool
 
@@ -69,6 +70,19 @@ struct AgentSessionView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            // Leading back button, Android AgentSessionScreen parity (EXP-212)
+            // — replaces the former trailing X.
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(8)
+            }
+            .glassButton()
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
             HStack(spacing: 6) {
                 StatusDot(
                     phase: model?.phase ?? .connecting,
@@ -93,17 +107,6 @@ struct AgentSessionView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.white)
             }
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(8)
-            }
-            .glassButton()
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -168,13 +171,16 @@ struct AgentSessionView: View {
     /// top of the screen) with follow-scroll: pinned to the bottom until the
     /// user scrolls up, then a "Jump to latest ↓" pill re-pins.
     ///
-    /// Follow state is derived from scroll GEOMETRY (an equality-guarded
-    /// preference off the content frame) and the pin is an explicit scrollTo —
-    /// NOT from onAppear/onDisappear of a lazy sentinel and NOT from
-    /// defaultScrollAnchor(.bottom). Both of those make layout depend on state
-    /// the layout itself mutates (lazy realization ⇄ body invalidation,
+    /// Follow state is derived from scroll GEOMETRY and the pin is an explicit
+    /// scrollTo — NOT from onAppear/onDisappear of a lazy sentinel and NOT
+    /// from defaultScrollAnchor(.bottom). Both of those make layout depend on
+    /// state the layout itself mutates (lazy realization ⇄ body invalidation,
     /// anchored re-scroll ⇄ lazy sizing), and once the feed outgrew the
-    /// viewport that cycle wedged the main thread for good (EXP-70).
+    /// viewport that cycle wedged the main thread for good (EXP-70). Geometry
+    /// comes from onScrollGeometryChange on iOS 18+ — the EXP-70 content-frame
+    /// preference stopped updating during scrolls on current iOS, which left
+    /// `atBottom` stuck true and the pill never appeared (EXP-212); the
+    /// preference stays as the pre-18 fallback.
     private func feedList(_ model: AgentSessionModel) -> some View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
@@ -206,16 +212,17 @@ struct AgentSessionView: View {
                     )
                 }
                 .coordinateSpace(name: Self.feedCoordSpace)
-                .onPreferenceChange(FeedBottomOverflowKey.self) { [atBottom = $atBottom] overflow in
-                    // Points of content extending below the viewport; ≤ slack
-                    // counts as pinned. Only the flip writes state.
-                    let pinned = overflow <= Self.followSlack
-                    if atBottom.wrappedValue != pinned {
-                        atBottom.wrappedValue = pinned
-                    }
-                }
+                .modifier(FollowPinTracker(atBottom: $atBottom, slack: Self.followSlack))
                 .onAppear {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    // Lazy rows can still be sizing on the first pass, landing
+                    // the scroll short — re-assert once layout has settled.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        if atBottom {
+                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                        }
+                    }
                 }
                 .onChange(of: model.feed.count) { _, _ in
                     if atBottom {
@@ -225,6 +232,8 @@ struct AgentSessionView: View {
                 .overlay(alignment: .bottom) {
                     if !atBottom {
                         Button {
+                            // The scroll re-pins: geometry flips atBottom once
+                            // the animation lands at the bottom.
                             withAnimation {
                                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                             }
@@ -794,8 +803,44 @@ private struct StatusDot: View {
 
 // MARK: - Follow-scroll geometry
 
+/// Derives "pinned to the bottom" from the feed's scroll geometry. iOS 18+
+/// reads onScrollGeometryChange — the supported scroll-observation API; the
+/// EXP-70 content-frame preference (still emitted by the feed's background)
+/// stopped re-evaluating during scrolls on current iOS, leaving `atBottom`
+/// stuck true so the "Jump to latest" pill never appeared and follow-scroll
+/// couldn't be escaped (EXP-212). Pre-18 keeps the preference path.
+private struct FollowPinTracker: ViewModifier {
+    @Binding var atBottom: Bool
+    /// Within this many points of the bottom still counts as pinned.
+    let slack: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height
+                    >= geometry.contentSize.height + geometry.contentInsets.bottom - slack
+            } action: { _, pinned in
+                if atBottom != pinned {
+                    atBottom = pinned
+                }
+            }
+        } else {
+            content.onPreferenceChange(FeedBottomOverflowKey.self) { [atBottom = $atBottom] overflow in
+                // Points of content extending below the viewport; ≤ slack
+                // counts as pinned. Only the flip writes state.
+                let pinned = overflow <= slack
+                if atBottom.wrappedValue != pinned {
+                    atBottom.wrappedValue = pinned
+                }
+            }
+        }
+    }
+}
+
 /// Points of feed content extending below the visible viewport — 0 when the
-/// feed is pinned to the bottom, negative while bouncing past it.
+/// feed is pinned to the bottom, negative while bouncing past it. Pre-iOS-18
+/// fallback input to FollowPinTracker.
 private struct FeedBottomOverflowKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
