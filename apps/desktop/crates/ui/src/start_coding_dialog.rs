@@ -870,19 +870,18 @@ impl StartCodingDialogView {
         let muted = cx.theme().muted_foreground;
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         let branch = coding::branch_name(&settings.branch_prefix, identifier);
-        let hint: SharedString = if self.agent.supports_native_resume() {
-            format!(
+        let hint: SharedString = match self.agent {
+            // codex has no cwd-scoped --continue; the launcher recovers the
+            // worktree's exact recorded session id instead.
+            CodingAgent::Codex => "Resumes the worktree's recorded Codex session \
+                                   (codex resume <session-id>); if none is recorded, starts a \
+                                   new session instructed to continue the work."
+                .into(),
+            agent => format!(
                 "Continues the last {} conversation in this worktree (--continue).",
-                self.agent.label()
+                agent.label()
             )
-            .into()
-        } else {
-            format!(
-                "Starts a new {} session in the existing worktree with instructions to \
-                 continue the work.",
-                self.agent.label()
-            )
-            .into()
+            .into(),
         };
         v_flex()
             .gap_0p5()

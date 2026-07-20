@@ -219,6 +219,7 @@ fn main() {
             })
         }),
         worktrees: Arc::new(GitWorktrees),
+        codex_sessions_root: None,
     };
     // plan_mode OFF so the stub's `$6 = --dangerously-skip-permissions`
     // check holds; the prompt rides argv as $7 (direct delivery).

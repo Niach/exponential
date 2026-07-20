@@ -662,6 +662,7 @@ pub fn build_launch(
         settings,
         issue_seed: Arc::new(move |_| Some(seed.clone())),
         worktrees: Arc::new(coding::GitWorktrees),
+        codex_sessions_root: None,
     };
     Some((request, deps))
 }
@@ -701,6 +702,7 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         settings,
         issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
+        codex_sessions_root: None,
     })
 }
 

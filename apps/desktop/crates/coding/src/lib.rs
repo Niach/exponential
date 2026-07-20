@@ -38,6 +38,7 @@ pub mod batch_launcher;
 pub mod batch_prompt;
 pub mod claude_task;
 pub mod clone_manager;
+pub mod codex_sessions;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
@@ -68,6 +69,7 @@ pub use claude_task::{
     resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
+pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};
 pub use doctor::{
     parse_claude_version, run_doctor, DoctorReport, Tool, ToolCheck, MIN_CLAUDE_VERSION,
 };

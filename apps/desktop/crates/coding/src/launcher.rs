@@ -107,10 +107,12 @@ pub struct LaunchRequest {
     pub options: LaunchOptions,
     /// EXP-202: reuse the issue's persisted worktree and CONTINUE the
     /// previous agent conversation instead of seeding a fresh prompt.
-    /// Claude + pi resume natively (`--continue`, cwd-scoped); codex gets a
-    /// fresh session seeded with the resume prompt. Worktree creation is
-    /// already idempotent either way — this only changes step 5 + the argv
-    /// tail.
+    /// Claude + pi resume natively (`--continue`, cwd-scoped); codex resumes
+    /// the EXACT recorded session for the worktree (`resume <id>`, recovered
+    /// from its rollout metas — [`crate::codex_sessions`]) and falls back to
+    /// a fresh session seeded with the resume prompt when none is recorded.
+    /// Worktree creation is already idempotent either way — this only
+    /// changes step 5 + the argv tail.
     pub resume: bool,
 }
 
@@ -202,6 +204,11 @@ pub struct CodingDeps {
     pub issue_seed: IssueSeedFn,
     /// Git ops ([`GitWorktrees`] in production).
     pub worktrees: Arc<dyn WorktreeProvider>,
+    /// EXP-202: where codex records its session rollouts, for exact-session
+    /// resume recovery. `None` (production) = auto-detect
+    /// [`crate::codex_sessions::default_codex_sessions_root`]; tests inject
+    /// a fixture tree.
+    pub codex_sessions_root: Option<PathBuf>,
 }
 
 /// §7.1's non-fatal "why Start coding can't run" set — each renders as a
@@ -482,22 +489,38 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     };
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
-    // small, PROMPT.md + seed line otherwise). A NATIVE resume (EXP-202,
-    // Claude `--continue`) skips the prompt entirely — the conversation
-    // already carries the context; only stale-seed hygiene runs (same
-    // rationale as `deliver_prompt`'s Direct path: a resumed session must
-    // never re-read an earlier launch's PROMPT.md).
-    let native_resume = matches!(
-        req,
-        PrepareRequest::Issue(issue_req) if issue_req.resume && agent.supports_native_resume()
-    );
+    // small, PROMPT.md + seed line otherwise). A NATIVE resume (EXP-202)
+    // skips the prompt entirely — the conversation already carries the
+    // context: claude/pi via cwd-scoped `--continue`, codex via the exact
+    // session id recovered from its rollout metas for THIS worktree (its
+    // `resume --last` is global-latest, so the id lookup is what keeps a
+    // resume from reopening an unrelated conversation). Codex with no
+    // recorded session for the worktree (coded by another agent, sessions
+    // pruned) falls back to a fresh session seeded with the resume prompt.
+    // Either native path runs stale-seed hygiene (same rationale as
+    // `deliver_prompt`'s Direct path: a resumed session must never re-read
+    // an earlier launch's PROMPT.md).
+    let resume_requested = matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume);
+    let codex_resume_id = (resume_requested && agent == CodingAgent::Codex)
+        .then(|| {
+            deps.codex_sessions_root
+                .clone()
+                .or_else(crate::codex_sessions::default_codex_sessions_root)
+                .and_then(|root| {
+                    crate::codex_sessions::find_latest_codex_session_id(&root, &worktree)
+                })
+        })
+        .flatten();
+    let native_resume =
+        resume_requested && (agent != CodingAgent::Codex || codex_resume_id.is_some());
     let delivery = if native_resume {
         let _ = std::fs::remove_file(worktree.join(PROMPT_FILE));
         None
     } else {
         let rendered = match req {
-            // Non-native resume (codex): a fresh session in the reused
-            // worktree, told to pick the existing branch work back up.
+            // Resume without a recoverable conversation (codex fallback): a
+            // fresh session in the reused worktree, told to pick the
+            // existing branch work back up.
             PrepareRequest::Issue(issue_req) if issue_req.resume => {
                 let seed = (deps.issue_seed)(&issue_req.issue_id);
                 let title = seed
@@ -601,11 +624,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             )
         }
     };
-    let tail = match &delivery {
-        Some(delivery) => SessionTail::Prompt(delivery.positional()),
-        // Native resume: no prompt at all — `--continue` re-enters the
-        // worktree's latest conversation.
-        None => SessionTail::Continue,
+    let tail = match (&delivery, &codex_resume_id) {
+        (Some(delivery), _) => SessionTail::Prompt(delivery.positional()),
+        // Native resume: no prompt at all — codex reopens the exact
+        // recovered session, claude/pi `--continue` the worktree's latest
+        // conversation.
+        (None, Some(id)) => SessionTail::CodexResume(id),
+        (None, None) => SessionTail::Continue,
     };
     let args = session_args(options, &agent_mcp, tail);
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
@@ -1120,8 +1145,77 @@ mod tests {
         assert!(!worktree.join(PROMPT_FILE).exists());
     }
 
-    /// EXP-202: a CODEX resume has no cwd-scoped native resume — it spawns a
-    /// fresh session in the reused worktree seeded with the RESUME prompt
+    /// EXP-202: a CODEX resume with a recorded session for the worktree
+    /// reopens EXACTLY that session — `resume <id>` leads the argv (codex's
+    /// `--last` is global-latest, never used), no prompt rides at all.
+    #[test]
+    fn prepare_resume_codex_reopens_the_recorded_session() {
+        let dir = temp_dir("resume-codex-native");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::write(worktree.join(PROMPT_FILE), "stale from the first run").unwrap();
+        // A recorded rollout whose meta cwd IS the worktree.
+        let sessions_root = dir.0.join("codex-sessions");
+        let day = sessions_root.join("2026/07/20");
+        fs::create_dir_all(&day).unwrap();
+        fs::write(
+            day.join("rollout-2026-07-20T10-00-00-sess-uuid-1.jsonl"),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "type": "session_meta",
+                    "payload": { "id": "sess-uuid-1", "cwd": worktree.to_string_lossy() },
+                })
+            ),
+        )
+        .unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.codex_path = "git".to_string(); // runnable stub
+        deps.codex_sessions_root = Some(sessions_root);
+        let mut req = request("EXP-42");
+        req.resume = true;
+        req.options = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: "gpt-5.6-sol".to_string(),
+            effort: "".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        // The subcommand form leads; flags stay; NO prompt positional.
+        assert_eq!(
+            prepared.spawn.args[..2],
+            ["resume".to_string(), "sess-uuid-1".to_string()]
+        );
+        assert!(!prepared.spawn.args.iter().any(|arg| arg == "--last"));
+        assert!(!prepared.spawn.args.iter().any(|arg| arg.contains("EXP-42:")));
+        assert!(prepared
+            .spawn
+            .args
+            .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
+        // Stale-seed hygiene + a fresh session row, same as claude.
+        assert!(!worktree.join(PROMPT_FILE).exists());
+        assert_eq!(prepared.session_id, "sess-1");
+    }
+
+    /// EXP-202: a CODEX resume with NO recorded session for the worktree
+    /// (coded by another agent, rollouts pruned) falls back to a fresh
+    /// session in the reused worktree seeded with the RESUME prompt
     /// (inspect existing work, continue, update the PR).
     #[test]
     fn prepare_resume_codex_seeds_the_resume_prompt() {
@@ -1139,6 +1233,9 @@ mod tests {
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         deps.settings.codex_path = "git".to_string(); // runnable stub
+        // An empty recorded-sessions tree — hermetic (never the dev
+        // machine's real ~/.codex).
+        deps.codex_sessions_root = Some(dir.0.join("codex-sessions-empty"));
         let mut req = request("EXP-42");
         req.resume = true;
         req.options = LaunchOptions {
@@ -1163,8 +1260,9 @@ mod tests {
         );
         assert!(positional.contains("git log origin/main..HEAD"));
         assert!(!positional.contains("## Issue context"));
-        // Never `--continue` for codex, and the codex MCP posture holds
-        // (env token, no on-disk config).
+        // Never a resume subcommand or `--continue` for the fallback, and
+        // the codex MCP posture holds (env token, no on-disk config).
+        assert_ne!(prepared.spawn.args[0], "resume");
         assert!(!prepared.spawn.args.iter().any(|arg| arg == "--continue"));
         assert!(!worktree.join(".exp-mcp.json").exists());
         assert!(prepared

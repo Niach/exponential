@@ -220,6 +220,7 @@ fn main() {
             })
         }),
         worktrees: Arc::new(GitWorktrees),
+        codex_sessions_root: None,
     };
 
     // plan_mode OFF so the stub's `$6 = --dangerously-skip-permissions`

@@ -109,11 +109,13 @@ moves the issue to `in_review` automatically, and merging it later completes it 
     )
 }
 
-/// Render the RESUME prompt (EXP-202) — the non-native-resume path: a fresh
-/// codex session spawned into the issue's reused worktree, told to pick
-/// the existing branch work back up instead of starting over. (Claude and pi
-/// never see this — they resume natively via `--continue`,
-/// [`crate::agent::CodingAgent::supports_native_resume`].)
+/// Render the RESUME prompt (EXP-202) — the fallback when no previous
+/// conversation is recoverable: a fresh session spawned into the issue's
+/// reused worktree, told to pick the existing branch work back up instead of
+/// starting over. Today only codex can land here (its exact-session recovery
+/// — [`crate::codex_sessions`] — found no rollout for the worktree, e.g. it
+/// was coded by another agent or the sessions were pruned); claude/pi always
+/// resume natively via cwd-scoped `--continue`.
 pub fn render_resume_prompt(identifier: &str, title: &str, default_branch: &str) -> String {
     format!(
         "You are RESUMING work on **{identifier}: {title}** in this repository — a previous \

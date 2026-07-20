@@ -271,23 +271,34 @@ impl LaunchOptions {
     }
 }
 
-/// What ends a coding-session argv (EXP-202): the seed/resume prompt as the
-/// positional, or a native `--continue` (resume the latest conversation for
-/// the spawn cwd = the reused worktree — claude documented, pi undocumented).
-/// Callers gate `Continue` on [`CodingAgent::supports_native_resume`].
+/// What ends a coding-session argv (EXP-202): the seed prompt as the
+/// positional, or the agent's NATIVE resume with no prompt at all.
+///
+/// - `Continue` — claude/pi append `--continue` (cwd-scoped: resumes the
+///   latest conversation for the spawn cwd = the reused worktree; pi's flag
+///   is undocumented but real). A caller bug on codex (which has no
+///   cwd-scoped continue — `resume --last` is global-latest) degrades to a
+///   flagless spawn.
+/// - `CodexResume(id)` — codex only: the `resume <SESSION_ID>` subcommand
+///   form, resuming the EXACT session the launcher recovered for this
+///   worktree from codex's rollout metas ([`crate::codex_sessions`]).
+///   `resume` rides argv-FIRST (it is a subcommand, verified to accept the
+///   same `-m`/`-c`/sandbox/approval flags as a fresh spawn).
 #[derive(Clone, Copy, Debug)]
 pub enum SessionTail<'a> {
     Prompt(&'a str),
     Continue,
+    CodexResume(&'a str),
 }
 
 /// The coding-session argv for `opts.agent`, tail LAST always (the prompt
-/// positional, or `--continue` on a native resume):
+/// positional, or `--continue` on a claude/pi resume; a codex resume instead
+/// PREPENDS `resume <SESSION_ID>` as the subcommand):
 ///
 /// - claude: `--model <m> [--effort ultracode|<e>] <mcp_config_args>
 ///   <permission_args> <tail>`
-/// - codex: `[-m <m>] [-c model_reasoning_effort=<e>] <mcp -c overrides>
-///   <sandbox/approval flags> <positional>`
+/// - codex: `[resume <session-id>] [-m <m>] [-c model_reasoning_effort=<e>]
+///   <mcp -c overrides> <sandbox/approval flags> [<positional>]`
 /// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> <tail>`
 pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, tail: SessionTail<'_>) -> Vec<String> {
     let trimmed_model = opts.model.trim();
@@ -374,10 +385,18 @@ pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, tail: SessionTail<'_>)
         // Only claude + pi have a cwd-scoped continue flag; on codex this
         // variant is a caller bug — degrade to a flagless spawn rather than
         // panic or hand codex an unknown flag.
-        SessionTail::Continue if opts.agent.supports_native_resume() => {
+        SessionTail::Continue if !matches!(opts.agent, CodingAgent::Codex) => {
             args.push("--continue".into())
         }
         SessionTail::Continue => {}
+        // The subcommand must lead the argv; every flag above is accepted by
+        // `codex resume` too. On any other agent this is a caller bug —
+        // degrade like Continue does.
+        SessionTail::CodexResume(id) if opts.agent == CodingAgent::Codex => {
+            args.insert(0, "resume".into());
+            args.insert(1, id.to_string());
+        }
+        SessionTail::CodexResume(_) => {}
     }
     args
 }
@@ -636,10 +655,11 @@ mod tests {
         assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
     }
 
-    /// EXP-202: the resume tail. Claude + pi end with `--continue` (their
+    /// EXP-202: the resume tails. Claude + pi end with `--continue` (their
     /// cwd-scoped native resume) and carry NO positional prompt, with every
-    /// other flag intact; codex has no such flag — a (buggy) Continue tail
-    /// degrades to a flagless spawn instead of an unknown flag.
+    /// other flag intact; codex resumes via the `resume <SESSION_ID>`
+    /// subcommand PREPENDED to the same flag set. Cross-agent variants are
+    /// caller bugs and degrade to a flagless spawn.
     #[test]
     fn resume_tail_matrix() {
         // Claude: full flag set preserved, `--continue` last, no prompt.
@@ -663,8 +683,8 @@ mod tests {
             vec!["--model", "fable", "-e", "./.exp-pi-mcp.ts", "--continue"]
         );
 
-        // codex: no cwd-scoped resume — Continue is a caller bug and must
-        // degrade (the launcher always sends codex a resume PROMPT instead).
+        // codex: the exact recovered session id rides the `resume`
+        // subcommand FIRST; the MCP overrides + permission posture stay.
         let opts = LaunchOptions {
             agent: CodingAgent::Codex,
             model: "".to_string(),
@@ -676,12 +696,23 @@ mod tests {
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
         };
+        let args = session_args(&opts, &mcp, SessionTail::CodexResume("019f-abc"));
+        assert_eq!(args[..2], ["resume".to_string(), "019f-abc".to_string()]);
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(args
+            .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
+
+        // Cross-agent tails are caller bugs and must DEGRADE, never panic or
+        // pass an unknown flag: Continue on codex, CodexResume on claude.
         let args = session_args(&opts, &mcp, SessionTail::Continue);
         assert!(!args.iter().any(|arg| arg == "--continue"));
         assert_eq!(
             args.last().map(String::as_str),
             Some("--dangerously-bypass-approvals-and-sandbox")
         );
+        let args =
+            session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::CodexResume("x"));
+        assert!(!args.iter().any(|arg| arg == "resume" || arg == "x"));
     }
 
     #[test]

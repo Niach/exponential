@@ -159,6 +159,9 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
             })
         }),
         worktrees,
+        // No codex rollouts in the fixture: resume tests either inject a
+        // fixture root or exercise the no-recorded-session fallback.
+        codex_sessions_root: None,
     }
 }
 
