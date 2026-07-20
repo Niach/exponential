@@ -26,9 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ClaudeIcon, CodexIcon, PiIcon } from "@/components/icons/brand-icons"
 import {
   agentAllowsBlankModel,
   agentEffortValues,
@@ -44,10 +44,10 @@ import {
 
 // The unified Start-coding dialog (EXP-106) — the web twin of the desktop IDE's
 // ONE launcher: a searchable multi-issue picker plus Model / Effort selects,
-// ultracode + plan-mode switches, and the device picker. 1 checked issue starts
-// a plain single-issue session; 2+ start a BATCH session on one pushed branch.
-// Per-mode defaults track the desktop: while the user hasn't touched a Switch /
-// Select, crossing to a batch flips ultracode ON / plan OFF, and dropping back
+// ultracode + plan-mode checkboxes, and the device picker. 1 checked issue
+// starts a plain single-issue session; 2+ start a BATCH session on one pushed
+// branch. Per-mode defaults track the desktop: while the user hasn't touched a
+// Checkbox / Select, crossing to a batch flips ultracode ON / plan OFF, and dropping back
 // re-seeds the remembered single-issue prefs. Single-issue submits persist the
 // prefs; batch submits don't (batch defaults must not overwrite them).
 
@@ -70,6 +70,17 @@ const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
   codex: `Codex`,
   pi: `pi`,
+}
+
+// Each agent's brand mark for the tab strip — mirrors the desktop IDE's
+// icon + label pill tabs (EXP-213).
+const AGENT_ICONS: Record<
+  string,
+  (props: React.SVGProps<SVGSVGElement>) => React.JSX.Element
+> = {
+  claude: ClaudeIcon,
+  codex: CodexIcon,
+  pi: PiIcon,
 }
 
 /** The resolved dialog choices sent with `steer.startSession` — the same shape
@@ -177,16 +188,14 @@ export function StartCodingDialog({
   const { data: runningRows } = useLiveQuery(
     (query) =>
       open
-        ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) =>
-              and(
-                eq(s.teamId, teamId),
-                // in_review terminals are still alive and occupy the issue's
-                // worktree (EXP-194) — they block a restart like running ones.
-                inArray(s.status, [`running`, `in_review`])
-              )
+        ? query.from({ s: codingSessionCollection }).where(({ s }) =>
+            and(
+              eq(s.teamId, teamId),
+              // in_review terminals are still alive and occupy the issue's
+              // worktree (EXP-194) — they block a restart like running ones.
+              inArray(s.status, [`running`, `in_review`])
             )
+          )
         : undefined,
     [open, teamId]
   )
@@ -197,7 +206,8 @@ export function StartCodingDialog({
   const runningIssueIds = useMemo(() => {
     const set = new Set<string>()
     for (const s of (runningRows ?? []) as CodingSession[]) {
-      if (s.issueId && !isCodingSessionStale(s.updatedAt, now)) set.add(s.issueId)
+      if (s.issueId && !isCodingSessionStale(s.updatedAt, now))
+        set.add(s.issueId)
     }
     return set
   }, [runningRows, now])
@@ -387,24 +397,27 @@ export function StartCodingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* max-h + scrolling BODY row: the header/footer (and the absolute X
+          button) stay anchored while only the middle section scrolls — an
+          overflow on DialogContent itself would carry the X off-screen. */}
+      <DialogContent className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)_auto] gap-3 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Start coding</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-3 overflow-y-auto">
           <div className="space-y-2">
             <Label>Issues</Label>
-            <div className="flex items-center gap-2 rounded-md border border-border px-2.5">
-              <Search className="size-4 shrink-0 text-muted-foreground" />
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search issues…"
-                className="h-9 border-none px-0 shadow-none focus-visible:ring-0"
+                className="h-9 pl-8"
               />
             </div>
-            <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+            <div className="max-h-44 overflow-y-auto rounded-md border border-border">
               {pickerRows.length === 0 ? (
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {search.trim()
@@ -433,11 +446,16 @@ export function StartCodingDialog({
                         tabIndex={-1}
                         className="pointer-events-none"
                       />
-                      <StatusIcon status={issue.status} className="size-4 shrink-0" />
+                      <StatusIcon
+                        status={issue.status}
+                        className="size-4 shrink-0"
+                      />
                       <span className="shrink-0 font-mono text-xs text-muted-foreground">
                         {issue.identifier}
                       </span>
-                      <span className="flex-1 truncate text-sm">{issue.title}</span>
+                      <span className="flex-1 truncate text-sm">
+                        {issue.title}
+                      </span>
                     </div>
                   )
                 })
@@ -493,11 +511,15 @@ export function StartCodingDialog({
               <Label>Agent</Label>
               <Tabs value={agent} onValueChange={switchAgent}>
                 <TabsList className="w-full">
-                  {availableAgents.map((value) => (
-                    <TabsTrigger key={value} value={value} className="flex-1">
-                      {AGENT_LABELS[value] ?? value}
-                    </TabsTrigger>
-                  ))}
+                  {availableAgents.map((value) => {
+                    const AgentIcon = AGENT_ICONS[value]
+                    return (
+                      <TabsTrigger key={value} value={value} className="flex-1">
+                        {AgentIcon && <AgentIcon className="size-3.5" />}
+                        {AGENT_LABELS[value] ?? value}
+                      </TabsTrigger>
+                    )
+                  })}
                 </TabsList>
               </Tabs>
             </div>
@@ -531,7 +553,11 @@ export function StartCodingDialog({
             </div>
             <div className="space-y-2">
               <Label htmlFor="start-coding-effort">
-                {agent === `pi` ? `Thinking` : agent === `codex` ? `Reasoning` : `Effort`}
+                {agent === `pi`
+                  ? `Thinking`
+                  : agent === `codex`
+                    ? `Reasoning`
+                    : `Effort`}
               </Label>
               <Select
                 value={effortValue}
@@ -557,66 +583,65 @@ export function StartCodingDialog({
               </Select>
             </div>
           </div>
-          {agentSupportsUltracode(agent) && (
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <div className="space-y-0.5 pr-3">
-                <Label htmlFor="start-coding-ultracode">Ultracode</Label>
-                <p className="text-xs text-muted-foreground">
-                  Dynamic multi-agent workflows — overrides the effort level.
-                </p>
-              </div>
-              <Switch
-                id="start-coding-ultracode"
-                checked={ultracode}
-                onCheckedChange={(value) => {
-                  markTouched()
-                  setUltracode(value)
-                }}
-              />
+          {(agentSupportsUltracode(agent) ||
+            agentSupportsPlanMode(agent) ||
+            agentSupportsSkipPermissions(agent)) && (
+            <div className="space-y-2">
+              {agentSupportsUltracode(agent) && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="start-coding-ultracode"
+                    checked={ultracode}
+                    onCheckedChange={(value) => {
+                      markTouched()
+                      setUltracode(value === true)
+                    }}
+                  />
+                  <Label
+                    htmlFor="start-coding-ultracode"
+                    className="font-normal"
+                  >
+                    Dynamic workflows (ultracode)
+                  </Label>
+                </div>
+              )}
+              {agentSupportsPlanMode(agent) && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="start-coding-plan-mode"
+                    checked={planMode}
+                    onCheckedChange={(value) => {
+                      markTouched()
+                      setPlanMode(value === true)
+                    }}
+                  />
+                  <Label
+                    htmlFor="start-coding-plan-mode"
+                    className="font-normal"
+                  >
+                    Plan mode
+                  </Label>
+                </div>
+              )}
+              {agentSupportsSkipPermissions(agent) && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="start-coding-skip-permissions"
+                    checked={skipPermissions}
+                    onCheckedChange={(value) => {
+                      markTouched()
+                      setSkipPermissions(value === true)
+                    }}
+                  />
+                  <Label
+                    htmlFor="start-coding-skip-permissions"
+                    className="font-normal"
+                  >
+                    Skip permissions
+                  </Label>
+                </div>
+              )}
             </div>
-          )}
-          {agentSupportsPlanMode(agent) && (
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <div className="space-y-0.5 pr-3">
-                <Label htmlFor="start-coding-plan-mode">Plan mode</Label>
-                <p className="text-xs text-muted-foreground">
-                  Starts with a plan you approve — from this page or at the
-                  desktop.
-                </p>
-              </div>
-              <Switch
-                id="start-coding-plan-mode"
-                checked={planMode}
-                onCheckedChange={(value) => {
-                  markTouched()
-                  setPlanMode(value)
-                }}
-              />
-            </div>
-          )}
-          {agentSupportsSkipPermissions(agent) ? (
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <div className="space-y-0.5 pr-3">
-                <Label htmlFor="start-coding-skip-permissions">
-                  Skip permissions
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Full bypass instead of the agent&apos;s guarded auto mode.
-                </p>
-              </div>
-              <Switch
-                id="start-coding-skip-permissions"
-                checked={skipPermissions}
-                onCheckedChange={(value) => {
-                  markTouched()
-                  setSkipPermissions(value)
-                }}
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              pi has no permission prompts — it always runs unguarded.
-            </p>
           )}
         </div>
         <DialogFooter>
