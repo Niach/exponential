@@ -1,8 +1,9 @@
 // closedloop/fixtures.ts — the ONE fixture world of the ClosedLoop film:
 // a visitor on acme.shop hits a dead Pay-now button, reports it through the
 // embedded feedback widget, the issue lands as EXP-151 on the Acme Shop board,
-// Claude fixes it from the Start-coding dialog, the PR merges, the reporter
-// hears back. Everything here is deterministic copy — no divergent content.
+// Claude fixes it from the Start-coding dialog, the PR merges, and the film
+// closes on the Shipped card + every-platform lineup (EXP-200). Everything
+// here is deterministic copy — no divergent content.
 
 import type { BoardRow, DiffRow, SessionEvent } from "../ships/fixtures"
 
@@ -30,7 +31,7 @@ export const CL_LABELS = {
   infra: { name: "infra", dot: "#3b82f6" },
 } as const
 
-// ── The acme.shop checkout page (light-mode third-party site) ────────────────
+// ── The acme.shop checkout page (dark third-party site) ──────────────────────
 export const SITE = {
   nav: ["New in", "Men", "Women", "Sale"],
   cart: "Cart (2)",
@@ -180,14 +181,6 @@ export const CL_REVIEW_ROW = {
   sub: `#${CL.pr} · ${CL.branch}`,
 } as const
 
-// ── The reply email back to the reporter ──────────────────────────────────────
-export const EMAIL = {
-  from: "Acme Shop · via Exponential",
-  time: "just now",
-  subject: `Re: ${REPORT.title}`,
-  body: "Fixed and live. Thanks for the report.",
-} as const
-
 // ── Overlay copy ──────────────────────────────────────────────────────────────
 export const COPY = {
   s1: "A visitor hits a bug.",
@@ -197,5 +190,10 @@ export const COPY = {
   s6: "Claude fixes it in the dock.",
   s7: "Review it in place.",
   s8: "Merge. Done.",
-  s9: "The loop closes.",
+} as const
+
+// ── The Shipped end-card + platform lineup (S9, EXP-200) ─────────────────────
+export const ENDING_COPY = {
+  title: "Shipped.",
+  sub: "The loop closes.",
 } as const

@@ -1,33 +1,35 @@
-// closedloop/surfaces/sitemock.tsx — the LIGHT-MODE third-party site: a browser
+// closedloop/surfaces/sitemock.tsx — the DARK third-party site: a browser
 // chassis at the shared WIN comp coords (so the ships Camera/CursorLayer rigs work
 // unchanged), the acme.shop checkout page (PAGE-local coords, reusable scaled-down
-// as the widget screenshot thumbnail), the floating feedback FAB (modeled on
-// packages/widget/src/theme.ts — 44px pill, accent #e5e5e5, megaphone icon) and
-// the closing-beat email card. All frame props are COMPOSITION-GLOBAL.
+// as the widget screenshot thumbnail) and the floating feedback FAB (modeled on
+// packages/widget/src/theme.ts — 44px pill, accent #e5e5e5, megaphone icon).
+// All frame props are COMPOSITION-GLOBAL.
 
 import React from "react"
-import { interpolate, spring } from "remotion"
-import { EASE, SETTLE, UI_FONT, WIN } from "../../ships/theme"
-import { CL, EMAIL, SITE } from "../fixtures"
+import { interpolate } from "remotion"
+import { EASE, UI_FONT, WIN } from "../../ships/theme"
+import { CL, SITE } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const EASED = { ...CLAMP, easing: EASE } as const
 
-// Light third-party palette — deliberately foreign to the app theme (the site
-// must instantly read as NOT our app).
+// Dark third-party palette (EXP-200: the white storefront glared inside the
+// dark hero). Still deliberately foreign to the app theme — warmer zinc, its
+// own primary — so the site keeps reading as NOT our app.
 const S = {
-  chrome: "#e8eaed",
-  chromeBorder: "#d4d7dc",
-  urlBg: "#ffffff",
-  urlText: "#3c4043",
-  page: "#f4f5f7",
-  surface: "#ffffff",
-  border: "#e4e7ec",
-  text: "#111827",
-  muted: "#6b7280",
-  faint: "#9aa1ac",
-  inputBorder: "#d8dce3",
-  dark: "#111827",
+  chrome: "#1b1b1e",
+  chromeBorder: "rgba(255,255,255,0.09)",
+  urlBg: "#101013",
+  urlText: "#9a9aa3",
+  page: "#0d0d10",
+  surface: "#17171a",
+  border: "rgba(255,255,255,0.09)",
+  text: "#f4f4f5",
+  muted: "#9f9fa8",
+  faint: "#6e6e78",
+  inputBorder: "rgba(255,255,255,0.13)",
+  primary: "#fafafa", // pay button / brand square (light-on-dark)
+  primaryFg: "#131316",
 } as const
 
 // Widget-launcher tokens (packages/widget/src/theme.ts).
@@ -104,19 +106,6 @@ const MegaphoneIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <Svg size={size} sw={2}>
     <path d="m3 11 18-5v12L3 14v-3z" />
     <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-  </Svg>
-)
-
-const MailIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size} sw={1.8}>
-    <rect x="2" y="4" width="20" height="16" rx="2" />
-    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-  </Svg>
-)
-
-const CheckIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
-  <Svg size={size} sw={2.6}>
-    <path d="M20 6 9 17l-5-5" />
   </Svg>
 )
 
@@ -250,8 +239,8 @@ export const CheckoutPage: React.FC<{ frame: number; shakeAts?: readonly number[
               width: 26,
               height: 26,
               borderRadius: 7,
-              backgroundColor: S.dark,
-              color: "#ffffff",
+              backgroundColor: S.primary,
+              color: S.primaryFg,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -321,7 +310,7 @@ export const CheckoutPage: React.FC<{ frame: number; shakeAts?: readonly number[
           borderRadius: 12,
           border: `1px solid ${S.border}`,
           backgroundColor: S.surface,
-          boxShadow: "0 8px 28px rgba(17,24,39,0.06)",
+          boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
         }}
       />
       <div style={{ position: "absolute", left: CARD_X + CARD_PAD, top: 120, fontSize: 15, fontWeight: 700, color: S.text }}>
@@ -394,8 +383,8 @@ export const CheckoutPage: React.FC<{ frame: number; shakeAts?: readonly number[
           width: PAY.w,
           height: PAY.h,
           borderRadius: 8,
-          backgroundColor: S.dark,
-          color: "#ffffff",
+          backgroundColor: S.primary,
+          color: S.primaryFg,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -474,74 +463,6 @@ export const FeedbackFab: React.FC<{ frame: number; hoverAt?: number; pressAt?: 
     >
       <MegaphoneIcon size={16} />
       <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", opacity: grow }}>Feedback</span>
-    </div>
-  )
-}
-
-// ── The closing email card (window-local) ─────────────────────────────────────
-export const EmailCard: React.FC<{ frame: number; appearAt: number; fadeAt?: number }> = ({ frame, appearAt, fadeAt }) => {
-  if (frame < appearAt) return null
-  const pop = spring({ frame: frame - appearAt, fps: 30, config: SETTLE })
-  const fade = fadeAt === undefined ? 1 : 1 - interpolate(frame, [fadeAt, fadeAt + 12], [0, 1], EASED)
-  const o = interpolate(frame, [appearAt, appearAt + 8], [0, 1], CLAMP) * fade
-  if (o <= 0) return null
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 560,
-        top: 336,
-        width: 480,
-        boxSizing: "border-box",
-        borderRadius: 12,
-        border: `1px solid ${S.border}`,
-        backgroundColor: S.surface,
-        boxShadow: "0 24px 64px rgba(17,24,39,0.22), 0 4px 16px rgba(17,24,39,0.10)",
-        padding: 20,
-        opacity: o,
-        translate: `0px ${26 * (1 - pop)}px`,
-        fontFamily: UI_FONT,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            backgroundColor: S.dark,
-            color: "#ffffff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <MailIcon size={14} />
-        </div>
-        <span style={{ fontSize: 12.5, color: S.muted, flex: 1 }}>{EMAIL.from}</span>
-        <span style={{ fontSize: 12, color: S.faint }}>{EMAIL.time}</span>
-      </div>
-      <div style={{ marginTop: 12, fontSize: 15.5, fontWeight: 700, color: S.text, letterSpacing: -0.2 }}>{EMAIL.subject}</div>
-      <div style={{ marginTop: 6, fontSize: 13.5, lineHeight: 1.55, color: "#374151" }}>{EMAIL.body}</div>
-      <div
-        style={{
-          marginTop: 12,
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          height: 22,
-          padding: "0 9px",
-          borderRadius: 999,
-          backgroundColor: "rgba(34,197,94,0.12)",
-          color: "#15803d",
-          fontSize: 12,
-          fontWeight: 600,
-        }}
-      >
-        <CheckIcon size={11} />
-        Resolved
-      </div>
     </div>
   )
 }

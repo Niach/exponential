@@ -4,7 +4,11 @@
 
 /* Breaks out of the 1240px text shell so the film reads big; centered on
    the viewport (the shell itself is centered, so 50%/-50% lands on the
-   page axis). */
+   page axis). The third width term caps the stage so the whole hero fits
+   one viewport (EXP-200): stage height ≤ 100svh − --movie-reserve (set on
+   .hero in site.css), converted to width through the 16:9 ratio, floored
+   at 520px so extreme letterbox viewports don't shrink the film into a
+   thumbnail. First width line is the fallback for browsers without svh. */
 .movie {
   display: flex;
   flex-direction: column;
@@ -12,9 +16,22 @@
   margin-top: 12px;
   text-align: left;
   width: min(1440px, calc(100vw - 48px));
+  width: min(
+    1440px,
+    calc(100vw - 48px),
+    max(470px, calc((100svh - var(--movie-reserve, 600px)) * 16 / 9))
+  );
   position: relative;
   left: 50%;
   translate: -50% 0;
+}
+
+/* Very short desktop viewports give up on one-screen containment (site.css
+   drops the hero min-height there) — width-driven sizing again. */
+@media (max-height: 759px) and (min-width: 721px) {
+  .movie {
+    width: min(1440px, calc(100vw - 48px));
+  }
 }
 
 /* The stage reserves the full 16:9 box pre-mount (CLS-safe). */
@@ -82,6 +99,8 @@
 
 .movie-chip {
   appearance: none;
+  position: relative;
+  overflow: hidden;
   text-align: left;
   font-family: inherit;
   padding: 10px 12px;
@@ -94,13 +113,38 @@
     border-color 140ms;
 }
 
+/* Chapter-progress fill (EXP-200): the active chip carries --chip-progress
+   (0–100%, set from the player's frameupdate) so the rail visibly steps
+   through the film. */
+.movie-chip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--chip-progress, 0%);
+  background: var(--accent);
+  opacity: 0;
+  transition:
+    width 200ms linear,
+    opacity 140ms;
+}
+
 .movie-chip:hover {
   background: var(--bg-elev);
 }
 
 .movie-chip.is-active {
   background: var(--bg-elev);
-  border-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.movie-chip.is-active::after {
+  opacity: 1;
+}
+
+.movie-chip.is-active .movie-chip-phrase {
+  color: var(--fg-muted);
 }
 
 .movie-chip-label {
@@ -149,16 +193,21 @@
     border-radius: 999px;
   }
 
+  /* Reset the desktop progress-bar geometry: on phones the ::after IS the
+     segment pill; the active one fills left→right with --chip-progress. */
   .movie-chip::after {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
     top: 50%;
+    bottom: auto;
+    width: auto;
     height: 3px;
     margin-top: -1.5px;
     border-radius: 999px;
     background: var(--bg-soft);
+    opacity: 1;
     transition: background 140ms;
   }
 
@@ -172,7 +221,11 @@
   }
 
   .movie-chip.is-active::after {
-    background: var(--fg);
+    background: linear-gradient(
+      to right,
+      var(--fg) var(--chip-progress, 0%),
+      var(--bg-soft) var(--chip-progress, 0%)
+    );
   }
 
   /* Keep the chapter names for screen readers; hide them visually. */
