@@ -47,6 +47,11 @@ pub struct DeviceIdentity {
     pub device_id: String,
     /// OS hostname (`api::users::hostname()`) — the phone picker's label.
     pub device_label: String,
+    /// EXP-201: the agent CLIs installed on this device (contract
+    /// `codingAgent` ids, from the coding doctor) — advertised in the
+    /// `online` frame so remote pickers only offer them. Empty = omit the
+    /// field (the relay then defaults to `["claude"]`).
+    pub agents: Vec<String>,
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
@@ -96,10 +101,14 @@ pub enum RemoteStartSubject {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteStart {
     pub subject: RemoteStartSubject,
+    /// EXP-201: the agent the remote client picked (`claude`/`codex`/`pi`).
+    /// Absent/unknown = claude (the pre-EXP-201 behavior).
+    pub agent: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub ultracode: Option<bool>,
     pub plan_mode: Option<bool>,
+    pub skip_permissions: Option<bool>,
 }
 
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
@@ -112,10 +121,12 @@ pub(crate) fn remote_start_from_frame(
     issue_ids: Option<Vec<String>>,
     team_id: Option<String>,
     repo: Option<StartRepoGroup>,
+    agent: Option<String>,
     model: Option<String>,
     effort: Option<String>,
     ultracode: Option<bool>,
     plan_mode: Option<bool>,
+    skip_permissions: Option<bool>,
 ) -> Option<RemoteStart> {
     let subject = match (issue_id, issue_ids) {
         (Some(issue_id), None) => RemoteStartSubject::Issue(issue_id),
@@ -129,10 +140,12 @@ pub(crate) fn remote_start_from_frame(
     };
     Some(RemoteStart {
         subject,
+        agent,
         model,
         effort,
         ultracode,
         plan_mode,
+        skip_permissions,
     })
 }
 
@@ -359,10 +372,13 @@ async fn connect_and_listen(
         Err(crate::DialError::Other(reason)) => return ConnectionOutcome::ConnectFailed(reason),
     };
 
-    // §8.3 #3 — announce presence immediately on open.
+    // §8.3 #3 — announce presence immediately on open (EXP-201: including
+    // the installed-agent advertisement; empty = omit, relay defaults to
+    // claude-only).
     let online = ClientFrame::Online {
         device_id: &device.device_id,
         device_label: Some(&device.device_label),
+        agents: (!device.agents.is_empty()).then_some(device.agents.as_slice()),
     }
     .to_json();
     if let Err(err) = ws.send(Message::Text(online)).await {
@@ -389,13 +405,15 @@ async fn connect_and_listen(
                         issue_ids,
                         team_id,
                         repo,
+                        agent,
                         model,
                         effort,
                         ultracode,
                         plan_mode,
+                        skip_permissions,
                     }) => match remote_start_from_frame(
-                        issue_id, issue_ids, team_id, repo, model, effort, ultracode,
-                        plan_mode,
+                        issue_id, issue_ids, team_id, repo, agent, model, effort, ultracode,
+                        plan_mode, skip_permissions,
                     ) {
                         Some(start) => {
                             log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -466,17 +484,21 @@ mod tests {
                 None,
                 None,
                 None,
+                Some("codex".into()),
                 Some("opus".into()),
                 None,
                 Some(true),
                 None,
+                Some(true),
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
+                agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: None,
                 ultracode: Some(true),
                 plan_mode: None,
+                skip_permissions: Some(true),
             })
         );
 
@@ -490,7 +512,9 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(false),
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -498,10 +522,12 @@ mod tests {
                     team_id: "ws-7".into(),
                     repo: repo(),
                 },
+                agent: None,
                 model: None,
                 effort: None,
                 ultracode: None,
                 plan_mode: Some(false),
+                skip_permissions: None,
             })
         );
     }
@@ -519,12 +545,14 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             ),
             None
         );
         // Neither subject set.
         assert_eq!(
-            remote_start_from_frame(None, None, None, None, None, None, None, None),
+            remote_start_from_frame(None, None, None, None, None, None, None, None, None, None),
             None
         );
         // Empty batch id list.
@@ -534,6 +562,8 @@ mod tests {
                 Some(vec![]),
                 Some("ws-7".into()),
                 Some(repo()),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -552,6 +582,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             ),
             None
         );
@@ -562,6 +594,8 @@ mod tests {
                 Some(vec!["a".into()]),
                 None,
                 Some(repo()),
+                None,
+                None,
                 None,
                 None,
                 None,

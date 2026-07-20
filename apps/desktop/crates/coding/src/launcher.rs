@@ -35,11 +35,13 @@ use terminal::pty::SpawnSpec;
 use terminal::tab::{TabId, TabKind};
 use terminal::TerminalManager;
 
-use crate::argv::{session_args, LaunchOptions};
+use crate::agent::CodingAgent;
+use crate::argv::{session_args, AgentMcp, LaunchOptions, MCP_TOKEN_ENV, MCP_URL_ENV};
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
+use crate::pi_bridge::write_pi_bridge;
 use crate::git_credentials;
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
@@ -161,13 +163,14 @@ impl WorktreeProvider for GitWorktrees {
         let _ = fetch_base(&clone, default_branch, url);
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
-        // .exp-mcp.json carries the raw expu_ key and claude is told to
-        // commit + push — keep it out of `git add -A` via the shared,
-        // never-committed `.git/info/exclude` (best-effort by design; the
-        // PROMPT.md exclude rides [`crate::prompt::deliver_prompt_file`]).
+        // .exp-mcp.json carries the raw expu_ key and the agent is told to
+        // commit + push — keep it (and the pi MCP-bridge extension) out of
+        // `git add -A` via the shared, never-committed `.git/info/exclude`
+        // (best-effort by design; the PROMPT.md exclude rides
+        // [`crate::prompt::deliver_prompt_file`]).
         let _ = crate::git_worktree::ensure_local_excludes(
             &clone,
-            &[crate::mcp_json::MCP_JSON_FILE],
+            &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
         );
         Ok(worktree)
     }
@@ -363,11 +366,18 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    // Step 0 — the doctor gate. Cheap relative to clone/mint and structural:
-    // the relay origin has no button whose disabled state could have gated
-    // this.
+    let options = match req {
+        PrepareRequest::Issue(issue_req) => &issue_req.options,
+        PrepareRequest::Batch(batch_req) => &batch_req.options,
+    };
+    let agent = options.agent;
+
+    // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
+    // agent must resolve — a missing pi never blocks a claude launch).
+    // Cheap relative to clone/mint and structural: the relay origin has no
+    // button whose disabled state could have gated this.
     let report = run_doctor(&deps.settings);
-    if let Some(failed) = report.first_failure() {
+    if let Some(failed) = report.first_failure_for(agent) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
@@ -434,14 +444,35 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // The clone path the worktree hangs off — the P9 token refresher's target.
     let clone = clone_path(&repos_root, url.full_name());
 
-    // Step 4 — .exp-mcp.json (authenticates the spawned claude as the real
-    // user; any subagents it spawns inherit the session's MCP servers; NOT
-    // named .mcp.json — EXP-98, see `crate::mcp_json`).
+    // Step 4 — per-agent MCP wiring (authenticates the spawned agent as the
+    // real user against /api/mcp):
+    // - claude: the worktree `.exp-mcp.json` (any subagents it spawns
+    //   inherit the session's MCP servers; NOT named .mcp.json — EXP-98,
+    //   see `crate::mcp_json`) — the ONLY on-disk consumer of the raw key.
+    // - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
+    //   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
+    // - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has
+    //   no native MCP); url + key ride the spawn env like codex.
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
-        .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
+    let mcp_url = format!(
+        "{}/api/mcp",
+        deps.trpc.base_url().trim_end_matches('/')
+    );
+    let agent_mcp = match agent {
+        CodingAgent::Claude => {
+            write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
+                .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
+            AgentMcp::ClaudeFile
+        }
+        CodingAgent::Codex => AgentMcp::CodexOverrides { url: mcp_url.clone() },
+        CodingAgent::Pi => {
+            write_pi_bridge(&worktree)
+                .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
+            AgentMcp::PiExtension
+        }
+    };
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
     // small, PROMPT.md + seed line otherwise).
@@ -520,9 +551,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // the native permission posture, and the prompt positional-last (bytes
     // typed into the PTY before the TUI enters raw mode get swallowed during
     // startup, so the prompt must never be delivered via stdin).
-    let (args, issue_identifier, tab_title_prefix) = match req {
+    let (issue_identifier, tab_title_prefix) = match req {
         PrepareRequest::Issue(issue_req) => (
-            session_args(&issue_req.options, delivery.positional()),
             issue_req.issue_identifier.clone(),
             issue_req.issue_identifier.clone(),
         ),
@@ -534,14 +564,14 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 .unwrap_or("batch");
             let extra = batch_req.issues.len().saturating_sub(1);
             (
-                session_args(&batch_req.options, delivery.positional()),
                 format!("batch-{}", batch_req.batch_id),
                 format!("{first} +{extra}"),
             )
         }
     };
-    let tab_title = format!("claude · {tab_title_prefix}");
-    let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
+    let args = session_args(options, &agent_mcp, delivery.positional());
+    let tab_title = format!("{} · {tab_title_prefix}", agent.id());
+    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&worktree)
         // EXP-76 disk hygiene, both inherited by every cargo the session runs:
@@ -556,6 +586,23 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
         )
         .env("CARGO_INCREMENTAL", "0");
+    // The MCP credential for codex/pi rides the ENV (claude's rides
+    // `.exp-mcp.json`): codex reads it through `bearer_token_env_var`, the
+    // pi bridge reads url + token directly.
+    match agent {
+        CodingAgent::Claude => {}
+        CodingAgent::Codex => {
+            spawn = spawn.env(MCP_TOKEN_ENV, personal_key.as_str());
+        }
+        CodingAgent::Pi => {
+            spawn = spawn
+                .env(MCP_URL_ENV, mcp_url.as_str())
+                .env(MCP_TOKEN_ENV, personal_key.as_str())
+                // Embedded sessions must not block on pi's startup
+                // update/network checks.
+                .env("PI_SKIP_VERSION_CHECK", "1");
+        }
+    }
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
@@ -728,22 +775,27 @@ mod tests {
             issue_status: IssueStatus::InProgress,
             device_label: "testbox".to_string(),
             origin: LaunchOrigin::Local,
-            // The dialog defaults: fable, no effort, no ultracode, plan mode ON.
+            // The dialog defaults: claude, fable, no effort, no ultracode,
+            // plan mode ON, no skip (auto posture).
             options: LaunchOptions {
+                agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: true,
+                skip_permissions: false,
             },
         }
     }
 
     fn batch_options() -> LaunchOptions {
         LaunchOptions {
+            agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: "high".to_string(),
             ultracode: true,
             plan_mode: false,
+            skip_permissions: true,
         }
     }
 
@@ -1068,6 +1120,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
         req.options.plan_mode = false;
+        req.options.skip_permissions = true;
         req.options.effort = "xhigh".to_string();
 
         match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -1088,6 +1141,162 @@ mod tests {
                 assert!(!prepared.spawn.args.iter().any(|arg| arg == "--permission-mode"));
             }
             other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    /// EXP-201: a CODEX launch writes NO `.exp-mcp.json` (the raw key rides
+    /// only the spawn env as EXP_MCP_TOKEN), composes the `-c mcp_servers.*`
+    /// overrides + the explicit Auto preset, and titles the tab `codex · …`.
+    #[test]
+    fn prepare_codex_full_sequence() {
+        let dir = temp_dir("codex-happy");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.codex_path = "git".to_string(); // runnable stub
+        let mut req = request("EXP-42");
+        req.options = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: "gpt-5.6-sol".to_string(),
+            effort: "high".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        assert_eq!(prepared.tab_title, "codex · EXP-42");
+        assert_eq!(prepared.spawn.program, "git"); // the configured codex path
+        // NO on-disk MCP config for codex — the key must not land in the tree.
+        assert!(!worktree.join(".exp-mcp.json").exists());
+        assert!(!worktree.join(".exp-pi-mcp.ts").exists());
+        // The -c overrides point at the instance /api/mcp; the token itself
+        // never rides argv…
+        let args = &prepared.spawn.args;
+        assert!(args.contains(&format!("mcp_servers.exponential.url=\"{base}/api/mcp\"")));
+        assert!(args
+            .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
+        assert!(!args.iter().any(|arg| arg.contains("expu_")));
+        // …it rides the spawn env.
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
+        // Auto preset (skip OFF): workspace-write + on-request + network.
+        assert!(args.contains(&"--sandbox".to_string()));
+        assert!(args.contains(&"workspace-write".to_string()));
+        assert!(args.contains(&"sandbox_workspace_write.network_access=true".to_string()));
+        assert!(!args.iter().any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox"));
+        // Prompt positional-last, model/effort flags present.
+        assert_eq!(args[..2], ["-m".to_string(), "gpt-5.6-sol".to_string()]);
+        assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
+        assert!(args.last().unwrap().contains("EXP-42"));
+    }
+
+    /// EXP-201: a PI launch writes the `.exp-pi-mcp.ts` bridge (no
+    /// `.exp-mcp.json`), loads it via `-e`, and carries url + token +
+    /// PI_SKIP_VERSION_CHECK in the spawn env; tab titled `pi · …`.
+    #[test]
+    fn prepare_pi_full_sequence() {
+        let dir = temp_dir("pi-happy");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.settings.pi_path = "git".to_string(); // runnable stub
+        let mut req = request("EXP-42");
+        req.options = LaunchOptions {
+            agent: CodingAgent::Pi,
+            model: "grok-4.5".to_string(),
+            effort: "high".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        assert_eq!(prepared.tab_title, "pi · EXP-42");
+        // The bridge is on disk (static, secret-free); no .exp-mcp.json.
+        let bridge = fs::read_to_string(worktree.join(".exp-pi-mcp.ts")).unwrap();
+        assert!(!bridge.contains("expu_"));
+        assert!(!worktree.join(".exp-mcp.json").exists());
+        let args = &prepared.spawn.args;
+        assert_eq!(
+            args[..6],
+            [
+                "--model".to_string(),
+                "grok-4.5".to_string(),
+                "--thinking".to_string(),
+                "high".to_string(),
+                "-e".to_string(),
+                "./.exp-pi-mcp.ts".to_string(),
+            ]
+        );
+        // pi has no permission flags; never -a (would auto-trust the repo).
+        assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
+        for (key, value) in [
+            ("EXP_MCP_URL", format!("{base}/api/mcp")),
+            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
+            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
+        ] {
+            assert!(
+                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
+                "missing env {key}={value}: {:?}",
+                prepared.spawn.env
+            );
+        }
+    }
+
+    /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX launch
+    /// with the codex copy — while claude (the settings stub) stays fine.
+    #[test]
+    fn missing_selected_agent_blocks_with_its_own_copy() {
+        let dir = temp_dir("codex-missing");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("wt"),
+            seen: Default::default(),
+        });
+        // Unroutable base: any network call would error the launch — proving
+        // the doctor gate fires first.
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        deps.settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
+        let mut req = request("EXP-42");
+        req.options.agent = CodingAgent::Codex;
+
+        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
+                assert_eq!(check.tool, crate::doctor::Tool::Codex);
+                assert_eq!(
+                    check.error.as_deref(),
+                    Some("codex not found on PATH — set an absolute path")
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
         }
     }
 

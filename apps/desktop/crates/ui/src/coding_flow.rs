@@ -158,9 +158,13 @@ impl CodingHub {
         result
     }
 
-    /// The §7.1-step-1 gate half the button ANDs in: both tools green.
+    /// The §7.1-step-1 gate half the button ANDs in: git green + at least
+    /// one usable agent CLI (EXP-201 — the dialog gates the SELECTED agent).
     pub fn doctor_ok(&self) -> bool {
-        self.doctor.report.as_ref().is_some_and(DoctorReport::ok)
+        self.doctor
+            .report
+            .as_ref()
+            .is_some_and(|report| report.git.ok && report.any_agent_ok())
     }
 }
 
@@ -911,15 +915,23 @@ impl StartCodingControl {
         let hub = hub.read(cx);
         match hub.doctor.report.as_ref() {
             None => return Some("Checking local tools…".into()),
+            // EXP-201: the affordance needs git + at least ONE agent; the
+            // dialog gates the specific agent the user selects.
             Some(report) => {
-                if let Some(failed) = report.first_failure() {
-                    // The §7.7 actionable copy ("claude not found on PATH —
-                    // set an absolute path" / "git not found on PATH").
+                if !report.git.ok {
                     return Some(
-                        failed
+                        report
+                            .git
                             .error
                             .clone()
-                            .unwrap_or_else(|| format!("{} is not available", failed.tool))
+                            .unwrap_or_else(|| "git is not available".to_string())
+                            .into(),
+                    );
+                }
+                if !report.any_agent_ok() {
+                    return Some(
+                        "No coding agent CLI found (claude, codex, or pi) — install one \
+                         or set its path in Settings → Coding."
                             .into(),
                     );
                 }

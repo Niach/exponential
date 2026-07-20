@@ -26,12 +26,17 @@ data class SteerConfigResult(
     @SerialName("relayUrl") val relayUrl: String? = null,
 )
 
-/** One of the caller's online desktops (relay presence, no DB table). */
+/**
+ * One of the caller's online desktops (relay presence, no DB table).
+ * [agents] lists the coding agents the desktop can launch (EXP-201) — an
+ * absent/empty list means an older desktop that only runs claude.
+ */
 @Serializable
 data class SteerDevice(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("deviceLabel") val deviceLabel: String = "",
     @SerialName("connectedAt") val connectedAt: Long = 0,
+    @SerialName("agents") val agents: List<String> = emptyList(),
 )
 
 @Serializable
@@ -61,13 +66,17 @@ private data class ViewerTicketInput(
  * Launch options a remote start may carry (EXP-149) — the Start-coding
  * sheet's choices. Null fields are omitted from the wire (the shared Json has
  * explicitNulls=false) and mean "desktop settings default" (plan mode OFF).
- * An empty [effort] is an explicit "CLI default" (omit --effort).
+ * An empty [effort] is an explicit "CLI default" (omit --effort). A null
+ * [agent] means claude (EXP-201); [skipPermissions] only applies to agents
+ * with a guarded auto mode (claude/codex — pi is always unguarded).
  */
 data class SteerStartOptions(
     val model: String? = null,
     val effort: String? = null,
     val ultracode: Boolean? = null,
     val planMode: Boolean? = null,
+    val agent: String? = null,
+    val skipPermissions: Boolean? = null,
 )
 
 @Serializable
@@ -78,6 +87,8 @@ private data class StartSessionInput(
     @SerialName("effort") val effort: String? = null,
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
+    @SerialName("agent") val agent: String? = null,
+    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
 )
 
 // The batch form of steer.startSession (EXP-156): exactly one of
@@ -92,6 +103,8 @@ private data class StartBatchSessionInput(
     @SerialName("effort") val effort: String? = null,
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
+    @SerialName("agent") val agent: String? = null,
+    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
 )
 
 @Singleton
@@ -144,6 +157,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 effort = options.effort,
                 ultracode = options.ultracode,
                 planMode = options.planMode,
+                agent = options.agent,
+                skipPermissions = options.skipPermissions,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )
@@ -170,6 +185,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 effort = options.effort,
                 ultracode = options.ultracode,
                 planMode = options.planMode,
+                agent = options.agent,
+                skipPermissions = options.skipPermissions,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
         )

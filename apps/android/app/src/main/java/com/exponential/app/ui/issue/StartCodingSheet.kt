@@ -60,17 +60,25 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The unified remote Start-coding sheet (EXP-156) — the Android twin of the
-// desktop IDE's ONE Start-coding dialog: a searchable multi-issue picker over
-// Model / Effort chips, an ultracode switch (it IS `--effort ultracode`, so it
-// disables the Effort chips), a plan-mode switch, plus a desktop picker when
-// more than one is online. Exactly 1 checked issue launches a plain single
-// session; 2+ launch a BATCH session (one Claude on one `exp/batch-<id8>`
-// branch spanning every issue, all from one repository). Last-used options
-// persist via SharedPreferences; stored values are validated against the
-// contract on read so a stale entry can never send a value the server rejects.
+// desktop IDE's ONE Start-coding dialog: an agent picker (EXP-201: claude /
+// codex / pi, shown only when the chosen desktop offers more than one), a
+// searchable multi-issue picker over per-agent Model / Effort chips, the
+// claude-only ultracode switch (it IS `--effort ultracode`, so it disables the
+// Effort chips) and plan-mode switch, a skip-permissions switch (claude +
+// codex — pi is always unguarded), plus a desktop picker when more than one is
+// online. Exactly 1 checked issue launches a plain single session; 2+ launch a
+// BATCH session (one agent on one `exp/batch-<id8>` branch spanning every
+// issue, all from one repository). Last-used options persist via
+// SharedPreferences; stored values are validated against the contract on read
+// so a stale entry can never send a value the server rejects.
 
 /** Sentinel-free UI state: an empty effort means "CLI default" (omit --effort). */
 private const val CLI_DEFAULT_EFFORT = ""
+
+/** Same convention for codex/pi models: an empty model means "CLI default". */
+private const val CLI_DEFAULT_MODEL = ""
+
+private const val DEFAULT_AGENT = "claude"
 
 private const val PREFS_NAME = "coding_start"
 
@@ -111,19 +119,30 @@ fun StartCodingSheet(
 
     // Stored per-mode defaults, read once on composition. ultracode/planMode are
     // the single-issue defaults; a 2+ batch overrides them (see below) without
-    // ever writing back over these.
+    // ever writing back over these. model/effort are validated against the
+    // STORED agent's option set — an agent switch invalidates them anyway.
+    val storedAgent = remember {
+        prefs.getString("agent", null)
+            ?.takeIf { it in DomainContract.codingAgentValues }
+            ?: DEFAULT_AGENT
+    }
     val storedModel = remember {
+        val valid = modelValuesFor(storedAgent)
         prefs.getString("model", null)
-            ?.takeIf { it in DomainContract.codingModelValues }
-            ?: DomainContract.codingModelValues.first()
+            ?.takeIf {
+                if (storedAgent == DEFAULT_AGENT) it in valid
+                else it == CLI_DEFAULT_MODEL || it in valid
+            }
+            ?: defaultModelFor(storedAgent)
     }
     val storedEffort = remember {
         prefs.getString("effort", null)
-            ?.takeIf { it == CLI_DEFAULT_EFFORT || it in DomainContract.codingEffortValues }
+            ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(storedAgent) }
             ?: CLI_DEFAULT_EFFORT
     }
     val storedUltracode = remember { prefs.getBoolean("ultracode", false) }
     val storedPlanMode = remember { prefs.getBoolean("planMode", false) }
+    val storedSkipPermissions = remember { prefs.getBoolean("skipPermissions", false) }
 
     // The set of queue-able issue ids (the pool). ALL derived state operates on
     // the intersection of `checked` with this — a preselected id that isn't in
@@ -132,16 +151,37 @@ fun StartCodingSheet(
     val poolIds = remember(issues) { issues.mapTo(HashSet()) { it.id } }
     val initialInPoolCount = remember { preselectedIds.count { it in poolIds } }
 
-    var model by remember { mutableStateOf(storedModel) }
-    var effort by remember { mutableStateOf(storedEffort) }
+    // The initially selected desktop decides which agents are on offer before
+    // any state exists — a stored agent the device can't run falls back to the
+    // device's first available agent, with that agent's model/effort defaults.
+    val initialAgent = remember {
+        val initialDevice = devices.firstOrNull { it.deviceId == preferredDeviceId }
+            ?: devices.firstOrNull()
+        storedAgent.takeIf { it in availableAgentsFor(initialDevice) }
+            ?: availableAgentsFor(initialDevice).first()
+    }
+
+    var agent by remember { mutableStateOf(initialAgent) }
+    var model by remember {
+        mutableStateOf(if (initialAgent == storedAgent) storedModel else defaultModelFor(initialAgent))
+    }
+    var effort by remember {
+        mutableStateOf(if (initialAgent == storedAgent) storedEffort else CLI_DEFAULT_EFFORT)
+    }
     // A run seeded with 2+ in-pool issues starts as a batch (ultracode ON, plan
     // OFF) until the user touches a toggle; ≤1 uses the stored single defaults.
+    // Batch seeding is a claude-only concept — other agents have no ultracode.
     var ultracode by remember {
-        mutableStateOf(if (initialInPoolCount >= 2) true else storedUltracode)
+        mutableStateOf(
+            if (initialAgent == DEFAULT_AGENT && initialInPoolCount >= 2) true else storedUltracode,
+        )
     }
     var planMode by remember {
-        mutableStateOf(if (initialInPoolCount >= 2) false else storedPlanMode)
+        mutableStateOf(
+            if (initialAgent == DEFAULT_AGENT && initialInPoolCount >= 2) false else storedPlanMode,
+        )
     }
+    var skipPermissions by remember { mutableStateOf(storedSkipPermissions) }
     // Seed only with in-pool preselected ids — never carry a phantom id.
     var checked by remember { mutableStateOf(preselectedIds intersect poolIds) }
     // Set by any Model/Effort/ultracode/plan interaction: once the user takes
@@ -156,6 +196,20 @@ fun StartCodingSheet(
         )
     }
     val device = devices.firstOrNull { it.deviceId == deviceId } ?: devices.firstOrNull()
+    val availableAgents = availableAgentsFor(device)
+
+    // Switching agent invalidates the per-agent model/effort vocabularies:
+    // reset both to the new agent's defaults and clamp the claude-only toggles.
+    fun selectAgent(next: String) {
+        if (next == agent) return
+        agent = next
+        model = defaultModelFor(next)
+        effort = CLI_DEFAULT_EFFORT
+        if (next != DEFAULT_AGENT) {
+            ultracode = false
+            planMode = false
+        }
+    }
 
     fun toggleIssue(id: String) {
         // Count only in-pool ids so a lingering phantom (a checked id that fell
@@ -163,7 +217,8 @@ fun StartCodingSheet(
         val before = checked.count { it in poolIds }
         checked = if (id in checked) checked - id else checked + id
         val after = checked.count { it in poolIds }
-        if (!touchedToggles) {
+        // Batch defaults (ultracode ON, plan OFF) only exist for claude.
+        if (!touchedToggles && agent == DEFAULT_AGENT) {
             if (before <= 1 && after >= 2) {
                 ultracode = true
                 planMode = false
@@ -316,11 +371,35 @@ fun StartCodingSheet(
                         } else null,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { deviceId = candidate.deviceId },
+                            .clickable {
+                                deviceId = candidate.deviceId
+                                // The new desktop may not run the current agent
+                                // — fall back to its first available one.
+                                val available = availableAgentsFor(candidate)
+                                if (agent !in available) selectAgent(available.first())
+                            },
                     )
                 }
                 Spacer(Modifier.height(8.dp))
             } else {
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // Agent picker — hidden when the chosen desktop offers just one.
+            if (availableAgents.size > 1) {
+                SectionLabel("Agent")
+                FlowRow(
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    availableAgents.forEach { value ->
+                        FilterChip(
+                            selected = agent == value,
+                            onClick = { selectAgent(value) },
+                            label = { Text(agentLabel(value)) },
+                        )
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -329,7 +408,12 @@ fun StartCodingSheet(
                 modifier = Modifier.padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DomainContract.codingModelValues.forEach { value ->
+                val modelOptions = when (agent) {
+                    "codex" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.codexModelValues
+                    "pi" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.piModelValues
+                    else -> DomainContract.codingModelValues
+                }
+                modelOptions.forEach { value ->
                     FilterChip(
                         selected = model == value,
                         onClick = {
@@ -342,12 +426,18 @@ fun StartCodingSheet(
             }
 
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Effort")
+            SectionLabel(
+                when (agent) {
+                    "codex" -> "Reasoning"
+                    "pi" -> "Thinking"
+                    else -> "Effort"
+                },
+            )
             FlowRow(
                 modifier = Modifier.padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                (listOf(CLI_DEFAULT_EFFORT) + DomainContract.codingEffortValues).forEach { value ->
+                (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent)).forEach { value ->
                     FilterChip(
                         selected = effort == value,
                         onClick = {
@@ -361,24 +451,44 @@ fun StartCodingSheet(
             }
 
             Spacer(Modifier.height(8.dp))
-            SwitchRow(
-                title = "Ultracode",
-                subtitle = "Dynamic multi-agent workflows — overrides the effort level.",
-                checked = ultracode,
-                onCheckedChange = {
-                    ultracode = it
-                    touchedToggles = true
-                },
-            )
-            SwitchRow(
-                title = "Plan mode",
-                subtitle = "Starts with a plan that needs approval — from the web or at the desktop.",
-                checked = planMode,
-                onCheckedChange = {
-                    planMode = it
-                    touchedToggles = true
-                },
-            )
+            if (agent == DEFAULT_AGENT) {
+                SwitchRow(
+                    title = "Ultracode",
+                    subtitle = "Dynamic multi-agent workflows — overrides the effort level.",
+                    checked = ultracode,
+                    onCheckedChange = {
+                        ultracode = it
+                        touchedToggles = true
+                    },
+                )
+                SwitchRow(
+                    title = "Plan mode",
+                    subtitle = "Starts with a plan that needs approval — from the web or at the desktop.",
+                    checked = planMode,
+                    onCheckedChange = {
+                        planMode = it
+                        touchedToggles = true
+                    },
+                )
+            }
+            if (agent == "pi") {
+                Text(
+                    "pi has no permission prompts — it always runs unguarded.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            } else {
+                SwitchRow(
+                    title = "Skip permissions",
+                    subtitle = "Full bypass instead of the agent's guarded auto mode.",
+                    checked = skipPermissions,
+                    onCheckedChange = {
+                        skipPermissions = it
+                        touchedToggles = true
+                    },
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
             Button(
@@ -386,13 +496,16 @@ fun StartCodingSheet(
                     val target = device ?: return@Button
                     val ids = checkedInOrder.map { it.id }
                     if (ids.isEmpty()) return@Button
-                    // model/effort persist on every submit; ultracode/plan only on
-                    // a single-issue start, so batch seeding never leaks into the
-                    // stored single-issue defaults.
+                    // agent/model/effort/skipPermissions persist on every submit;
+                    // ultracode/plan only on a claude single-issue start, so batch
+                    // seeding (and agent clamping) never leaks into the stored
+                    // single-issue defaults.
                     prefs.edit().apply {
+                        putString("agent", agent)
                         putString("model", model)
                         putString("effort", effort)
-                        if (ids.size <= 1) {
+                        putBoolean("skipPermissions", skipPermissions)
+                        if (agent == DEFAULT_AGENT && ids.size <= 1) {
                             putBoolean("ultracode", ultracode)
                             putBoolean("planMode", planMode)
                         }
@@ -404,8 +517,12 @@ fun StartCodingSheet(
                         SteerStartOptions(
                             model = model,
                             effort = effort,
-                            ultracode = ultracode,
-                            planMode = planMode,
+                            // ultracode/plan are claude-only; skip-permissions
+                            // applies to every guarded agent (i.e. not pi).
+                            ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
+                            planMode = if (agent == DEFAULT_AGENT) planMode else null,
+                            agent = agent,
+                            skipPermissions = if (agent == "pi") null else skipPermissions,
                         ),
                     )
                     onDismiss()
@@ -503,8 +620,46 @@ private fun SwitchRow(
     }
 }
 
-private fun modelLabel(value: String): String =
-    value.replaceFirstChar { it.uppercaseChar() }
+// The agents a desktop can launch, in contract order. An absent/empty list is
+// an older desktop that only runs claude; an unrecognized-only list degrades
+// to claude too (the desktop would refuse anything else anyway).
+private fun availableAgentsFor(device: SteerDevice?): List<String> {
+    val reported = device?.agents?.takeIf { it.isNotEmpty() } ?: listOf(DEFAULT_AGENT)
+    return DomainContract.codingAgentValues.filter { it in reported }
+        .ifEmpty { listOf(DEFAULT_AGENT) }
+}
+
+private fun modelValuesFor(agent: String): List<String> = when (agent) {
+    "codex" -> DomainContract.codexModelValues
+    "pi" -> DomainContract.piModelValues
+    else -> DomainContract.codingModelValues
+}
+
+private fun effortValuesFor(agent: String): List<String> = when (agent) {
+    "codex" -> DomainContract.codexEffortValues
+    "pi" -> DomainContract.piThinkingValues
+    else -> DomainContract.codingEffortValues
+}
+
+/** claude has no CLI-default model chip; codex/pi default to the blank one. */
+private fun defaultModelFor(agent: String): String =
+    if (agent == DEFAULT_AGENT) DomainContract.codingModelValues.first() else CLI_DEFAULT_MODEL
+
+private fun agentLabel(value: String): String = when (value) {
+    "claude" -> "Claude Code"
+    "codex" -> "Codex"
+    "pi" -> "pi"
+    else -> value
+}
+
+private fun modelLabel(value: String): String = when (value) {
+    CLI_DEFAULT_MODEL -> "CLI default"
+    "gpt-5.6-sol" -> "GPT-5.6 Sol"
+    "gpt-5.6-terra" -> "GPT-5.6 Terra"
+    "gpt-5.6-luna" -> "GPT-5.6 Luna"
+    "grok-4.5" -> "Grok 4.5"
+    else -> value.replaceFirstChar { it.uppercaseChar() }
+}
 
 private fun effortLabel(value: String): String = when (value) {
     CLI_DEFAULT_EFFORT -> "CLI default"

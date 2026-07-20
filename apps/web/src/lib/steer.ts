@@ -174,6 +174,15 @@ export interface SteerDevice {
   deviceId: string
   deviceLabel: string
   connectedAt: number
+  /** EXP-201: agent CLIs the device advertised (`claude`/`codex`/`pi`).
+   * Absent from an old relay ⇒ treat as claude-only. */
+  agents?: string[]
+}
+
+/** The agents a device can run — absent advertisement (old relay/desktop)
+ * means exactly what every desktop could do before EXP-201: claude. */
+export function deviceAgents(device: Pick<SteerDevice, `agents`>): string[] {
+  return device.agents && device.agents.length > 0 ? device.agents : [`claude`]
 }
 
 /** GET /devices/:userId — online desktops for the "Start on my desktop" picker. */
@@ -204,10 +213,16 @@ export type RelayStartResult =
  * "CLI default" (omit --effort), distinct from absent.
  */
 export interface SteerStartOptions {
+  /** EXP-201: the agent CLI to launch (`claude`/`codex`/`pi`); absent =
+   * claude (the pre-EXP-201 behavior on every desktop). */
+  agent?: string
   model?: string
   effort?: string
   ultracode?: boolean
   planMode?: boolean
+  /** EXP-201: full permission bypass instead of the agent's guarded auto
+   * mode. Absent = desktop settings default. */
+  skipPermissions?: boolean
 }
 
 /**

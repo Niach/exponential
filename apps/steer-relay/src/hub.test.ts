@@ -154,7 +154,9 @@ describe(`device presence + remote start`, () => {
     )
 
     expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, deviceLabel: `MacBook` },
+      // EXP-201: no advertisement on the online frame ⇒ claude-only (the
+      // old-desktop compat default).
+      { deviceId: `dev-1`, deviceLabel: `MacBook`, agents: [`claude`] },
     ])
 
     const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
@@ -207,6 +209,36 @@ describe(`device presence + remote start`, () => {
       issueId: `issue-10`,
       model: `sonnet`,
     })
+
+    // EXP-201: agent + skipPermissions ride the frame like any option.
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-11` }, {
+      agent: `codex`,
+      skipPermissions: true,
+    })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-11`,
+      agent: `codex`,
+      skipPermissions: true,
+    })
+  })
+
+  test(`online advertises installed agents (EXP-201)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(
+      desktop,
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-1`,
+        deviceLabel: `MacBook`,
+        agents: [`claude`, `pi`],
+      })
+    )
+    expect(hub.devicesFor(`owner`)).toMatchObject([
+      { deviceId: `dev-1`, agents: [`claude`, `pi`] },
+    ])
   })
 
   test(`startSession routes a batch subject as a fat start_session frame`, () => {

@@ -4,17 +4,23 @@ import SwiftUI
 
 // The unified Start-coding sheet (EXP-156) — the iOS twin of the desktop IDE's
 // single Start-coding dialog. A searchable multi-issue picker (checked rows
-// pinned first) over Model / Effort pickers, an ultracode toggle (it IS
-// `--effort ultracode`, so it disables the Effort picker), a plan-mode toggle,
-// plus a desktop picker when more than one is online. 1 checked issue launches
-// a plain single-issue session; 2+ launch ONE batch session on a shared
-// `exp/batch-<id8>` branch ending in ONE combined PR.
+// pinned first) over Agent / Model / Effort pickers, an ultracode toggle (it
+// IS `--effort ultracode`, so it disables the Effort picker), a plan-mode
+// toggle, plus a desktop picker when more than one is online. 1 checked issue
+// launches a plain single-issue session; 2+ launch ONE batch session on a
+// shared `exp/batch-<id8>` branch ending in ONE combined PR.
 //
-// Last-used Model/Effort persist on every submit; ultracode/plan-mode persist
-// ONLY on single-issue submits (batch seeding — flipping ultracode on / plan
-// off when a 2nd issue is checked — must not pollute the stored single-issue
-// defaults). Stored values are validated against the contract on appear so a
-// stale entry can never send a value the server rejects.
+// EXP-201: the desktop runs three coding agents (claude / codex / pi). The
+// agent picker shows only the SELECTED device's agents (an old desktop
+// reports none = claude-only, hiding the picker); model/effort lists, the
+// claude-only toggles, and the skip-permissions toggle all follow the agent.
+//
+// Last-used Agent/Model/Effort persist on every submit; ultracode/plan-mode
+// persist ONLY on single-issue claude submits (batch seeding — flipping
+// ultracode on / plan off when a 2nd issue is checked — must not pollute the
+// stored single-issue defaults). Stored values are validated against the
+// contract on appear so a stale entry can never send a value the server
+// rejects.
 
 struct StartCodingSheet: View {
     /// One eligible issue offered in the picker. `repositoryId` drives the
@@ -42,8 +48,9 @@ struct StartCodingSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    /// Sentinel for the blank "CLI default" effort (omit --effort).
-    private static let cliDefaultEffort = "cli-default"
+    /// Sentinel for the blank "CLI default" choice (omit --effort; for
+    /// codex/pi also the omit-model default — claude is explicit-always).
+    private static let cliDefault = "cli-default"
     /// A batch run is deliberately loose but not unbounded — one Claude session
     /// on one branch; past this the prompt is unwieldy and token-expensive.
     private static let maxBatchIssues = 30
@@ -51,10 +58,12 @@ struct StartCodingSheet: View {
     private static let costWarnThreshold = 6
 
     private enum Keys {
+        static let agent = "codingStart.agent"
         static let model = "codingStart.model"
         static let effort = "codingStart.effort"
         static let ultracode = "codingStart.ultracode"
         static let planMode = "codingStart.planMode"
+        static let skipPermissions = "codingStart.skipPermissions"
     }
 
     @State private var checked: Set<String>
@@ -63,10 +72,12 @@ struct StartCodingSheet: View {
 
     // Seeded from UserDefaults in onAppear (was @AppStorage). Placeholder
     // defaults render for one frame before seed() resolves them.
+    @State private var agent = "claude"
     @State private var model = ""
-    @State private var effort = Self.cliDefaultEffort
+    @State private var effort = Self.cliDefault
     @State private var ultracode = false
     @State private var planMode = false
+    @State private var skipPermissions = false
     // The persisted single-issue values, remembered so a batch→single toggle
     // can restore them (the auto batch defaults never touch UserDefaults).
     @State private var storedUltracode = false
@@ -142,31 +153,58 @@ struct StartCodingSheet: View {
                     }
                 }
 
+                if availableAgents.count > 1 {
+                    Section {
+                        Picker("Agent", selection: agentBinding) {
+                            ForEach(availableAgents, id: \.self) { value in
+                                Text(Self.agentLabel(value)).tag(value)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
                 Section {
                     Picker("Model", selection: modelBinding) {
-                        ForEach(DomainContract.codingModelValues, id: \.self) { value in
+                        ForEach(modelValues, id: \.self) { value in
                             Text(Self.modelLabel(value)).tag(value)
                         }
                     }
-                    Picker("Effort", selection: effortBinding) {
-                        Text("CLI default").tag(Self.cliDefaultEffort)
-                        ForEach(DomainContract.codingEffortValues, id: \.self) { value in
+                    Picker(effortTitle, selection: effortBinding) {
+                        Text("CLI default").tag(Self.cliDefault)
+                        ForEach(effortValues, id: \.self) { value in
                             Text(Self.effortLabel(value)).tag(value)
                         }
                     }
                     .disabled(ultracode)
                 }
 
-                Section {
-                    Toggle("Ultracode", isOn: ultracodeBinding)
-                } footer: {
-                    Text("Dynamic multi-agent workflows — overrides the effort level.")
+                if agent == "claude" {
+                    Section {
+                        Toggle("Ultracode", isOn: ultracodeBinding)
+                    } footer: {
+                        Text("Dynamic multi-agent workflows — overrides the effort level.")
+                    }
+
+                    Section {
+                        Toggle("Plan mode", isOn: planModeBinding)
+                    } footer: {
+                        Text("Starts with a plan that needs approval — from the web or at the desktop.")
+                    }
                 }
 
-                Section {
-                    Toggle("Plan mode", isOn: planModeBinding)
-                } footer: {
-                    Text("Starts with a plan that needs approval — from the web or at the desktop.")
+                if agent == "pi" {
+                    Section {
+                        Text("pi has no permission prompts — it always runs unguarded.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section {
+                        Toggle("Skip permissions", isOn: skipPermissionsBinding)
+                    } footer: {
+                        Text("Full bypass instead of the agent's guarded auto mode.")
+                    }
                 }
             }
             .navigationTitle("Start coding")
@@ -184,10 +222,11 @@ struct StartCodingSheet: View {
         .presentationDetents([.medium, .large])
         .onAppear { seed() }
         // Crossing into/out of batch flips the mode defaults — unless the user
-        // has already touched the option controls. Tracks the IN-POOL count so a
-        // stray preselected id can't be mistaken for a real second issue.
+        // has already touched the option controls, and only for claude (the
+        // toggles don't exist on codex/pi). Tracks the IN-POOL count so a stray
+        // preselected id can't be mistaken for a real second issue.
         .onChange(of: effectiveChecked.count) { oldCount, newCount in
-            guard !touchedToggles else { return }
+            guard !touchedToggles, agent == "claude" else { return }
             if oldCount < 2, newCount >= 2 {
                 ultracode = true
                 planMode = false
@@ -339,8 +378,16 @@ struct StartCodingSheet: View {
     private var deviceBinding: Binding<String> {
         Binding(
             get: { device?.deviceId ?? "" },
-            set: { deviceId = $0 }
+            set: {
+                deviceId = $0
+                // The newly selected desktop may not run the chosen agent.
+                clampAgentToDevice()
+            }
         )
+    }
+
+    private var agentBinding: Binding<String> {
+        Binding(get: { agent }, set: { selectAgent($0); touchedToggles = true })
     }
 
     // Manual interaction goes through these setters (programmatic seed / auto
@@ -361,22 +408,94 @@ struct StartCodingSheet: View {
         Binding(get: { planMode }, set: { planMode = $0; touchedToggles = true })
     }
 
+    private var skipPermissionsBinding: Binding<Bool> {
+        Binding(get: { skipPermissions }, set: { skipPermissions = $0; touchedToggles = true })
+    }
+
+    // MARK: - Agent-dependent option lists (EXP-201)
+
+    /// The selected device's agents (absent/empty = an old claude-only
+    /// desktop), in contract order.
+    private var availableAgents: [String] {
+        let reported = device?.agents ?? []
+        let supported = reported.isEmpty ? ["claude"] : reported
+        let ordered = DomainContract.codingAgentValues.filter { supported.contains($0) }
+        return ordered.isEmpty ? ["claude"] : ordered
+    }
+
+    /// Claude's model is explicit-always; codex/pi offer a "CLI default" blank.
+    private var modelValues: [String] {
+        switch agent {
+        case "codex": [Self.cliDefault] + DomainContract.codexModelValues
+        case "pi": [Self.cliDefault] + DomainContract.piModelValues
+        default: DomainContract.codingModelValues
+        }
+    }
+
+    private var effortValues: [String] {
+        switch agent {
+        case "codex": DomainContract.codexEffortValues
+        case "pi": DomainContract.piThinkingValues
+        default: DomainContract.codingEffortValues
+        }
+    }
+
+    private var effortTitle: String {
+        switch agent {
+        case "codex": "Reasoning"
+        case "pi": "Thinking"
+        default: "Effort"
+        }
+    }
+
+    private static func defaultModel(for agent: String) -> String {
+        agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
+    }
+
+    /// Switch agent: model/effort reset to the agent's defaults and the
+    /// toggles clamp to what it supports.
+    private func selectAgent(_ value: String) {
+        guard value != agent else { return }
+        agent = value
+        model = Self.defaultModel(for: value)
+        effort = Self.cliDefault
+        clampToggles()
+    }
+
+    private func clampToggles() {
+        if agent != "claude" {
+            ultracode = false
+            planMode = false
+        }
+        if agent == "pi" {
+            skipPermissions = false
+        }
+    }
+
+    private func clampAgentToDevice() {
+        if !availableAgents.contains(agent) {
+            selectAgent(availableAgents.first ?? "claude")
+        }
+    }
+
     // MARK: - Seed / submit
 
     private func seed() {
         guard !seeded else { return }
         seeded = true
         let defaults = UserDefaults.standard
+        agent = defaults.string(forKey: Keys.agent) ?? "claude"
         model = defaults.string(forKey: Keys.model) ?? ""
-        effort = defaults.string(forKey: Keys.effort) ?? Self.cliDefaultEffort
+        effort = defaults.string(forKey: Keys.effort) ?? Self.cliDefault
         storedUltracode = defaults.bool(forKey: Keys.ultracode)
         storedPlanMode = defaults.bool(forKey: Keys.planMode)
         ultracode = storedUltracode
         planMode = storedPlanMode
+        skipPermissions = defaults.bool(forKey: Keys.skipPermissions)
         sanitizeStoredValues()
         // Opening already in batch (2+ in-pool preselected) applies the batch
-        // defaults.
-        if effectiveChecked.count >= 2 {
+        // defaults (claude-only toggles).
+        if agent == "claude", effectiveChecked.count >= 2 {
             ultracode = true
             planMode = false
         }
@@ -385,20 +504,30 @@ struct StartCodingSheet: View {
     private func submit() {
         guard let device, !orderedCheckedIds.isEmpty else { return }
         let ids = orderedCheckedIds
+        let isClaude = agent == "claude"
         let options = SteerStartOptions(
-            model: model,
-            effort: effort == Self.cliDefaultEffort ? "" : effort,
-            ultracode: ultracode,
-            planMode: planMode
+            agent: agent,
+            model: model == Self.cliDefault ? "" : model,
+            effort: effort == Self.cliDefault ? "" : effort,
+            // The toggles only exist for the agents that support them — never
+            // send a stale value the launcher would reject or misread.
+            ultracode: isClaude ? ultracode : nil,
+            planMode: isClaude ? planMode : nil,
+            skipPermissions: agent == "pi" ? nil : skipPermissions
         )
         let defaults = UserDefaults.standard
+        defaults.set(agent, forKey: Keys.agent)
         defaults.set(model, forKey: Keys.model)
         defaults.set(effort, forKey: Keys.effort)
-        // Only single-issue submits persist ultracode/plan — batch seeding must
-        // not overwrite the stored single-issue defaults.
-        if ids.count == 1 {
+        // Only single-issue claude submits persist ultracode/plan — batch
+        // seeding must not overwrite the stored single-issue defaults.
+        if isClaude, ids.count == 1 {
             defaults.set(ultracode, forKey: Keys.ultracode)
             defaults.set(planMode, forKey: Keys.planMode)
+        }
+        // pi hides the toggle (clamped false) — don't stomp the stored value.
+        if agent != "pi" {
+            defaults.set(skipPermissions, forKey: Keys.skipPermissions)
         }
         dismiss()
         onStart(device, ids, options)
@@ -407,16 +536,36 @@ struct StartCodingSheet: View {
     /// An unset model or a stored value from an older build outside today's
     /// contract lists falls back to the defaults instead of reaching the wire.
     private func sanitizeStoredValues() {
-        if !DomainContract.codingModelValues.contains(model) {
-            model = DomainContract.codingModelValues.first ?? ""
+        if !availableAgents.contains(agent) {
+            agent = availableAgents.first ?? "claude"
         }
-        if effort != Self.cliDefaultEffort, !DomainContract.codingEffortValues.contains(effort) {
-            effort = Self.cliDefaultEffort
+        if !modelValues.contains(model) {
+            model = Self.defaultModel(for: agent)
+        }
+        if effort != Self.cliDefault, !effortValues.contains(effort) {
+            effort = Self.cliDefault
+        }
+        clampToggles()
+    }
+
+    private static func agentLabel(_ value: String) -> String {
+        switch value {
+        case "claude": "Claude Code"
+        case "codex": "Codex"
+        case "pi": "pi"
+        default: value
         }
     }
 
     private static func modelLabel(_ value: String) -> String {
-        value.prefix(1).uppercased() + value.dropFirst()
+        switch value {
+        case cliDefault: "CLI default"
+        case "gpt-5.6-sol": "GPT-5.6 Sol"
+        case "gpt-5.6-terra": "GPT-5.6 Terra"
+        case "gpt-5.6-luna": "GPT-5.6 Luna"
+        case "grok-4.5": "Grok 4.5"
+        default: value.prefix(1).uppercased() + value.dropFirst()
+        }
     }
 
     private static func effortLabel(_ value: String) -> String {

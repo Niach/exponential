@@ -53,13 +53,17 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let deviceId: String
     public let deviceLabel: String
     public let connectedAt: Double
+    /// Coding agents this desktop can launch (contract `codingAgentValues`).
+    /// Absent = an older desktop that only runs claude.
+    public let agents: [String]?
 
     public var id: String { deviceId }
 
-    public init(deviceId: String, deviceLabel: String, connectedAt: Double) {
+    public init(deviceId: String, deviceLabel: String, connectedAt: Double, agents: [String]? = nil) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
         self.connectedAt = connectedAt
+        self.agents = agents
     }
 }
 
@@ -84,33 +88,42 @@ private struct ViewerTicketInput: Encodable {
 /// Launch options a remote start may carry (EXP-149) — the Start-coding
 /// sheet's choices. Nil fields are omitted from the wire (synthesized
 /// Encodable uses encodeIfPresent) and mean "desktop settings default"
-/// (plan mode OFF). `effort: ""` is an explicit "CLI default".
+/// (plan mode OFF). `agent` absent = claude (EXP-201). `effort: ""` (and
+/// `model: ""` for codex/pi) is an explicit "CLI default".
 public struct SteerStartOptions: Sendable {
+    public let agent: String?
     public let model: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
+    public let skipPermissions: Bool?
 
     public init(
+        agent: String? = nil,
         model: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
-        planMode: Bool? = nil
+        planMode: Bool? = nil,
+        skipPermissions: Bool? = nil
     ) {
+        self.agent = agent
         self.model = model
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
+        self.skipPermissions = skipPermissions
     }
 }
 
 private struct StartSessionInput: Encodable {
     let issueId: String
     let deviceId: String
+    let agent: String?
     let model: String?
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
+    let skipPermissions: Bool?
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -121,10 +134,12 @@ private struct StartSessionInput: Encodable {
 private struct StartBatchSessionInput: Encodable {
     let issueIds: [String]
     let deviceId: String
+    let agent: String?
     let model: String?
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
+    let skipPermissions: Bool?
 }
 
 private struct StartSessionResult: Decodable {
@@ -187,10 +202,12 @@ public final class SteerApi: Sendable {
                 input: StartSessionInput(
                     issueId: issueId,
                     deviceId: deviceId,
+                    agent: options.agent,
                     model: options.model,
                     effort: options.effort,
                     ultracode: options.ultracode,
-                    planMode: options.planMode
+                    planMode: options.planMode,
+                    skipPermissions: options.skipPermissions
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -219,10 +236,12 @@ public final class SteerApi: Sendable {
                 input: StartBatchSessionInput(
                     issueIds: issueIds,
                     deviceId: deviceId,
+                    agent: options.agent,
                     model: options.model,
                     effort: options.effort,
                     ultracode: options.ultracode,
-                    planMode: options.planMode
+                    planMode: options.planMode,
+                    skipPermissions: options.skipPermissions
                 )
             )
         } catch let TrpcError.httpError(status, body) {

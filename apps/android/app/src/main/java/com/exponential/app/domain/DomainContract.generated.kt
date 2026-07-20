@@ -15,8 +15,13 @@ object DomainContract {
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved")
+    val codingAgentValues: List<String> = listOf("claude", "codex", "pi")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
+    val codexModelValues: List<String> = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
+    val piModelValues: List<String> = listOf("fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5")
+    val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
     const val codingSessionStaleMs: Long = 7200000L
 

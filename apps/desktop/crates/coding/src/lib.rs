@@ -5,9 +5,10 @@
 //! repo-local credential helper ([`git_credentials`] — EXP-73: `origin` stays
 //! bare; the token is never logged — [`git_worktree::TokenUrl`] redacts, git
 //! output is scrubbed), `.exp-mcp.json`, the seed prompt, the tooling doctor, the
-//! coding settings (repos root / branch prefix / claude path — never
-//! a manual API-key field), and the `claude` spawn into the embedded
-//! terminal. Claude-only: the experimental codex adapter is deleted.
+//! coding settings (repos root / branch prefix / per-agent paths — never
+//! a manual API-key field), and the agent spawn into the embedded
+//! terminal. EXP-201: three agents — `claude`, `codex`, and `pi`
+//! ([`agent::CodingAgent`]); one-shot [`claude_task`]s stay Claude-only.
 //!
 //! ## The one entry point (§7.1)
 //!
@@ -31,6 +32,7 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
+pub mod agent;
 pub mod argv;
 pub mod batch_launcher;
 pub mod batch_prompt;
@@ -41,6 +43,7 @@ pub mod git_credentials;
 pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
+pub mod pi_bridge;
 pub mod prompt;
 pub mod run_launch;
 pub mod scm;
@@ -51,7 +54,10 @@ pub mod token_cache;
 pub mod token_refresh;
 pub mod trunk_state;
 
-pub use argv::{permission_args, session_args, LaunchOptions};
+pub use agent::CodingAgent;
+pub use argv::{
+    permission_args, session_args, AgentMcp, LaunchOptions, MCP_TOKEN_ENV, MCP_URL_ENV,
+};
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
 };
@@ -81,6 +87,7 @@ pub use launcher::{
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
+pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, write_rendered_prompt, PromptDelivery,
     PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,

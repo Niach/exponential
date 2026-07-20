@@ -24,10 +24,20 @@ export interface DomainContract {
   codingSession: { staleHours: number }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
+  /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
+  codingAgent: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */
   codingModel: { values: readonly string[] }
   /** Claude effort levels; blank ("CLI default") is a per-client extra row, not a contract value. */
   codingEffort: { values: readonly string[] }
+  /** Codex model slugs; blank ("CLI default") is a per-client extra row, not a contract value. */
+  codexModel: { values: readonly string[] }
+  /** Codex reasoning-effort levels (`model_reasoning_effort`); blank is per-client. */
+  codexEffort: { values: readonly string[] }
+  /** pi model patterns; blank ("CLI default") is a per-client extra row, not a contract value. */
+  piModel: { values: readonly string[] }
+  /** pi `--thinking` levels; blank is per-client. */
+  piThinking: { values: readonly string[] }
 }
 
 export const contract = contractJson as unknown as DomainContract

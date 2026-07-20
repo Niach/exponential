@@ -46,6 +46,9 @@ interface DeviceEntry {
   conn: Conn
   deviceLabel: string
   connectedAt: number
+  /** EXP-201: agent CLIs the device advertised in its `online` frame.
+   * Absent on old desktops ⇒ defaulted to ["claude"] at store time. */
+  agents: string[]
 }
 
 interface Room {
@@ -213,6 +216,9 @@ export class Hub {
           deviceLabel:
             msg.deviceLabel ?? conn.claims.deviceLabel ?? `Desktop`,
           connectedAt: Date.now(),
+          // Absent = old desktop that predates the advertisement — it can
+          // run exactly what every desktop could before EXP-201: claude.
+          agents: msg.agents ?? [`claude`],
         })
         return
       }
@@ -450,6 +456,7 @@ export class Hub {
       deviceId,
       deviceLabel: entry.deviceLabel,
       connectedAt: entry.connectedAt,
+      agents: entry.agents,
     }))
   }
 

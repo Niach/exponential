@@ -1,34 +1,46 @@
-//! The tooling doctor (masterplan-v3 §7.7): runs `claude --version` (the
-//! configured/probed Claude path) and `git --version` and captures success +
-//! version string or the spawn error.
+//! The tooling doctor (masterplan-v3 §7.7, EXP-201): runs `--version` on
+//! every agent CLI (`claude`, `codex`, `pi` — each at its configured/probed
+//! path) and on `git`, capturing success + version string or the spawn error.
 //!
-//! The doctor **blocks Start coding when EITHER tool is missing** — the
-//! launcher's enabled state ANDs `agent.ok && git.ok` (§7.1 step 1), which
-//! prevents the "falsely proceed then crash at git clone" pattern.
-//! Errors are actionable per the spec copy: "claude not found on PATH — set
-//! an absolute path" / "git not found on PATH".
+//! Gating is per-agent (EXP-201): **git is required for every launch**, but a
+//! missing optional agent only blocks launches that SELECT it —
+//! [`DoctorReport::first_failure_for`] is the launcher's step-0 gate, and a
+//! machine without codex installed still codes with claude. The
+//! Start-coding affordance itself only needs git + at least one usable agent
+//! ([`DoctorReport::any_agent_ok`]); the dialog names the selected agent's
+//! failure. Errors stay actionable per the spec copy: "claude not found on
+//! PATH — set an absolute path" / "git not found on PATH".
 //!
 //! A resolvable Claude that is OLDER than [`MIN_CLAUDE_VERSION`] also fails
-//! the doctor (with "run: claude update" copy) — one version gate replaces
-//! the old per-flag `--help` probe and its whole degradation matrix.
+//! its check (with "run: claude update" copy) — one version gate replaces
+//! the old per-flag `--help` probe and its whole degradation matrix. Codex
+//! and pi have NO minimum version yet (presence-only, deliberately lenient).
+//!
+//! [`DoctorReport::installed_agents`] is the steer presence input (EXP-201):
+//! the device advertises which agent CLIs it can actually run, so remote
+//! Start-coding pickers only offer those.
 //!
 //! Blocking `std::process` calls — callers run this off the foreground
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
+use crate::agent::CodingAgent;
 use crate::settings::Settings;
 use std::fmt;
 use std::process::Command;
 
-/// The minimum supported Claude Code version: `--effort ultracode` landed in
-/// 2.1.203, `--permission-mode plan`/`manual` in 2.1.200 — everything the
-/// launcher's argv relies on.
-pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 203);
+/// The minimum supported Claude Code version: `--permission-mode auto`
+/// (EXP-201's default posture) is verified on 2.1.215; `--effort ultracode`
+/// landed in 2.1.203, `--permission-mode plan`/`manual` in 2.1.200 —
+/// everything the launcher's claude argv relies on.
+pub const MIN_CLAUDE_VERSION: (u32, u32, u32) = (2, 1, 215);
 
 /// The local binaries the launcher ever shells out to (§7.1 step 3:
-/// argv `git` + `claude`, never `gh`).
+/// argv `git` + the agent CLIs, never `gh`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Claude,
+    Codex,
+    Pi,
     Git,
 }
 
@@ -36,7 +48,27 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
+            Tool::Codex => "codex",
+            Tool::Pi => "pi",
             Tool::Git => "git",
+        }
+    }
+
+    /// The agent this tool check backs (`None` for git).
+    pub fn agent(self) -> Option<CodingAgent> {
+        match self {
+            Tool::Claude => Some(CodingAgent::Claude),
+            Tool::Codex => Some(CodingAgent::Codex),
+            Tool::Pi => Some(CodingAgent::Pi),
+            Tool::Git => None,
+        }
+    }
+
+    fn for_agent(agent: CodingAgent) -> Tool {
+        match agent {
+            CodingAgent::Claude => Tool::Claude,
+            CodingAgent::Codex => Tool::Codex,
+            CodingAgent::Pi => Tool::Pi,
         }
     }
 
@@ -44,6 +76,8 @@ impl Tool {
     fn not_found_message(self) -> &'static str {
         match self {
             Tool::Claude => "claude not found on PATH — set an absolute path",
+            Tool::Codex => "codex not found on PATH — set an absolute path",
+            Tool::Pi => "pi not found on PATH — set an absolute path",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -64,39 +98,75 @@ pub struct ToolCheck {
     pub error: Option<String>,
 }
 
-/// `{ agent, git }` — the §7.7 report. `agent` is the Claude check (the
-/// field name predates the codex deletion; ui renders it as the claude row).
+/// `{ claude, codex, pi, git }` — the §7.7 report, one row per agent CLI plus
+/// git (EXP-201; the old two-row `agent`/`git` shape is gone).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorReport {
-    pub agent: ToolCheck,
+    pub claude: ToolCheck,
+    pub codex: ToolCheck,
+    pub pi: ToolCheck,
     pub git: ToolCheck,
 }
 
 impl DoctorReport {
-    /// The Start-coding gate (§7.1 step 1): BOTH tools must resolve.
-    pub fn ok(&self) -> bool {
-        self.agent.ok && self.git.ok
+    /// The check backing `agent`.
+    pub fn check_for(&self, agent: CodingAgent) -> &ToolCheck {
+        match agent {
+            CodingAgent::Claude => &self.claude,
+            CodingAgent::Codex => &self.codex,
+            CodingAgent::Pi => &self.pi,
+        }
     }
 
-    /// The first failing check, for `DisabledReason::DoctorFailed` (names
-    /// which tool failed).
-    pub fn first_failure(&self) -> Option<&ToolCheck> {
-        [&self.agent, &self.git]
+    /// The launcher's step-0 gate for a launch selecting `agent`: git AND
+    /// that agent must resolve — a missing OTHER agent never blocks.
+    pub fn first_failure_for(&self, agent: CodingAgent) -> Option<&ToolCheck> {
+        [self.check_for(agent), &self.git]
             .into_iter()
             .find(|check| !check.ok)
     }
+
+    /// Whether ANY agent CLI is usable (the Start-coding affordance's gate
+    /// half — the dialog names the selected agent's failure itself).
+    pub fn any_agent_ok(&self) -> bool {
+        CodingAgent::ALL
+            .into_iter()
+            .any(|agent| self.check_for(agent).ok)
+    }
+
+    /// The agents this machine can actually launch — the steer presence
+    /// advertisement (EXP-201). A too-old claude is NOT usable (its argv
+    /// would carry flags the CLI rejects), so it drops out here too.
+    pub fn installed_agents(&self) -> Vec<CodingAgent> {
+        CodingAgent::ALL
+            .into_iter()
+            .filter(|agent| self.check_for(*agent).ok)
+            .collect()
+    }
 }
 
-/// Run both checks: the resolved Claude program
-/// ([`Settings::resolved_claude_path`]) — version-gated against
+/// Run every check: each agent's resolved program
+/// ([`Settings::resolved_path_for`]) — claude version-gated against
 /// [`MIN_CLAUDE_VERSION`] — and plain `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
-    let mut claude = check_tool(Tool::Claude, &settings.resolved_claude_path());
+    let mut claude = check_tool(Tool::Claude, &settings.resolved_path_for(CodingAgent::Claude));
     apply_version_gate(&mut claude);
     DoctorReport {
-        agent: claude,
+        claude,
+        codex: check_tool(Tool::Codex, &settings.resolved_path_for(CodingAgent::Codex)),
+        pi: check_tool(Tool::Pi, &settings.resolved_path_for(CodingAgent::Pi)),
         git: check_tool(Tool::Git, "git"),
     }
+}
+
+/// The check for ONE agent (launch step 0 re-checks only the selected agent
+/// + git via [`run_doctor`]'s full report; presence probes use the full one).
+pub fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
+    let mut check = check_tool(Tool::for_agent(agent), &settings.resolved_path_for(agent));
+    if agent == CodingAgent::Claude {
+        apply_version_gate(&mut check);
+    }
+    check
 }
 
 /// Flip a GREEN claude check red when its version parses BELOW
@@ -178,13 +248,15 @@ pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
 }
 
 /// First non-empty line of `--version` output, with the tool's own noise
-/// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; claude's
-/// `1.0.35 (Claude Code)` passes through).
+/// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; `codex-cli 0.46.0`
+/// → `0.46.0`; claude's `1.0.35 (Claude Code)` and pi's bare semver pass
+/// through).
 pub fn parse_version_output(tool: Tool, stdout: &str) -> Option<String> {
     let line = first_line(stdout)?;
     let stripped = match tool {
         Tool::Git => line.strip_prefix("git version ").unwrap_or(line),
-        Tool::Claude => line,
+        Tool::Codex => line.strip_prefix("codex-cli ").unwrap_or(line),
+        Tool::Claude | Tool::Pi => line,
     };
     let trimmed = stripped.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -211,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_claude_version_line() {
+    fn parses_claude_codex_and_pi_version_lines() {
         assert_eq!(
             parse_version_output(Tool::Claude, "1.0.35 (Claude Code)\n"),
             Some("1.0.35 (Claude Code)".to_string())
@@ -220,6 +292,20 @@ mod tests {
         assert_eq!(
             parse_version_output(Tool::Claude, "\n  2.1.0 (Claude Code)\n"),
             Some("2.1.0 (Claude Code)".to_string())
+        );
+        // Codex prints a `codex-cli ` prefix.
+        assert_eq!(
+            parse_version_output(Tool::Codex, "codex-cli 0.46.0\n"),
+            Some("0.46.0".to_string())
+        );
+        assert_eq!(
+            parse_version_output(Tool::Codex, "0.46.0\n"),
+            Some("0.46.0".to_string())
+        );
+        // pi prints a bare version.
+        assert_eq!(
+            parse_version_output(Tool::Pi, "0.80.10\n"),
+            Some("0.80.10".to_string())
         );
     }
 
@@ -231,7 +317,7 @@ mod tests {
 
     #[test]
     fn claude_version_triples_parse_and_junk_does_not() {
-        assert_eq!(parse_claude_version("2.1.207 (Claude Code)"), Some((2, 1, 207)));
+        assert_eq!(parse_claude_version("2.1.215 (Claude Code)"), Some((2, 1, 215)));
         assert_eq!(parse_claude_version("  9.9.9 (Claude Code stub)"), Some((9, 9, 9)));
         assert_eq!(parse_claude_version("2.1.203"), Some((2, 1, 203)));
         // Not a plain three-part leading version → None (gate stays open).
@@ -242,12 +328,21 @@ mod tests {
         assert_eq!(parse_claude_version(""), None);
     }
 
-    fn green_claude(version: &str) -> ToolCheck {
+    fn green(tool: Tool, version: &str) -> ToolCheck {
         ToolCheck {
-            tool: Tool::Claude,
+            tool,
             ok: true,
             version: Some(version.to_string()),
             error: None,
+        }
+    }
+
+    fn red(tool: Tool) -> ToolCheck {
+        ToolCheck {
+            tool,
+            ok: false,
+            version: None,
+            error: Some(tool.not_found_message().to_string()),
         }
     }
 
@@ -255,17 +350,17 @@ mod tests {
     /// "claude update" copy; at/above minimum and unparseable stay green.
     #[test]
     fn version_gate_blocks_old_clis_with_update_copy() {
-        let mut old = green_claude("2.1.199 (Claude Code)");
+        let mut old = green(Tool::Claude, "2.1.199 (Claude Code)");
         apply_version_gate(&mut old);
         assert!(!old.ok);
         assert_eq!(
             old.error.as_deref(),
-            Some("Claude Code 2.1.199 is too old — update to 2.1.203+ (run: claude update)")
+            Some("Claude Code 2.1.199 is too old — update to 2.1.215+ (run: claude update)")
         );
 
         // Exactly the minimum and newer stay green.
-        for version in ["2.1.203 (Claude Code)", "2.1.207 (Claude Code)", "3.0.0"] {
-            let mut check = green_claude(version);
+        for version in ["2.1.215 (Claude Code)", "2.1.230 (Claude Code)", "3.0.0"] {
+            let mut check = green(Tool::Claude, version);
             apply_version_gate(&mut check);
             assert!(check.ok, "{version} must pass the gate");
             assert_eq!(check.error, None);
@@ -273,17 +368,12 @@ mod tests {
 
         // Unparseable version → green (never falsely block a nonstandard
         // build).
-        let mut odd = green_claude("nightly (Claude Code)");
+        let mut odd = green(Tool::Claude, "nightly (Claude Code)");
         apply_version_gate(&mut odd);
         assert!(odd.ok);
 
         // A check that already failed is left alone (keeps its own error).
-        let mut dead = ToolCheck {
-            tool: Tool::Claude,
-            ok: false,
-            version: None,
-            error: Some("claude not found on PATH — set an absolute path".into()),
-        };
+        let mut dead = red(Tool::Claude);
         apply_version_gate(&mut dead);
         assert_eq!(
             dead.error.as_deref(),
@@ -292,7 +382,7 @@ mod tests {
     }
 
     /// `run_doctor` end-to-end against stub claude binaries: an old version
-    /// fails the report with the update copy; a new one passes.
+    /// fails the CLAUDE gate with the update copy; a new one passes.
     #[cfg(unix)]
     #[test]
     fn run_doctor_gates_on_the_stub_version() {
@@ -324,7 +414,7 @@ mod tests {
             for _ in 0..20 {
                 let report = run_doctor(settings);
                 let busy = report
-                    .first_failure()
+                    .first_failure_for(CodingAgent::Claude)
                     .and_then(|check| check.error.as_deref())
                     .is_some_and(|error| error.contains("Text file busy"));
                 if !busy {
@@ -341,19 +431,25 @@ mod tests {
             ..Settings::default()
         };
         let report = run_doctor_retrying(&settings);
-        assert!(!report.ok());
+        assert!(report.first_failure_for(CodingAgent::Claude).is_some());
         assert_eq!(
-            report.first_failure().and_then(|c| c.error.as_deref()),
-            Some("Claude Code 2.1.100 is too old — update to 2.1.203+ (run: claude update)")
+            report
+                .first_failure_for(CodingAgent::Claude)
+                .and_then(|c| c.error.as_deref()),
+            Some("Claude Code 2.1.100 is too old — update to 2.1.215+ (run: claude update)")
         );
 
-        let new = write_stub("claude-new", "2.1.207");
+        let new = write_stub("claude-new", "2.1.215");
         let settings = Settings {
             claude_path: new.to_string_lossy().into_owned(),
             ..Settings::default()
         };
         let report = run_doctor_retrying(&settings);
-        assert!(report.ok(), "2.1.207 must pass: {:?}", report.first_failure());
+        assert!(
+            report.first_failure_for(CodingAgent::Claude).is_none(),
+            "2.1.215 must pass: {:?}",
+            report.first_failure_for(CodingAgent::Claude)
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -365,6 +461,16 @@ mod tests {
         assert_eq!(
             check.error.as_deref(),
             Some("claude not found on PATH — set an absolute path")
+        );
+        let check = check_tool(Tool::Codex, "definitely-not-a-real-binary-exp");
+        assert_eq!(
+            check.error.as_deref(),
+            Some("codex not found on PATH — set an absolute path")
+        );
+        let check = check_tool(Tool::Pi, "definitely-not-a-real-binary-exp");
+        assert_eq!(
+            check.error.as_deref(),
+            Some("pi not found on PATH — set an absolute path")
         );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
@@ -381,27 +487,53 @@ mod tests {
         assert!(!version.starts_with("git version"), "prefix not stripped: {version}");
     }
 
+    /// EXP-201 per-agent gating: a missing pi never blocks a claude launch;
+    /// a missing git blocks EVERY launch; the presence advertisement lists
+    /// exactly the usable agents.
     #[test]
-    fn report_gate_requires_both_tools() {
-        let good = ToolCheck { tool: Tool::Git, ok: true, version: Some("2.45.0".into()), error: None };
-        let bad = ToolCheck {
-            tool: Tool::Claude,
-            ok: false,
-            version: None,
-            error: Some("claude not found on PATH — set an absolute path".into()),
+    fn report_gates_per_agent_and_advertises_installed() {
+        let report = DoctorReport {
+            claude: green(Tool::Claude, "2.1.215 (Claude Code)"),
+            codex: red(Tool::Codex),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.45.0"),
         };
-        let report = DoctorReport { agent: bad.clone(), git: good.clone() };
-        assert!(!report.ok());
-        assert_eq!(report.first_failure(), Some(&bad));
+        assert_eq!(report.first_failure_for(CodingAgent::Claude), None);
+        assert_eq!(
+            report.first_failure_for(CodingAgent::Codex),
+            Some(&report.codex)
+        );
+        assert_eq!(report.first_failure_for(CodingAgent::Pi), Some(&report.pi));
+        assert!(report.any_agent_ok());
+        assert_eq!(report.installed_agents(), vec![CodingAgent::Claude]);
 
-        let report = DoctorReport { agent: good.clone(), git: good.clone() };
-        assert!(report.ok());
-        assert_eq!(report.first_failure(), None);
+        // git missing blocks every agent (§7.1 step 1 ANDs git in).
+        let no_git = DoctorReport {
+            git: red(Tool::Git),
+            ..report.clone()
+        };
+        assert_eq!(
+            no_git.first_failure_for(CodingAgent::Claude),
+            Some(&no_git.git)
+        );
 
-        // git missing must ALSO block (§7.1 step 1 ANDs both).
-        let bad_git = ToolCheck { tool: Tool::Git, ok: false, version: None, error: None };
-        let report = DoctorReport { agent: good, git: bad_git.clone() };
-        assert!(!report.ok());
-        assert_eq!(report.first_failure(), Some(&bad_git));
+        // No agent at all: the affordance-level gate flips.
+        let none = DoctorReport {
+            claude: red(Tool::Claude),
+            ..report.clone()
+        };
+        assert!(!none.any_agent_ok());
+        assert!(none.installed_agents().is_empty());
+
+        // All three installed → all three advertised, in ALL order.
+        let all = DoctorReport {
+            codex: green(Tool::Codex, "0.46.0"),
+            pi: green(Tool::Pi, "0.80.10"),
+            ..report.clone()
+        };
+        assert_eq!(
+            all.installed_agents(),
+            vec![CodingAgent::Claude, CodingAgent::Codex, CodingAgent::Pi]
+        );
     }
 }

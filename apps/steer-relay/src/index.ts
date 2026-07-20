@@ -157,10 +157,12 @@ app.post(`/start`, async (c) => {
   }
 
   const options: StartSessionOptions = {
+    agent: asString(body?.agent),
     model: asString(body?.model),
     effort: asString(body?.effort),
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
+    skipPermissions: asBoolean(body?.skipPermissions),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

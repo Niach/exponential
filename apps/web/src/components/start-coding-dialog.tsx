@@ -28,7 +28,15 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
+  agentAllowsBlankModel,
+  agentEffortValues,
+  agentModelValues,
+  agentSupportsPlanMode,
+  agentSupportsSkipPermissions,
+  agentSupportsUltracode,
+  defaultModelFor,
   readCodingLaunchPrefs,
   rememberCodingLaunchPrefs,
   type CodingLaunchPrefs,
@@ -47,6 +55,21 @@ export interface SteerDevice {
   deviceId: string
   deviceLabel: string
   connectedAt: number
+  /** EXP-201: agent CLIs installed on the device; absent = claude-only. */
+  agents?: string[]
+}
+
+/** Agents the device can run — absent advertisement means claude-only. */
+function deviceAgentIds(device: SteerDevice | undefined): string[] {
+  return device?.agents && device.agents.length > 0
+    ? device.agents.filter((a) => contract.codingAgent.values.includes(a))
+    : [`claude`]
+}
+
+const AGENT_LABELS: Record<string, string> = {
+  claude: `Claude Code`,
+  codex: `Codex`,
+  pi: `pi`,
 }
 
 /** The resolved dialog choices sent with `steer.startSession` — the same shape
@@ -54,8 +77,9 @@ export interface SteerDevice {
 export type StartCodingOptions = CodingLaunchPrefs
 
 // Radix Select forbids an empty-string item value; the blank "CLI default"
-// effort rides this sentinel inside the dialog only.
+// model/effort rides this sentinel inside the dialog only.
 const CLI_DEFAULT_EFFORT = `cli-default`
+const CLI_DEFAULT_MODEL = `cli-default`
 
 // Only issues in a state worth coding are offered (mirrors the desktop picker).
 const CODEABLE_STATUSES = new Set<string>([
@@ -75,9 +99,17 @@ const MAX_ISSUES_PER_RUN = 30
 const BATCH_COST_HINT_THRESHOLD = 6
 
 // Display labels derive from the contract values (same rule as the iOS and
-// Android sheets), so a new contract value can never render unlabeled.
+// Android sheets), so a new contract value can never render unlabeled; the
+// multi-word slugs get explicit labels.
+const MODEL_LABELS: Record<string, string> = {
+  "gpt-5.6-sol": `GPT-5.6 Sol`,
+  "gpt-5.6-terra": `GPT-5.6 Terra`,
+  "gpt-5.6-luna": `GPT-5.6 Luna`,
+  "grok-4.5": `Grok 4.5`,
+}
+
 function modelLabel(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return MODEL_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function effortLabel(value: string): string {
@@ -109,10 +141,12 @@ export function StartCodingDialog({
     issueIds: string[]
   ) => void
 }) {
+  const [agent, setAgent] = useState<string>(contract.codingAgent.values[0])
   const [model, setModel] = useState(contract.codingModel.values[0])
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
+  const [skipPermissions, setSkipPermissions] = useState(false)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [search, setSearch] = useState(``)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -243,16 +277,19 @@ export function StartCodingDialog({
     setSearch(``)
     touchedRef.current = false
     const prefs = readCodingLaunchPrefs()
+    setAgent(prefs.agent)
     setModel(prefs.model)
     setEffortValue(prefs.effort === `` ? CLI_DEFAULT_EFFORT : prefs.effort)
+    setSkipPermissions(prefs.skipPermissions)
     // A pre-checked batch (2+) opens with the batch defaults (ultracode ON /
-    // plan OFF); a single issue opens with the remembered prefs.
+    // plan OFF); a single issue opens with the remembered prefs. Both stay
+    // capability-clamped to the remembered agent (EXP-201).
     if (initial.size >= 2) {
-      setUltracode(true)
+      setUltracode(agentSupportsUltracode(prefs.agent))
       setPlanMode(false)
     } else {
-      setUltracode(prefs.ultracode)
-      setPlanMode(prefs.planMode)
+      setUltracode(prefs.ultracode && agentSupportsUltracode(prefs.agent))
+      setPlanMode(prefs.planMode && agentSupportsPlanMode(prefs.agent))
     }
   }, [open])
 
@@ -277,18 +314,43 @@ export function StartCodingDialog({
     const isBatch = next.size >= 2
     if (wasBatch !== isBatch && !touchedRef.current) {
       if (isBatch) {
-        setUltracode(true)
+        setUltracode(agentSupportsUltracode(agent))
         setPlanMode(false)
       } else {
         const prefs = readCodingLaunchPrefs()
-        setUltracode(prefs.ultracode)
-        setPlanMode(prefs.planMode)
+        setUltracode(prefs.ultracode && agentSupportsUltracode(agent))
+        setPlanMode(prefs.planMode && agentSupportsPlanMode(agent))
       }
     }
   }
 
   const device =
     devices.find((candidate) => candidate.deviceId === deviceId) ?? devices[0]
+
+  // Switching the agent tab re-seeds model/effort to the agent's own
+  // defaults and clamps the capability toggles (EXP-201).
+  const switchAgent = (next: string) => {
+    if (next === agent) return
+    markTouched()
+    setAgent(next)
+    setModel(defaultModelFor(next))
+    setEffortValue(CLI_DEFAULT_EFFORT)
+    if (!agentSupportsUltracode(next)) setUltracode(false)
+    if (!agentSupportsPlanMode(next)) setPlanMode(false)
+    if (!agentSupportsSkipPermissions(next)) setSkipPermissions(false)
+  }
+
+  // EXP-201: only agents the chosen device advertised are offerable; a
+  // device change re-clamps a now-unavailable selection.
+  const availableAgents = deviceAgentIds(device)
+  const availableAgentsKey = availableAgents.join(`,`)
+  useEffect(() => {
+    if (!open) return
+    if (!availableAgents.includes(agent)) {
+      switchAgent(availableAgents[0] ?? `claude`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, availableAgentsKey, agent])
 
   const count = selected.size
   const isBatch = count >= 2
@@ -299,10 +361,12 @@ export function StartCodingDialog({
   const submit = () => {
     if (!device || count === 0 || blocked) return
     const options: StartCodingOptions = {
+      agent,
       model,
       effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
-      ultracode,
-      planMode,
+      ultracode: ultracode && agentSupportsUltracode(agent),
+      planMode: planMode && agentSupportsPlanMode(agent),
+      skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
     }
     // Persist prefs only for a single-issue launch — batch defaults (ultracode
     // ON / plan OFF) must not overwrite the remembered single-issue prefs.
@@ -310,13 +374,14 @@ export function StartCodingDialog({
     onStart(device, options, [...selected])
   }
 
+  const agentLabel = AGENT_LABELS[agent] ?? agent
   const description = isBatch
-    ? `Launch one Claude batch session across ${count} issues${
+    ? `Launch one ${agentLabel} batch session across ${count} issues${
         device ? ` on ${device.deviceLabel}` : ``
       }.`
     : devices.length === 1 && device
-      ? `Launch a Claude session on ${device.deviceLabel}.`
-      : `Launch a Claude session on one of your desktops.`
+      ? `Launch a ${agentLabel} session on ${device.deviceLabel}.`
+      : `Launch a ${agentLabel} session on one of your desktops.`
 
   const pickerRows = [...checkedIssues, ...searchMatches]
 
@@ -423,21 +488,40 @@ export function StartCodingDialog({
               </Select>
             </div>
           )}
+          {availableAgents.length > 1 && (
+            <div className="space-y-2">
+              <Label>Agent</Label>
+              <Tabs value={agent} onValueChange={switchAgent}>
+                <TabsList className="w-full">
+                  {availableAgents.map((value) => (
+                    <TabsTrigger key={value} value={value} className="flex-1">
+                      {AGENT_LABELS[value] ?? value}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="start-coding-model">Model</Label>
               <Select
-                value={model}
+                value={model === `` ? CLI_DEFAULT_MODEL : model}
                 onValueChange={(value) => {
                   markTouched()
-                  setModel(value)
+                  setModel(value === CLI_DEFAULT_MODEL ? `` : value)
                 }}
               >
                 <SelectTrigger id="start-coding-model" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {contract.codingModel.values.map((value) => (
+                  {agentAllowsBlankModel(agent) && (
+                    <SelectItem value={CLI_DEFAULT_MODEL}>
+                      CLI default
+                    </SelectItem>
+                  )}
+                  {agentModelValues(agent).map((value) => (
                     <SelectItem key={value} value={value}>
                       {modelLabel(value)}
                     </SelectItem>
@@ -446,14 +530,16 @@ export function StartCodingDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="start-coding-effort">Effort</Label>
+              <Label htmlFor="start-coding-effort">
+                {agent === `pi` ? `Thinking` : agent === `codex` ? `Reasoning` : `Effort`}
+              </Label>
               <Select
                 value={effortValue}
                 onValueChange={(value) => {
                   markTouched()
                   setEffortValue(value)
                 }}
-                disabled={ultracode}
+                disabled={ultracode && agentSupportsUltracode(agent)}
               >
                 <SelectTrigger id="start-coding-effort" className="w-full">
                   <SelectValue />
@@ -462,7 +548,7 @@ export function StartCodingDialog({
                   <SelectItem value={CLI_DEFAULT_EFFORT}>
                     CLI default
                   </SelectItem>
-                  {contract.codingEffort.values.map((value) => (
+                  {agentEffortValues(agent).map((value) => (
                     <SelectItem key={value} value={value}>
                       {effortLabel(value)}
                     </SelectItem>
@@ -471,39 +557,67 @@ export function StartCodingDialog({
               </Select>
             </div>
           </div>
-          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-            <div className="space-y-0.5 pr-3">
-              <Label htmlFor="start-coding-ultracode">Ultracode</Label>
-              <p className="text-xs text-muted-foreground">
-                Dynamic multi-agent workflows — overrides the effort level.
-              </p>
+          {agentSupportsUltracode(agent) && (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="space-y-0.5 pr-3">
+                <Label htmlFor="start-coding-ultracode">Ultracode</Label>
+                <p className="text-xs text-muted-foreground">
+                  Dynamic multi-agent workflows — overrides the effort level.
+                </p>
+              </div>
+              <Switch
+                id="start-coding-ultracode"
+                checked={ultracode}
+                onCheckedChange={(value) => {
+                  markTouched()
+                  setUltracode(value)
+                }}
+              />
             </div>
-            <Switch
-              id="start-coding-ultracode"
-              checked={ultracode}
-              onCheckedChange={(value) => {
-                markTouched()
-                setUltracode(value)
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-            <div className="space-y-0.5 pr-3">
-              <Label htmlFor="start-coding-plan-mode">Plan mode</Label>
-              <p className="text-xs text-muted-foreground">
-                Starts with a plan you approve — from this page or at the
-                desktop.
-              </p>
+          )}
+          {agentSupportsPlanMode(agent) && (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="space-y-0.5 pr-3">
+                <Label htmlFor="start-coding-plan-mode">Plan mode</Label>
+                <p className="text-xs text-muted-foreground">
+                  Starts with a plan you approve — from this page or at the
+                  desktop.
+                </p>
+              </div>
+              <Switch
+                id="start-coding-plan-mode"
+                checked={planMode}
+                onCheckedChange={(value) => {
+                  markTouched()
+                  setPlanMode(value)
+                }}
+              />
             </div>
-            <Switch
-              id="start-coding-plan-mode"
-              checked={planMode}
-              onCheckedChange={(value) => {
-                markTouched()
-                setPlanMode(value)
-              }}
-            />
-          </div>
+          )}
+          {agentSupportsSkipPermissions(agent) ? (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="space-y-0.5 pr-3">
+                <Label htmlFor="start-coding-skip-permissions">
+                  Skip permissions
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Full bypass instead of the agent&apos;s guarded auto mode.
+                </p>
+              </div>
+              <Switch
+                id="start-coding-skip-permissions"
+                checked={skipPermissions}
+                onCheckedChange={(value) => {
+                  markTouched()
+                  setSkipPermissions(value)
+                }}
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              pi has no permission prompts — it always runs unguarded.
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button

@@ -44,19 +44,22 @@ use gpui_component::{
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    tab::{Tab, TabBar},
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, Size, WindowExt as _,
 };
 use sync::Store;
 
 use api::repositories::IssueRepository;
 use coding::{
-    BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest,
-    RepoGroup,
+    BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions, LaunchOrigin, Prepared,
+    PrepareRequest, RepoGroup,
 };
 use domain::IssueStatus;
 
 use crate::coding_flow::{self, CodingHub, SessionSubject};
-use crate::coding_selects::{choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES};
+use crate::coding_selects::{
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, AGENT_CHOICES,
+};
 use crate::queries;
 
 /// Soft cost warning threshold: more checked issues than this shows the
@@ -160,6 +163,33 @@ enum DefaultsMode {
     Batch,
 }
 
+/// The per-mode `(ultracode, plan_mode, skip_permissions)` settings defaults
+/// for `agent`, capability-masked (EXP-201: ultracode/plan are Claude-only,
+/// skip does not exist for pi).
+fn mode_defaults(
+    settings: &coding::Settings,
+    mode: DefaultsMode,
+    agent: CodingAgent,
+) -> (bool, bool, bool) {
+    let (ultracode, plan, skip) = match mode {
+        DefaultsMode::Single => (
+            settings.issue_ultracode,
+            settings.issue_plan_mode,
+            settings.issue_skip_permissions,
+        ),
+        DefaultsMode::Batch => (
+            settings.batch_ultracode,
+            settings.batch_plan_mode,
+            settings.batch_skip_permissions,
+        ),
+    };
+    (
+        ultracode && agent.supports_ultracode(),
+        plan && agent.supports_plan_mode(),
+        skip && agent.supports_skip_permissions(),
+    )
+}
+
 pub struct StartCodingDialogView {
     team_id: String,
     /// Every non-archived team issue, board→number ordered.
@@ -173,12 +203,17 @@ pub struct StartCodingDialogView {
     /// Scroll position of the checklist (view state so it survives
     /// re-renders — the EXP-67 scroll-pane idiom, bounded by `max_h`).
     list_scroll: ScrollHandle,
+    /// The selected agent CLI (EXP-201) — the tab strip above the pickers;
+    /// seeded from `settings.default_agent`, overridable per launch.
+    agent: CodingAgent,
     model: ChoiceSelect,
     effort: ChoiceSelect,
-    /// Dynamic workflows (`--effort ultracode`) — any model, no pin.
+    /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     ultracode: bool,
-    /// Native Claude plan mode (`--permission-mode plan`).
+    /// Native Claude plan mode (`--permission-mode plan`). Claude-only.
     plan_mode: bool,
+    /// Full permission bypass (claude/codex; pi has no permission system).
+    skip_permissions: bool,
     defaults_mode: DefaultsMode,
     launching: bool,
     error: Option<SharedString>,
@@ -287,10 +322,9 @@ impl StartCodingDialogView {
         } else {
             DefaultsMode::Single
         };
-        let (ultracode, plan_mode) = match defaults_mode {
-            DefaultsMode::Single => (settings.issue_ultracode, settings.issue_plan_mode),
-            DefaultsMode::Batch => (settings.batch_ultracode, settings.batch_plan_mode),
-        };
+        let agent = settings.default_agent;
+        let (ultracode, plan_mode, skip_permissions) =
+            mode_defaults(&settings, defaults_mode, agent);
 
         let mut this = Self {
             team_id,
@@ -300,10 +334,22 @@ impl StartCodingDialogView {
             checked,
             search,
             list_scroll: ScrollHandle::new(),
-            model: choice_select(&MODEL_CHOICES, &settings.claude_model, window, cx),
-            effort: choice_select(&EFFORT_CHOICES, &settings.claude_effort, window, cx),
+            agent,
+            model: choice_select(
+                model_choices_for(agent),
+                settings.model_for(agent),
+                window,
+                cx,
+            ),
+            effort: choice_select(
+                effort_choices_for(agent),
+                settings.effort_for(agent),
+                window,
+                cx,
+            ),
             ultracode,
             plan_mode,
+            skip_permissions,
             defaults_mode,
             launching: false,
             error: None,
@@ -372,10 +418,39 @@ impl StartCodingDialogView {
         }
         self.defaults_mode = mode;
         let settings = CodingHub::global(cx).read(cx).settings.clone();
-        (self.ultracode, self.plan_mode) = match mode {
-            DefaultsMode::Single => (settings.issue_ultracode, settings.issue_plan_mode),
-            DefaultsMode::Batch => (settings.batch_ultracode, settings.batch_plan_mode),
-        };
+        (self.ultracode, self.plan_mode, self.skip_permissions) =
+            mode_defaults(&settings, mode, self.agent);
+    }
+
+    /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
+    /// the agent's own choice lists + settings defaults and re-seed the
+    /// toggles for the current mode (capability-masked).
+    fn set_agent(
+        &mut self,
+        agent: CodingAgent,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.agent == agent {
+            return;
+        }
+        self.agent = agent;
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        self.model = choice_select(
+            model_choices_for(agent),
+            settings.model_for(agent),
+            window,
+            cx,
+        );
+        self.effort = choice_select(
+            effort_choices_for(agent),
+            settings.effort_for(agent),
+            window,
+            cx,
+        );
+        (self.ultracode, self.plan_mode, self.skip_permissions) =
+            mode_defaults(&settings, self.defaults_mode, agent);
+        cx.notify();
     }
 
     fn toggle_checked(&mut self, issue_id: String, on: bool, cx: &mut gpui::Context<Self>) {
@@ -397,8 +472,9 @@ impl StartCodingDialogView {
         let hub = CodingHub::global(cx);
         match hub.read(cx).doctor.report.as_ref() {
             None => return Some("Checking local tools…".into()),
+            // Per-agent gate (EXP-201): only git + the SELECTED agent block.
             Some(report) => {
-                if let Some(failed) = report.first_failure() {
+                if let Some(failed) = report.first_failure_for(self.agent) {
                     return Some(
                         failed
                             .error
@@ -437,15 +513,20 @@ impl StartCodingDialogView {
         None
     }
 
-    /// The dialog's model/effort/mode choices as launch options.
+    /// The dialog's agent/model/effort/mode choices as launch options.
     fn options(&self, cx: &App) -> LaunchOptions {
         LaunchOptions {
+            agent: self.agent,
             model: selected(&self.model, cx),
             // Ignored by the argv while ultracode is on (ultracode IS the
             // effort level); blank = omit the flag.
             effort: selected(&self.effort, cx),
-            ultracode: self.ultracode,
-            plan_mode: self.plan_mode,
+            // Capability-clamped so a stale toggle can never leak onto an
+            // agent that doesn't support it.
+            ultracode: self.ultracode && self.agent.supports_ultracode(),
+            plan_mode: self.plan_mode && self.agent.supports_plan_mode(),
+            skip_permissions: self.skip_permissions
+                && self.agent.supports_skip_permissions(),
         }
     }
 
@@ -683,6 +764,62 @@ impl StartCodingDialogView {
             )
     }
 
+    /// The "Skip permissions" checkbox (EXP-201) — full bypass instead of the
+    /// agent's guarded auto mode. Hidden for pi (no permission system).
+    fn skip_permissions_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let hint = match self.agent {
+            CodingAgent::Claude => {
+                "Run with --dangerously-skip-permissions instead of the \
+                 guarded auto mode (a classifier approves routine actions \
+                 and asks on risky ones)."
+            }
+            _ => {
+                "Run with --dangerously-bypass-approvals-and-sandbox instead \
+                 of Codex's sandboxed Auto mode (workspace writes allowed, \
+                 approval asked outside it)."
+            }
+        };
+        v_flex()
+            .gap_0p5()
+            .child(
+                Checkbox::new("sc-skip-permissions")
+                    .label("Skip permissions")
+                    .checked(self.skip_permissions)
+                    .on_click(cx.listener(|this, on: &bool, _, cx| {
+                        this.skip_permissions = *on;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .pl_6()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(hint),
+            )
+    }
+
+    /// The agent tab strip (EXP-201) — compact, above the pickers.
+    fn agent_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let active_ix = CodingAgent::ALL
+            .iter()
+            .position(|agent| *agent == self.agent)
+            .unwrap_or(0);
+        TabBar::new("sc-agent-tabs")
+            .with_size(Size::Small)
+            .selected_index(active_ix)
+            .on_click(cx.listener(|this, ix: &usize, window, cx| {
+                if let Some(agent) = CodingAgent::ALL.get(*ix).copied() {
+                    this.set_agent(agent, window, cx);
+                }
+            }))
+            .children(
+                AGENT_CHOICES
+                    .iter()
+                    .map(|(label, _)| Tab::new().label(SharedString::from(*label))),
+            )
+    }
+
     /// Footer: blocker copy + Cancel + Start.
     fn footer(
         &self,
@@ -797,7 +934,10 @@ impl Render for StartCodingDialogView {
             );
         }
 
-        // ---- model/effort selects ----
+        // ---- model/effort selects (per-agent lists — EXP-201) ----
+        let agent = self.agent;
+        let effort_hint = (ultracode && agent.supports_ultracode())
+            .then_some("ultracode sets effort");
         let main_row = h_flex()
             .gap_3()
             .w_full()
@@ -812,19 +952,19 @@ impl Render for StartCodingDialogView {
                 cx,
             ))
             .child(Self::labeled_field(
-                "Effort",
+                agent.effort_label(),
                 Select::new(&self.effort)
                     .small()
-                    .disabled(ultracode)
+                    .disabled(ultracode && agent.supports_ultracode())
                     .into_any_element(),
-                ultracode.then_some("ultracode sets effort"),
+                effort_hint,
                 cx,
             ));
 
-        // ---- toggles ----
-        let toggles = v_flex()
-            .gap_2()
-            .child(
+        // ---- toggles (capability-gated per agent — EXP-201) ----
+        let mut toggles = v_flex().gap_2();
+        if agent.supports_ultracode() {
+            toggles = toggles.child(
                 h_flex()
                     .items_center()
                     .justify_between()
@@ -845,19 +985,35 @@ impl Render for StartCodingDialogView {
                                 cx.notify();
                             })),
                     ),
-            )
-            .child(self.plan_mode_row(cx));
+            );
+        }
+        if agent.supports_plan_mode() {
+            toggles = toggles.child(self.plan_mode_row(cx).into_any_element());
+        }
+        if agent.supports_skip_permissions() {
+            toggles = toggles.child(self.skip_permissions_row(cx).into_any_element());
+        } else {
+            toggles = toggles.child(
+                div()
+                    .text_xs()
+                    .text_color(theme_muted)
+                    .child("pi has no permission prompts — it always runs unguarded."),
+            );
+        }
 
+        let agent_label = agent.label();
         let intro: SharedString = if checked_count >= 2 {
             format!(
-                "One Claude session implements the {checked_count} checked issues on one \
-                 branch and opens one combined PR."
+                "One {agent_label} session implements the {checked_count} checked issues on \
+                 one branch and opens one combined PR."
             )
             .into()
         } else {
-            "Claude works on the checked issue in its own worktree and opens the pull \
-             request when done. Check more issues for a batch run."
-                .into()
+            format!(
+                "{agent_label} works on the checked issue in its own worktree and opens the \
+                 pull request when done. Check more issues for a batch run."
+            )
+            .into()
         };
 
         let blocker = self.launch_blocker(cx);
@@ -895,6 +1051,7 @@ impl Render for StartCodingDialogView {
                             ),
                     ),
             )
+            .child(self.agent_tabs(cx))
             .child(main_row)
             .child(toggles);
 

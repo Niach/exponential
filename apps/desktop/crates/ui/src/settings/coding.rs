@@ -42,10 +42,12 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 
-use coding::{DoctorReport, Settings, ToolCheck};
+use coding::{CodingAgent, DoctorReport, Settings, ToolCheck};
 
 use crate::coding_flow::CodingHub;
-use crate::coding_selects::{choice_select, selected, ChoiceSelect, EFFORT_CHOICES, MODEL_CHOICES};
+use crate::coding_selects::{
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, AGENT_CHOICES,
+};
 
 use super::{card, card_header, error_notice};
 
@@ -54,17 +56,28 @@ use super::{card, card_header, error_notice};
 // ---------------------------------------------------------------------------
 
 pub struct CodingPane {
+    /// The default agent the Start-coding dialog preselects (EXP-201).
+    agent_select: ChoiceSelect,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
+    codex_input: Entity<InputState>,
+    codex_model_select: ChoiceSelect,
+    codex_effort_select: ChoiceSelect,
+    pi_input: Entity<InputState>,
+    pi_model_select: ChoiceSelect,
+    pi_thinking_select: ChoiceSelect,
     repos_input: Entity<InputState>,
     prefix_input: Entity<InputState>,
     /// Per-mode run defaults (the shared dialog's prefill): ultracode issue
-    /// OFF / batch ON, plan mode issue ON / batch OFF out of the box.
+    /// OFF / batch ON, plan mode issue ON / batch OFF, skip-permissions OFF
+    /// for both out of the box.
     issue_ultracode: bool,
     batch_ultracode: bool,
     issue_plan_mode: bool,
     batch_plan_mode: bool,
+    issue_skip_permissions: bool,
+    batch_skip_permissions: bool,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -75,14 +88,54 @@ impl CodingPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let claude_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
+        let codex_input = cx
+            .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
+        let pi_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_PI_PATH));
         let repos_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_REPOS_ROOT));
         let prefix_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(coding::settings::DEFAULT_BRANCH_PREFIX)
         });
         let defaults = Settings::default();
-        let model_select = choice_select(&MODEL_CHOICES, &defaults.claude_model, window, cx);
-        let effort_select = choice_select(&EFFORT_CHOICES, &defaults.claude_effort, window, cx);
+        let agent_select =
+            choice_select(&AGENT_CHOICES, defaults.default_agent.id(), window, cx);
+        let model_select = choice_select(
+            model_choices_for(CodingAgent::Claude),
+            &defaults.claude_model,
+            window,
+            cx,
+        );
+        let effort_select = choice_select(
+            effort_choices_for(CodingAgent::Claude),
+            &defaults.claude_effort,
+            window,
+            cx,
+        );
+        let codex_model_select = choice_select(
+            model_choices_for(CodingAgent::Codex),
+            &defaults.codex_model,
+            window,
+            cx,
+        );
+        let codex_effort_select = choice_select(
+            effort_choices_for(CodingAgent::Codex),
+            &defaults.codex_effort,
+            window,
+            cx,
+        );
+        let pi_model_select = choice_select(
+            model_choices_for(CodingAgent::Pi),
+            &defaults.pi_model,
+            window,
+            cx,
+        );
+        let pi_thinking_select = choice_select(
+            effort_choices_for(CodingAgent::Pi),
+            &defaults.pi_thinking,
+            window,
+            cx,
+        );
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -93,29 +146,46 @@ impl CodingPane {
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &repos_input, &prefix_input] {
+        for input in [&claude_input, &codex_input, &pi_input, &repos_input, &prefix_input] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify(); // live dirty tracking on the Save button
                 }
             }));
         }
-        for select in [&model_select, &effort_select] {
+        for select in [
+            &agent_select,
+            &model_select,
+            &effort_select,
+            &codex_model_select,
+            &codex_effort_select,
+            &pi_model_select,
+            &pi_thinking_select,
+        ] {
             // Confirming a choice notifies the state — observing keeps the
             // Save button's dirty tracking live without a typed subscription.
             subscriptions.push(cx.observe(select, |_, _, cx| cx.notify()));
         }
 
         let mut this = Self {
+            agent_select,
             claude_input,
             model_select,
             effort_select,
+            codex_input,
+            codex_model_select,
+            codex_effort_select,
+            pi_input,
+            pi_model_select,
+            pi_thinking_select,
             repos_input,
             prefix_input,
             issue_ultracode: defaults.issue_ultracode,
             batch_ultracode: defaults.batch_ultracode,
             issue_plan_mode: defaults.issue_plan_mode,
             batch_plan_mode: defaults.batch_plan_mode,
+            issue_skip_permissions: defaults.issue_skip_permissions,
+            batch_skip_permissions: defaults.batch_skip_permissions,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -135,6 +205,12 @@ impl CodingPane {
         self.claude_input.update(cx, |input, cx| {
             input.set_value(settings.claude_path.clone(), window, cx)
         });
+        self.codex_input.update(cx, |input, cx| {
+            input.set_value(settings.codex_path.clone(), window, cx)
+        });
+        self.pi_input.update(cx, |input, cx| {
+            input.set_value(settings.pi_path.clone(), window, cx)
+        });
         self.repos_input.update(cx, |input, cx| {
             input.set_value(settings.repos_root.clone(), window, cx)
         });
@@ -143,20 +219,31 @@ impl CodingPane {
         });
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
-        self.model_select.update(cx, |select, cx| {
-            select.set_selected_value(&SharedString::from(settings.claude_model.clone()), window, cx)
-        });
-        self.effort_select.update(cx, |select, cx| {
+        self.agent_select.update(cx, |select, cx| {
             select.set_selected_value(
-                &SharedString::from(settings.claude_effort.clone()),
+                &SharedString::from(settings.default_agent.id()),
                 window,
                 cx,
             )
         });
+        for (select, value) in [
+            (&self.model_select, settings.claude_model.clone()),
+            (&self.effort_select, settings.claude_effort.clone()),
+            (&self.codex_model_select, settings.codex_model.clone()),
+            (&self.codex_effort_select, settings.codex_effort.clone()),
+            (&self.pi_model_select, settings.pi_model.clone()),
+            (&self.pi_thinking_select, settings.pi_thinking.clone()),
+        ] {
+            select.update(cx, |select, cx| {
+                select.set_selected_value(&SharedString::from(value), window, cx)
+            });
+        }
         self.issue_ultracode = settings.issue_ultracode;
         self.batch_ultracode = settings.batch_ultracode;
         self.issue_plan_mode = settings.issue_plan_mode;
         self.batch_plan_mode = settings.batch_plan_mode;
+        self.issue_skip_permissions = settings.issue_skip_permissions;
+        self.batch_skip_permissions = settings.batch_skip_permissions;
         self.synced = Some(settings);
         cx.notify();
     }
@@ -176,13 +263,23 @@ impl CodingPane {
             }
         };
         Settings {
+            default_agent: CodingAgent::parse(&selected(&self.agent_select, cx))
+                .unwrap_or_default(),
             claude_path: value(&self.claude_input, &defaults.claude_path),
+            codex_path: value(&self.codex_input, &defaults.codex_path),
+            pi_path: value(&self.pi_input, &defaults.pi_path),
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
+            codex_model: selected(&self.codex_model_select, cx),
+            codex_effort: selected(&self.codex_effort_select, cx),
+            pi_model: selected(&self.pi_model_select, cx),
+            pi_thinking: selected(&self.pi_thinking_select, cx),
             issue_ultracode: self.issue_ultracode,
             batch_ultracode: self.batch_ultracode,
             issue_plan_mode: self.issue_plan_mode,
             batch_plan_mode: self.batch_plan_mode,
+            issue_skip_permissions: self.issue_skip_permissions,
+            batch_skip_permissions: self.batch_skip_permissions,
             repos_root: value(&self.repos_input, &defaults.repos_root),
             branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
         }
@@ -281,13 +378,26 @@ impl CodingPane {
             )
     }
 
-    /// One doctor row: green check + version, or red X + the actionable error.
-    fn doctor_row(check: &ToolCheck, cx: &App) -> impl IntoElement {
+    /// One doctor row: green check + version, or the actionable error — red
+    /// for launch-blocking rows (git + the default agent), muted for the
+    /// OPTIONAL agents (EXP-201: only the agent you launch with must be
+    /// installed, so a missing codex is information, not an alarm).
+    fn doctor_row(check: &ToolCheck, muted_when_failing: bool, cx: &App) -> impl IntoElement {
         let (icon, color, detail): (IconName, gpui::Hsla, SharedString) = if check.ok {
             (
                 IconName::CircleCheck,
                 theme::tokens::GREEN.to_hsla(),
                 check.version.clone().unwrap_or_default().into(),
+            )
+        } else if muted_when_failing {
+            (
+                IconName::CircleX,
+                cx.theme().muted_foreground,
+                check
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| format!("{} is not installed", check.tool))
+                    .into(),
             )
         } else {
             (
@@ -299,6 +409,11 @@ impl CodingPane {
                     .unwrap_or_else(|| format!("{} is not available", check.tool))
                     .into(),
             )
+        };
+        let detail_color = if check.ok || muted_when_failing {
+            cx.theme().muted_foreground
+        } else {
+            cx.theme().danger
         };
         h_flex()
             .gap_2()
@@ -317,25 +432,26 @@ impl CodingPane {
                     .flex_1()
                     .min_w_0()
                     .text_sm()
-                    .text_color(if check.ok {
-                        cx.theme().muted_foreground
-                    } else {
-                        cx.theme().danger
-                    })
+                    .text_color(detail_color)
                     .child(detail),
             )
     }
 
     fn render_doctor_card(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let hub = CodingHub::global(cx);
-        let (report, running): (Option<DoctorReport>, bool) = {
+        let (report, running, default_agent): (Option<DoctorReport>, bool, CodingAgent) = {
             let hub = hub.read(cx);
-            (hub.doctor.report.clone(), hub.doctor.running)
+            (
+                hub.doctor.report.clone(),
+                hub.doctor.running,
+                hub.settings.default_agent,
+            )
         };
 
         let mut body = card(cx).child(card_header(
             "Tooling doctor",
-            "Start coding needs both tools. A red row blocks the button until it's fixed.",
+            "git is required; of the agent CLIs, only the one you launch with must be \
+             installed. A red row blocks that launch until it's fixed.",
             cx,
         ));
         match &report {
@@ -348,9 +464,14 @@ impl CodingPane {
                 );
             }
             Some(report) => {
-                body = body
-                    .child(Self::doctor_row(&report.agent, cx))
-                    .child(Self::doctor_row(&report.git, cx));
+                for agent in CodingAgent::ALL {
+                    body = body.child(Self::doctor_row(
+                        report.check_for(agent),
+                        agent != default_agent,
+                        cx,
+                    ));
+                }
+                body = body.child(Self::doctor_row(&report.git, false, cx));
             }
         }
         body.child(
@@ -373,6 +494,13 @@ impl CodingPane {
 impl Render for CodingPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let dirty = self.dirty(cx);
+        let section = |label: &'static str| {
+            div()
+                .pt_2()
+                .text_sm()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .child(label)
+        };
 
         let mut settings_card = card(cx)
             .child(card_header(
@@ -380,6 +508,13 @@ impl Render for CodingPane {
                 "Local launcher settings for \u{201c}Start coding\u{201d} — per machine, never synced.",
                 cx,
             ))
+            .child(Self::labeled_select(
+                "Default agent",
+                "Preselected in the Start-coding dialog — every launch can still pick another.",
+                &self.agent_select,
+                cx,
+            ))
+            .child(section("Claude Code"))
             .child(Self::labeled_input(
                 "Claude CLI path",
                 "Command name or absolute path — used verbatim to launch coding sessions.",
@@ -388,7 +523,7 @@ impl Render for CodingPane {
             ))
             .child(Self::labeled_select(
                 "Claude model",
-                "Passed as --model on every session. Default: Fable.",
+                "Passed as --model on every claude session. Default: Fable.",
                 &self.model_select,
                 cx,
             ))
@@ -398,6 +533,45 @@ impl Render for CodingPane {
                 &self.effort_select,
                 cx,
             ))
+            .child(section("Codex"))
+            .child(Self::labeled_input(
+                "Codex CLI path",
+                "Command name or absolute path of OpenAI's codex CLI.",
+                &self.codex_input,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Codex model",
+                "Passed as -m; CLI default uses codex's own configured model.",
+                &self.codex_model_select,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "Codex reasoning",
+                "Sets model_reasoning_effort; CLI default leaves it unset.",
+                &self.codex_effort_select,
+                cx,
+            ))
+            .child(section("pi"))
+            .child(Self::labeled_input(
+                "pi CLI path",
+                "Command name or absolute path of the pi coding agent (pi.dev).",
+                &self.pi_input,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "pi model",
+                "Passed as --model (pi resolves fuzzy patterns); CLI default uses pi's own.",
+                &self.pi_model_select,
+                cx,
+            ))
+            .child(Self::labeled_select(
+                "pi thinking",
+                "Passed as --thinking; CLI default leaves it unset.",
+                &self.pi_thinking_select,
+                cx,
+            ))
+            .child(section("Repos & branches"))
             .child(Self::labeled_input(
                 "Repos & worktrees root",
                 "Where repositories are cloned and per-issue worktrees are created (~ works).",
@@ -410,9 +584,10 @@ impl Render for CodingPane {
                 &self.prefix_input,
                 cx,
             ))
+            .child(section("Issue runs"))
             .child(Self::toggle_row(
                 "issue-plan-mode",
-                "Plan mode — issue runs",
+                "Plan mode — issue runs (Claude only)",
                 "Claude presents a plan and waits for your approval in the terminal before editing.",
                 self.issue_plan_mode,
                 |this, checked, _| this.issue_plan_mode = *checked,
@@ -420,24 +595,27 @@ impl Render for CodingPane {
             ))
             .child(Self::toggle_row(
                 "issue-ultracode",
-                "Dynamic workflows (ultracode) — issue runs",
+                "Dynamic workflows (ultracode) — issue runs (Claude only)",
                 "Runs single-issue sessions with --effort ultracode — works with any model.",
                 self.issue_ultracode,
                 |this, checked, _| this.issue_ultracode = *checked,
                 cx,
             ))
+            .child(Self::toggle_row(
+                "issue-skip-permissions",
+                "Skip permissions — issue runs",
+                "Full bypass instead of the agent's guarded auto mode (claude \
+                 --dangerously-skip-permissions / codex --dangerously-bypass-approvals-and-sandbox).",
+                self.issue_skip_permissions,
+                |this, checked, _| this.issue_skip_permissions = *checked,
+                cx,
+            ))
             // Defaults for "Start coding" on SEVERAL issues at once — the
-            // launch dialog prefills from these two when 2+ are checked.
-            .child(
-                div()
-                    .pt_2()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child("Batch runs (multiple issues)"),
-            )
+            // launch dialog prefills from these when 2+ are checked.
+            .child(section("Batch runs (multiple issues)"))
             .child(Self::toggle_row(
                 "batch-ultracode",
-                "Dynamic workflows (ultracode) — batch runs",
+                "Dynamic workflows (ultracode) — batch runs (Claude only)",
                 "Runs batch sessions with --effort ultracode — works with any model.",
                 self.batch_ultracode,
                 |this, checked, _| this.batch_ultracode = *checked,
@@ -445,10 +623,18 @@ impl Render for CodingPane {
             ))
             .child(Self::toggle_row(
                 "batch-plan-mode",
-                "Plan mode — batch runs",
+                "Plan mode — batch runs (Claude only)",
                 "Claude presents its plan for approval before editing or pushing anything.",
                 self.batch_plan_mode,
                 |this, checked, _| this.batch_plan_mode = *checked,
+                cx,
+            ))
+            .child(Self::toggle_row(
+                "batch-skip-permissions",
+                "Skip permissions — batch runs",
+                "Full bypass instead of the agent's guarded auto mode for multi-issue sessions.",
+                self.batch_skip_permissions,
+                |this, checked, _| this.batch_skip_permissions = *checked,
                 cx,
             ));
         if let Some(error) = &self.save_error {
