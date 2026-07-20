@@ -24,8 +24,8 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Edges, Entity, FocusHandle, Focusable,
-    FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Task, WeakEntity,
-    Window,
+    FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Task,
+    WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -90,6 +90,11 @@ pub struct Shell {
     ordinal: usize,
     last_saved: Option<DockAreaState>,
     _save_task: Option<Task<()>>,
+    /// EXP-210: the MAIN window's last observed size, pending persist —
+    /// debounced to disk on resize, flushed on quit; the next launch opens
+    /// at it (`window_size::load_last_size`). Always `None` on ordinal > 0.
+    pending_window_size: Option<Size<Pixels>>,
+    _size_save_task: Option<Task<()>>,
 }
 
 impl Shell {
@@ -170,16 +175,41 @@ impl Shell {
 
         cx.on_app_quit({
             let dock_area = dock_area.clone();
-            move |_, cx| {
+            move |this: &mut Self, cx| {
                 let state = dock_area.read(cx).dump(cx);
+                // EXP-210: flush a resize the debounce hasn't landed yet.
+                let pending_size = this.pending_window_size.take();
                 cx.background_executor().spawn(async move {
                     if let Err(err) = save_layout_state(ordinal, &state) {
                         log_layout(&format!("window {ordinal}: save on quit failed ({err:#})"));
+                    }
+                    if let Some(last) = pending_size {
+                        if let Err(err) = crate::window_size::save_last_size(last) {
+                            log_layout(&format!("window size save on quit failed ({err:#})"));
+                        }
                     }
                 })
             }
         })
         .detach();
+
+        // ---- EXP-210: remember the MAIN window's last used size ------------
+        // Restore-bounds, not the viewport, so a maximized session saves the
+        // pre-maximize size; `load_last_size` feeds the next launch's
+        // `open_shell_window`. Local file only — never synced.
+        if ordinal == 0 {
+            cx.observe_window_bounds(window, |this, window, cx| {
+                let last = window.window_bounds().get_bounds().size;
+                // Skip degenerate frames (minimize / teardown can report 0).
+                if last.width >= px(1.) && last.height >= px(1.)
+                    && this.pending_window_size != Some(last)
+                {
+                    this.pending_window_size = Some(last);
+                    this.queue_save_window_size(cx);
+                }
+            })
+            .detach();
+        }
 
         // The rail and top bar live OUTSIDE the dock area; the top bar's run
         // widget drives launches through this weak handle. Built after the
@@ -195,6 +225,8 @@ impl Shell {
             ordinal,
             last_saved: None,
             _save_task: None,
+            pending_window_size: None,
+            _size_save_task: None,
         }
     }
 
@@ -337,6 +369,23 @@ impl Shell {
                     Ok(()) => this.last_saved = Some(state),
                     Err(err) => {
                         log_layout(&format!("window {ordinal}: save failed ({err:#})"))
+                    }
+                }
+            });
+        }));
+    }
+
+    /// EXP-210: debounced persist of the main window's last used size
+    /// (`observe_window_bounds` fires per resize tick — same rationale as
+    /// [`Self::queue_save_layout`]). `take()` so the quit-flush only writes
+    /// what the debounce hasn't.
+    fn queue_save_window_size(&mut self, cx: &mut gpui::Context<Self>) {
+        self._size_save_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SAVE_DEBOUNCE).await;
+            _ = this.update(cx, |this, _| {
+                if let Some(last) = this.pending_window_size.take() {
+                    if let Err(err) = crate::window_size::save_last_size(last) {
+                        log_layout(&format!("window size save failed ({err:#})"));
                     }
                 }
             });
@@ -832,13 +881,7 @@ impl Render for CenterPanel {
 /// DockAreaState"). macOS: `~/Library/Application Support/Exponential/…`;
 /// Linux: `~/.local/share/exponential/…`.
 fn layout_file(ordinal: usize) -> Option<PathBuf> {
-    let dir = dirs::data_local_dir()?
-        .join(if cfg!(target_os = "macos") {
-            "Exponential"
-        } else {
-            "exponential"
-        })
-        .join("layouts");
+    let dir = crate::window_size::app_data_dir()?.join("layouts");
     Some(dir.join(format!("window-{ordinal}.json")))
 }
 

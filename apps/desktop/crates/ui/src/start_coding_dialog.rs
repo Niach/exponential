@@ -174,10 +174,10 @@ pub struct StartCodingDialogView {
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
-    /// issue id → whether its persisted worktree already exists on disk
-    /// (EXP-202 — computed alongside the repo probe; drives the Resume
-    /// affordance for a single-checked issue).
-    worktrees: HashMap<String, bool>,
+    /// issue id → its persisted worktree's resume state (EXP-202 — computed
+    /// alongside the repo probe; drives the Resume affordance for a
+    /// single-checked issue, per-agent since EXP-210).
+    worktrees: HashMap<String, coding_flow::WorktreeResume>,
     /// EXP-202: "Resume previous session" checkbox state. Only ACTIVE
     /// ([`Self::resume_candidate`]) when exactly one issue is checked and
     /// its worktree exists; default-on so a re-launch resumes by default.
@@ -390,22 +390,22 @@ impl StartCodingDialogView {
                 .background_executor()
                 .spawn(async move {
                     let result = api::repositories::for_issue(&trpc, &probe_id);
-                    let worktree_exists = match (&result, &identifier) {
-                        (Ok(Some(repo)), Some(identifier)) => coding_flow::issue_worktree_exists(
+                    let worktree_resume = match (&result, &identifier) {
+                        (Ok(Some(repo)), Some(identifier)) => coding_flow::issue_worktree_resume(
                             &settings,
                             &repo.full_name,
                             identifier,
                         ),
-                        _ => false,
+                        _ => coding_flow::WorktreeResume::None,
                     };
-                    (result, worktree_exists)
+                    (result, worktree_resume)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.probe_generation != generation {
                     return; // superseded
                 }
-                let (result, worktree_exists) = result;
+                let (result, worktree_resume) = result;
                 let state = match result {
                     Ok(repo) => RepoState::Ready(repo),
                     Err(err) => RepoState::Error(err.to_string()),
@@ -415,7 +415,7 @@ impl StartCodingDialogView {
                     this.checked.remove(&issue_id);
                 }
                 this.repos.insert(issue_id.clone(), state);
-                this.worktrees.insert(issue_id.clone(), worktree_exists);
+                this.worktrees.insert(issue_id.clone(), worktree_resume);
                 cx.notify();
             });
         })
@@ -424,13 +424,20 @@ impl StartCodingDialogView {
 
     /// EXP-202: the single checked issue whose persisted worktree already
     /// exists — the only shape a resume can take (batch branches are random
-    /// `exp/batch-<id8>` and are never resumable).
+    /// `exp/batch-<id8>` and are never resumable). EXP-210: per-agent — a
+    /// worktree only another agent coded in offers nothing to continue for
+    /// the selected one, so the Resume row hides instead of promising a
+    /// `--continue` that would fail.
     fn resume_candidate(&self) -> Option<&IssueRow> {
         if self.checked.len() != 1 {
             return None;
         }
         let issue_id = self.checked.iter().next()?;
-        if self.worktrees.get(issue_id).copied() != Some(true) {
+        if !self
+            .worktrees
+            .get(issue_id)
+            .is_some_and(|state| state.offers(self.agent))
+        {
             return None;
         }
         self.rows.iter().find(|row| &row.issue_id == issue_id)

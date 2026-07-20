@@ -111,6 +111,10 @@ pub struct LaunchRequest {
     /// the EXACT recorded session for the worktree (`resume <id>`, recovered
     /// from its rollout metas — [`crate::codex_sessions`]) and falls back to
     /// a fresh session seeded with the resume prompt when none is recorded.
+    /// EXP-210: the worktree's recorded-agent marker
+    /// ([`crate::worktree_agents`]) gates every native path — resuming with
+    /// an agent that never coded in the worktree degrades to that same
+    /// fresh-seeded fallback instead of letting `--continue` fail.
     /// Worktree creation is already idempotent either way — this only
     /// changes step 5 + the argv tail, and clamps `options.plan_mode` off
     /// (the plan already happened in the conversation being continued).
@@ -180,7 +184,11 @@ impl WorktreeProvider for GitWorktrees {
         // [`crate::prompt::deliver_prompt_file`]).
         let _ = crate::git_worktree::ensure_local_excludes(
             &clone,
-            &[crate::mcp_json::MCP_JSON_FILE, crate::pi_bridge::PI_BRIDGE_FILE],
+            &[
+                crate::mcp_json::MCP_JSON_FILE,
+                crate::pi_bridge::PI_BRIDGE_FILE,
+                crate::worktree_agents::AGENTS_FILE,
+            ],
         );
         Ok(worktree)
     }
@@ -508,18 +516,31 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // Either native path runs stale-seed hygiene (same rationale as
     // `deliver_prompt`'s Direct path: a resumed session must never re-read
     // an earlier launch's PROMPT.md).
-    let codex_resume_id = (resume_requested && agent == CodingAgent::Codex)
-        .then(|| {
-            deps.codex_sessions_root
-                .clone()
-                .or_else(crate::codex_sessions::default_codex_sessions_root)
-                .and_then(|root| {
-                    crate::codex_sessions::find_latest_codex_session_id(&root, &worktree)
-                })
-        })
-        .flatten();
-    let native_resume =
-        resume_requested && (agent != CodingAgent::Codex || codex_resume_id.is_some());
+    //
+    // EXP-210: the worktree's recorded-agent marker gates native resume the
+    // same way — `--continue` in a worktree THIS agent never coded in dies
+    // with "no conversation found to continue", so a resume request against
+    // another agent's worktree degrades to the fresh-seeded resume prompt
+    // (the dialog also hides the Resume offer in that case; this is the
+    // backstop for stale dialogs and the future remote-resume seam). A
+    // marker-less worktree predates the marker — its history is unknown, so
+    // the legacy behavior (attempt the native resume) stands.
+    let marker_allows_resume = crate::worktree_agents::worktree_agents(&worktree)
+        .is_none_or(|recorded| recorded.contains(&agent));
+    let codex_resume_id =
+        (resume_requested && marker_allows_resume && agent == CodingAgent::Codex)
+            .then(|| {
+                deps.codex_sessions_root
+                    .clone()
+                    .or_else(crate::codex_sessions::default_codex_sessions_root)
+                    .and_then(|root| {
+                        crate::codex_sessions::find_latest_codex_session_id(&root, &worktree)
+                    })
+            })
+            .flatten();
+    let native_resume = resume_requested
+        && marker_allows_resume
+        && (agent != CodingAgent::Codex || codex_resume_id.is_some());
     let delivery = if native_resume {
         let _ = std::fs::remove_file(worktree.join(PROMPT_FILE));
         None
@@ -608,6 +629,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         input.status = Some(IssueStatus::InProgress);
         let _ = issues::issues_update(&deps.trpc, &input);
     }
+
+    // EXP-210: stamp THIS agent into the worktree's recorded-agent marker
+    // (after every can-still-fail step, so a Disabled outcome records
+    // nothing; read above BEFORE this write, so the marker gate judged the
+    // PREVIOUS launches). Best-effort: a failed write only costs a future
+    // resume offer.
+    let _ = crate::worktree_agents::record_worktree_agent(&worktree, agent);
 
     // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
     // the native permission posture, and the prompt positional-last (bytes
@@ -1153,6 +1181,54 @@ mod tests {
         // Stale-seed hygiene: the resumed session must never re-read an
         // earlier launch's PROMPT.md.
         assert!(!worktree.join(PROMPT_FILE).exists());
+        // EXP-210: the launch stamped claude into the recorded-agent marker.
+        assert_eq!(
+            crate::worktree_agents::worktree_agents(&worktree),
+            Some(vec![CodingAgent::Claude])
+        );
+    }
+
+    /// EXP-210: a CLAUDE resume against a worktree whose recorded-agent
+    /// marker names only ANOTHER agent never emits `--continue` (claude
+    /// would die with "no conversation found to continue") — it degrades to
+    /// the same fresh-seeded resume-prompt fallback as codex-without-a-
+    /// recorded-session, and the launch then adds claude to the marker.
+    #[test]
+    fn prepare_resume_claude_on_a_codex_worktree_seeds_the_resume_prompt() {
+        let dir = temp_dir("resume-cross-agent");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        crate::worktree_agents::record_worktree_agent(&worktree, CodingAgent::Codex).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.resume = true;
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        // No native resume tail — the RESUME prompt rides positional-last.
+        assert!(!prepared.spawn.args.iter().any(|arg| arg == "--continue"));
+        assert_eq!(
+            prepared.spawn.args.last().unwrap(),
+            &render_resume_prompt("EXP-42", "Fix login flicker", "main")
+        );
+        // The marker now records both agents — a later CODEX resume stays
+        // native, and a later claude one has a conversation to continue.
+        assert_eq!(
+            crate::worktree_agents::worktree_agents(&worktree),
+            Some(vec![CodingAgent::Codex, CodingAgent::Claude])
+        );
     }
 
     /// EXP-202: a CODEX resume with a recorded session for the worktree
