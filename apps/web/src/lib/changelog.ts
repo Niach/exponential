@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-multi-agent-resume`,
+    date: `2026-07-20`,
+    title: `Pick your coding agent, and resume where you left off`,
+    summary: `Start coding sessions with Claude, Codex, or pi — and resume an earlier session instead of starting over.`,
+    body: `- **Three agents** — the Start-coding dialog now offers Claude, Codex, and pi, each with its own model and effort picks; your defaults are saved per agent. Remote starts from your phone only offer the agents actually installed on the chosen desktop.
+- **Resume coding** — reopen a finished or interrupted session and the agent picks up with its previous context instead of starting from scratch.
+- **Guarded by default** — Claude runs now default to the guarded auto permission mode instead of skipping permissions; the IDE doctor needs claude ≥ 2.1.215 for it (run \`claude update\` if coding shows as blocked).
+- **IDE polish** — long issue descriptions no longer get cut off in the IDE editor.
+- **Smoother marketing film** — the exponential.at intro video now autoplays reliably.`,
+  },
+  {
     id: `2026-07-mobile-steering-review`,
     date: `2026-07-20`,
     title: `Answer your agent from anywhere, and sessions that wait for review`,
