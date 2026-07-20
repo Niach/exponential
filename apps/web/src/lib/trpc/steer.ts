@@ -273,7 +273,15 @@ export const steerRouter = router({
       // refuse a start naming one it didn't (an old desktop advertises
       // nothing ⇒ claude-only, exactly what it can do).
       const agent = input.agent ?? `claude`
-      const { devices } = await relayGetDevices(config, userId)
+      let devices: SteerDevice[]
+      try {
+        ;({ devices } = await relayGetDevices(config, userId))
+      } catch {
+        throw new TRPCError({
+          code: `BAD_GATEWAY`,
+          message: `Steer relay unreachable — try again`,
+        })
+      }
       const device = devices.find((d) => d.deviceId === input.deviceId)
       const deviceAgentIds =
         device?.agents && device.agents.length > 0 ? device.agents : [`claude`]
