@@ -44,7 +44,6 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
-    switch::Switch,
     tab::{Tab, TabBar, TabVariant},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size, WindowExt as _,
 };
@@ -832,6 +831,18 @@ impl StartCodingDialogView {
             })
     }
 
+    /// The "Dynamic workflows (ultracode)" checkbox — uniform with the other
+    /// option rows (EXP-213 replaced the lone Switch).
+    fn ultracode_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        Checkbox::new("sc-ultracode")
+            .label("Dynamic workflows (ultracode)")
+            .checked(self.ultracode)
+            .on_click(cx.listener(|this, on: &bool, _, cx| {
+                this.ultracode = *on;
+                cx.notify();
+            }))
+    }
+
     /// The shared "Plan mode" checkbox (hint-free — EXP-206).
     fn plan_mode_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         Checkbox::new("sc-plan-mode")
@@ -1019,7 +1030,7 @@ impl Render for StartCodingDialogView {
         let no_matches = !query.is_empty() && match_ixs.is_empty() && !self.rows.is_empty();
         match_ixs.truncate(MAX_UNCHECKED_ROWS);
 
-        let mut checklist = v_flex().gap_1();
+        let mut checklist = v_flex().gap_1().p_2();
         if self.rows.is_empty() {
             checklist = checklist.child(
                 div()
@@ -1092,23 +1103,12 @@ impl Render for StartCodingDialogView {
 
         // ---- toggles (capability-gated per agent — EXP-201; hint-free,
         //      EXP-206) ----
+        let has_toggles = agent.supports_ultracode()
+            || (agent.supports_plan_mode() && !resume_active)
+            || agent.supports_skip_permissions();
         let mut toggles = v_flex().gap_2();
         if agent.supports_ultracode() {
-            toggles = toggles.child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(div().text_sm().child("Dynamic workflows (ultracode)"))
-                    .child(
-                        Switch::new("sc-ultracode")
-                            .checked(ultracode)
-                            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                                this.ultracode = *on;
-                                cx.notify();
-                            })),
-                    ),
-            );
+            toggles = toggles.child(self.ultracode_row(cx).into_any_element());
         }
         // A resume never re-enters plan mode — hide the row while the resume
         // checkbox is on (options() clamps it off regardless).
@@ -1148,6 +1148,11 @@ impl Render for StartCodingDialogView {
                 div()
                     .relative()
                     .max_h(px(320.))
+                    // EXP-213: boxed like the web picker.
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .rounded(cx.theme().radius)
+                    .overflow_hidden()
                     .child(
                         div()
                             .id("sc-issues-scroll")
@@ -1174,7 +1179,11 @@ impl Render for StartCodingDialogView {
         if let Some(resume_row) = resume_row {
             body = body.child(resume_row);
         }
-        body = body.child(toggles);
+        // pi has no option rows — an empty toggles child would still eat a
+        // gap_3 slot and double the space above the footer.
+        if has_toggles {
+            body = body.child(toggles);
+        }
 
         if checked_count > MAX_ISSUES_PER_RUN {
             body = body.child(div().text_xs().text_color(warning).child(SharedString::from(
