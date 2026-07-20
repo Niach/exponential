@@ -21,6 +21,12 @@ export default defineConfig({
       "@app": resolve(__dirname, `../web/src`),
       "@video": resolve(__dirname, `../video/src`),
     },
+    // The @video alias reaches across workspaces, so any React copy nested
+    // under apps/video would ride into the lazy LoopMoviePlayer chunk as a
+    // SECOND React instance — its hooks dispatcher is null (EXP-207: the
+    // ending slide's useId crashed the player). Always bundle the one
+    // hoisted copy.
+    dedupe: [`react`, `react-dom`],
   },
   build: {
     rollupOptions: {

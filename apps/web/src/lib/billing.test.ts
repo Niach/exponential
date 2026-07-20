@@ -78,14 +78,14 @@ describe(`getPlanLimits — the §3.2 target table`, () => {
       widgetConfigs: 1,
     })
   })
-  it(`pro = 5 GB / 3 widgets`, () => {
+  it(`pro = 2 GB / 3 widgets`, () => {
     const pro = getPlanLimits(`pro`)
-    expect(pro.storageMb).toBe(5120)
+    expect(pro.storageMb).toBe(2048)
     expect(pro.widgetConfigs).toBe(3)
   })
-  it(`business = 50 GB / unlimited widgets`, () => {
+  it(`business = 10 GB / unlimited widgets`, () => {
     const biz = getPlanLimits(`business`)
-    expect(biz.storageMb).toBe(51200)
+    expect(biz.storageMb).toBe(10240)
     expect(biz.widgetConfigs).toBe(Infinity)
   })
   it(`unlimited = everything Infinity`, () => {
@@ -112,7 +112,7 @@ describe(`planFromSubscription — team-bound resolution`, () => {
     })
     expect(plan).toBe(`pro`)
     expect(limits.seats).toBe(7)
-    expect(limits.storageMb).toBe(5120)
+    expect(limits.storageMb).toBe(2048)
     expect(limits.widgetConfigs).toBe(3)
   })
 
@@ -253,7 +253,7 @@ describe(`getTeamPlan — team-bound lookup (no owner fan-out)`, () => {
     seedPlan([], `business`)
     const { plan, limits } = await getTeamPlan(WS)
     expect(plan).toBe(`business`)
-    expect(limits.storageMb).toBe(51200)
+    expect(limits.storageMb).toBe(10240)
     expect(limits.widgetConfigs).toBe(Infinity)
     // No purchased quantity behind a comp → seats are uncapped, never 1.
     expect(limits.seats).toBe(Infinity)

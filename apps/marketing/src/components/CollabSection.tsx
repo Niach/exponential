@@ -221,7 +221,7 @@ export function CollabSection() {
                     </div>
                     <button className={`web-btn-outline`} type={`button`}>
                       <IcCheck size={12} />
-                      Close
+                      Close ticket
                     </button>
                   </div>
                   <div className={`web-sup-msgs co-msgs`}>

@@ -1,19 +1,14 @@
 import { motion } from "motion/react"
-import {
-  cardReveal,
-  eyebrowDraw,
-  sectionReveal,
-  staggerContainer,
-  viewportOnce,
-} from "../lib/animations"
-import { CLOUD_PLANS, EVERY_PLAN_INCLUDES } from "../lib/plans"
+import { eyebrowDraw, sectionReveal } from "../lib/animations"
+import { EVERY_PLAN_INCLUDES } from "../lib/plans"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
+import { PlanCards } from "./PlanCards"
 
-/* ── Home pricing — the four cloud tiers at a glance ──
-   Compact by design: name + price + one line, mapped from the canonical
-   lib/plans.ts (the full feature cards + self-host tiers live on
-   /pricing/). */
+/* ── Home pricing — the four cloud tiers ──
+   The SAME full feature cards as /pricing/ (shared PlanCards over the
+   canonical lib/plans.ts); the self-host tiers + comparison table stay
+   on /pricing/. */
 export function HomePricing() {
   return (
     <section id={`pricing`} className={`home-pricing`}>
@@ -28,33 +23,7 @@ export function HomePricing() {
           </p>
         </motion.div>
 
-        <motion.div
-          className={`plan-grid plan-grid-cloud`}
-          variants={staggerContainer}
-          initial={`hidden`}
-          whileInView={`visible`}
-          viewport={viewportOnce}
-        >
-          {CLOUD_PLANS.map((p) => (
-            <motion.div
-              key={p.id}
-              className={`plan-card${p.highlight ? ` is-highlight` : ``}${p.enterprise ? ` is-enterprise` : ``}`}
-              variants={cardReveal}
-            >
-              {p.highlight && <span className={`plan-flag`}>Most popular</span>}
-              <div className={`plan-head`}>
-                <h3>{p.name}</h3>
-                <div className={`plan-price`}>
-                  <span className={`plan-amount`}>{p.amount}</span>
-                  {p.cadence && (
-                    <span className={`plan-cadence`}>{p.cadence}</span>
-                  )}
-                </div>
-                <p className={`plan-tagline`}>{p.homeTagline}</p>
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
+        <PlanCards />
 
         <p className={`plan-footnote`}>{EVERY_PLAN_INCLUDES}</p>
 

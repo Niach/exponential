@@ -174,7 +174,7 @@ export function TeamBillingSection({
             max={limits.seats}
           />
           <UsageBar
-            label="Storage"
+            label="Attachment storage"
             current={usage.storageMb}
             max={limits.storageMb}
             formatValue={formatStorage}

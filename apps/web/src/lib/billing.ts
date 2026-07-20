@@ -42,12 +42,12 @@ const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   },
   pro: {
     seats: 1,
-    storageMb: 5120,
+    storageMb: 2048,
     widgetConfigs: 3,
   },
   business: {
     seats: 1,
-    storageMb: 51200,
+    storageMb: 10240,
     widgetConfigs: Infinity,
   },
   unlimited: {
@@ -412,7 +412,7 @@ export async function assertWithinStorageLimit(
   const currentBytes = usage.storageMb * 1024 * 1024
   if (currentBytes + additionalBytes > limitBytes) {
     throw planLimitError(
-      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage. Upgrade to upload more.`
+      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of attachment storage. Upgrade to upload more.`
     )
   }
 }

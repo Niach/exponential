@@ -137,7 +137,7 @@
    it; the max-height tier below tightens the stack and lowers the reserve
    so short displays give the film as much room as possible. */
 .hero {
-  --movie-reserve: 600px;
+  --movie-reserve: 640px;
   min-height: calc(100vh - 56px);
   min-height: calc(100svh - 56px);
   display: flex;
@@ -200,7 +200,38 @@ h1.hero-title {
   gap: 10px;
   justify-content: center;
   align-items: center;
-  margin-bottom: 56px;
+  margin-bottom: 22px;
+}
+
+/* Agent strip between the CTAs and the movie (EXP-207) — the launcher is
+   agent-agnostic, so the brands live here instead of in the copy. */
+.hero-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 40px;
+  color: var(--fg-muted);
+}
+.hero-agents-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.hero-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.hero-agent svg {
+  flex-shrink: 0;
+}
+.hero-agent.is-claude svg {
+  color: hsl(14.8, 63.1%, 59.6%);
 }
 
 /* Short-viewport tier (typical laptops): tighten the text stack so the film
@@ -209,7 +240,7 @@ h1.hero-title {
    values are measured, not derived (EXP-200 hero-fit verification). */
 @media (max-height: 940px) and (min-width: 721px) {
   .hero {
-    --movie-reserve: 470px;
+    --movie-reserve: 505px;
     padding-top: 28px;
   }
   h1.hero-title {
@@ -221,7 +252,10 @@ h1.hero-title {
     margin-bottom: 20px;
   }
   .hero-cta {
-    margin-bottom: 28px;
+    margin-bottom: 12px;
+  }
+  .hero-agents {
+    margin-bottom: 20px;
   }
 }
 

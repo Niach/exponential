@@ -218,7 +218,7 @@ export const StartCodingDialog: React.FC<StartCodingDialogProps> = ({
       </div>
       <SwitchOff x={D.w - D.pad - 38} y={D.dwY - 1} />
       <div style={captionStyle(D.pad, D.dwCapY, D.w - 2 * D.pad)}>
-        Runs Claude with --effort ultracode — works with any model.
+        Runs the agent with --effort ultracode — works with any model.
       </div>
 
       {/* Plan mode — CHECKED for issue runs */}

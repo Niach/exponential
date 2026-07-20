@@ -97,6 +97,7 @@ export const PAGES: PageSeo[] = [
     sources: [
       `src/HomePage.tsx`,
       `src/components/HomePricing.tsx`,
+      `src/components/PlanCards.tsx`,
       `src/lib/plans.ts`,
     ],
     title: `Exponential — The development platform for teams and agents`,

@@ -187,7 +187,7 @@ export const COPY = {
   s2: "They report it in place.",
   s3: "It lands on your board.",
   s5: "Start coding.",
-  s6: "Claude fixes it in the dock.",
+  s6: "Your agent fixes it in the dock.",
   s7: "Review it in place.",
   s8: "Merge. Done.",
 } as const

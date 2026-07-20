@@ -720,7 +720,7 @@
   border-color: var(--fg-dim);
 }
 .web-composer-input.is-note {
-  border-color: color-mix(in oklab, var(--st-progress) 45%, transparent);
+  border-color: color-mix(in oklab, #f59e0b 45%, transparent);
 }
 .web-send {
   width: 32px;
@@ -945,8 +945,8 @@
 .web-bubble.is-internal {
   align-self: flex-end;
   border-bottom-right-radius: 4px;
-  border: 1px solid color-mix(in oklab, var(--st-progress) 40%, transparent);
-  background: color-mix(in oklab, var(--st-progress) 10%, transparent);
+  border: 1px solid color-mix(in oklab, #f59e0b 40%, transparent);
+  background: color-mix(in oklab, #f59e0b 10%, transparent);
 }
 .web-note-badge {
   display: inline-flex;
@@ -955,8 +955,8 @@
   margin-bottom: 4px;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--st-progress) 50%, transparent);
-  color: var(--st-progress);
+  border: 1px solid color-mix(in oklab, #f59e0b 50%, transparent);
+  color: #f59e0b;
   font-size: 10px;
   white-space: nowrap;
 }
@@ -1003,8 +1003,8 @@
   font-weight: 500;
 }
 .web-modepill.is-note.is-active {
-  background: color-mix(in oklab, var(--st-progress) 15%, transparent);
-  color: var(--st-progress);
+  background: color-mix(in oklab, #f59e0b 15%, transparent);
+  color: #f59e0b;
 }
 .web-sup-inputrow {
   display: flex;
