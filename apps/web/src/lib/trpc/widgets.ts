@@ -34,7 +34,9 @@ const domainPatternSchema = z
     /^(\*\.)?[a-zA-Z0-9.-]+(:\d{1,5})?$/,
     `Enter a hostname like app.example.com`
   )
-const allowedDomainsSchema = z.array(domainPatternSchema).max(20)
+// Non-empty: an unconfigured allowlist blocks the key at serve time
+// (EXP-209 removed allow-all), so every config must name its domains.
+const allowedDomainsSchema = z.array(domainPatternSchema).min(1).max(20)
 
 const formConfigSchema = z
   .object({
@@ -179,7 +181,7 @@ export const widgetsRouter = router({
         // support inbox).
         boardId: z.string().uuid().nullable().optional(),
         name: widgetNameSchema,
-        allowedDomains: allowedDomainsSchema.default([]),
+        allowedDomains: allowedDomainsSchema,
         formConfig: formConfigSchema,
       })
     )

@@ -133,7 +133,7 @@ const config = {
   widgetUserId: `widget-bot`,
   publicKey: `expw_test`,
   enabled: true,
-  allowedDomains: [],
+  allowedDomains: [`example.com`],
   formConfig: null,
   boardSlug: `board`,
   boardName: `Board`,
