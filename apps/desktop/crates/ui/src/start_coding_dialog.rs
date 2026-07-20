@@ -45,8 +45,8 @@ use gpui_component::{
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     switch::Switch,
-    tab::{Tab, TabBar},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, Size, WindowExt as _,
+    tab::{Tab, TabBar, TabVariant},
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size, WindowExt as _,
 };
 use sync::Store;
 
@@ -59,7 +59,7 @@ use domain::IssueStatus;
 
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
-    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
 use crate::queries;
 
@@ -825,31 +825,15 @@ impl StartCodingDialogView {
             })
     }
 
-    /// The shared "Plan mode" checkbox + its native-plan-mode hint.
+    /// The shared "Plan mode" checkbox (hint-free — EXP-206).
     fn plan_mode_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap_0p5()
-            .child(
-                Checkbox::new("sc-plan-mode")
-                    .label("Plan mode")
-                    .checked(self.plan_mode)
-                    .on_click(cx.listener(|this, on: &bool, _, cx| {
-                        this.plan_mode = *on;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .pl_6()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(
-                        "Present a plan for approval before making changes \
-                         (native Claude plan mode). After approving, \
-                         Shift+Tab switches to skip-permissions for a \
-                         prompt-free run.",
-                    ),
-            )
+        Checkbox::new("sc-plan-mode")
+            .label("Plan mode")
+            .checked(self.plan_mode)
+            .on_click(cx.listener(|this, on: &bool, _, cx| {
+                this.plan_mode = *on;
+                cx.notify();
+            }))
     }
 
     /// EXP-202: the "Resume previous session" notice + checkbox — rendered
@@ -904,36 +888,13 @@ impl StartCodingDialogView {
     /// The "Skip permissions" checkbox (EXP-201) — full bypass instead of the
     /// agent's guarded auto mode. Hidden for pi (no permission system).
     fn skip_permissions_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let hint = match self.agent {
-            CodingAgent::Claude => {
-                "Run with --dangerously-skip-permissions instead of the \
-                 guarded auto mode (a classifier approves routine actions \
-                 and asks on risky ones)."
-            }
-            _ => {
-                "Run with --dangerously-bypass-approvals-and-sandbox instead \
-                 of Codex's sandboxed Auto mode (workspace writes allowed, \
-                 approval asked outside it)."
-            }
-        };
-        v_flex()
-            .gap_0p5()
-            .child(
-                Checkbox::new("sc-skip-permissions")
-                    .label("Skip permissions")
-                    .checked(self.skip_permissions)
-                    .on_click(cx.listener(|this, on: &bool, _, cx| {
-                        this.skip_permissions = *on;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .pl_6()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(hint),
-            )
+        Checkbox::new("sc-skip-permissions")
+            .label("Skip permissions")
+            .checked(self.skip_permissions)
+            .on_click(cx.listener(|this, on: &bool, _, cx| {
+                this.skip_permissions = *on;
+                cx.notify();
+            }))
     }
 
     /// The agent tab strip (EXP-201) — compact, above the pickers. Offers
@@ -947,19 +908,28 @@ impl StartCodingDialogView {
             .position(|agent| *agent == self.agent)
             .unwrap_or(0);
         let click_agents = pickable.clone();
-        TabBar::new("sc-agent-tabs")
-            .with_size(Size::Small)
-            .selected_index(active_ix)
-            .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-                if let Some(agent) = click_agents.get(*ix).copied() {
-                    this.set_agent(agent, window, cx);
-                }
-            }))
-            .children(
-                pickable
-                    .iter()
-                    .map(|agent| Tab::new().label(SharedString::from(agent.label()))),
-            )
+        // Centered pill tabs with each agent's brand mark + name (EXP-206;
+        // icon and text ride one custom child — `Tab::icon` drops the label).
+        h_flex().w_full().justify_center().child(
+            TabBar::new("sc-agent-tabs")
+                .with_variant(TabVariant::Pill)
+                .with_size(Size::Small)
+                .selected_index(active_ix)
+                .on_click(cx.listener(move |this, ix: &usize, window, cx| {
+                    if let Some(agent) = click_agents.get(*ix).copied() {
+                        this.set_agent(agent, window, cx);
+                    }
+                }))
+                .children(pickable.iter().map(|agent| {
+                    Tab::new().child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::from(agent_icon(*agent)).size_3p5())
+                            .child(SharedString::from(agent.label())),
+                    )
+                })),
+        )
     }
 
     /// Footer: blocker copy + Cancel + Start.
@@ -1113,7 +1083,8 @@ impl Render for StartCodingDialogView {
             .map(|row| row.identifier.clone())
             .map(|identifier| self.resume_row(&identifier, cx).into_any_element());
 
-        // ---- toggles (capability-gated per agent — EXP-201) ----
+        // ---- toggles (capability-gated per agent — EXP-201; hint-free,
+        //      EXP-206) ----
         let mut toggles = v_flex().gap_2();
         if agent.supports_ultracode() {
             toggles = toggles.child(
@@ -1121,14 +1092,7 @@ impl Render for StartCodingDialogView {
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .child(
-                        v_flex()
-                            .gap_0p5()
-                            .child(div().text_sm().child("Dynamic workflows (ultracode)"))
-                            .child(div().text_xs().text_color(theme_muted).child(
-                                "Runs Claude with --effort ultracode — works with any model.",
-                            )),
-                    )
+                    .child(div().text_sm().child("Dynamic workflows (ultracode)"))
                     .child(
                         Switch::new("sc-ultracode")
                             .checked(ultracode)
@@ -1146,13 +1110,6 @@ impl Render for StartCodingDialogView {
         }
         if agent.supports_skip_permissions() {
             toggles = toggles.child(self.skip_permissions_row(cx).into_any_element());
-        } else {
-            toggles = toggles.child(
-                div()
-                    .text_xs()
-                    .text_color(theme_muted)
-                    .child("pi has no permission prompts — it always runs unguarded."),
-            );
         }
 
         let agent_label = agent.label();

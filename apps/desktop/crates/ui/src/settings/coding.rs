@@ -41,7 +41,7 @@ use gpui_component::{
     select::Select,
     skeleton::Skeleton,
     switch::Switch,
-    tab::{Tab, TabBar},
+    tab::{Tab, TabBar, TabVariant},
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, Size,
 };
 
@@ -49,7 +49,8 @@ use coding::{CodingAgent, DoctorReport, Settings, ToolCheck};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
-    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, AGENT_CHOICES,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    AGENT_CHOICES,
 };
 
 use super::{card, card_header, error_notice};
@@ -347,12 +348,12 @@ impl CodingPane {
             )
     }
 
-    /// One toggle row: label + hint on the left, a `Switch` on the right
-    /// (the notifications pane's row shape).
+    /// One toggle row: a single-line label with the `Switch` on the right —
+    /// no hint text (EXP-206: long descriptions pushed the switches out of
+    /// the card).
     fn toggle_row(
         id: &'static str,
         label: &'static str,
-        hint: &'static str,
         checked: bool,
         on_click: impl Fn(&mut Self, &bool, &mut gpui::Context<Self>) + 'static,
         cx: &mut gpui::Context<Self>,
@@ -361,17 +362,7 @@ impl CodingPane {
             .items_center()
             .justify_between()
             .gap_3()
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground.opacity(0.7))
-                            .child(hint),
-                    ),
-            )
+            .child(div().text_sm().child(label))
             .child(
                 Switch::new(id)
                     .checked(checked)
@@ -505,20 +496,30 @@ impl CodingPane {
             .iter()
             .position(|agent| *agent == self.agent_tab)
             .unwrap_or(0);
-        let tabs = TabBar::new("coding-agent-tabs")
-            .with_size(Size::Small)
-            .selected_index(active_ix)
-            .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                if let Some(agent) = CodingAgent::ALL.get(*ix).copied() {
-                    this.agent_tab = agent;
-                    cx.notify();
-                }
-            }))
-            .children(
-                CodingAgent::ALL
-                    .iter()
-                    .map(|agent| Tab::new().label(SharedString::from(agent.label()))),
-            );
+        // Centered pill tabs with each agent's brand mark + name (EXP-206).
+        // Icon and text ride ONE custom child: `Tab::icon` alone renders
+        // icon-ONLY (it drops the label).
+        let tabs = h_flex().w_full().justify_center().child(
+            TabBar::new("coding-agent-tabs")
+                .with_variant(TabVariant::Pill)
+                .with_size(Size::Small)
+                .selected_index(active_ix)
+                .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                    if let Some(agent) = CodingAgent::ALL.get(*ix).copied() {
+                        this.agent_tab = agent;
+                        cx.notify();
+                    }
+                }))
+                .children(CodingAgent::ALL.iter().map(|agent| {
+                    Tab::new().child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::from(agent_icon(*agent)).size_3p5())
+                            .child(SharedString::from(agent.label())),
+                    )
+                })),
+        );
 
         let mut body = card(cx)
             .child(card_header(
@@ -551,8 +552,6 @@ impl CodingPane {
                 .child(Self::toggle_row(
                     "claude-plan-mode",
                     "Plan mode",
-                    "Claude presents a plan and waits for your approval in the \
-                     terminal before editing.",
                     self.claude_plan_mode,
                     |this, checked, _| this.claude_plan_mode = *checked,
                     cx,
@@ -560,7 +559,6 @@ impl CodingPane {
                 .child(Self::toggle_row(
                     "claude-ultracode",
                     "Dynamic workflows (ultracode)",
-                    "Runs sessions with --effort ultracode — works with any model.",
                     self.claude_ultracode,
                     |this, checked, _| this.claude_ultracode = *checked,
                     cx,
@@ -568,8 +566,6 @@ impl CodingPane {
                 .child(Self::toggle_row(
                     "claude-skip-permissions",
                     "Skip permissions",
-                    "Full bypass (--dangerously-skip-permissions) instead of the \
-                     guarded auto mode.",
                     self.claude_skip_permissions,
                     |this, checked, _| this.claude_skip_permissions = *checked,
                     cx,
@@ -596,8 +592,6 @@ impl CodingPane {
                 .child(Self::toggle_row(
                     "codex-skip-permissions",
                     "Skip permissions",
-                    "Full bypass (--dangerously-bypass-approvals-and-sandbox) instead \
-                     of the guarded auto preset.",
                     self.codex_skip_permissions,
                     |this, checked, _| this.codex_skip_permissions = *checked,
                     cx,
@@ -620,13 +614,7 @@ impl CodingPane {
                     "Passed as --thinking; CLI default leaves it unset.",
                     &self.pi_thinking_select,
                     cx,
-                ))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground.opacity(0.7))
-                        .child("pi has no permission system — sessions always run unguarded."),
-                ),
+                )),
         };
         body
     }
