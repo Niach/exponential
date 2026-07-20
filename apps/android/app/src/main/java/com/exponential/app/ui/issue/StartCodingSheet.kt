@@ -14,30 +14,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -69,8 +72,10 @@ import com.exponential.app.ui.theme.glassButton
 
 // The unified remote Start-coding sheet (EXP-156) — the Android twin of the
 // desktop IDE's ONE Start-coding dialog, restyled to mirror the iOS sheet
-// (EXP-208): a full-height sheet whose body scrolls above a pinned Start
-// button, iOS-Form-style grouped picker rows for Desktop / Model / Effort, a
+// (EXP-208, EXP-211): a full-height sheet inset below the status bar whose
+// body scrolls under an iOS-style top bar (Cancel left, Start right, no
+// title), the issue picker carded like an iOS Form section (search row +
+// hairline-divided rows), grouped picker rows for Desktop / Model / Effort, a
 // brand-icon agent pill strip (EXP-201: claude / codex / pi, shown only when
 // the chosen desktop offers more than one), the claude-only ultracode switch
 // (it IS `--effort ultracode`, so it disables the Effort row) and plan-mode
@@ -262,88 +267,161 @@ fun StartCodingSheet(
     val tooMany = checkedCount > MAX_BATCH_ISSUES
     val canStart = device != null && checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
 
-    // Full-height sheet (EXP-208): the body scrolls in the weight(1f) area and
-    // the Start button stays pinned at the bottom, always visible.
+    // Full-height sheet (EXP-208), iOS-chrome parity (EXP-211): no drag handle
+    // (the sheet is inset below the status bar instead of colliding with it),
+    // no sheet title, and an iOS-nav-bar-style pinned top row — Cancel on the
+    // left, the Start button on the right — above the scrolling body.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+        dragHandle = null,
+        modifier = Modifier.statusBarsPadding(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(),
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        val target = device ?: return@Button
+                        val ids = checkedInOrder.map { it.id }
+                        if (ids.isEmpty()) return@Button
+                        // agent/model/effort/skipPermissions persist on every
+                        // submit; ultracode/plan only on a claude single-issue
+                        // start, so batch seeding (and agent clamping) never
+                        // leaks into the stored single-issue defaults.
+                        prefs.edit().apply {
+                            putString("agent", agent)
+                            putString("model", model)
+                            putString("effort", effort)
+                            putBoolean("skipPermissions", skipPermissions)
+                            if (agent == DEFAULT_AGENT && ids.size <= 1) {
+                                putBoolean("ultracode", ultracode)
+                                putBoolean("planMode", planMode)
+                            }
+                            apply()
+                        }
+                        onStart(
+                            target,
+                            ids,
+                            SteerStartOptions(
+                                model = model,
+                                effort = effort,
+                                // ultracode/plan are claude-only; skip-permissions
+                                // applies to every guarded agent (i.e. not pi).
+                                ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
+                                planMode = if (agent == DEFAULT_AGENT) planMode else null,
+                                agent = agent,
+                                skipPermissions = if (agent == "pi") null else skipPermissions,
+                            ),
+                        )
+                        onDismiss()
+                    },
+                    enabled = canStart,
+                ) {
+                    Text(
+                        if (checkedCount >= 2) "Start coding ($checkedCount issues)" else "Start coding",
+                    )
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text(
-                    text = "Start coding",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-
                 // ── Issues ───────────────────────────────────────────────────
                 SectionLabel("Issues")
-                TextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    placeholder = {
-                        Text(
-                            "Search issues",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = GlassTokens.RowFill,
-                        unfocusedContainerColor = GlassTokens.RowFill,
-                        disabledContainerColor = GlassTokens.RowFill,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                    ),
-                )
-                Spacer(Modifier.height(4.dp))
-                if (checkedInOrder.isEmpty() && uncheckedFiltered.isEmpty()) {
-                    Text(
-                        if (issues.isEmpty()) "No eligible issues" else "No matching issues",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                    )
-                } else {
-                    // The issues scroll INSIDE this bounded area (EXP-173) so
-                    // the Model/Effort/switch controls stay reachable. The
-                    // heightIn(max) cap makes the lazy child's constraints
-                    // finite, which is what legalizes nesting it in the outer
-                    // scroll Column (~5.5 rows — the half row is the scroll
-                    // affordance).
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 264.dp),
-                    ) {
-                        items(checkedInOrder + uncheckedFiltered, key = { it.id }) { option ->
-                            IssueCheckRow(
-                                option = option,
-                                checked = option.id in checked,
-                                onToggle = { toggleIssue(option.id) },
+                // ONE grouped card for search + rows (EXP-211 — iOS Form
+                // parity): the search field is the first row of the glass
+                // container and hairlines separate the issue rows, instead of
+                // bare edge-to-edge rows on the sheet background.
+                OptionGroup {
+                    TextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = {
+                            Text(
+                                "Search issues",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        },
+                        // iOS parity: a clear (×) affordance while searching.
+                        trailingIcon = if (query.isEmpty()) {
+                            null
+                        } else {
+                            {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(
+                                        Icons.Filled.Cancel,
+                                        contentDescription = "Clear search",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                    GroupDivider()
+                    if (checkedInOrder.isEmpty() && uncheckedFiltered.isEmpty()) {
+                        Text(
+                            if (issues.isEmpty()) "No eligible issues" else "No matching issues",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    } else {
+                        // The issues scroll INSIDE this bounded area (EXP-173)
+                        // so the Model/Effort/switch controls stay reachable.
+                        // The heightIn(max) cap makes the lazy child's
+                        // constraints finite, which is what legalizes nesting
+                        // it in the outer scroll Column (~5.5 rows — the half
+                        // row is the scroll affordance).
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 264.dp),
+                        ) {
+                            itemsIndexed(
+                                checkedInOrder + uncheckedFiltered,
+                                key = { _, option -> option.id },
+                            ) { index, option ->
+                                Column {
+                                    if (index > 0) GroupDivider()
+                                    IssueCheckRow(
+                                        option = option,
+                                        checked = option.id in checked,
+                                        onToggle = { toggleIssue(option.id) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -360,7 +438,7 @@ fun StartCodingSheet(
                         validationCaption,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 24.dp),
+                        modifier = Modifier.padding(horizontal = 32.dp),
                     )
                 } else if (checkedCount > LARGE_BATCH_HINT_THRESHOLD) {
                     Spacer(Modifier.height(4.dp))
@@ -368,7 +446,7 @@ fun StartCodingSheet(
                         "Large batches are token-expensive.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 24.dp),
+                        modifier = Modifier.padding(horizontal = 32.dp),
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -493,55 +571,7 @@ fun StartCodingSheet(
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // Pinned below the scroll area — always visible (EXP-208).
-            Button(
-                onClick = {
-                    val target = device ?: return@Button
-                    val ids = checkedInOrder.map { it.id }
-                    if (ids.isEmpty()) return@Button
-                    // agent/model/effort/skipPermissions persist on every submit;
-                    // ultracode/plan only on a claude single-issue start, so batch
-                    // seeding (and agent clamping) never leaks into the stored
-                    // single-issue defaults.
-                    prefs.edit().apply {
-                        putString("agent", agent)
-                        putString("model", model)
-                        putString("effort", effort)
-                        putBoolean("skipPermissions", skipPermissions)
-                        if (agent == DEFAULT_AGENT && ids.size <= 1) {
-                            putBoolean("ultracode", ultracode)
-                            putBoolean("planMode", planMode)
-                        }
-                        apply()
-                    }
-                    onStart(
-                        target,
-                        ids,
-                        SteerStartOptions(
-                            model = model,
-                            effort = effort,
-                            // ultracode/plan are claude-only; skip-permissions
-                            // applies to every guarded agent (i.e. not pi).
-                            ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
-                            planMode = if (agent == DEFAULT_AGENT) planMode else null,
-                            agent = agent,
-                            skipPermissions = if (agent == "pi") null else skipPermissions,
-                        ),
-                    )
-                    onDismiss()
-                },
-                enabled = canStart,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(top = 12.dp, bottom = 24.dp),
-            ) {
-                Text(
-                    if (checkedCount >= 2) "Start coding ($checkedCount issues)" else "Start coding",
-                )
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -562,7 +592,7 @@ private fun IssueCheckRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -603,11 +633,13 @@ private fun IssueCheckRow(
 
 @Composable
 private fun SectionLabel(text: String) {
+    // Aligned with the grouped cards' inner content edge (16dp card inset +
+    // 16dp row padding), the way iOS section headers line up with their card.
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
+        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
     )
 }
 

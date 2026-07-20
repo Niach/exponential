@@ -140,7 +140,12 @@ struct StartCodingSheet: View {
                 } header: {
                     Text("Issues")
                 } footer: {
-                    issuesFooter
+                    // Only attach a footer when there's a message — an empty
+                    // footer view still reserves space, inflating the gap to
+                    // the next card past listSectionSpacing (EXP-211).
+                    if multiRepo || overCap || effectiveChecked.count > Self.costWarnThreshold {
+                        issuesFooter
+                    }
                 }
 
                 if devices.count > 1 {
@@ -154,14 +159,9 @@ struct StartCodingSheet: View {
                     }
                 }
 
-                if availableAgents.count > 1 {
-                    Section {
-                        agentTabStrip
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
-                }
-
+                // The agent strip rides the Model section's HEADER (EXP-211):
+                // a standalone clear Section pads its lone row to the 44pt list
+                // minimum, which read as a bigger gap than listSectionSpacing.
                 Section {
                     Picker("Model", selection: modelBinding) {
                         ForEach(modelValues, id: \.self) { value in
@@ -175,6 +175,11 @@ struct StartCodingSheet: View {
                         }
                     }
                     .disabled(ultracode)
+                } header: {
+                    if availableAgents.count > 1 {
+                        agentTabStrip
+                            .textCase(nil)
+                    }
                 }
 
                 // One footer-less toggle section (EXP-208 — no helper notices,
@@ -190,9 +195,9 @@ struct StartCodingSheet: View {
                     }
                 }
             }
+            // No navigation title (EXP-211) — the confirm button already says
+            // "Start coding"; the bar carries only Cancel + Start.
             .listSectionSpacing(12)
-            .navigationTitle("Start coding")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
