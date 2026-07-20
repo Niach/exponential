@@ -112,7 +112,8 @@ pub struct LaunchRequest {
     /// from its rollout metas — [`crate::codex_sessions`]) and falls back to
     /// a fresh session seeded with the resume prompt when none is recorded.
     /// Worktree creation is already idempotent either way — this only
-    /// changes step 5 + the argv tail.
+    /// changes step 5 + the argv tail, and clamps `options.plan_mode` off
+    /// (the plan already happened in the conversation being continued).
     pub resume: bool,
 }
 
@@ -380,10 +381,17 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    let options = match req {
-        PrepareRequest::Issue(issue_req) => &issue_req.options,
-        PrepareRequest::Batch(batch_req) => &batch_req.options,
+    let resume_requested = matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume);
+    let mut options = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.options.clone(),
+        PrepareRequest::Batch(batch_req) => batch_req.options.clone(),
     };
+    // A resume NEVER re-enters plan mode (EXP-202): the plan already
+    // happened in the conversation being continued. The dialog clamps this
+    // too, but the invariant belongs here so every future caller (remote
+    // resume is the seam) inherits it.
+    options.plan_mode &= !resume_requested;
+    let options = &options;
     let agent = options.agent;
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
@@ -500,7 +508,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // Either native path runs stale-seed hygiene (same rationale as
     // `deliver_prompt`'s Direct path: a resumed session must never re-read
     // an earlier launch's PROMPT.md).
-    let resume_requested = matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume);
     let codex_resume_id = (resume_requested && agent == CodingAgent::Codex)
         .then(|| {
             deps.codex_sessions_root
@@ -1123,7 +1130,10 @@ mod tests {
         assert_eq!(prepared.branch, "exp/EXP-42");
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
         // Full flag set preserved (fresh MCP config included), tail is
-        // `--continue`, and no prompt rides argv.
+        // `--continue`, and no prompt rides argv. The request carried
+        // `plan_mode: true` (the fixture default) — a resume clamps it to
+        // guarded auto: the plan already happened in the conversation being
+        // continued.
         assert_eq!(
             prepared.spawn.args,
             vec![
@@ -1133,7 +1143,7 @@ mod tests {
                 ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
                 "--permission-mode".to_string(),
-                "plan".to_string(),
+                "auto".to_string(),
                 "--allow-dangerously-skip-permissions".to_string(),
                 "--continue".to_string(),
             ]

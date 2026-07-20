@@ -557,6 +557,7 @@ impl StartCodingDialogView {
         // had no guard) and the live synced rows (another device or a
         // pre-restart session still inside the staleness window).
         let sessions = coding_flow::LocalSessions::global(cx);
+        let store = Store::global(cx);
         let now = chrono::Utc::now().timestamp();
         for row in &self.rows {
             if !self.checked.contains(&row.issue_id) {
@@ -568,7 +569,6 @@ impl StartCodingDialogView {
                         .into(),
                 );
             }
-            let store = Store::global(cx);
             let synced = store.collections().coding_sessions.read(cx);
             if let Some(session) = synced.iter().find(|session| {
                 session.issue_id.as_deref() == Some(row.issue_id.as_str())
