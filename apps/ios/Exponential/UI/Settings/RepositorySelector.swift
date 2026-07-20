@@ -2,7 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Required repository picker for board creation (masterplan §6). Lists the
+/// Optional repository picker for board creation — boards work without a repo
+/// (`boards.create` treats it as optional; connecting one unlocks the coding
+/// flow, matching web and Android). Lists the
 /// team's already-connected registry repos (`repositories.list`) and lets
 /// the user also add a brand-new repo by name via the installed-repos picker —
 /// that path connects the repo inline through `boards.create`'s
@@ -25,7 +27,7 @@ struct RepositorySelector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Repository (required)")
+            Text("Repository (optional)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
