@@ -1692,7 +1692,10 @@ fn render_view_line(
             .border_color(theme.border)
             .pl_2()
             .text_color(muted)
-            .child(text_element)
+            // min_w_0 lifts the flex item's automatic min-width (its
+            // unwrapped text width) so long lines wrap at the column edge
+            // instead of painting under the properties panel (EXP-204).
+            .child(div().flex_1().min_w_0().child(text_element))
             .into_any_element(),
         BlockKind::ListItem => {
             let indent = px(12. * attrs.list_depth as f32);
@@ -1739,8 +1742,11 @@ fn render_view_line(
                 .items_start()
                 .gap_2()
                 .pl(indent)
-                .child(gutter)
-                .child(div().flex_1().child(text_element))
+                .child(div().flex_shrink_0().child(gutter))
+                // min_w_0: without it the item's automatic min-width is the
+                // unwrapped line width, so long list lines never wrapped and
+                // were clipped under the properties panel (EXP-204).
+                .child(div().flex_1().min_w_0().child(text_element))
                 .into_any_element()
         }
         _ => div().w_full().child(text_element).into_any_element(),
