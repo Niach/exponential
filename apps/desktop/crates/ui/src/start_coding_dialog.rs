@@ -196,6 +196,14 @@ pub struct StartCodingDialogView {
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
+    /// issue id → whether its persisted worktree already exists on disk
+    /// (EXP-202 — computed alongside the repo probe; drives the Resume
+    /// affordance for a single-checked issue).
+    worktrees: HashMap<String, bool>,
+    /// EXP-202: "Resume previous session" checkbox state. Only ACTIVE
+    /// ([`Self::resume_candidate`]) when exactly one issue is checked and
+    /// its worktree exists; default-on so a re-launch resumes by default.
+    resume: bool,
     /// Stale-probe guard (old results must not land after a re-open).
     probe_generation: u64,
     checked: HashSet<String>,
@@ -307,9 +315,16 @@ impl StartCodingDialogView {
             .collect();
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
+        let local_sessions = coding_flow::LocalSessions::global(cx);
+        let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         let subscriptions = vec![
             // Doctor lands / re-runs → the footer gate moves.
             cx.observe(&hub, |_: &mut Self, _, cx| cx.notify()),
+            // EXP-202: the one-session-per-issue blocker tracks both the
+            // local registry (this process) and the synced rows (other
+            // devices) — re-render whenever either moves.
+            cx.observe(&local_sessions, |_: &mut Self, _, cx| cx.notify()),
+            cx.observe(&synced_sessions, |_: &mut Self, _, cx| cx.notify()),
             cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
@@ -330,6 +345,8 @@ impl StartCodingDialogView {
             team_id,
             rows,
             repos: HashMap::new(),
+            worktrees: HashMap::new(),
+            resume: true,
             probe_generation: 0,
             checked,
             search,
@@ -380,15 +397,36 @@ impl StartCodingDialogView {
         self.repos.insert(issue_id.clone(), RepoState::Loading);
         let generation = self.probe_generation;
         let probe_id = issue_id.clone();
+        // EXP-202: once the repo resolves, the same background hop stats the
+        // issue's persisted worktree (the launcher's own path derivation) —
+        // never a blocking fs call in render.
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        let identifier = self
+            .rows
+            .iter()
+            .find(|row| row.issue_id == issue_id)
+            .map(|row| row.identifier.clone());
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::repositories::for_issue(&trpc, &probe_id) })
+                .spawn(async move {
+                    let result = api::repositories::for_issue(&trpc, &probe_id);
+                    let worktree_exists = match (&result, &identifier) {
+                        (Ok(Some(repo)), Some(identifier)) => coding_flow::issue_worktree_exists(
+                            &settings,
+                            &repo.full_name,
+                            identifier,
+                        ),
+                        _ => false,
+                    };
+                    (result, worktree_exists)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.probe_generation != generation {
                     return; // superseded
                 }
+                let (result, worktree_exists) = result;
                 let state = match result {
                     Ok(repo) => RepoState::Ready(repo),
                     Err(err) => RepoState::Error(err.to_string()),
@@ -399,10 +437,30 @@ impl StartCodingDialogView {
                     this.apply_mode_defaults(cx);
                 }
                 this.repos.insert(issue_id.clone(), state);
+                this.worktrees.insert(issue_id.clone(), worktree_exists);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// EXP-202: the single checked issue whose persisted worktree already
+    /// exists — the only shape a resume can take (batch branches are random
+    /// `exp/batch-<id8>` and are never resumable).
+    fn resume_candidate(&self) -> Option<&IssueRow> {
+        if self.checked.len() != 1 {
+            return None;
+        }
+        let issue_id = self.checked.iter().next()?;
+        if self.worktrees.get(issue_id).copied() != Some(true) {
+            return None;
+        }
+        self.rows.iter().find(|row| &row.issue_id == issue_id)
+    }
+
+    /// Whether the launch will actually RESUME (checkbox on + a candidate).
+    fn resume_active(&self) -> bool {
+        self.resume && self.resume_candidate().is_some()
     }
 
     /// Re-apply the per-mode settings defaults when the checked count crosses
@@ -493,6 +551,42 @@ impl StartCodingDialogView {
                 format!("At most {MAX_ISSUES_PER_RUN} issues per run — split the batch.").into(),
             );
         }
+        // EXP-202: only ONE session per issue — a second agent spawned into
+        // the same `exp/<ID>` worktree would orphan the first. Blocked
+        // against both the local registry (this process; the bulk-bar path
+        // had no guard) and the live synced rows (another device or a
+        // pre-restart session still inside the staleness window).
+        let sessions = coding_flow::LocalSessions::global(cx);
+        let now = chrono::Utc::now().timestamp();
+        for row in &self.rows {
+            if !self.checked.contains(&row.issue_id) {
+                continue;
+            }
+            if sessions.read(cx).get(&row.issue_id).is_some() {
+                return Some(
+                    format!("Already coding {} — stop that session first.", row.identifier)
+                        .into(),
+                );
+            }
+            let store = Store::global(cx);
+            let synced = store.collections().coding_sessions.read(cx);
+            if let Some(session) = synced.iter().find(|session| {
+                session.issue_id.as_deref() == Some(row.issue_id.as_str())
+                    && queries::coding_session_is_live(session, now)
+            }) {
+                let device = session
+                    .device_label
+                    .clone()
+                    .unwrap_or_else(|| "another device".to_string());
+                return Some(
+                    format!(
+                        "{} already has a live session on {device} — only one session per issue.",
+                        row.identifier
+                    )
+                    .into(),
+                );
+            }
+        }
         let mut repo: Option<&str> = None;
         for row in &self.rows {
             if !self.checked.contains(&row.issue_id) {
@@ -524,7 +618,11 @@ impl StartCodingDialogView {
             // Capability-clamped so a stale toggle can never leak onto an
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
-            plan_mode: self.plan_mode && self.agent.supports_plan_mode(),
+            // A RESUME never re-enters plan mode (EXP-202): the plan already
+            // happened in the conversation being continued.
+            plan_mode: self.plan_mode
+                && self.agent.supports_plan_mode()
+                && !self.resume_active(),
             skip_permissions: self.skip_permissions
                 && self.agent.supports_skip_permissions(),
         }
@@ -578,8 +676,9 @@ impl StartCodingDialogView {
         if self.checked.len() == 1 {
             let issue_id = self.checked.iter().next().cloned().expect("one checked");
             let options = self.options(cx);
+            let resume = self.resume_active();
             let Some((request, deps)) =
-                coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, cx)
+                coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, resume, cx)
             else {
                 self.error = Some("Sign in and wait for sync before starting a session.".into());
                 cx.notify();
@@ -764,6 +863,56 @@ impl StartCodingDialogView {
             )
     }
 
+    /// EXP-202: the "Resume previous session" notice + checkbox — rendered
+    /// only while a single checked issue's worktree already exists on disk
+    /// ([`Self::resume_candidate`]).
+    fn resume_row(&self, identifier: &str, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        let branch = coding::branch_name(&settings.branch_prefix, identifier);
+        let hint: SharedString = if self.agent.supports_native_resume() {
+            format!(
+                "Continues the last {} conversation in this worktree (--continue).",
+                self.agent.label()
+            )
+            .into()
+        } else {
+            format!(
+                "Starts a new {} session in the existing worktree with instructions to \
+                 continue the work.",
+                self.agent.label()
+            )
+            .into()
+        };
+        v_flex()
+            .gap_0p5()
+            .child(
+                Checkbox::new("sc-resume")
+                    .label("Resume previous session")
+                    .checked(self.resume)
+                    .on_click(cx.listener(|this, on: &bool, _, cx| {
+                        this.resume = *on;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .pl_6()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(format!(
+                        "A worktree for {identifier} already exists ({branch})."
+                    ))),
+            )
+            .child(
+                div()
+                    .pl_6()
+                    .text_xs()
+                    .text_color(muted.opacity(0.7))
+                    .child(hint),
+            )
+    }
+
     /// The "Skip permissions" checkbox (EXP-201) — full bypass instead of the
     /// agent's guarded auto mode. Hidden for pi (no permission system).
     fn skip_permissions_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -861,6 +1010,8 @@ impl StartCodingDialogView {
                     .small()
                     .label(if self.launching {
                         "Starting…"
+                    } else if self.resume_active() {
+                        "Resume coding"
                     } else {
                         "Start coding"
                     })
@@ -961,6 +1112,14 @@ impl Render for StartCodingDialogView {
                 cx,
             ));
 
+        // ---- resume (EXP-202): single checked issue with an existing
+        //      worktree offers "Resume previous session" ----
+        let resume_active = self.resume_active();
+        let resume_row = self
+            .resume_candidate()
+            .map(|row| row.identifier.clone())
+            .map(|identifier| self.resume_row(&identifier, cx).into_any_element());
+
         // ---- toggles (capability-gated per agent — EXP-201) ----
         let mut toggles = v_flex().gap_2();
         if agent.supports_ultracode() {
@@ -987,7 +1146,9 @@ impl Render for StartCodingDialogView {
                     ),
             );
         }
-        if agent.supports_plan_mode() {
+        // A resume never re-enters plan mode — hide the row while the resume
+        // checkbox is on (options() clamps it off regardless).
+        if agent.supports_plan_mode() && !resume_active {
             toggles = toggles.child(self.plan_mode_row(cx).into_any_element());
         }
         if agent.supports_skip_permissions() {
@@ -1052,8 +1213,11 @@ impl Render for StartCodingDialogView {
                     ),
             )
             .child(self.agent_tabs(cx))
-            .child(main_row)
-            .child(toggles);
+            .child(main_row);
+        if let Some(resume_row) = resume_row {
+            body = body.child(resume_row);
+        }
+        body = body.child(toggles);
 
         if checked_count > MAX_ISSUES_PER_RUN {
             body = body.child(div().text_xs().text_color(warning).child(SharedString::from(

@@ -105,6 +105,18 @@ impl CodingAgent {
         !matches!(self, CodingAgent::Pi)
     }
 
+    /// Native conversation resume in a reused worktree cwd: `--continue`
+    /// resumes the latest conversation FOR THE SPAWN CWD, so the
+    /// one-issue-one-worktree layout is the whole key (no session id to
+    /// capture). Claude documents the flag; pi has the same `-c`/`--continue`
+    /// undocumented. Codex's `resume --last` is global-latest (not cwd-scoped
+    /// — it would happily resume an unrelated conversation), so codex
+    /// resumes via a fresh session seeded with the resume prompt instead
+    /// ([`crate::prompt::render_resume_prompt`]).
+    pub fn supports_native_resume(self) -> bool {
+        !matches!(self, CodingAgent::Codex)
+    }
+
     /// The closed model set for this agent (blank "CLI default" is an extra
     /// valid value for Codex and pi; Claude's `--model` is explicit-always).
     pub fn model_values(self) -> &'static [&'static str] {
@@ -177,12 +189,17 @@ mod tests {
         assert!(CodingAgent::Claude.supports_ultracode());
         assert!(CodingAgent::Claude.supports_plan_mode());
         assert!(CodingAgent::Claude.supports_skip_permissions());
+        assert!(CodingAgent::Claude.supports_native_resume());
         assert!(!CodingAgent::Claude.allows_blank_model());
         for agent in [CodingAgent::Codex, CodingAgent::Pi] {
             assert!(!agent.supports_ultracode(), "{agent}");
             assert!(!agent.supports_plan_mode(), "{agent}");
             assert!(agent.allows_blank_model(), "{agent}");
         }
+        // Native `--continue` resume: claude (documented) + pi (undocumented
+        // but real); codex's `resume --last` is not cwd-scoped → prompt-based.
+        assert!(CodingAgent::Pi.supports_native_resume());
+        assert!(!CodingAgent::Codex.supports_native_resume());
         assert!(CodingAgent::Codex.supports_skip_permissions());
         assert!(!CodingAgent::Pi.supports_skip_permissions());
     }

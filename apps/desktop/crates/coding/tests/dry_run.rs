@@ -237,6 +237,7 @@ fn main() {
             plan_mode: false,
             skip_permissions: true,
         },
+        resume: false,
     });
 
     // ---- steps 0–6 (blocking, gpui-free) ----

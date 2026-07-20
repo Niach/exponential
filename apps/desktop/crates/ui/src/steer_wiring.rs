@@ -310,7 +310,9 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         start.plan_mode,
         start.skip_permissions,
     );
-    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, cx) else {
+    // Remote resume is deferred (EXP-202) — relay starts are always fresh.
+    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, false, cx)
+    else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;
     };

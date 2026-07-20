@@ -240,6 +240,7 @@ fn main() {
                 plan_mode: false,
                 skip_permissions: true,
             },
+            resume: false,
         })
     };
 
