@@ -7,7 +7,7 @@
    page axis). The third width term caps the stage so the whole hero fits
    one viewport (EXP-200): stage height ≤ 100svh − --movie-reserve (set on
    .hero in site.css), converted to width through the 16:9 ratio, floored
-   at 520px so extreme letterbox viewports don't shrink the film into a
+   at 470px so extreme letterbox viewports don't shrink the film into a
    thumbnail. First width line is the fallback for browsers without svh. */
 .movie {
   display: flex;
