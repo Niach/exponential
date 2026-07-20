@@ -228,20 +228,7 @@ impl Render for SettingsView {
                 .map(|ws| !show_team_chrome(cx, ws))
                 .unwrap_or(true)
         };
-        let (title, subtitle): (&'static str, SharedString) = if solo {
-            (
-                "Settings",
-                "Manage your boards, labels, and repositories.".into(),
-            )
-        } else {
-            let name = active_team(cx, &self.nav)
-                .map(|team| team.name)
-                .unwrap_or_default();
-            (
-                "Team Settings",
-                format!("Manage members, invites, and labels for {name}").into(),
-            )
-        };
+        let title: &'static str = if solo { "Settings" } else { "Team Settings" };
 
         // Web settings layout route (EXP-146): grouped left nav + one
         // selected section pane in the detail column.
@@ -335,12 +322,6 @@ impl Render for SettingsView {
                                         .max_w(px(672.))
                                         .p_4()
                                         .gap_4()
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(subtitle),
-                                        )
                                         .child(pane),
                                 ),
                             ),

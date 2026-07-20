@@ -123,38 +123,27 @@ pub struct LaunchOptions {
 }
 
 impl LaunchOptions {
-    /// The settings-default options for a SINGLE-ISSUE run (the local
-    /// Start-coding dialog's seed values).
-    pub fn issue_defaults(settings: &Settings) -> Self {
+    /// The settings-default options (the local Start-coding dialog's seed
+    /// values). EXP-206: ONE set of defaults — a single-issue run and a
+    /// multi-issue batch run seed identically; the per-run-mode settings
+    /// pairs are gone.
+    pub fn defaults(settings: &Settings) -> Self {
         let agent = settings.default_agent;
         Self {
             agent,
             model: settings.model_for(agent).to_string(),
             effort: settings.effort_for(agent).to_string(),
-            ultracode: settings.issue_ultracode && agent.supports_ultracode(),
-            plan_mode: settings.issue_plan_mode && agent.supports_plan_mode(),
-            skip_permissions: settings.issue_skip_permissions
+            ultracode: settings.claude_ultracode && agent.supports_ultracode(),
+            plan_mode: settings.claude_plan_mode && agent.supports_plan_mode(),
+            skip_permissions: settings.skip_permissions_for(agent)
                 && agent.supports_skip_permissions(),
         }
     }
 
-    /// The settings-default options for a BATCH (multi-issue) run.
-    pub fn batch_defaults(settings: &Settings) -> Self {
-        let agent = settings.default_agent;
-        Self {
-            agent,
-            model: settings.model_for(agent).to_string(),
-            effort: settings.effort_for(agent).to_string(),
-            ultracode: settings.batch_ultracode && agent.supports_ultracode(),
-            plan_mode: settings.batch_plan_mode && agent.supports_plan_mode(),
-            skip_permissions: settings.batch_skip_permissions
-                && agent.supports_skip_permissions(),
-        }
-    }
-
-    /// The shared RELAY-start normalization (EXP-149/EXP-201): the remote
-    /// client's Start-coding choices normalized against the AGENT's closed
-    /// sets, over settings defaults for anything it didn't send.
+    /// The shared RELAY-start normalization (EXP-149/EXP-201) — one form for
+    /// issue and batch starts alike (EXP-206): the remote client's
+    /// Start-coding choices normalized against the AGENT's closed sets, over
+    /// settings defaults for anything it didn't send.
     ///
     /// - Absent/unknown `agent` → **Claude** (an option-less legacy frame
     ///   must behave exactly as before EXP-201 — never the local default
@@ -162,17 +151,16 @@ impl LaunchOptions {
     ///   launch).
     /// - `effort: Some("")` is an explicit "CLI default" and beats a
     ///   non-blank settings effort; same for a blank codex/pi model.
-    /// - Absent ultracode/skip fall to the run mode's settings defaults;
-    ///   plan mode defaults OFF when absent (F7 — an option-less start must
-    ///   never park an unattended desktop at the plan-approval TUI); a
-    ///   remote client sending `plan_mode: true` opted in knowingly.
+    /// - Absent ultracode/skip fall to the settings defaults (skip is
+    ///   per-AGENT — [`Settings::skip_permissions_for`] of the RESOLVED
+    ///   agent); plan mode defaults OFF when absent (F7 — an option-less
+    ///   start must never park an unattended desktop at the plan-approval
+    ///   TUI); a remote client sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
     ///   ultracode/plan, pi never carries skip.
     #[allow(clippy::too_many_arguments)]
-    fn remote(
+    pub fn remote(
         settings: &Settings,
-        default_ultracode: bool,
-        default_skip: bool,
         agent: Option<&str>,
         model: Option<&str>,
         effort: Option<&str>,
@@ -211,63 +199,12 @@ impl LaunchOptions {
             agent,
             model,
             effort,
-            ultracode: ultracode.unwrap_or(default_ultracode) && agent.supports_ultracode(),
+            ultracode: ultracode.unwrap_or(settings.claude_ultracode)
+                && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
-            skip_permissions: skip_permissions.unwrap_or(default_skip)
+            skip_permissions: skip_permissions.unwrap_or(settings.skip_permissions_for(agent))
                 && agent.supports_skip_permissions(),
         }
-    }
-
-    /// RELAY-triggered SINGLE-ISSUE start (EXP-149): absent ultracode/skip
-    /// fall to the ISSUE settings defaults.
-    #[allow(clippy::too_many_arguments)]
-    pub fn remote_issue(
-        settings: &Settings,
-        agent: Option<&str>,
-        model: Option<&str>,
-        effort: Option<&str>,
-        ultracode: Option<bool>,
-        plan_mode: Option<bool>,
-        skip_permissions: Option<bool>,
-    ) -> Self {
-        Self::remote(
-            settings,
-            settings.issue_ultracode,
-            settings.issue_skip_permissions,
-            agent,
-            model,
-            effort,
-            ultracode,
-            plan_mode,
-            skip_permissions,
-        )
-    }
-
-    /// RELAY-triggered BATCH start: absent ultracode/skip fall to the BATCH
-    /// settings defaults; plan mode stays OFF unless the remote client
-    /// explicitly opted in (F7 — an unattended desktop must never park at a
-    /// plan-approval menu).
-    #[allow(clippy::too_many_arguments)]
-    pub fn remote_batch(
-        settings: &Settings,
-        agent: Option<&str>,
-        model: Option<&str>,
-        effort: Option<&str>,
-        ultracode: Option<bool>,
-        plan_mode: Option<bool>,
-        skip_permissions: Option<bool>,
-    ) -> Self {
-        Self::remote(
-            settings,
-            settings.batch_ultracode,
-            settings.batch_skip_permissions,
-            agent,
-            model,
-            effort,
-            ultracode,
-            plan_mode,
-            skip_permissions,
-        )
     }
 }
 
@@ -716,12 +653,12 @@ mod tests {
     }
 
     #[test]
-    fn defaults_map_model_effort_and_per_mode_toggles() {
+    fn defaults_map_model_effort_and_toggles() {
         let mut settings = Settings::default();
         settings.claude_model = "sonnet".to_string();
         settings.claude_effort = "high".to_string();
-        settings.issue_plan_mode = false;
-        let opts = LaunchOptions::issue_defaults(&settings);
+        settings.claude_plan_mode = false;
+        let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet");
         assert_eq!(opts.effort, "high");
@@ -729,22 +666,14 @@ mod tests {
         assert!(!opts.ultracode);
         assert!(!opts.skip_permissions);
 
-        // The stock defaults: issue runs — plan mode ON, ultracode OFF;
-        // batch runs — ultracode ON, plan mode OFF. Same model/effort pair,
-        // skip OFF everywhere (guarded auto is the default posture).
-        let issue = LaunchOptions::issue_defaults(&Settings::default());
-        assert_eq!(issue.model, "fable");
-        assert_eq!(issue.effort, "");
-        assert!(issue.plan_mode);
-        assert!(!issue.ultracode);
-        assert!(!issue.skip_permissions);
-
-        let batch = LaunchOptions::batch_defaults(&Settings::default());
-        assert_eq!(batch.model, "fable");
-        assert_eq!(batch.effort, "");
-        assert!(!batch.plan_mode);
-        assert!(batch.ultracode);
-        assert!(!batch.skip_permissions);
+        // The stock defaults (EXP-206 — ONE set, no issue/batch split):
+        // plan mode ON, ultracode OFF, skip OFF (guarded auto posture).
+        let opts = LaunchOptions::defaults(&Settings::default());
+        assert_eq!(opts.model, "fable");
+        assert_eq!(opts.effort, "");
+        assert!(opts.plan_mode);
+        assert!(!opts.ultracode);
+        assert!(!opts.skip_permissions);
     }
 
     /// EXP-201: a non-claude default agent seeds ITS model/effort pair and
@@ -755,10 +684,10 @@ mod tests {
         settings.default_agent = CodingAgent::Codex;
         settings.codex_model = "gpt-5.6-terra".to_string();
         settings.codex_effort = "xhigh".to_string();
-        settings.issue_ultracode = true; // claude-only — must mask
-        settings.issue_plan_mode = true; // claude-only — must mask
-        settings.issue_skip_permissions = true; // codex supports skip
-        let opts = LaunchOptions::issue_defaults(&settings);
+        settings.claude_ultracode = true; // claude-only — must mask
+        settings.claude_plan_mode = true; // claude-only — must mask
+        settings.codex_skip_permissions = true; // codex's OWN skip default
+        let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-terra");
         assert_eq!(opts.effort, "xhigh");
@@ -766,10 +695,16 @@ mod tests {
         assert!(!opts.plan_mode);
         assert!(opts.skip_permissions);
 
+        // Claude's skip default never leaks onto another agent (EXP-206:
+        // skip is per-agent) — codex OFF stays OFF with claude ON.
+        settings.claude_skip_permissions = true;
+        settings.codex_skip_permissions = false;
+        assert!(!LaunchOptions::defaults(&settings).skip_permissions);
+
         settings.default_agent = CodingAgent::Pi;
         settings.pi_model = "grok-4.5".to_string();
         settings.pi_thinking = "max".to_string();
-        let opts = LaunchOptions::batch_defaults(&settings);
+        let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Pi);
         assert_eq!(opts.model, "grok-4.5");
         assert_eq!(opts.effort, "max");
@@ -777,15 +712,15 @@ mod tests {
     }
 
     #[test]
-    fn remote_issue_all_absent_matches_pre_options_relay_behavior() {
+    fn remote_all_absent_matches_pre_options_relay_behavior() {
         // The F7 baseline: settings model/effort/ultracode, plan mode OFF —
         // exactly what an option-less relay start ran before EXP-149.
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
-        settings.issue_ultracode = true;
-        settings.issue_plan_mode = true; // must NOT leak into a remote start
-        let opts = LaunchOptions::remote_issue(&settings, None, None, None, None, None, None);
+        settings.claude_ultracode = true;
+        settings.claude_plan_mode = true; // must NOT leak into a remote start
+        let opts = LaunchOptions::remote(&settings, None, None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "opus");
         assert_eq!(opts.effort, "high");
@@ -795,11 +730,11 @@ mod tests {
     }
 
     #[test]
-    fn remote_issue_applies_and_normalizes_sent_options() {
+    fn remote_applies_and_normalizes_sent_options() {
         let mut settings = Settings::default();
         settings.claude_effort = "high".to_string();
 
-        let opts = LaunchOptions::remote_issue(
+        let opts = LaunchOptions::remote(
             &settings,
             Some("Claude"),
             Some("Sonnet"),
@@ -817,16 +752,14 @@ mod tests {
 
         // Bogus model falls back to the settings model, never to a crash or
         // a raw pass-through to the CLI argv.
-        let opts =
-            LaunchOptions::remote_issue(&settings, None, Some("gpt-6"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None, None);
         assert_eq!(opts.model, "fable");
 
         // Explicit blank effort = "CLI default" and beats the settings value.
-        let opts = LaunchOptions::remote_issue(&settings, None, None, Some(""), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None, None);
         assert_eq!(opts.effort, "");
         // Bogus effort also degrades to blank (omit --effort).
-        let opts =
-            LaunchOptions::remote_issue(&settings, None, None, Some("extreme"), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None, None);
         assert_eq!(opts.effort, "");
     }
 
@@ -836,9 +769,9 @@ mod tests {
     #[test]
     fn remote_normalizes_per_agent_and_masks_capabilities() {
         let mut settings = Settings::default();
-        settings.issue_ultracode = true; // must not leak onto codex
+        settings.claude_ultracode = true; // must not leak onto codex
 
-        let opts = LaunchOptions::remote_issue(
+        let opts = LaunchOptions::remote(
             &settings,
             Some("codex"),
             Some("gpt-5.6-luna"),
@@ -855,7 +788,7 @@ mod tests {
         assert!(!opts.skip_permissions);
 
         // A claude model on a codex start is bogus → blank (codex default).
-        let opts = LaunchOptions::remote_issue(
+        let opts = LaunchOptions::remote(
             &settings,
             Some("codex"),
             Some("fable"),
@@ -867,7 +800,7 @@ mod tests {
         assert_eq!(opts.model, "");
 
         // pi: thinking set, skip masked off.
-        let opts = LaunchOptions::remote_issue(
+        let opts = LaunchOptions::remote(
             &settings,
             Some("pi"),
             Some("grok-4.5"),
@@ -882,7 +815,7 @@ mod tests {
         assert!(!opts.skip_permissions);
 
         // Unknown agent string → claude with claude normalization.
-        let opts = LaunchOptions::remote_issue(
+        let opts = LaunchOptions::remote(
             &settings,
             Some("cursor"),
             Some("sonnet"),
@@ -896,76 +829,29 @@ mod tests {
     }
 
     /// A non-default remote agent with NO model/effort sent uses ITS blank
-    /// CLI defaults — never the default agent's persisted pair.
+    /// CLI defaults — never the default agent's persisted pair. An absent
+    /// skip falls to the RESOLVED agent's own setting (EXP-206).
     #[test]
     fn remote_non_default_agent_falls_to_blank_not_foreign_settings() {
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
-        let opts =
-            LaunchOptions::remote_issue(&settings, Some("codex"), None, None, None, None, None);
+        settings.claude_skip_permissions = true; // must not leak onto codex
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "", "claude's opus must not leak onto codex");
         assert_eq!(opts.effort, "");
+        assert!(!opts.skip_permissions, "skip default is per-agent");
 
-        // And when codex IS the default agent, its persisted pair applies.
+        // And when codex IS the default agent, its persisted pair applies —
+        // as does its own skip default.
         settings.default_agent = CodingAgent::Codex;
         settings.codex_model = "gpt-5.6-sol".to_string();
         settings.codex_effort = "high".to_string();
-        let opts =
-            LaunchOptions::remote_issue(&settings, Some("codex"), None, None, None, None, None);
+        settings.codex_skip_permissions = true;
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.model, "gpt-5.6-sol");
         assert_eq!(opts.effort, "high");
-    }
-
-    #[test]
-    fn remote_batch_all_absent_uses_batch_ultracode_and_plan_off() {
-        // All-absent: settings model/effort + the BATCH ultracode default,
-        // plan mode OFF even when the batch plan-mode setting is ON (F7).
-        let mut settings = Settings::default();
-        settings.claude_model = "opus".to_string();
-        settings.claude_effort = "high".to_string();
-        settings.batch_ultracode = true;
-        settings.batch_plan_mode = true; // must NOT leak into a remote start
-        settings.batch_skip_permissions = true; // batch default applies
-        let opts = LaunchOptions::remote_batch(&settings, None, None, None, None, None, None);
-        assert_eq!(opts.model, "opus");
-        assert_eq!(opts.effort, "high");
-        assert!(opts.ultracode);
-        assert!(!opts.plan_mode);
         assert!(opts.skip_permissions);
-    }
-
-    #[test]
-    fn remote_batch_applies_and_normalizes_sent_options() {
-        let mut settings = Settings::default();
-        settings.claude_effort = "high".to_string();
-        settings.batch_ultracode = true;
-
-        let opts = LaunchOptions::remote_batch(
-            &settings,
-            None,
-            Some("Sonnet"),
-            Some("max"),
-            Some(false),
-            Some(true),
-            None,
-        );
-        assert_eq!(opts.model, "sonnet", "case-normalized");
-        assert_eq!(opts.effort, "max");
-        assert!(!opts.ultracode, "explicit remote off beats the batch default");
-        assert!(opts.plan_mode, "explicit remote opt-in");
-
-        // Bogus model falls back to the settings model.
-        let opts =
-            LaunchOptions::remote_batch(&settings, None, Some("gpt-6"), None, None, None, None);
-        assert_eq!(opts.model, "fable");
-
-        // Explicit blank effort = "CLI default"; bogus effort also degrades.
-        let opts = LaunchOptions::remote_batch(&settings, None, None, Some(""), None, None, None);
-        assert_eq!(opts.effort, "");
-        let opts =
-            LaunchOptions::remote_batch(&settings, None, None, Some("extreme"), None, None, None);
-        assert_eq!(opts.effort, "");
     }
 }

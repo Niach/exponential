@@ -20,6 +20,12 @@
 //! the device advertises which agent CLIs it can actually run, so remote
 //! Start-coding pickers only offer those.
 //!
+//! Every probe runs with the terminal layer's augmented login `PATH`
+//! ([`terminal::pty::login_path`], §6.12) — the SAME environment the PTY
+//! spawns the agent into. A `.app`/`.desktop` launch carries a minimal PATH
+//! without Homebrew/npm-global, so probing with the process PATH reported
+//! codex/pi as "not found" on machines where every launch worked (EXP-206).
+//!
 //! Blocking `std::process` calls — callers run this off the foreground
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
@@ -205,9 +211,21 @@ pub fn parse_claude_version(line: &str) -> Option<(u32, u32, u32)> {
     Some((major, minor, patch))
 }
 
-/// `<program> --version`, capturing stdout/stderr — never a shell.
+/// `<program> --version`, capturing stdout/stderr — never a shell. Resolves
+/// `program` against the augmented login PATH (§6.12), matching the PTY
+/// spawn environment the agent will actually run in.
 pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
-    match Command::new(program).arg("--version").output() {
+    check_tool_with_path(tool, program, terminal::pty::login_path())
+}
+
+/// [`check_tool`] with the PATH injected — split out so tests can probe a
+/// stub-only directory deterministically.
+fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck {
+    match Command::new(program)
+        .env("PATH", path_env)
+        .arg("--version")
+        .output()
+    {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             match parse_version_output(tool, &stdout) {
@@ -450,6 +468,55 @@ mod tests {
             "2.1.215 must pass: {:?}",
             report.first_failure_for(CodingAgent::Claude)
         );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-206: bare tool names resolve against the INJECTED login PATH, not
+    /// the process PATH — a stub-only dir finds the stub, and an empty PATH
+    /// misses even a real `git`. This is what fixes codex/pi installed in
+    /// Homebrew's bin showing "not found" under a GUI launch's minimal PATH.
+    #[cfg(unix)]
+    #[test]
+    fn check_tool_resolves_against_the_injected_path() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-coding-doctor-path-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let stub = dir.join("codex");
+        fs::write(&stub, "#!/bin/sh\necho 'codex-cli 0.46.0'\n").unwrap();
+        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Retry the transient ETXTBSY race (see run_doctor_gates_on_the_stub_version).
+        let mut check = check_tool_with_path(Tool::Codex, "codex", &dir.to_string_lossy());
+        for _ in 0..20 {
+            if !check
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Text file busy"))
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            check = check_tool_with_path(Tool::Codex, "codex", &dir.to_string_lossy());
+        }
+        assert!(check.ok, "stub-only PATH must resolve: {:?}", check.error);
+        assert_eq!(check.version.as_deref(), Some("0.46.0"));
+
+        // An empty injected PATH misses even a real git — the process PATH
+        // must play no part in resolution.
+        let check = check_tool_with_path(Tool::Git, "git", "");
+        assert!(!check.ok);
+        assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
 
         let _ = fs::remove_dir_all(&dir);
     }

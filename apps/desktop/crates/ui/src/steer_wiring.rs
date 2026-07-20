@@ -301,7 +301,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
     // at a native plan-approval TUI menu on an unattended desktop — nobody
     // is at the keyboard to approve it).
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions::remote_issue(
+    let options = LaunchOptions::remote(
         &settings,
         start.agent.as_deref(),
         start.model.as_deref(),
@@ -402,11 +402,11 @@ fn remote_batch_start(
         return;
     }
 
-    // Absent options fall to the BATCH settings defaults; plan mode stays OFF
-    // unless the remote client opted in (F7 — same unattended-desktop rule as
-    // the issue branch).
+    // Absent options fall to the settings defaults (EXP-206: same set as an
+    // issue start); plan mode stays OFF unless the remote client opted in
+    // (F7 — same unattended-desktop rule as the issue branch).
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions::remote_batch(
+    let options = LaunchOptions::remote(
         &settings,
         start.agent.as_deref(),
         start.model.as_deref(),

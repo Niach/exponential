@@ -116,6 +116,16 @@ pub fn effort_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str
     }
 }
 
+/// The agent's brand mark (EXP-206 — `assets/icons/{claude,codex,pi}.svg`,
+/// rendered theme-tinted like every bundled icon) for the agent tab strips.
+pub fn agent_icon(agent: coding::CodingAgent) -> crate::icons::ExpIcon {
+    match agent {
+        coding::CodingAgent::Claude => crate::icons::ExpIcon::Claude,
+        coding::CodingAgent::Codex => crate::icons::ExpIcon::Codex,
+        coding::CodingAgent::Pi => crate::icons::ExpIcon::Pi,
+    }
+}
+
 /// Build a select over `choices`, preselecting `initial` by VALUE (falling
 /// back to the first row — every choice set puts its default first, and the
 /// persisted settings values are load-normalized into these sets anyway).
