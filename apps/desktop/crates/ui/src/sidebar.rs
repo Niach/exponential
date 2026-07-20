@@ -346,15 +346,16 @@ impl RailView {
     }
 
     /// One tool-window icon: a ghost icon button, `selected` + tinted with
-    /// the board accent while its tool window is active; `badge` paints the
-    /// amber conflict dot.
+    /// the board accent while its tool window is active; `badge` paints an
+    /// attention dot in the given color (EXP-214: review green for open PRs,
+    /// amber for support/conflicts), `None` for no dot.
     fn rail_tool_icon(
         &self,
         id: &'static str,
         icon: Icon,
         tool: ToolWindow,
         tooltip: &'static str,
-        badge: bool,
+        badge: Option<Hsla>,
         accent: Hsla,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -387,7 +388,7 @@ impl RailView {
                         .bg(accent),
                 )
             })
-            .when(badge, |this| {
+            .when_some(badge, |this, color| {
                 this.child(
                     div()
                         .absolute()
@@ -395,7 +396,7 @@ impl RailView {
                         .right_0()
                         .size_1p5()
                         .rounded_full()
-                        .bg(cx.theme().warning),
+                        .bg(color),
                 )
             })
             .into_any_element()
@@ -477,12 +478,13 @@ impl Render for RailView {
             let support_unread = active_team_id(&self.nav, cx)
                 .map(|id| queries::support_unread(cx, &id))
                 .unwrap_or(false);
+            let support_badge = support_unread.then(|| cx.theme().warning);
             self.rail_tool_icon(
                 "rail-support",
                 Icon::from(ExpIcon::MessageSquare),
                 ToolWindow::Support,
                 "Support",
-                support_unread,
+                support_badge,
                 accent,
                 cx,
             )
@@ -523,7 +525,7 @@ impl Render for RailView {
                 Icon::new(IconName::Inbox),
                 ToolWindow::Inbox,
                 "Inbox",
-                false,
+                None,
                 accent,
                 cx,
             ))
@@ -532,7 +534,7 @@ impl Render for RailView {
                 Icon::from(ExpIcon::ListTodo),
                 ToolWindow::AllIssues,
                 "All Issues",
-                false,
+                None,
                 accent,
                 cx,
             ))
@@ -541,7 +543,9 @@ impl Render for RailView {
                 Icon::from(ExpIcon::GitPullRequest),
                 ToolWindow::Reviews,
                 "Reviews",
-                has_reviews,
+                // Review green (EXP-214): open PRs are "stuff to do",
+                // colored like the in_review issue status.
+                has_reviews.then(|| theme::tokens::GREEN.to_hsla()),
                 accent,
                 cx,
             ))
@@ -553,7 +557,7 @@ impl Render for RailView {
                 Icon::new(IconName::Folder),
                 ToolWindow::Files,
                 "Files",
-                false,
+                None,
                 accent,
                 cx,
             ))
@@ -562,7 +566,7 @@ impl Render for RailView {
                 Icon::from(ExpIcon::GitMerge),
                 ToolWindow::SourceControl,
                 "Source Control",
-                conflict,
+                conflict.then(|| cx.theme().warning),
                 accent,
                 cx,
             ))

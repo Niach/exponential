@@ -183,6 +183,8 @@ fun AppNavHost() {
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
+            val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
+            val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
             val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
             val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
@@ -193,6 +195,8 @@ fun AppNavHost() {
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
+                agentsNeedInput = agentsNeedInput,
+                reviewsOpen = reviewsOpen,
                 helpdeskEnabled = helpdeskEnabled,
                 supportUnread = supportUnread,
                 currentBoardId = currentBoardId,
@@ -240,6 +244,8 @@ private fun AuthenticatedNav(
     needsOnboarding: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
+    agentsNeedInput: Boolean,
+    reviewsOpen: Boolean,
     helpdeskEnabled: Boolean,
     supportUnread: Boolean,
     currentBoardId: String?,
@@ -508,6 +514,8 @@ private fun AuthenticatedNav(
             supportActive = currentRoute == "support-inbox",
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
+            agentsNeedInput = agentsNeedInput,
+            reviewsOpen = reviewsOpen,
             showsSupport = helpdeskEnabled,
             supportUnread = supportUnread,
             showsCompose = composeBoardId != null,

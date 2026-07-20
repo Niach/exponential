@@ -73,34 +73,80 @@ function RunningPing() {
   )
 }
 
-/** Static counterpart of RunningPing for `in_review` sessions (EXP-194) —
- * the agent finished and its PR is up; nothing is "running", so no ping. */
-function ReviewDot() {
-  return <span className="inline-flex size-2 rounded-full bg-sky-500" />
+/** How a live session should render (EXP-214) — the session status alone is
+ * not the whole story: `in_review` splits on the linked issue's PR outcome
+ * (merged → the run is done, green review otherwise, matching the issue-status
+ * palette), and a desktop-reported pending picker (plan approval /
+ * AskUserQuestion) overrides everything visible as "needs input". */
+export type SessionDisplayState = `needs_input` | `running` | `review` | `done`
+
+export function sessionDisplayState(
+  session: Pick<CodingSession, `status` | `needsInput`>,
+  prState: string | null | undefined
+): SessionDisplayState {
+  const merged = prState === `merged`
+  if (session.needsInput && !merged) return `needs_input`
+  if (session.status === `in_review`) return merged ? `done` : `review`
+  return `running`
 }
 
-/** Live-session badge — "Coding now" (running) or "Ready for review"
- * (in_review). Shared by the issue detail row and the Agents page. */
+/** Static counterpart of RunningPing for the parked states (EXP-194/EXP-214):
+ * review green (matches the in_review issue status), done blue (matches the
+ * done issue status), needs-input amber. */
+function StateDot({ className }: { className: string }) {
+  return <span className={cn(`inline-flex size-2 rounded-full`, className)} />
+}
+
+const SESSION_STATE_BADGE: Record<
+  Exclude<SessionDisplayState, `running`>,
+  { label: string; badge: string; dot: string }
+> = {
+  needs_input: {
+    label: `Needs input`,
+    badge: `border-amber-500/40 text-amber-400`,
+    dot: `bg-amber-500`,
+  },
+  review: {
+    label: `Ready for review`,
+    badge: `border-emerald-500/40 text-emerald-400`,
+    dot: `bg-emerald-500`,
+  },
+  done: {
+    label: `Done`,
+    badge: `border-sky-500/40 text-sky-400`,
+    dot: `bg-sky-500`,
+  },
+}
+
+/** Live-session badge — "Coding now" / "Needs input" / "Ready for review" /
+ * "Done". Shared by the issue detail row and the Agents page. */
 export function SessionStatusBadge({
-  status,
+  session,
+  prState,
   count = 1,
 }: {
-  status: string
+  session: Pick<CodingSession, `status` | `needsInput`>
+  prState: string | null | undefined
   count?: number
 }) {
-  const inReview = status === `in_review`
+  const state = sessionDisplayState(session, prState)
+  if (state === `running`) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1.5 border-emerald-500/40 text-emerald-400"
+      >
+        <RunningPing />
+        Coding now
+        {count > 1 ? ` (·${count})` : ``}
+      </Badge>
+    )
+  }
+  const style = SESSION_STATE_BADGE[state]
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        `gap-1.5`,
-        inReview
-          ? `border-sky-500/40 text-sky-400`
-          : `border-emerald-500/40 text-emerald-400`
-      )}
-    >
-      {inReview ? <ReviewDot /> : <RunningPing />}
-      {inReview ? `Ready for review` : `Coding now`}
+    <Badge variant="outline" className={cn(`gap-1.5`, style.badge)}>
+      <StateDot className={style.dot} />
+      {style.label}
       {count > 1 ? ` (·${count})` : ``}
     </Badge>
   )
@@ -232,7 +278,11 @@ function AgentRow({
   if (latest) {
     const owner = users.find((u) => u.id === latest.userId)
     const codingBadge = (
-      <SessionStatusBadge status={latest.status} count={sessions.length} />
+      <SessionStatusBadge
+        session={latest}
+        prState={issue.prState}
+        count={sessions.length}
+      />
     )
     const ownerLabel = (
       <span className="truncate text-xs text-muted-foreground">

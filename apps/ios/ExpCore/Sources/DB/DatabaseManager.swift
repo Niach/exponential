@@ -395,6 +395,7 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("user_id", .text).notNull().indexed()
                 t.column("device_label", .text)
                 t.column("status", .text).notNull().defaults(to: "running")
+                t.column("needs_input", .boolean).notNull().defaults(to: false)
                 t.column("started_at", .text).notNull()
                 t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
@@ -467,6 +468,35 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'team-invites'
+                    """)
+            }
+        }
+
+        // v4 (EXP-214 needs-input): `coding_sessions.needs_input` rides along
+        // on the coding-sessions shape — the desktop-written attention flag
+        // while the agent waits on a plan-approval / question picker.
+        // Additive ALTER for stores created before the column existed;
+        // guarded on column presence so fresh installs (which get it from the
+        // v1 create above) converge on the same schema.
+        migrator.registerMigration("v4_coding_session_needs_input") { db in
+            // Table-existence guard (old v3-v6 precedent): migration-fixture
+            // DBs that carry only the minimal schema don't have the table.
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("needs_input") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "needs_input", .boolean).notNull().defaults(to: false)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the new
+            // column (mirrors the v2/v3 refetch write). NOTE: the shape key
+            // is 'coding-sessions' WITH A DASH (the proxy route name), not
+            // the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
                     """)
             }
         }

@@ -44,7 +44,9 @@ import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -69,10 +71,13 @@ sealed interface SteerStartState {
 
 internal val LiveGreen = Color(0xFF34D399)
 
-// EXP-194: the `in_review` parking spot (PR open, terminal still alive) renders
-// a STATIC blue dot + "Ready for review" instead of the running pulse. Reuses
-// the shared design-token blue (StatusColors' Done/Low tint).
-internal val ReviewBlue = DesignTokens.Semantic.Blue
+// EXP-194/EXP-214: the parked states render a STATIC dot + label instead of
+// the running pulse, colored like the issue-status palette (StatusColors):
+// review green, done blue; the desktop-reported "needs input" picker wait is
+// amber.
+internal val ReviewGreen = DesignTokens.Semantic.Green
+internal val DoneBlue = DesignTokens.Semantic.Blue
+internal val NeedsInputAmber = DesignTokens.Semantic.Yellow
 
 @Composable
 fun AgentPrCard(
@@ -109,6 +114,7 @@ fun AgentPrCard(
             if (session != null) {
                 SessionRow(
                     session = session,
+                    prState = issue.prState,
                     sessionOwner = sessionOwner,
                     steerEnabled = steerEnabled,
                     isMember = isMember,
@@ -143,18 +149,19 @@ fun AgentPrCard(
 
 // Live session: a status dot + label + who/where, tapping into the steer
 // viewer when steering is available; an inert caption when it's off. `running`
-// shows the pulsing green "Coding now"; the `in_review` PR-open parking spot
-// shows a static blue "Ready for review" (EXP-194).
+// shows the pulsing green "Coding now"; the parked states show a static dot —
+// review green / done blue / needs-input amber (EXP-194/EXP-214).
 @Composable
 private fun SessionRow(
     session: CodingSessionEntity,
+    prState: String?,
     sessionOwner: UserEntity?,
     steerEnabled: Boolean?,
     isMember: Boolean,
     onWatch: (String) -> Unit,
 ) {
     val watchable = isMember && steerEnabled == true
-    val inReview = session.status == DomainContract.codingSessionStatusInReview
+    val state = codingSessionDisplayState(session, prState)
     Column {
         Row(
             modifier = Modifier
@@ -162,12 +169,27 @@ private fun SessionRow(
                 .let { if (watchable) it.clickable { onWatch(session.id) } else it },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (inReview) StaticDot(ReviewBlue) else PulsingDot()
+            when (state) {
+                CodingSessionDisplayState.Running -> PulsingDot()
+                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
+                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
+                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+            }
             Spacer(Modifier.width(8.dp))
             Text(
-                if (inReview) "Ready for review" else "Coding now",
+                when (state) {
+                    CodingSessionDisplayState.Running -> "Coding now"
+                    CodingSessionDisplayState.NeedsInput -> "Needs input"
+                    CodingSessionDisplayState.Review -> "Ready for review"
+                    CodingSessionDisplayState.Done -> "Done"
+                },
                 style = MaterialTheme.typography.labelLarge,
-                color = if (inReview) ReviewBlue else LiveGreen,
+                color = when (state) {
+                    CodingSessionDisplayState.Running -> LiveGreen
+                    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                    CodingSessionDisplayState.Review -> ReviewGreen
+                    CodingSessionDisplayState.Done -> DoneBlue
+                },
             )
             Spacer(Modifier.width(8.dp))
             val who = userDisplayName(sessionOwner, session.userId)

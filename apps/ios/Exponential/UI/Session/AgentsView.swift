@@ -280,16 +280,39 @@ struct AgentsView: View {
         .glassRow()
     }
 
+    /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
+    /// review green, done blue (the issue-status palette), needs-input amber.
+    private func stateColor(_ state: CodingSessionDisplayState) -> Color {
+        switch state {
+        case .needsInput: DesignTokens.Semantic.yellow
+        case .review: DesignTokens.Semantic.green
+        case .done: DesignTokens.Semantic.blue
+        case .running: DesignTokens.Semantic.green
+        }
+    }
+
+    private func stateLabel(_ state: CodingSessionDisplayState) -> String? {
+        switch state {
+        case .needsInput: "Needs input"
+        case .review: "Ready for review"
+        case .done: "Done"
+        case .running: nil
+        }
+    }
+
     @ViewBuilder
     private func sessionRowContent(_ row: AgentsViewModel.Row) -> some View {
-        // in_review keeps the session live but parks the issue in review: a
-        // static blue "Ready for review" dot/label instead of pulsing-green
-        // "Coding now" (EXP-194).
-        let inReview = row.session.status == DomainContract.codingSessionStatusInReview
+        // The parked states render a static dot/label instead of the
+        // pulsing-green "Coding now": review green, done blue (once the PR
+        // merges), needs-input amber while the agent waits on a picker
+        // (EXP-194/EXP-214).
+        let state = CodingSessionDisplayState.of(
+            session: row.session, prState: row.issue?.prState
+        )
         HStack(spacing: 12) {
-            if inReview {
+            if state != .running {
                 Circle()
-                    .fill(DesignTokens.Semantic.blue)
+                    .fill(stateColor(state))
                     .frame(width: 9, height: 9)
             } else {
                 PulsingLiveDot()
@@ -309,10 +332,10 @@ struct AgentsView: View {
                         .lineLimit(1)
                 }
                 HStack(spacing: 6) {
-                    if inReview {
-                        Text("Ready for review")
+                    if let label = stateLabel(state) {
+                        Text(label)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(DesignTokens.Semantic.blue)
+                            .foregroundStyle(stateColor(state))
                             .lineLimit(1)
                     }
                     Text(byline(row.session))

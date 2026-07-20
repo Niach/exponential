@@ -1036,24 +1036,36 @@ impl Render for StartCodingControl {
         let running = LocalSessions::global(cx).read(cx).get(&issue_id).is_some();
         if running {
             // The terminal is still alive during review — the synced row's
-            // `in_review` flip (EXP-194: the agent's PR is up) only changes
-            // the tone; Stop stays either way.
+            // parked states (EXP-194/EXP-214) only change the tone/label;
+            // Stop stays either way. Review green, done blue once the PR
+            // merges, needs-input amber while the agent waits on a picker.
             let now = chrono::Utc::now().timestamp();
-            let in_review = Store::global(cx)
-                .collections()
+            let collections = Store::global(cx).collections();
+            let session = collections
                 .coding_sessions
                 .read(cx)
                 .iter()
-                .any(|session| {
+                .find(|session| {
                     session.issue_id.as_deref() == Some(issue_id.as_str())
                         && queries::coding_session_is_live(session, now)
-                        && session.status.as_deref()
-                            == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-                });
-            let (tone, label) = if in_review {
-                (theme::tokens::BLUE, "In review…")
-            } else {
-                (theme::tokens::GREEN, "Coding…")
+                })
+                .cloned();
+            let pr_state = collections
+                .issues
+                .read(cx)
+                .get(issue_id.as_str())
+                .and_then(|issue| issue.pr_state.clone());
+            let display = session
+                .as_ref()
+                .map(|session| queries::coding_session_display(session, pr_state.as_deref()))
+                .unwrap_or(queries::CodingSessionDisplay::Running);
+            let (tone, label) = match display {
+                queries::CodingSessionDisplay::NeedsInput => {
+                    (theme::tokens::YELLOW, "Needs input…")
+                }
+                queries::CodingSessionDisplay::Review => (theme::tokens::GREEN, "In review…"),
+                queries::CodingSessionDisplay::Done => (theme::tokens::BLUE, "Done"),
+                queries::CodingSessionDisplay::Running => (theme::tokens::GREEN, "Coding…"),
             };
             return h_flex()
                 .flex_shrink_0()

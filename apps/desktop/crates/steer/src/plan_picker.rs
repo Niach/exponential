@@ -162,6 +162,12 @@ impl PlanPickerWatcher {
         Self::default()
     }
 
+    /// Whether a plan-approval picker is currently pending on screen (between
+    /// a `Show` and its `Resolved`) — the EXP-214 "needs input" signal.
+    pub fn is_pending(&self) -> bool {
+        self.pending
+    }
+
     /// Feed one poll tick. `display_offset > 0` (viewport scrolled into
     /// history) freezes the machine entirely.
     pub fn tick(&mut self, lines: &[String], display_offset: usize) -> Option<Transition> {

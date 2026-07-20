@@ -92,9 +92,13 @@ import androidx.room.RoomDatabase
     //      address, synced for the pending-invite list (the bearer token stays
     //      excluded). Additive column on the existing team-invites shape;
     //      destructive fallback wipes + resyncs.
+    // v24: coding_sessions.needs_input (EXP-214) — desktop-written attention
+    //      flag while the agent waits on a plan-approval / question picker.
+    //      Additive column on the existing coding-sessions shape; destructive
+    //      fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 23,
+    version = 24,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

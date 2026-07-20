@@ -215,6 +215,13 @@ impl QuestionPickerWatcher {
         Self::default()
     }
 
+    /// Whether an AskUserQuestion picker is currently pending on screen —
+    /// the EXP-214 "needs input" signal (clears once the picker leaves the
+    /// grid for [`STREAK`] consecutive ticks).
+    pub fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Feed one poll tick; returns a snapshot to publish when a new question
     /// settles on screen. `display_offset > 0` (viewport scrolled into
     /// history) freezes the machine entirely.

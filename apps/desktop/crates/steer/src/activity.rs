@@ -777,6 +777,13 @@ fn git_diff(worktree: &Path, cached: bool) -> String {
 pub struct EmitterConfig {
     pub worktree: PathBuf,
     pub term: Option<TermHandle>,
+    /// EXP-214: fired (on the emitter thread) whenever the combined
+    /// "agent is parked on a picker" flag flips — `true` while a
+    /// plan-approval or AskUserQuestion picker is pending on the grid,
+    /// `false` once it resolves. The wiring layer forwards it to the synced
+    /// `coding_sessions.needs_input` column. Blocking work is fine here (the
+    /// emitter thread already shells out for diffs).
+    pub on_needs_input: Option<Arc<dyn Fn(bool) + Send + Sync>>,
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -812,6 +819,8 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
     let mut transcript_state = TranscriptState::default();
+    // EXP-214: last "needs input" flag forwarded — fire only on flips.
+    let mut needs_input = false;
 
     while active.load(Ordering::SeqCst) {
         // 0) Picker watch on the live grid: the transcript cannot show a
@@ -883,6 +892,17 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     plan_mode: None,
                 });
             }
+
+            // EXP-214: the combined attention flag — the agent is parked on
+            // EITHER picker and waits for a human. Forwarded only on flips
+            // (the watchers already debounce mid-render flicker).
+            let pending = picker_watcher.is_pending() || question_watcher.is_pending();
+            if pending != needs_input {
+                needs_input = pending;
+                if let Some(on_needs_input) = &config.on_needs_input {
+                    on_needs_input(pending);
+                }
+            }
         }
 
         // 1) Resolve / re-resolve the transcript file (a newer session file in
@@ -927,6 +947,15 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         }
 
         std::thread::sleep(POLL_INTERVAL);
+    }
+
+    // Teardown tidiness: never leave the synced attention flag stuck on a
+    // session whose emitter is gone (the terminal-exit `end` supersedes, but
+    // a steerer takeover only flips `active`).
+    if needs_input {
+        if let Some(on_needs_input) = &config.on_needs_input {
+            on_needs_input(false);
+        }
     }
 }
 

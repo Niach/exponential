@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -58,6 +59,12 @@ val BottomBarInset = 96.dp
 // Live-session green, matching the steer UI's "Coding now" badge.
 private val AgentsLiveGreen = Color(0xFF34D399)
 
+// EXP-214 dot colors: the Agents dot escalates to amber while a session
+// waits on a plan approval / question; the Reviews dot is the review green
+// (the in_review issue-status tint).
+private val AgentsNeedsInputAmber = DesignTokens.Semantic.Yellow
+private val ReviewsGreen = DesignTokens.Semantic.Green
+
 @Composable
 fun BottomNavBar(
     issuesActive: Boolean,
@@ -68,6 +75,8 @@ fun BottomNavBar(
     supportActive: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
+    agentsNeedInput: Boolean,
+    reviewsOpen: Boolean,
     showsSupport: Boolean,
     supportUnread: Boolean,
     showsCompose: Boolean,
@@ -132,16 +141,21 @@ fun BottomNavBar(
                 active = agentsActive,
                 width = tabWidth,
                 showDot = agentsRunning,
-                dotColor = AgentsLiveGreen,
+                // Amber while any session waits on a plan approval / question
+                // (EXP-214), live green otherwise.
+                dotColor = if (agentsNeedInput) AgentsNeedsInputAmber else AgentsLiveGreen,
                 onClick = onAgents,
             )
             // Reviews sits beside Agents (EXP-147/EXP-152) — the same open-PR
-            // glyph the Reviews rows use.
+            // glyph the Reviews rows use. Green dot while open PRs await
+            // review (EXP-214).
             TabItem(
                 icon = Icons.AutoMirrored.Filled.CallMerge,
                 contentDescription = "Reviews",
                 active = reviewsActive,
                 width = tabWidth,
+                showDot = reviewsOpen,
+                dotColor = ReviewsGreen,
                 onClick = onReviews,
             )
             TabItem(

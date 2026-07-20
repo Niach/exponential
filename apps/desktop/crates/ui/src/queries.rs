@@ -634,6 +634,39 @@ pub(crate) fn coding_session_is_live(
     }
 }
 
+/// EXP-214: how a LIVE coding session renders. The synced status alone is not
+/// the whole story — `in_review` splits on the linked issue's PR outcome
+/// (merged → the run is done, review otherwise, matching the issue-status
+/// palette: review green, done blue), and the desktop-written `needs_input`
+/// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
+/// overrides everything still actionable as an amber "needs input". Callers
+/// pass only sessions that already passed [`coding_session_is_live`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CodingSessionDisplay {
+    Running,
+    NeedsInput,
+    Review,
+    Done,
+}
+
+pub(crate) fn coding_session_display(
+    session: &domain::rows::CodingSession,
+    pr_state: Option<&str>,
+) -> CodingSessionDisplay {
+    let merged = pr_state == Some(domain::contract::PR_STATE_MERGED);
+    if session.needs_input.unwrap_or(false) && !merged {
+        return CodingSessionDisplay::NeedsInput;
+    }
+    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW) {
+        return if merged {
+            CodingSessionDisplay::Done
+        } else {
+            CodingSessionDisplay::Review
+        };
+    }
+    CodingSessionDisplay::Running
+}
+
 // ---------------------------------------------------------------------------
 // Create-flow sync gate (§4.1 "awaitTxId" analog)
 // ---------------------------------------------------------------------------

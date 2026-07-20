@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "needs_input" boolean DEFAULT false NOT NULL;

@@ -80,16 +80,22 @@ function SupportDot({ teamId }: { teamId?: string }) {
   return <TabDot className="bg-indigo-400" />
 }
 
+// Review green (EXP-214): open PRs are "stuff to do", colored like the
+// in_review issue status.
 function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
   const count = useReviewsOpenPrCount(boards)
   if (count === 0) return null
-  return <TabDot className="bg-muted-foreground" />
+  return <TabDot className="bg-emerald-500" />
 }
 
+// Amber while any live session waits on a plan approval / question
+// (EXP-214), live green otherwise.
 function AgentsDot({ teamId }: { teamId?: string }) {
-  const count = useAgentsRunningCount(teamId)
+  const { count, needsInput } = useAgentsRunningCount(teamId)
   if (count === 0) return null
-  return <TabDot className="bg-emerald-500" />
+  return (
+    <TabDot className={needsInput ? `bg-amber-500` : `bg-emerald-500`} />
+  )
 }
 
 function TabDot({ className }: { className: string }) {

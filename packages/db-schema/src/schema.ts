@@ -434,6 +434,11 @@ export const codingSessions = pgTable(
     // Human label of the host device ("Dennis's MacBook"), shown on the badge.
     deviceLabel: varchar(`device_label`, { length: 255 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
+    // Desktop-written attention flag (EXP-214): the agent is parked on a
+    // plan-approval or AskUserQuestion picker and waits for a human. Composes
+    // with running/in_review (which stay server-owned) instead of being a
+    // status of its own; cleared by the desktop when the picker resolves.
+    needsInput: boolean(`needs_input`).notNull().default(false),
     startedAt: timestamp(`started_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),

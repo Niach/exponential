@@ -1345,9 +1345,11 @@ fn update_from_main(ctx: &UpdateFromMainContext, window: &mut Window, cx: &mut A
 
 /// The §4.2 steer presence pill: a "coding now" badge while a
 /// `coding_sessions` row is `running` for this issue (the Watch/viewer UI is
-/// §08 — another track wires it onto this pill). An `in_review` row (agent
-/// done, PR open, terminal still alive — EXP-194) renders the same pill in
-/// BLUE with a "ready for review" verb.
+/// §08 — another track wires it onto this pill). The parked states render the
+/// same pill with a different tone/verb (EXP-194/EXP-214): review GREEN
+/// "ready for review" (the in_review issue-status tint), done BLUE once the
+/// PR merges, needs-input YELLOW while the agent waits on a plan-approval /
+/// question picker.
 fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let collections = Store::global(cx).collections();
     let now = chrono::Utc::now().timestamp();
@@ -1361,14 +1363,22 @@ fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
         })
         .cloned()?;
 
-    let in_review = session.status.as_deref()
-        == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW);
-    let verb = if in_review { "ready for review" } else { "coding now" };
-    let tone = if in_review {
-        theme::tokens::BLUE
-    } else {
-        theme::tokens::GREEN
-    };
+    let pr_state = collections
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .and_then(|issue| issue.pr_state.clone());
+    let (verb, tone) =
+        match crate::queries::coding_session_display(&session, pr_state.as_deref()) {
+            crate::queries::CodingSessionDisplay::NeedsInput => {
+                ("needs input", theme::tokens::YELLOW)
+            }
+            crate::queries::CodingSessionDisplay::Review => {
+                ("ready for review", theme::tokens::GREEN)
+            }
+            crate::queries::CodingSessionDisplay::Done => ("done", theme::tokens::BLUE),
+            crate::queries::CodingSessionDisplay::Running => ("coding now", theme::tokens::GREEN),
+        };
 
     let who = session
         .user_id

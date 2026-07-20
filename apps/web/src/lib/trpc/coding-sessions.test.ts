@@ -270,3 +270,42 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     })
   })
 })
+
+describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
+  it(`writes exactly needs_input on a live owned row`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    const result = await caller.setNeedsInput({
+      id: SESSION_ID,
+      needsInput: true,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual({ needsInput: true })
+  })
+
+  it(`reports a swept row without writing`, async () => {
+    selectResults.push([]) // row gone
+
+    const result = await caller.setNeedsInput({
+      id: SESSION_ID,
+      needsInput: true,
+    })
+
+    expect(result).toEqual({ updated: false })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a non-owner`, async () => {
+    selectResults.push([{ userId: `someone-else`, status: `running` }])
+
+    const error = await rejectionOf(
+      caller.setNeedsInput({ id: SESSION_ID, needsInput: false })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+})

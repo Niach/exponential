@@ -184,6 +184,49 @@ export const codingSessionsRouter = router({
       return { alive: updated.length > 0 }
     }),
 
+  // Desktop-only attention flag (EXP-214): flips `needs_input` when the
+  // agent parks on a plan-approval / AskUserQuestion picker (the steer
+  // activity emitter's picker watchers) and clears it when the picker
+  // resolves. Deliberately a separate boolean, not a status — running/
+  // in_review stay server-owned and a ping can never race the PR-open flip.
+  // Fire-and-forget on the client like heartbeat: failures are never thrown
+  // into the terminal path.
+  setNeedsInput: authedProcedure
+    .input(z.object({ id: z.string().uuid(), needsInput: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          status: codingSessions.status,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { updated: false }
+      if (existing.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can update it`,
+        })
+      }
+
+      // Status-conditioned like heartbeat: an ended row stays final and
+      // never re-surfaces as "needs input".
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ needsInput: input.needsInput })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { updated: updated.length > 0 }
+    }),
+
   end: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
