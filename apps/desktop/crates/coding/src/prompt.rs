@@ -109,6 +109,29 @@ moves the issue to `in_review` automatically, and merging it later completes it 
     )
 }
 
+/// Render the RESUME prompt (EXP-202) — the fallback when no previous
+/// conversation is recoverable: a fresh session spawned into the issue's
+/// reused worktree, told to pick the existing branch work back up instead of
+/// starting over. Today only codex can land here (its exact-session recovery
+/// — [`crate::codex_sessions`] — found no rollout for the worktree, e.g. it
+/// was coded by another agent or the sessions were pruned); claude/pi always
+/// resume natively via cwd-scoped `--continue`.
+pub fn render_resume_prompt(identifier: &str, title: &str, default_branch: &str) -> String {
+    format!(
+        "You are RESUMING work on **{identifier}: {title}** in this repository — a previous \
+coding session already worked on this branch. First inspect the existing work: run \
+`git log origin/{default_branch}..HEAD`, `git status`, and `git diff origin/{default_branch}` \
+to see what was already done, and read the issue's full comment thread by calling the \
+`exponential_comments_list` MCP tool with issueId `{identifier}` — comments often refine or \
+override the requirements. Then continue the implementation from where it left off. When \
+done, commit and push this branch; if no pull request exists yet, open one by calling the \
+`exponential_pr_open` MCP tool — if one already exists, just push your commits to update it. \
+Opening the PR moves the issue to `in_review` automatically, and merging it later completes \
+it to `done` — you do not set the issue status yourself. Do not use `gh`.
+"
+    )
+}
+
 /// The issue-context body.
 fn issue_body(description: Option<&str>) -> &str {
     match description {
@@ -188,6 +211,21 @@ The login page flickers on slow connections.
         // re-impose a text gate.
         assert!(!prompt.contains("WAIT for explicit go-ahead"));
         assert!(!prompt.contains("propose a concise plan"));
+    }
+
+    #[test]
+    fn resume_template_names_the_real_mcp_tools_and_inspects_existing_work() {
+        let prompt = render_resume_prompt("EXP-42", "Fix login flicker", "main");
+        assert!(prompt.contains("RESUMING work on **EXP-42: Fix login flicker**"));
+        assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-42`"));
+        assert!(prompt.contains("`exponential_pr_open`"));
+        assert!(prompt.contains("git diff origin/main"));
+        assert!(prompt.contains("git log origin/main..HEAD"));
+        assert!(prompt.contains("Do not use `gh`."));
+        // Same rules as the seed prompt: status is never the agent's job and
+        // there is no text plan gate.
+        assert!(!prompt.contains("`exponential_issues_update_status`"));
+        assert!(!prompt.contains("WAIT for explicit go-ahead"));
     }
 
     #[test]

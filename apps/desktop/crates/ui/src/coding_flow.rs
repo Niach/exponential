@@ -622,6 +622,7 @@ pub fn build_launch(
     issue_id: &str,
     origin: LaunchOrigin,
     options: LaunchOptions,
+    resume: bool,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -652,6 +653,7 @@ pub fn build_launch(
         device_label: coding::default_device_label(),
         origin,
         options,
+        resume,
     };
     let deps = CodingDeps {
         trpc,
@@ -660,8 +662,24 @@ pub fn build_launch(
         settings,
         issue_seed: Arc::new(move |_| Some(seed.clone())),
         worktrees: Arc::new(coding::GitWorktrees),
+        codex_sessions_root: None,
     };
     Some((request, deps))
+}
+
+/// EXP-202: whether `identifier`'s persisted worktree already exists for
+/// `full_name` under the current coding settings — the launcher's OWN
+/// derivation (`branch_name` + `clone_path` + `worktree_path`), so it can
+/// never disagree with where a launch would land. Blocking `.git` stat —
+/// call from a background spawn (the dialog's probe closure), not render.
+pub fn issue_worktree_exists(
+    settings: &coding::Settings,
+    full_name: &str,
+    identifier: &str,
+) -> bool {
+    let branch = coding::branch_name(&settings.branch_prefix, identifier);
+    let clone = coding::clone_path(&settings.repos_root_path(), full_name);
+    coding::worktree_path(&clone, &branch).join(".git").exists()
 }
 
 /// [`CodingDeps`] for a BATCH launch — the same assembly as [`build_launch`]
@@ -684,6 +702,7 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         settings,
         issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
+        codex_sessions_root: None,
     })
 }
 

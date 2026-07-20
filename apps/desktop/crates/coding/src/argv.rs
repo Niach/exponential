@@ -271,14 +271,36 @@ impl LaunchOptions {
     }
 }
 
-/// The coding-session argv for `opts.agent`, prompt positional-LAST always:
+/// What ends a coding-session argv (EXP-202): the seed prompt as the
+/// positional, or the agent's NATIVE resume with no prompt at all.
+///
+/// - `Continue` — claude/pi append `--continue` (cwd-scoped: resumes the
+///   latest conversation for the spawn cwd = the reused worktree; pi's flag
+///   is undocumented but real). A caller bug on codex (which has no
+///   cwd-scoped continue — `resume --last` is global-latest) degrades to a
+///   flagless spawn.
+/// - `CodexResume(id)` — codex only: the `resume <SESSION_ID>` subcommand
+///   form, resuming the EXACT session the launcher recovered for this
+///   worktree from codex's rollout metas ([`crate::codex_sessions`]).
+///   `resume` rides argv-FIRST (it is a subcommand, verified to accept the
+///   same `-m`/`-c`/sandbox/approval flags as a fresh spawn).
+#[derive(Clone, Copy, Debug)]
+pub enum SessionTail<'a> {
+    Prompt(&'a str),
+    Continue,
+    CodexResume(&'a str),
+}
+
+/// The coding-session argv for `opts.agent`, tail LAST always (the prompt
+/// positional, or `--continue` on a claude/pi resume; a codex resume instead
+/// PREPENDS `resume <SESSION_ID>` as the subcommand):
 ///
 /// - claude: `--model <m> [--effort ultracode|<e>] <mcp_config_args>
-///   <permission_args> <positional>`
-/// - codex: `[-m <m>] [-c model_reasoning_effort=<e>] <mcp -c overrides>
-///   <sandbox/approval flags> <positional>`
-/// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> <positional>`
-pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, positional: &str) -> Vec<String> {
+///   <permission_args> <tail>`
+/// - codex: `[resume <session-id>] [-m <m>] [-c model_reasoning_effort=<e>]
+///   <mcp -c overrides> <sandbox/approval flags> [<positional>]`
+/// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> <tail>`
+pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, tail: SessionTail<'_>) -> Vec<String> {
     let trimmed_model = opts.model.trim();
     let trimmed_effort = opts.effort.trim();
     let mut args: Vec<String> = Vec::new();
@@ -358,7 +380,24 @@ pub fn session_args(opts: &LaunchOptions, mcp: &AgentMcp, positional: &str) -> V
             args.push(format!("./{PI_BRIDGE_FILE}"));
         }
     }
-    args.push(positional.to_string());
+    match tail {
+        SessionTail::Prompt(positional) => args.push(positional.to_string()),
+        // Only claude + pi have a cwd-scoped continue flag; on codex this
+        // variant is a caller bug — degrade to a flagless spawn rather than
+        // panic or hand codex an unknown flag.
+        SessionTail::Continue if !matches!(opts.agent, CodingAgent::Codex) => {
+            args.push("--continue".into())
+        }
+        SessionTail::Continue => {}
+        // The subcommand must lead the argv; every flag above is accepted by
+        // `codex resume` too. On any other agent this is a caller bug —
+        // degrade like Continue does.
+        SessionTail::CodexResume(id) if opts.agent == CodingAgent::Codex => {
+            args.insert(0, "resume".into());
+            args.insert(1, id.to_string());
+        }
+        SessionTail::CodexResume(_) => {}
+    }
     args
 }
 
@@ -430,7 +469,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, "do the thing"),
+            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("do the thing")),
             vec![
                 "--model",
                 "fable",
@@ -453,7 +492,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, "prompt"),
+            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "opus",
@@ -468,7 +507,7 @@ mod tests {
         );
 
         // Plan OFF + skip OFF (EXP-201 default): guarded auto mode.
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, "p");
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::Prompt("p"));
         assert_eq!(
             args[args.len() - 4..],
             [
@@ -487,7 +526,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, "seed")[..4],
+            session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("seed"))[..4],
             [
                 "--model".to_string(),
                 "fable".to_string(),
@@ -503,7 +542,7 @@ mod tests {
             effort: "  ".to_string(),
             ..claude_opts()
         };
-        let args = session_args(&opts, &AgentMcp::ClaudeFile, "p");
+        let args = session_args(&opts, &AgentMcp::ClaudeFile, SessionTail::Prompt("p"));
         assert!(!args.iter().any(|arg| arg == "--effort"));
         assert!(!args.iter().any(|arg| arg == "--agents"));
         assert_eq!(args.last().map(String::as_str), Some("p"));
@@ -525,7 +564,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &mcp, "prompt"),
+            session_args(&opts, &mcp, SessionTail::Prompt("prompt")),
             vec![
                 "-m",
                 "gpt-5.6-sol",
@@ -557,7 +596,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: true,
         };
-        let args = session_args(&opts, &mcp, "prompt");
+        let args = session_args(&opts, &mcp, SessionTail::Prompt("prompt"));
         assert_eq!(
             args,
             vec![
@@ -589,7 +628,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::PiExtension, "prompt"),
+            session_args(&opts, &AgentMcp::PiExtension, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "grok-4.5",
@@ -611,9 +650,69 @@ mod tests {
             plan_mode: false,
             skip_permissions: true, // inert for pi
         };
-        let args = session_args(&opts, &AgentMcp::PiExtension, "p");
+        let args = session_args(&opts, &AgentMcp::PiExtension, SessionTail::Prompt("p"));
         assert_eq!(args, vec!["-e", "./.exp-pi-mcp.ts", "p"]);
         assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
+    }
+
+    /// EXP-202: the resume tails. Claude + pi end with `--continue` (their
+    /// cwd-scoped native resume) and carry NO positional prompt, with every
+    /// other flag intact; codex resumes via the `resume <SESSION_ID>`
+    /// subcommand PREPENDED to the same flag set. Cross-agent variants are
+    /// caller bugs and degrade to a flagless spawn.
+    #[test]
+    fn resume_tail_matrix() {
+        // Claude: full flag set preserved, `--continue` last, no prompt.
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::Continue);
+        assert_eq!(args.last().map(String::as_str), Some("--continue"));
+        assert!(args.contains(&"--mcp-config".to_string()));
+        assert!(args.contains(&"--permission-mode".to_string()));
+
+        // pi: `-c`/`--continue` exists but is undocumented — the bridge
+        // extension still loads, `--continue` last, no prompt.
+        let opts = LaunchOptions {
+            agent: CodingAgent::Pi,
+            model: "fable".to_string(),
+            effort: "".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: false,
+        };
+        assert_eq!(
+            session_args(&opts, &AgentMcp::PiExtension, SessionTail::Continue),
+            vec!["--model", "fable", "-e", "./.exp-pi-mcp.ts", "--continue"]
+        );
+
+        // codex: the exact recovered session id rides the `resume`
+        // subcommand FIRST; the MCP overrides + permission posture stay.
+        let opts = LaunchOptions {
+            agent: CodingAgent::Codex,
+            model: "".to_string(),
+            effort: "".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            skip_permissions: true,
+        };
+        let mcp = AgentMcp::CodexOverrides {
+            url: "https://app.exponential.at/api/mcp".to_string(),
+        };
+        let args = session_args(&opts, &mcp, SessionTail::CodexResume("019f-abc"));
+        assert_eq!(args[..2], ["resume".to_string(), "019f-abc".to_string()]);
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(args
+            .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
+
+        // Cross-agent tails are caller bugs and must DEGRADE, never panic or
+        // pass an unknown flag: Continue on codex, CodexResume on claude.
+        let args = session_args(&opts, &mcp, SessionTail::Continue);
+        assert!(!args.iter().any(|arg| arg == "--continue"));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("--dangerously-bypass-approvals-and-sandbox")
+        );
+        let args =
+            session_args(&claude_opts(), &AgentMcp::ClaudeFile, SessionTail::CodexResume("x"));
+        assert!(!args.iter().any(|arg| arg == "resume" || arg == "x"));
     }
 
     #[test]

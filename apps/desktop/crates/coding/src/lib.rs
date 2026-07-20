@@ -38,6 +38,7 @@ pub mod batch_launcher;
 pub mod batch_prompt;
 pub mod claude_task;
 pub mod clone_manager;
+pub mod codex_sessions;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
@@ -56,7 +57,8 @@ pub mod trunk_state;
 
 pub use agent::CodingAgent;
 pub use argv::{
-    permission_args, session_args, AgentMcp, LaunchOptions, MCP_TOKEN_ENV, MCP_URL_ENV,
+    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, MCP_TOKEN_ENV,
+    MCP_URL_ENV,
 };
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
@@ -67,6 +69,7 @@ pub use claude_task::{
     resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
+pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};
 pub use doctor::{
     parse_claude_version, run_doctor, DoctorReport, Tool, ToolCheck, MIN_CLAUDE_VERSION,
 };
@@ -89,8 +92,8 @@ pub use mcp_json::{
 };
 pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
 pub use prompt::{
-    deliver_prompt, deliver_prompt_file, render_prompt, write_rendered_prompt, PromptDelivery,
-    PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
+    deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
+    write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
 };
 pub use run_launch::{
     format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,
