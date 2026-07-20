@@ -1,10 +1,12 @@
-// closedloop/scenes/Film.tsx — the continuous loop film (780 story frames +
+// closedloop/scenes/Film.tsx — the continuous loop film (940 story frames +
 // the END_HOLD rest tail, see timeline.ts). Two shells share the camera: the
-// light acme.shop browser (S1/S2 and the closing S9) and the dark Exponential
-// app window (S3–S8). useCurrentFrame() IS the composition-global frame (the
-// comp renders this directly at from=0). `textScale` multiplies ONLY the
-// screen-space Caption/Punch sizes (EXP-176 phone legibility) — never the
-// in-window UI, whose px values are contract-locked (ships/CONTRACT.md).
+// dark acme.shop browser (S1/S2) and the dark Exponential app window (S3–S8);
+// the closing S9 is the full-frame Shipped card + platform lineup overlay
+// (EXP-200 — it replaced the reply-email beat). useCurrentFrame() IS the
+// composition-global frame (the comp renders this directly at from=0).
+// `textScale` multiplies ONLY the screen-space Caption sizes (EXP-176 phone
+// legibility) — never the in-window UI, whose px values are contract-locked
+// (ships/CONTRACT.md).
 
 import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
@@ -13,7 +15,6 @@ import {
   Camera,
   Caption,
   CursorLayer,
-  Punch,
   WindowChassis,
 } from "../../ships/rig";
 import {
@@ -52,12 +53,12 @@ import {
 } from "../fixtures";
 import {
   BrowserChassis,
-  EmailCard,
   FeedbackFab,
   SiteViewport,
 } from "../surfaces/sitemock";
 import { WidgetPanel } from "../surfaces/widgetmock";
 import { StartCodingDialog } from "../surfaces/startdialog";
+import { EndingOverlay, PAGE_FONT } from "../surfaces/platforms";
 import {
   BOARD_BEATS,
   CAMERA_KEYS,
@@ -68,14 +69,11 @@ import {
   CURSOR_APP1_KEYS,
   CURSOR_APP2,
   CURSOR_APP2_KEYS,
-  CURSOR_END,
-  CURSOR_END_KEYS,
   CURSOR_SITE,
   CURSOR_SITE_KEYS,
   DIALOG_BEATS,
   DIFF_BEATS,
   DOCK_COLLAPSE_END,
-  EMAIL_BEATS,
   FEED_SCHEDULE,
   MERGE_BEATS,
   PR_AT,
@@ -117,58 +115,41 @@ const DOCK_TABS: DockTab[] = [
   { id: "cl", label: CL.sessionTab, dot: C.green, popAt: SESSION_TAB_POP },
 ];
 
-// ── The acme.shop shell (S1/S2 + S9) ──────────────────────────────────────────
-const SiteShell: React.FC<{ frame: number }> = ({ frame }) => {
-  const opening = frame < SCENE.board;
-  return (
-    <BrowserChassis>
-      <SiteViewport
+// ── The acme.shop shell (S1/S2) ───────────────────────────────────────────────
+const SiteShell: React.FC<{ frame: number }> = ({ frame }) => (
+  <BrowserChassis>
+    <SiteViewport
+      frame={frame}
+      shakeAts={[SITE_BEATS.payClick1, SITE_BEATS.payClick2]}
+    />
+    <FeedbackFab
+      frame={frame}
+      hoverAt={SITE_BEATS.fabHover}
+      pressAt={SITE_BEATS.fabClick}
+      restAt={SITE_BEATS.fabRest}
+    />
+    {frame >= SITE_BEATS.panelAppear ? (
+      <WidgetPanel
         frame={frame}
-        shakeAts={opening ? [SITE_BEATS.payClick1, SITE_BEATS.payClick2] : []}
+        appearAt={SITE_BEATS.panelAppear}
+        annotateAt={SITE_BEATS.annotate}
+        titleTypeAt={SITE_BEATS.titleType}
+        detailsTypeAt={SITE_BEATS.detailsType}
+        sendHoverAt={SITE_BEATS.sendHover}
+        sendingAt={SITE_BEATS.sending}
+        successAt={SITE_BEATS.success}
       />
-      <FeedbackFab
-        frame={frame}
-        hoverAt={opening ? SITE_BEATS.fabHover : undefined}
-        pressAt={opening ? SITE_BEATS.fabClick : undefined}
-        restAt={opening ? SITE_BEATS.fabRest : undefined}
-      />
-      {opening && frame >= SITE_BEATS.panelAppear ? (
-        <WidgetPanel
-          frame={frame}
-          appearAt={SITE_BEATS.panelAppear}
-          annotateAt={SITE_BEATS.annotate}
-          titleTypeAt={SITE_BEATS.titleType}
-          detailsTypeAt={SITE_BEATS.detailsType}
-          sendHoverAt={SITE_BEATS.sendHover}
-          sendingAt={SITE_BEATS.sending}
-          successAt={SITE_BEATS.success}
-        />
-      ) : null}
-      {!opening ? (
-        <EmailCard
-          frame={frame}
-          appearAt={EMAIL_BEATS.appear}
-          fadeAt={EMAIL_BEATS.fade}
-        />
-      ) : null}
-      {/* window-local cursor choreography */}
-      <CursorLayer
-        keys={CURSOR_SITE_KEYS}
-        clicks={[...CURSOR_SITE.clicks]}
-        frame={frame}
-        from={CURSOR_SITE.from}
-        to={CURSOR_SITE.to}
-      />
-      <CursorLayer
-        keys={CURSOR_END_KEYS}
-        clicks={CURSOR_END.clicks}
-        frame={frame}
-        from={CURSOR_END.from}
-        to={CURSOR_END.to}
-      />
-    </BrowserChassis>
-  );
-};
+    ) : null}
+    {/* window-local cursor choreography */}
+    <CursorLayer
+      keys={CURSOR_SITE_KEYS}
+      clicks={[...CURSOR_SITE.clicks]}
+      frame={frame}
+      from={CURSOR_SITE.from}
+      to={CURSOR_SITE.to}
+    />
+  </BrowserChassis>
+);
 
 // ── The Exponential app shell (S3–S8) ─────────────────────────────────────────
 const AppShell: React.FC<{ frame: number; dockH: number }> = ({
@@ -475,98 +456,64 @@ const AppShell: React.FC<{ frame: number; dockH: number }> = ({
   );
 };
 
+// The frozen IDE moment shown inside the ending's MacBook: diff fully
+// painted, board sidebar up, dock collapsed — mid-review, no cursor layers
+// are active at this frame.
+const MAC_FREEZE = 660;
+
 // ── The film ──────────────────────────────────────────────────────────────────
 export const Film: React.FC<{ textScale?: number }> = ({ textScale = 1 }) => {
   const frame = useCurrentFrame();
   const dockH = dockHeightAt(frame);
   const blur = whipBlurAt(frame);
-  const onSite = frame < SCENE.board || frame >= SCENE.email;
-  const captionSize = Math.round(44 * textScale);
+  const onSite = frame < SCENE.board;
+  // Past this, the S9 ending overlay is fully opaque — skip the camera layer.
+  const covered = frame >= SCENE.shipped + 10;
+  const captionSize = Math.round(72 * textScale);
 
   return (
     <AbsoluteFill>
       {/* camera layer (whip-pan blur wraps it) */}
-      <AbsoluteFill
-        style={{
-          filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined,
-        }}
-      >
-        <Camera keys={CAMERA_KEYS} frame={frame}>
-          {onSite ? (
-            <SiteShell frame={frame} />
-          ) : (
-            <WindowChassis>
-              <AppShell frame={frame} dockH={dockH} />
-            </WindowChassis>
-          )}
-        </Camera>
-      </AbsoluteFill>
+      {covered ? null : (
+        <AbsoluteFill
+          style={{
+            filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined,
+          }}
+        >
+          <Camera keys={CAMERA_KEYS} frame={frame}>
+            {onSite ? (
+              <SiteShell frame={frame} />
+            ) : (
+              <WindowChassis>
+                <AppShell frame={frame} dockH={dockH} />
+              </WindowChassis>
+            )}
+          </Camera>
+        </AbsoluteFill>
+      )}
 
-      {/* screen-space captions */}
-      <Caption
+      {/* screen-space captions — display type matching the marketing page
+          (Geist resolves in the marketing document, Inter in Studio) */}
+      {(Object.keys(CAPTIONS) as (keyof typeof CAPTIONS)[]).map((key) => (
+        <Caption
+          key={key}
+          frame={frame}
+          in={CAPTIONS[key].in}
+          out={CAPTIONS[key].out}
+          size={captionSize}
+          fontFamily={PAGE_FONT}
+          letterSpacing="-0.03em"
+        >
+          {COPY[key]}
+        </Caption>
+      ))}
+
+      {/* S9 — the Shipped card + platform lineup (EXP-200) */}
+      <EndingOverlay
         frame={frame}
-        in={CAPTIONS.s1.in}
-        out={CAPTIONS.s1.out}
-        size={captionSize}
-      >
-        {COPY.s1}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s2.in}
-        out={CAPTIONS.s2.out}
-        size={captionSize}
-      >
-        {COPY.s2}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s3.in}
-        out={CAPTIONS.s3.out}
-        size={captionSize}
-      >
-        {COPY.s3}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s5.in}
-        out={CAPTIONS.s5.out}
-        size={captionSize}
-      >
-        {COPY.s5}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s6.in}
-        out={CAPTIONS.s6.out}
-        size={captionSize}
-      >
-        {COPY.s6}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s7.in}
-        out={CAPTIONS.s7.out}
-        size={captionSize}
-      >
-        {COPY.s7}
-      </Caption>
-      <Caption
-        frame={frame}
-        in={CAPTIONS.s8.in}
-        out={CAPTIONS.s8.out}
-        size={captionSize}
-      >
-        {COPY.s8}
-      </Caption>
-      <Punch
-        frame={frame}
-        in={CAPTIONS.s9.in}
-        out={CAPTIONS.s9.out}
-        lines={[COPY.s9]}
-        size={Math.round(64 * textScale)}
-        weight={700}
-        y={880}
+        macScreen={
+          <AppShell frame={MAC_FREEZE} dockH={dockHeightAt(MAC_FREEZE)} />
+        }
       />
     </AbsoluteFill>
   );

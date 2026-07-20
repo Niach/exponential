@@ -11,5 +11,5 @@ export const CHAPTER_INFO: ChapterInfo[] = [
   { id: "issue", label: "Issue", phrase: "lands on the board" },
   { id: "code", label: "Code", phrase: "Claude writes the fix" },
   { id: "merge", label: "Merge", phrase: "review, merge" },
-  { id: "shipped", label: "Shipped", phrase: "the reporter hears back" },
+  { id: "shipped", label: "Shipped", phrase: "on every platform" },
 ]

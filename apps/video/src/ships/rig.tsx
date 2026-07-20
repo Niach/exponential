@@ -147,6 +147,9 @@ const Scrim: React.FC<{ o: number }> = ({ o }) => (
 )
 
 // in/out are GLOBAL frames; render inside the screen-space layer.
+// fontFamily/letterSpacing are optional style overrides (closedloop matches
+// the marketing page's display type with them); defaults stay the classic
+// Inter caption used by the other comps.
 export const Caption: React.FC<{
   frame: number
   in: number
@@ -154,7 +157,9 @@ export const Caption: React.FC<{
   children: React.ReactNode
   size?: number
   centered?: boolean
-}> = ({ frame, in: fin, out, children, size = 44, centered = false }) => {
+  fontFamily?: string
+  letterSpacing?: number | string
+}> = ({ frame, in: fin, out, children, size = 44, centered = false, fontFamily = UI_FONT, letterSpacing = -0.5 }) => {
   if (frame < fin - 2 || frame > out + 8) return null
   const o = interpolate(frame, [fin, fin + 8, out, out + 6], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE })
   const sc = interpolate(frame, [fin, fin + 8], [1.04, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE })
@@ -168,10 +173,10 @@ export const Caption: React.FC<{
           right: centered ? 0 : undefined,
           bottom: 1080 - 1020,
           textAlign: centered ? "center" : "left",
-          fontFamily: UI_FONT,
+          fontFamily,
           fontSize: size,
           fontWeight: 600,
-          letterSpacing: -0.5,
+          letterSpacing,
           color: C.text,
           opacity: o,
           scale: String(sc),

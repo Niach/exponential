@@ -130,9 +130,31 @@
 }
 
 /* ─── Hero ─── */
+/* The hero is one exact screen: topbar + headline + CTAs + film + chapter
+   rail fit the first viewport, the film never sits below the fold
+   (EXP-200). --movie-reserve is everything that ISN'T the 16:9 stage
+   (topbar, text stack, rail, gaps) — loop.css derives the stage cap from
+   it; the max-height tier below tightens the stack and lowers the reserve
+   so short displays give the film as much room as possible. */
 .hero {
-  padding: 64px 0 24px;
+  --movie-reserve: 600px;
+  min-height: calc(100vh - 56px);
+  min-height: calc(100svh - 56px);
+  display: flex;
+  flex-direction: column;
+  padding: 48px 0 20px;
   position: relative;
+}
+
+.hero-movie-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* `safe` falls back to start if the movie block ever overflows the leftover
+     space — plain center would push its top edge up under the CTAs. */
+  justify-content: center;
+  justify-content: safe center;
 }
 
 .hero-content {
@@ -179,6 +201,37 @@ h1.hero-title {
   justify-content: center;
   align-items: center;
   margin-bottom: 56px;
+}
+
+/* Short-viewport tier (typical laptops): tighten the text stack so the film
+   keeps as much of the remaining height as possible. Must come AFTER the
+   base hero type rules — same specificity, cascade order decides. Reserve
+   values are measured, not derived (EXP-200 hero-fit verification). */
+@media (max-height: 940px) and (min-width: 721px) {
+  .hero {
+    --movie-reserve: 470px;
+    padding-top: 28px;
+  }
+  h1.hero-title {
+    font-size: clamp(36px, 4vw, 56px);
+    margin-bottom: 14px;
+  }
+  .hero-sub {
+    font-size: 16px;
+    margin-bottom: 20px;
+  }
+  .hero-cta {
+    margin-bottom: 28px;
+  }
+}
+
+/* Very short desktop viewports (≤ ~760px): full containment would shrink the
+   film into a thumbnail — give up on the one-screen hero and let the page
+   scroll instead (loop.css reverts the movie to width-driven sizing). */
+@media (max-height: 759px) and (min-width: 721px) {
+  .hero {
+    min-height: 0;
+  }
 }
 
 /* ─── Section eyebrow ─── */

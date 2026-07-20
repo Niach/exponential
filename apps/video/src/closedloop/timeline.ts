@@ -1,10 +1,11 @@
 // closedloop/timeline.ts — scene boundaries, chapter markers (consumed by the
 // marketing player UI), camera keyframes, whip-pan blur, dock-height clock,
 // terminal feed schedule, cursor choreographies and the caption windows.
-// Every frame value is COMPOSITION-GLOBAL. The story runs 780 frames @ 30fps
-// (~26s) and its last frame matches the first (camera, FAB, cursor); an
-// END_HOLD tail of identical resting frames follows (EXP-176) so the Player
-// loop breathes for ~2s before the wrap instead of whip-cutting immediately.
+// Every frame value is COMPOSITION-GLOBAL. The story runs 940 frames @ 30fps
+// (~31s): after the merge it closes on the full-frame Shipped card + platform
+// lineup (EXP-200 — replaced the reply-email beat), whose content fades to the
+// bare canvas before STORY_FRAMES; the END_HOLD tail rests on that canvas so
+// the Player loop breathes before wrapping back to the f0 storefront.
 
 import { interpolate, spring } from "remotion";
 import { CHAPTER_INFO } from "./chapters";
@@ -19,12 +20,12 @@ import { START_DIALOG_ANCHORS } from "./surfaces/startdialog";
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 export const FPS = 30;
-// The authored story — f779 matches f0 exactly (seamless loop anchor).
-export const STORY_FRAMES = 780;
-// Rest on the closing frame before the loop wraps (EXP-176: "loops too fast").
-// The tail renders identically to f0: camera/cursor/FAB are already at their
-// rest keys and every beat has faded by f778, so only time passes.
-export const END_HOLD = 60;
+// The authored story — the ending overlay's content has fully faded to the
+// bare canvas by here (EXP-200 retired the old f779==f0 seamless-loop anchor;
+// the wrap is now canvas-rest → hard restart on the f0 storefront).
+export const STORY_FRAMES = 940;
+// Rest on the bare canvas before the loop wraps (EXP-176: "loops too fast").
+export const END_HOLD = 20;
 export const DURATION_IN_FRAMES = STORY_FRAMES + END_HOLD;
 
 // ── Scenes ────────────────────────────────────────────────────────────────────
@@ -37,7 +38,8 @@ export const SCENE = {
   dock: 495, // Claude session in the terminal dock
   diff: 600, // Changes tab — side-by-side diff
   merge: 675, // Reviews rail → two-stage merge → board regroups to Done
-  email: 735, // back on acme.shop — the reporter hears back
+  shipped: 735, // full-frame Shipped card — logo draw + headline (EXP-200)
+  platforms: 800, // the every-platform lineup: MacBook IDE + phone + store icons
   end: STORY_FRAMES, // the END_HOLD tail after this is pure rest
 } as const;
 
@@ -50,7 +52,7 @@ const CHAPTER_FRAMES: Record<string, number> = {
   issue: SCENE.board,
   code: SCENE.dialog,
   merge: SCENE.diff,
-  shipped: SCENE.email,
+  shipped: SCENE.shipped,
 };
 export const CHAPTERS: Chapter[] = CHAPTER_INFO.map(({ id, label }) => {
   const frame = CHAPTER_FRAMES[id];
@@ -92,19 +94,17 @@ export const CAMERA_KEYS: CamKey[] = [
   { f: 620, s: 1.55, x: 928, y: 400 },
   { f: 632, s: 1.55, x: 928, y: 400 },
   { f: 672, s: 1.55, x: 928, y: 455, ease: "linear" },
-  // S8 — pan left to the rail + reviews sidebar
+  // S8 — pan left to the rail + reviews sidebar; the camera parks here — the
+  // opaque Shipped/platforms overlay (S9, EXP-200) covers everything after 743
   { f: 676, s: 1.55, x: 928, y: 455 },
   { f: 688, s: 1.7, x: 575, y: 385 },
   { f: 732, s: 1.7, x: 575, y: 385 },
-  // S9 — hard cut back to the site; settle exactly onto the f0 framing (loop)
-  { f: 735, s: 1.16, x: 800, y: 498 },
-  { f: 779, s: 1.1, x: 784, y: 490 },
 ];
 
-// Whip-pan blur at both hard cuts.
+// Whip-pan blur at the one remaining hard cut (site → app; the old second cut
+// back to the site is gone — the Shipped card fades in over the merge shot).
 export const whipBlurAt = (frame: number): number =>
-  interpolate(frame, [251, 254, 256, 259], [0, 3, 3, 0], CLAMP) +
-  interpolate(frame, [731, 734, 736, 739], [0, 3, 3, 0], CLAMP);
+  interpolate(frame, [251, 254, 256, 259], [0, 3, 3, 0], CLAMP);
 
 // ── Dock height clock (29 ↔ 240) ─────────────────────────────────────────────
 export const DOCK_COLLAPSE_END = 614;
@@ -201,8 +201,25 @@ export const MERGE_BEATS = {
   regroupEnd: 742,
 } as const;
 
-// ── Email beat (S9) ───────────────────────────────────────────────────────────
-export const EMAIL_BEATS = { appear: 742, fade: 766 } as const;
+// ── Shipped card + platform lineup (S9, EXP-200) ─────────────────────────────
+// The overlay's backdrop goes opaque over the merge shot, the logo strokes
+// draw, the headline lands, then the card crossfades into the platform lineup
+// (MacBook IDE + phone + store icon rows), which holds and fades to the bare
+// canvas before STORY_FRAMES.
+export const ENDING = {
+  backdropIn: SCENE.shipped, // 735 — opaque by +8
+  logoDrawFrom: 739,
+  logoDrawTo: 771,
+  titleAt: 746,
+  subAt: 754,
+  cardOutFrom: SCENE.platforms - 6, // 794
+  cardOutTo: SCENE.platforms + 6, // 806
+  macAt: SCENE.platforms + 4, // 804
+  phoneAt: SCENE.platforms + 12,
+  iconsAt: SCENE.platforms + 22,
+  fadeOutFrom: 916,
+  fadeOutTo: 936,
+} as const;
 
 // ── Cursor choreographies (window-local) ──────────────────────────────────────
 const PAY = SITE_ANCHORS.payButton;
@@ -219,7 +236,7 @@ const railReviews = railIconCenter("reviews");
 const BOARD_ROW_151 = { x: 174, y: 206 }; // sidebar: In Progress header+row, Todo header, EXP-151 first
 const MERGE_BTN = { x: 263, y: 122 };
 const CONFIRM_BTN = { x: 238, y: 122 };
-const LOOP_REST = { x: 900, y: 560 }; // cursor position at f0 AND f779 (seamless loop)
+const LOOP_REST = { x: 900, y: 560 }; // cursor rest position at f0
 
 // L1 — the visitor: dead clicks → FAB → widget form → send.
 export const CURSOR_SITE_KEYS: CursorKey[] = [
@@ -289,19 +306,8 @@ export const CURSOR_APP2 = {
   clicks: [MERGE_BEATS.railClick, MERGE_BEATS.confirmAt, MERGE_BEATS.mergingAt],
 } as const;
 
-// L4 — drift back to the loop rest position (matches f0), then stay parked
-// through the END_HOLD tail (`to` must cover it or the cursor blinks out).
-export const CURSOR_END_KEYS: CursorKey[] = [
-  { f: 740, x: 1240, y: 720 },
-  { f: 776, x: LOOP_REST.x, y: LOOP_REST.y },
-];
-export const CURSOR_END = {
-  from: 740,
-  to: DURATION_IN_FRAMES,
-  clicks: [] as number[],
-} as const;
-
 // ── Caption windows ───────────────────────────────────────────────────────────
+// (s9 lives on the Shipped card itself now — see ENDING.)
 export const CAPTIONS = {
   s1: { in: 16, out: 96 },
   s2: { in: 116, out: 242 },
@@ -310,5 +316,4 @@ export const CAPTIONS = {
   s6: { in: 500, out: 590 },
   s7: { in: 606, out: 668 },
   s8: { in: 684, out: 728 },
-  s9: { in: 744, out: 764 },
 } as const;

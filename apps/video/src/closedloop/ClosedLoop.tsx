@@ -1,5 +1,5 @@
-// ClosedLoop — composition root. A seamless-looping product story: feedback
-// in → PR out → reporter hears back. 1920×1080 @ 30fps, 780 story frames plus
+// ClosedLoop — composition root. A looping product story: feedback in → PR
+// out → shipped on every platform. 1920×1080 @ 30fps, 940 story frames plus
 // an END_HOLD rest tail (see timeline.ts). Player-compatible by construction:
 // the background is a static CSS gradient (no staticFile assets), everything
 // below is frame-driven. `textScale` (Player inputProps) scales ONLY the

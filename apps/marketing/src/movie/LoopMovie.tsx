@@ -13,7 +13,15 @@
    rendered poster frame; the chapter rail below is real HTML (SEO / no-JS).
    Under prefers-reduced-motion nothing autoplays — a Play button mounts and
    starts the movie on click. */
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react"
 import { Play } from "lucide-react"
 import { CHAPTER_INFO } from "@video/closedloop/chapters"
 
@@ -43,6 +51,9 @@ export function LoopMovie() {
   const [started, setStarted] = useState(false)
   const [reduced, setReduced] = useState(false)
   const [active, setActive] = useState(0)
+  /* Playback progress through the active chapter, integer percent — drives
+     the stepping fill in the rail (percent-quantized in LoopMoviePlayer). */
+  const [progress, setProgress] = useState(0)
 
   const controllerRef = useRef<LoopMovieController | null>(null)
   const reducedRef = useRef(false)
@@ -118,6 +129,11 @@ export function LoopMovie() {
 
   const handleReady = useCallback(() => setReady(true), [])
 
+  const handleChapterProgress = useCallback((index: number, percent: number) => {
+    setActive(index)
+    setProgress(percent)
+  }, [])
+
   const handlePlayingChange = useCallback((playing: boolean) => {
     if (playing) {
       startedRef.current = true
@@ -139,6 +155,7 @@ export function LoopMovie() {
 
   const handleChapter = (index: number) => {
     setActive(index)
+    setProgress(0)
     const controller = controllerRef.current
     if (controller) {
       controller.seekToChapter(index)
@@ -170,7 +187,7 @@ export function LoopMovie() {
               <LoopMoviePlayer
                 autoPlay={!reduced}
                 onController={handleController}
-                onChapterChange={setActive}
+                onChapterProgress={handleChapterProgress}
                 onReady={handleReady}
                 onPlayingChange={handlePlayingChange}
               />
@@ -194,6 +211,11 @@ export function LoopMovie() {
             key={chapter.id}
             type={`button`}
             className={`movie-chip${index === active ? ` is-active` : ``}`}
+            style={
+              index === active
+                ? ({ "--chip-progress": `${progress}%` } as CSSProperties)
+                : undefined
+            }
             onClick={() => handleChapter(index)}
             aria-current={index === active}
           >
