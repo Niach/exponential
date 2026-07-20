@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-agents-need-you`,
+    date: `2026-07-21`,
+    title: `See when an agent needs you`,
+    summary: `Coding sessions waiting on your input now show an attention badge on every client.`,
+    body: `- **Needs-input badge** — when a coding agent parks on a plan approval or a question, the session is flagged everywhere: the Agents tab and nav badges on web, iOS, Android, and the IDE light up until you answer.
+- **Start-coding polish** — reworked agent and model pickers in the Start-coding dialog on web, the IDE, and the mobile sheets.
+- **Smoother steering on iOS** — answering agent questions and plan approvals in the session view got a cleaner flow.
+- **Marketing + pricing refresh** — updated agents section and plan pages at exponential.at.`,
+  },
+  {
     id: `2026-07-widget-domains-mobile-agents`,
     date: `2026-07-20`,
     title: `Widget domain allowlists required, and a nicer mobile Start-coding sheet`,
