@@ -6,6 +6,7 @@ import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
 import { AgentSessionView } from "@/components/agent-session"
+import { sessionDisplayState } from "@/components/issue-coding-rows"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
@@ -227,11 +228,20 @@ function DockTab({
         expanded && `bg-muted`
       )}
     >
-      {session.status === `running` ? (
-        <RunningDot />
-      ) : session.status === `in_review` ? (
-        // Agent finished, PR open (EXP-194) — steady sky dot, no ping.
-        <span className="size-2 shrink-0 rounded-full bg-sky-500" />
+      {session.status === `running` || session.status === `in_review` ? (
+        (() => {
+          // EXP-214 display split: needs-input amber beats everything, a
+          // merged PR renders the run done (blue), review stays green.
+          const state = sessionDisplayState(session, issue?.prState)
+          if (state === `running`) return <RunningDot />
+          const dot =
+            state === `needs_input`
+              ? `bg-amber-500`
+              : state === `done`
+                ? `bg-sky-500`
+                : `bg-emerald-500`
+          return <span className={`size-2 shrink-0 rounded-full ${dot}`} />
+        })()
       ) : (
         <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
       )}

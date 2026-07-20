@@ -19,6 +19,8 @@ struct MobileTabBar: View {
     let supportActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
+    let agentsNeedInput: Bool
+    let reviewsOpen: Bool
     let showsSupport: Bool
     let supportUnread: Bool
     let showsCompose: Bool
@@ -75,16 +77,23 @@ struct MobileTabBar: View {
                     label: "Agents",
                     active: agentsActive,
                     badge: agentsRunning,
-                    badgeColor: DesignTokens.Semantic.green,
+                    // Amber while any session waits on a plan approval /
+                    // question (EXP-214), live green otherwise.
+                    badgeColor: agentsNeedInput
+                        ? DesignTokens.Semantic.yellow
+                        : DesignTokens.Semantic.green,
                     action: onAgents
                 )
                 .accessibilityIdentifier("tab-agents")
                 // Reviews sits beside Agents (EXP-147/EXP-152) — the same
-                // open-PR glyph the in_review status uses.
+                // open-PR glyph the in_review status uses. Green dot while
+                // open PRs await review (EXP-214).
                 tab(
                     glyph: .system("arrow.triangle.pull"),
                     label: "Reviews",
                     active: reviewsActive,
+                    badge: reviewsOpen,
+                    badgeColor: DesignTokens.Semantic.green,
                     action: onReviews
                 )
                 .accessibilityIdentifier("tab-reviews")

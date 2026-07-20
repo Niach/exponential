@@ -130,21 +130,34 @@ struct AgentPrCard: View {
 
     private func sessionRowContent(_ session: CodingSessionEntity, chevron: Bool) -> some View {
         let owner = users.first { $0.id == session.userId }
-        // in_review parks the issue in review with the terminal still alive: a
-        // static blue "Ready for review" rather than the pulsing-green "Coding
-        // now" (EXP-194).
-        let inReview = session.status == DomainContract.codingSessionStatusInReview
+        // The parked states render a static dot/label instead of the pulsing
+        // green "Coding now": review green, done blue (once the PR merges),
+        // needs-input amber while the agent waits on a plan-approval /
+        // question picker (EXP-194/EXP-214).
+        let state = CodingSessionDisplayState.of(session: session, prState: issue.prState)
+        let tint: Color = switch state {
+        case .needsInput: DesignTokens.Semantic.yellow
+        case .review: DesignTokens.Semantic.green
+        case .done: DesignTokens.Semantic.blue
+        case .running: DesignTokens.Semantic.green
+        }
+        let label = switch state {
+        case .needsInput: "Needs input"
+        case .review: "Ready for review"
+        case .done: "Done"
+        case .running: "Coding now"
+        }
         return HStack(spacing: 8) {
-            if inReview {
+            if state != .running {
                 Circle()
-                    .fill(DesignTokens.Semantic.blue)
+                    .fill(tint)
                     .frame(width: 9, height: 9)
             } else {
                 PulsingLiveDot()
             }
-            Text(inReview ? "Ready for review" : "Coding now")
+            Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(inReview ? DesignTokens.Semantic.blue : DesignTokens.Semantic.green)
+                .foregroundStyle(tint)
             Text(sessionByline(owner: owner, session: session))
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))

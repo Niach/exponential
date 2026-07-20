@@ -212,6 +212,13 @@ struct MainNavigator: View {
     // without a new sync delta.
     @State private var observedNotifications: [NotificationEntity] = []
     @State private var agentsRunning = false
+    // EXP-214: any live session's desktop-written `needs_input` flag (agent
+    // parked on a plan-approval / question picker) — escalates the Agents
+    // dot to amber.
+    @State private var agentsNeedInput = false
+    // EXP-214: open-PR issues (non-archived) — the Reviews tab's green dot,
+    // scoped to the active team via `reviewsOpen`.
+    @State private var observedOpenPrIssues: [IssueEntity] = []
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
     @State private var observedSessions: [CodingSessionEntity] = []
@@ -348,6 +355,8 @@ struct MainNavigator: View {
                     supportActive: isOnSupport,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
+                    agentsNeedInput: agentsNeedInput,
+                    reviewsOpen: reviewsOpen,
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
                     showsCompose: resolvedComposeTarget != nil,
@@ -408,6 +417,17 @@ struct MainNavigator: View {
                 && $0.teamId == teamId
                 && $0.readAt == nil
         }
+    }
+
+    /// Any open PR in the ACTIVE team lights the Reviews tab's green dot
+    /// (EXP-214) — the same open-PR set the Reviews screen lists, scoped
+    /// through the already-observed boards like `supportUnread`.
+    private var reviewsOpen: Bool {
+        guard let teamId = teamState.activeTeamId else { return false }
+        let teamBoardIds = Set(
+            teamState.boards.filter { $0.teamId == teamId }.map(\.id)
+        )
+        return observedOpenPrIssues.contains { teamBoardIds.contains($0.boardId) }
     }
 
     private var isOnMyWork: Bool {
@@ -590,6 +610,9 @@ struct MainNavigator: View {
                     observedSessions = sessions
                     // Heartbeat-stale rows don't light the dot (EXP-153).
                     agentsRunning = sessions.contains { CodingSessionLiveness.isLive($0) }
+                    agentsNeedInput = sessions.contains {
+                        CodingSessionLiveness.isLive($0) && $0.needsInput
+                    }
                 }
             } catch {}
         }
@@ -600,9 +623,26 @@ struct MainNavigator: View {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
                 agentsRunning = observedSessions.contains { CodingSessionLiveness.isLive($0) }
+                agentsNeedInput = observedSessions.contains {
+                    CodingSessionLiveness.isLive($0) && $0.needsInput
+                }
             }
         }
-        observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask]
+        // Open PRs light the Reviews tab's green dot (EXP-214) — mirrors the
+        // Reviews screen's observation (open pr_state, non-archived).
+        let openPrObs = ValueObservation.tracking { db in
+            try IssueEntity
+                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .fetchAll(db)
+        }
+        let openPrTask = Task { @MainActor in
+            do {
+                for try await issues in openPrObs.values(in: pool) {
+                    observedOpenPrIssues = issues.filter { $0.archivedAt == nil }
+                }
+            } catch {}
+        }
+        observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask, openPrTask]
     }
 
     // MARK: - Current board (Issues tab)

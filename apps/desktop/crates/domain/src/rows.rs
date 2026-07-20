@@ -374,9 +374,13 @@ pub struct CodingSession {
     pub user_id: Option<String>,
     #[serde(default)]
     pub device_label: Option<String>,
-    /// `running` / `ended` — raw wire value (contract-locked).
+    /// `running` / `in_review` / `ended` — raw wire value (contract-locked).
     #[serde(default)]
     pub status: Option<String>,
+    /// Desktop-written attention flag (EXP-214): the agent is parked on a
+    /// plan-approval / AskUserQuestion picker and waits for a human.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub needs_input: Option<bool>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]

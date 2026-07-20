@@ -204,6 +204,37 @@ class AppViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    // True while any LIVE session carries the desktop-written `needs_input`
+    // attention flag (EXP-214: agent parked on a plan-approval / question
+    // picker) — escalates the Agents dot to amber.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val agentsNeedInput: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
+        .flatMapLatest { db ->
+            if (db == null) flowOf(false)
+            else combine(
+                db.codingSessionDao()
+                    .observeByStatuses(CodingSessionLiveness.liveStatuses),
+                CodingSessionLiveness.minuteTicker(),
+            ) { sessions, now ->
+                sessions.any { CodingSessionLiveness.isLive(it, now) && it.needsInput }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // True while the active team has any open pull request — the Reviews
+    // tab's green "stuff to do" dot (EXP-214). Same query the Reviews screen
+    // lists (team-scoped, open PRs only, archived/trashed filtered).
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val reviewsOpen: StateFlow<Boolean> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        teamSelection.selectedId,
+    ) { db, teamId -> db to teamId }
+        .flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) flowOf(false)
+            else db.issueDao().observeOpenPrsByTeam(teamId).map { it.isNotEmpty() }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // The active team's synced `helpdesk_enabled` flag — gates the bottom
     // bar's Support tab (EXP-180). Room-observing only (the teams shape syncs
     // the column); the ticket poll starts when the Support screen mounts.

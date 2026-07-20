@@ -90,10 +90,15 @@ function ReviewsCountBadge({ boards }: { boards: Board[] | undefined }) {
 }
 
 // Live count of running coding sessions in the team, for the Agents entry.
+// Amber while any session waits on a plan approval / question (EXP-214).
 function AgentsRunningBadge({ teamId }: { teamId?: string }) {
-  const count = useAgentsRunningCount(teamId)
+  const { count, needsInput } = useAgentsRunningCount(teamId)
   if (count === 0) return null
-  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
+  return (
+    <SidebarMenuBadge className={needsInput ? `text-amber-400` : undefined}>
+      {count > 99 ? `99+` : count}
+    </SidebarMenuBadge>
+  )
 }
 
 interface TeamSidebarProps {

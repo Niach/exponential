@@ -47,8 +47,13 @@ export function useReviewsOpenPrCount(
 // Live count of live coding sessions in the team (team-scoped by the
 // denormalized team_id) — running AND in_review (EXP-194: an agent awaiting
 // review is exactly what the dot should pull attention to). Staleness guard
-// (EXP-153): heartbeat-dead rows don't count.
-export function useAgentsRunningCount(teamId?: string): number {
+// (EXP-153): heartbeat-dead rows don't count. `needsInput` (EXP-214) is true
+// while any live session sits on a plan-approval / AskUserQuestion picker —
+// the badges escalate to amber for it.
+export function useAgentsRunningCount(teamId?: string): {
+  count: number
+  needsInput: boolean
+} {
   const { data } = useLiveQuery(
     (query) =>
       teamId
@@ -64,7 +69,11 @@ export function useAgentsRunningCount(teamId?: string): number {
     [teamId]
   )
   const now = useNow()
-  return ((data ?? []) as CodingSession[]).filter(
+  const live = ((data ?? []) as CodingSession[]).filter(
     (s) => !isCodingSessionStale(s.updatedAt, now)
-  ).length
+  )
+  return {
+    count: live.length,
+    needsInput: live.some((s) => s.needsInput),
+  }
 }

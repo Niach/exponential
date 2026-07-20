@@ -367,7 +367,7 @@ extension IssueEntity: Codable {
 // approval state; the PR outcome lives on `issues`. `userId` is the REAL user
 // driving the session (not a synthetic bot). Mirrors packages/db-schema
 // codingSessions.
-public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "coding_sessions"
 
     public let id: String
@@ -380,6 +380,9 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
     public let userId: String
     public let deviceLabel: String?
     public let status: String
+    // Desktop-written attention flag (EXP-214): the agent is parked on a
+    // plan-approval / AskUserQuestion picker and waits for a human.
+    public let needsInput: Bool
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -393,6 +396,7 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
         userId: String,
         deviceLabel: String?,
         status: String,
+        needsInput: Bool = false,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -405,6 +409,7 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
         self.userId = userId
         self.deviceLabel = deviceLabel
         self.status = status
+        self.needsInput = needsInput
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -418,10 +423,33 @@ public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, 
         case teamId = "team_id"
         case userId = "user_id"
         case deviceLabel = "device_label"
+        case needsInput = "needs_input"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `needs_input` arrives as Postgres text off the Electric wire
+// ("t"/"f") but as a native scalar from fixtures, and a pre-rotation snapshot
+// may omit it — decode permissively with the schema default (the TeamEntity
+// `helpdesk_enabled` precedent).
+extension CodingSessionEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        issueId = try c.decodeIfPresent(String.self, forKey: .issueId)
+        boardId = try c.decodeIfPresent(String.self, forKey: .boardId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        userId = try c.decode(String.self, forKey: .userId)
+        deviceLabel = try c.decodeIfPresent(String.self, forKey: .deviceLabel)
+        status = try c.decode(String.self, forKey: .status)
+        needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
+        startedAt = try c.decode(String.self, forKey: .startedAt)
+        endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 

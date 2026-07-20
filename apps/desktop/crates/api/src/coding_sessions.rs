@@ -144,6 +144,32 @@ pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
     Ok(envelope.session)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetNeedsInputInput<'a> {
+    id: &'a str,
+    needs_input: bool,
+}
+
+#[derive(Deserialize)]
+struct SetNeedsInputEnvelope {
+    updated: bool,
+}
+
+/// `codingSessions.setNeedsInput` — mutation (EXP-214). Flips the synced
+/// row's `needs_input` attention flag while the agent is parked on a
+/// plan-approval / AskUserQuestion picker (the activity emitter's picker
+/// watchers drive it). Fire-and-forget like heartbeat: `updated: false`
+/// (row swept/ended) and transport errors are both ignorable — the flag
+/// re-asserts on the next picker transition.
+pub fn set_needs_input(trpc: &TrpcClient, id: &str, needs_input: bool) -> Result<bool, ApiError> {
+    let envelope: SetNeedsInputEnvelope = trpc.mutation(
+        "codingSessions.setNeedsInput",
+        &SetNeedsInputInput { id, needs_input },
+    )?;
+    Ok(envelope.updated)
+}
+
 /// `codingSessions.heartbeat` — mutation. Advances the synced row's
 /// `updated_at` while the claude child is alive so the server's staleness
 /// sweep (which DELETES `running` rows whose liveness signal stopped) never
@@ -281,6 +307,15 @@ mod tests {
     fn heartbeat_reports_a_dead_row_without_erroring() {
         let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{"alive":false}}}"#);
         assert!(!heartbeat(&client(&base), "sess-1", None).unwrap());
+    }
+
+    #[test]
+    fn set_needs_input_posts_flag_and_decodes_updated() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":true}}}"#);
+        assert!(set_needs_input(&client(&base), "sess-1", true).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.setNeedsInput HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"sess-1","needsInput":true}"#));
     }
 
     #[test]

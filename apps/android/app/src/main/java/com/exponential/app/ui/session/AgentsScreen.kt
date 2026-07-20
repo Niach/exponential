@@ -43,10 +43,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.PulsingDot
-import com.exponential.app.ui.issue.ReviewBlue
+import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.SteerStartState
@@ -286,7 +290,7 @@ private fun AgentSessionRow(
     onClick: () -> Unit,
     onInfo: () -> Unit,
 ) {
-    val inReview = session.status == DomainContract.codingSessionStatusInReview
+    val state = codingSessionDisplayState(session, issue?.prState)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -295,9 +299,14 @@ private fun AgentSessionRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // running → pulsing green; in_review PR-open parking spot → static blue
-        // "ready for review" (EXP-194).
-        if (inReview) StaticDot(ReviewBlue) else PulsingDot()
+        // running → pulsing green; parked states → static dot: review green,
+        // done blue, needs-input amber (EXP-194/EXP-214).
+        when (state) {
+            CodingSessionDisplayState.Running -> PulsingDot()
+            CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
+            CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
+            CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+        }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -326,16 +335,20 @@ private fun AgentSessionRow(
             }
             val device = session.deviceLabel?.takeIf { it.isNotBlank() } ?: "Desktop"
             Text(
-                if (inReview) {
-                    "Ready for review · $device"
-                } else {
-                    "$device · started ${relativeTime(session.startedAt)}"
+                when (state) {
+                    CodingSessionDisplayState.NeedsInput -> "Needs input · $device"
+                    CodingSessionDisplayState.Review -> "Ready for review · $device"
+                    CodingSessionDisplayState.Done -> "Done · $device"
+                    CodingSessionDisplayState.Running ->
+                        "$device · started ${relativeTime(session.startedAt)}"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (inReview) {
-                    ReviewBlue
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                color = when (state) {
+                    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                    CodingSessionDisplayState.Review -> ReviewGreen
+                    CodingSessionDisplayState.Done -> DoneBlue
+                    CodingSessionDisplayState.Running ->
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

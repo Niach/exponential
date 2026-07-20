@@ -581,6 +581,9 @@ pub fn attach_publisher(
         }),
     };
 
+    // EXP-214: the needs-input forwarder's own handle — cloned before the
+    // tickets take ownership of `trpc`.
+    let needs_input_trpc = trpc.clone();
     let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
         trpc,
         coding_session_id: session_id.to_string(),
@@ -622,12 +625,26 @@ pub fn attach_publisher(
     // and redacts before sending. Best-effort: a relay-disabled instance just
     // drops the sends.
     let activity_active = Arc::new(AtomicBool::new(true));
+    // EXP-214: forward the emitter's picker-pending flips to the synced
+    // `coding_sessions.needs_input` column so every client can badge
+    // "Needs input". Fire-and-forget from the emitter thread (blocking
+    // HTTP is fine there); a swept/ended row reports `updated: false`.
+    let needs_input_session = session_id.to_string();
     spawn_activity_emitter(
         EmitterConfig {
             worktree,
             // The live grid: the emitter watches it for the plan-approval
             // picker, which the transcript can't show while PENDING (EXP-150).
             term: Some(term),
+            on_needs_input: Some(Arc::new(move |pending| {
+                if let Err(err) = api::coding_sessions::set_needs_input(
+                    &needs_input_trpc,
+                    &needs_input_session,
+                    pending,
+                ) {
+                    log::debug!("steer: setNeedsInput({pending}) failed: {err}");
+                }
+            })),
         },
         handle.activity_sender(),
         activity_active.clone(),

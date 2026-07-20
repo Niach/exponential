@@ -2,6 +2,10 @@ import { useState } from "react"
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { Bot, Loader2, Monitor, MonitorOff, MonitorPlay, MonitorUp } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
+import {
+  sessionDisplayState,
+  type SessionDisplayState,
+} from "@/components/issue-coding-rows"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
 import { useSteerConfig } from "@/components/agent-session"
@@ -45,10 +49,31 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
   )
 }
 
-function RunningIndicator({ status }: { status: string }) {
-  // Agent finished, PR open (EXP-194) — steady sky dot instead of the ping.
-  if (status === `in_review`) {
-    return <span className="inline-flex size-2 rounded-full bg-sky-500" />
+// Steady dot per parked display state (EXP-194/EXP-214): review green,
+// done blue (both matching the issue-status palette), needs-input amber;
+// running keeps the emerald ping.
+const STATE_DOT: Record<Exclude<SessionDisplayState, `running`>, string> = {
+  needs_input: `bg-amber-500`,
+  review: `bg-emerald-500`,
+  done: `bg-sky-500`,
+}
+
+const STATE_LABEL: Record<
+  Exclude<SessionDisplayState, `running`>,
+  { text: string; className: string }
+> = {
+  needs_input: { text: `Needs input`, className: `text-amber-400` },
+  review: { text: `Ready for review`, className: `text-emerald-400` },
+  done: { text: `Done`, className: `text-sky-400` },
+}
+
+function RunningIndicator({ state }: { state: SessionDisplayState }) {
+  if (state !== `running`) {
+    return (
+      <span
+        className={`inline-flex size-2 rounded-full ${STATE_DOT[state]}`}
+      />
+    )
   }
   return (
     <span className="relative flex size-2">
@@ -142,6 +167,7 @@ function SessionRow({
 }) {
   const { session, issue, board, user } = row
   const isBatch = !session.issueId
+  const displayState = sessionDisplayState(session, issue?.prState)
 
   return (
     <div
@@ -150,7 +176,7 @@ function SessionRow({
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
     >
       <span className="flex items-center">
-        <RunningIndicator status={session.status} />
+        <RunningIndicator state={displayState} />
       </span>
       <span className="truncate font-mono text-xs text-muted-foreground">
         {issue && board ? (
@@ -177,9 +203,11 @@ function SessionRow({
           <span className="truncate">
             {isBatch ? `Batch session` : (issue?.title ?? `Issue syncing…`)}
           </span>
-          {session.status === `in_review` && (
-            <span className="shrink-0 text-xs text-sky-400">
-              Ready for review
+          {displayState !== `running` && (
+            <span
+              className={`shrink-0 text-xs ${STATE_LABEL[displayState].className}`}
+            >
+              {STATE_LABEL[displayState].text}
             </span>
           )}
         </div>
