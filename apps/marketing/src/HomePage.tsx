@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
+import { AgentIconRow } from "./components/agent-icons"
 import { AgentsSection } from "./components/AgentsSection"
 import { CollabSection } from "./components/CollabSection"
 import { HomePricing } from "./components/HomePricing"
@@ -183,6 +184,9 @@ export function HomePage() {
                 Download the app
               </a>
             </motion.div>
+            <motion.div variants={heroChild}>
+              <AgentIconRow />
+            </motion.div>
           </motion.div>
 
           <motion.div
@@ -195,8 +199,8 @@ export function HomePage() {
           </motion.div>
         </section>
 
-        {/* ── Agents: Start coding → Claude on your desktop, steered
-               from your phone (merged Agents + Mobile, EXP-176) ── */}
+        {/* ── Agents: Start coding from your phone → your agent on the
+               desktop, steered live (merged Agents + Mobile, EXP-176) ── */}
         <AgentsSection />
 
         {/* ── Collaboration: widget → Support inbox, realtime with the

@@ -404,7 +404,7 @@ export const captionStyle = (x: number, y: number, w: number): React.CSSProperti
   color: C.muted,
 })
 
-export const PLAN_CAPTION = `Present a plan for approval before making changes (native Claude plan mode). After approving, Shift+Tab switches to skip-permissions for a prompt-free run.`
+export const PLAN_CAPTION = `Present a plan for approval before making changes (the agent's native plan mode). After approving, Shift+Tab switches to skip-permissions for a prompt-free run.`
 
 // ── Issue variant (420px, S5) ─────────────────────────────────────────────────
 const I = {

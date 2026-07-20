@@ -39,7 +39,7 @@ export type LoopMovieController = {
    the lazy chunk (the player seeks by index). */
 const CHAPTER_META = CHAPTER_INFO
 
-const POSTER_ALT = `The Exponential desktop IDE mid-loop: a bug reported from the feedback widget has become an issue, a Claude coding session is writing the fix, and a pull request is on its way to merge.`
+const POSTER_ALT = `The Exponential desktop IDE mid-loop: a bug reported from the feedback widget has become an issue, a coding agent session is writing the fix, and a pull request is on its way to merge.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 

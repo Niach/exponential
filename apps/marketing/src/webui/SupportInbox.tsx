@@ -43,16 +43,12 @@ export function Bubble({
       {message.internal && (
         <span className="web-note-badge">
           <IcStickyNote size={10} />
-          Internal note — never sent to the reporter
+          Internal
         </span>
       )}
       <p className="web-bubble-body">{message.body}</p>
       <p className="web-bubble-meta">
-        {isInbound
-          ? `${reporter} · ${message.time}`
-          : message.internal
-            ? `${message.author} · ${message.time}`
-            : `${message.author} · ${message.time} · emailed to the reporter`}
+        {`${isInbound ? reporter : message.author} · ${message.time}`}
       </p>
     </div>
   )
@@ -183,7 +179,7 @@ export function WebSupportInbox() {
             </div>
             <button className="web-btn-outline" type="button">
               <IcCheck size={12} />
-              {shown.resolved ? `Reopen` : `Close`}
+              {shown.resolved ? `Reopen ticket` : `Close ticket`}
             </button>
           </div>
           <div className="web-sup-msgs">

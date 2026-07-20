@@ -1,7 +1,8 @@
 /* ─── Canonical plan data — the ONE marketing-side source of truth ───
-   Consumed by HomePricing.tsx (compact cards), PlanCards.tsx (full cards),
-   PricingPage.tsx (footnote) and seo.ts (JSON-LD offers derive from
-   priceNumber, so contact-sales Enterprise stays out automatically).
+   Consumed by PlanCards.tsx (the full cards, rendered on BOTH the home
+   pricing section and /pricing/ — EXP-207), PricingPage.tsx (footnote)
+   and seo.ts (JSON-LD offers derive from priceNumber, so contact-sales
+   Enterprise stays out automatically).
 
    Values mirror apps/web/src/lib/billing.ts PLAN_LIMITS and the in-app grid
    in apps/web/src/components/team/plan-comparison.tsx — keep the three in
@@ -21,8 +22,6 @@ export type CloudPlan = {
   cadence?: string
   note?: string
   tagline: string
-  /* One-liner for the compact home-page card. */
-  homeTagline: string
   highlight?: boolean
   enterprise?: boolean
   features: string[]
@@ -41,8 +40,7 @@ export const CLOUD_PLANS: CloudPlan[] = [
     priceNumber: 0,
     cadence: `forever`,
     tagline: `For you and your side projects.`,
-    homeTagline: `For you and your side projects.`,
-    features: [`1 seat`, `250 MB storage`, `1 feedback widget`],
+    features: [`1 seat`, `250 MB attachment storage`, `1 feedback widget`],
     cta: { label: `Sign up free`, href: LINKS.app.login },
   },
   {
@@ -54,11 +52,10 @@ export const CLOUD_PLANS: CloudPlan[] = [
     cadence: `/seat/mo`,
     note: `· billed yearly`,
     tagline: `For teams that ship together.`,
-    homeTagline: `Adds the helpdesk and more widgets.`,
     highlight: true,
     features: [
       `Everything in Free`,
-      `5 GB storage`,
+      `2 GB attachment storage`,
       `3 feedback widgets`,
       `Helpdesk & support inbox`,
     ],
@@ -73,10 +70,9 @@ export const CLOUD_PLANS: CloudPlan[] = [
     cadence: `/seat/mo`,
     note: `monthly or yearly`,
     tagline: `For orgs with room to grow.`,
-    homeTagline: `More storage, unlimited widgets.`,
     features: [
       `Everything in Pro`,
-      `50 GB storage`,
+      `10 GB attachment storage`,
       `Unlimited feedback widgets`,
       `Priority support`,
     ],
@@ -88,7 +84,6 @@ export const CLOUD_PLANS: CloudPlan[] = [
     amount: `Custom`,
     cadence: `let's talk`,
     tagline: `For companies that need guarantees.`,
-    homeTagline: `For companies that need guarantees.`,
     enterprise: true,
     features: [
       `Everything in Business`,
@@ -114,7 +109,6 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     amount: `Free`,
     cadence: `your hardware`,
     tagline: `Free for individuals and small businesses — under 10 people.`,
-    homeTagline: `Free for individuals and small businesses.`,
     selfHost: true,
     features: [
       `Every feature unlocked`,
@@ -130,7 +124,6 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     amount: `Custom`,
     cadence: `self-hosted, supported`,
     tagline: `For teams of 10 or more running it in-house.`,
-    homeTagline: `For teams of 10 or more running it in-house.`,
     enterprise: true,
     features: [
       `Everything in self-hosted`,

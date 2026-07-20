@@ -25,7 +25,7 @@ const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const EASED = { ...CLAMP, easing: EASE } as const
 
 const SPIN_GLYPHS = [`✳`, `✶`, `✻`, `✽`] // the CLI's cycling spinner glyph, frame-driven
-const DEFAULT_SPINNER_TIP = `Tip: Use /btw to ask a quick side question without interrupting Claude's current work`
+const DEFAULT_SPINNER_TIP = `Tip: Use /btw to ask a quick side question without interrupting the agent's current work`
 const DEFAULT_SPINNER_BASE = { sec: 161, tokensK: 12.3 } // "2m 41s · ↓ 12.3k tokens"
 
 // ── tiny inline icons (lucide-style, currentColor) ────────────────────────────

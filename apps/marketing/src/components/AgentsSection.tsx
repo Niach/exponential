@@ -1,17 +1,16 @@
 /* ─── Agents — merged "Bring your own agents" + Mobile section (EXP-176) ───
-   One scripted, looping scene: the REAL Start-coding dialog (the faithful
-   ide/ recreation, verified against the desktop's start_coding_dialog.rs)
-   hands off to an infographic that is deliberately NOT product UI — Claude
+   One scripted, looping scene: the REAL mobile Start-coding sheet (the
+   faithful phone recreation of the iOS StartCodingSheet, EXP-207) hands
+   off to an infographic that is deliberately NOT product UI — your agent
    running on a MacBook with a phone connected for live watch + steer.
    Stage is decorative (aria-hidden + inert); reduced motion renders the
-   dialog and the finished infographic statically, side by side. */
+   sheet and the finished infographic statically, side by side. */
 import { AnimatePresence, motion } from "motion/react"
 import { EASE_EXPO, eyebrowDraw, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
-import { StartCodingDialog } from "../ide/StartCodingDialog"
-import { IdeContext, type IdeApi } from "../ide/state"
+import { MobileStartCodingSheet } from "../mobile/StartCodingSheet"
 
 /* Beat script (~13.5s loop). Beat 0 is the SSR resting state. */
 const B = {
@@ -24,62 +23,7 @@ const B = {
 } as const
 const BEATS = [2400, 1000, 700, 3800, 3200, 2400]
 
-/* Static IdeApi stub — just enough context for the real StartCodingDialog
-   recreation to render its resting state (EXP-8 pre-checked, plan mode on).
-   Pure module-scope data + no-ops: SSR-safe by construction. */
-const noop = () => {}
-const EMPTY = new Set<string>()
-const STATIC_IDE: IdeApi = {
-  interactive: false,
-  tool: `issues`,
-  setTool: noop,
-  tabs: [],
-  active: null,
-  selectTab: noop,
-  closeTab: noop,
-  openIssue: noop,
-  openFile: noop,
-  openSourceControl: noop,
-  filter: `all`,
-  setFilter: noop,
-  collapsedGroups: EMPTY,
-  toggleGroup: noop,
-  expandedDirs: EMPTY,
-  toggleDir: noop,
-  selectedFile: null,
-  selectFile: noop,
-  viewedBranch: `master`,
-  viewBranch: noop,
-  changes: [],
-  staged: EMPTY,
-  toggleStaged: noop,
-  commits: [],
-  commitAll: noop,
-  ahead: 0,
-  push: noop,
-  inboxRead: EMPTY,
-  markInboxRead: noop,
-  markAllInboxRead: noop,
-  mergedReviews: EMPTY,
-  goneReviews: EMPTY,
-  mergeReview: noop,
-  coding: `idle`,
-  codingTarget: null,
-  codingScript: [],
-  codedIssues: EMPTY,
-  pendingCoding: { kind: `issue`, id: `EXP-8` },
-  requestCoding: noop,
-  cancelStartCoding: noop,
-  confirmStartCoding: noop,
-  stopCoding: noop,
-  scriptPos: { done: 0, chars: 0 },
-  dockOpen: false,
-  setDockOpen: noop,
-  dockTab: `shell`,
-  setDockTab: noop,
-}
-
-/* The Claude→phone infographic — stylized devices (plain CSS shapes, not
+/* The agent→phone infographic — stylized devices (plain CSS shapes, not
    product UI); every text label is fixed-px HTML so it stays readable at
    any viewport width. */
 function DeviceLink() {
@@ -89,7 +33,7 @@ function DeviceLink() {
         <span className={`aw-pr-chip`}>PR #214 opened</span>
         <div className={`aw-laptop`}>
           <div className={`aw-laptop-screen`}>
-            <span className={`aw-term-tag`}>claude · exp/EXP-8</span>
+            <span className={`aw-term-tag`}>agent · exp/EXP-8</span>
             <span className={`aw-term-line is-w80`} />
             <span className={`aw-term-line is-w60`} />
             <span className={`aw-term-line is-w72`} />
@@ -98,7 +42,7 @@ function DeviceLink() {
           <div className={`aw-laptop-base`} />
         </div>
         <span className={`aw-device-caption`}>
-          Claude runs in your desktop IDE
+          Your agent runs in your desktop IDE
         </span>
       </div>
 
@@ -157,10 +101,10 @@ export function AgentsSection() {
             </motion.span>
             <h2 className={`section-title`}>Work on issues from anywhere.</h2>
             <p className={`section-sub`}>
-              Pick an issue &mdash; or a batch &mdash; and hit Start coding.
-              Claude works on a real branch in the desktop IDE and opens the PR
-              when it&rsquo;s done. Watch the session live and steer it by
-              message from your phone.
+              Pick an issue and hit Start coding &mdash; even from your phone.
+              Your agent works on a real branch in the desktop IDE and opens
+              the PR when it&rsquo;s done. Watch the session live and steer it
+              by message from anywhere.
             </p>
             <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
               Get the apps <IcArrow size={12} />
@@ -171,8 +115,8 @@ export function AgentsSection() {
             <AnimatePresence initial={false}>
               {showDialog && (
                 <motion.div
-                  key={`dialog`}
-                  className={`aw-dialog`}
+                  key={`sheet`}
+                  className={`aw-sheet`}
                   initial={reduced ? false : { opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={
@@ -180,9 +124,12 @@ export function AgentsSection() {
                   }
                   transition={{ duration: 0.5, ease: EASE_EXPO }}
                 >
-                  <IdeContext.Provider value={STATIC_IDE}>
-                    <StartCodingDialog />
-                  </IdeContext.Provider>
+                  <div className={`aw-sheetcol`}>
+                    <MobileStartCodingSheet />
+                    <span className={`aw-device-caption`}>
+                      Start coding from your phone
+                    </span>
+                  </div>
                 </motion.div>
               )}
               {showInfo && (

@@ -56,7 +56,7 @@ const TIERS: TierInfo[] = [
     priceUnit: `forever`,
     // The seat cap doubles as the cadence caption, so it isn't a bullet.
     cadence: `1 seat`,
-    features: [`250 MB storage`, `1 feedback widget`],
+    features: [`250 MB attachment storage`, `1 feedback widget`],
   },
   {
     tier: `pro`,
@@ -66,7 +66,7 @@ const TIERS: TierInfo[] = [
     cadence: `Billed yearly`,
     features: [
       `Everything in Free`,
-      `5 GB storage`,
+      `2 GB attachment storage`,
       `3 feedback widgets`,
       `Helpdesk & support inbox`,
     ],
@@ -79,7 +79,7 @@ const TIERS: TierInfo[] = [
     cadence: `Billed monthly or yearly`,
     features: [
       `Everything in Pro`,
-      `50 GB storage`,
+      `10 GB attachment storage`,
       `Unlimited feedback widgets`,
       `Priority support`,
     ],
