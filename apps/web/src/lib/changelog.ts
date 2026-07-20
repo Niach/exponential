@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-widget-domains-mobile-agents`,
+    date: `2026-07-20`,
+    title: `Widget domain allowlists required, and a nicer mobile Start-coding sheet`,
+    summary: `Feedback widgets now always require a domain allowlist, and the mobile agent picker got a visual refresh.`,
+    body: `- **Widget keys are locked to your domains** — the "allow any website" mode is gone: every widget config needs at least one allowed domain, and keys without one stop serving until you add it in Settings → Feedback widget.
+- **Mobile Start-coding refresh** — agent icons, per-agent options, and a cleaner repository picker on iOS and Android.
+- **IDE fixes** — window sizing polish and coding-flow refinements.`,
+  },
+  {
     id: `2026-07-multi-agent-resume`,
     date: `2026-07-20`,
     title: `Pick your coding agent, and resume where you left off`,
