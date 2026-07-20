@@ -316,20 +316,36 @@ async function releaseLegacySupportBoard(publicTeamId: string) {
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
 
+// The dogfood key's allowlist: this instance's own hostname (the widget
+// mounts inside the app — a port-less pattern matches any port, so dev
+// `localhost` covers both :3000 and :5173) plus the marketing site, which
+// embeds the prod key from exponential.at (apps/marketing/src/lib/links.ts).
+function dogfoodAllowedDomains(): string[] {
+  const domains = [`exponential.at`, `www.exponential.at`]
+  try {
+    const host = new URL(process.env.BETTER_AUTH_URL ?? ``).hostname
+    if (host && !domains.includes(host)) domains.unshift(host)
+  } catch {
+    // No/invalid BETTER_AUTH_URL — the marketing domains still apply.
+  }
+  return domains
+}
+
 // The dogfood widget: the Exponential web app itself embeds the feedback
 // widget — feedback lands on the dogfood board, support tickets in the
-// team support inbox. Domains stay open (allow-all) on purpose —
-// self-hosted instances with arbitrary hostnames load this same cloud widget,
-// and the widget is the ONLY anonymous write path; rate limiting is the abuse
-// control. Existing configs get a ONE-SHOT modes heal, gated on
-// `formConfig.modes` being ABSENT: the modes-aware settings UI always writes
-// a modes array on save, so its absence proves the config was never
-// deliberately configured.
+// team support inbox. The key is domain-allowlisted like every widget
+// (EXP-209 removed allow-all; an empty list blocks the key at serve time).
+// Existing configs get two ONE-SHOT heals, each gated on the field proving
+// it was never deliberately configured: modes (gated on `formConfig.modes`
+// being ABSENT — the modes-aware settings UI always writes a modes array on
+// save) and allowedDomains (gated on the list being EMPTY — the settings UI
+// refuses to save an empty allowlist since EXP-209).
 async function ensureFeedbackWidgetConfig(publicTeamId: string) {
   const [existing] = await db
     .select({
       id: widgetConfigs.id,
       formConfig: widgetConfigs.formConfig,
+      allowedDomains: widgetConfigs.allowedDomains,
     })
     .from(widgetConfigs)
     .where(
@@ -341,10 +357,18 @@ async function ensureFeedbackWidgetConfig(publicTeamId: string) {
     .limit(1)
   if (existing) {
     const form = existing.formConfig ?? {}
-    if (Array.isArray(form.modes)) return
+    const heal = {
+      ...(Array.isArray(form.modes)
+        ? {}
+        : { formConfig: { ...form, modes: [`feedback`, `support`] } }),
+      ...(existing.allowedDomains.length === 0
+        ? { allowedDomains: dogfoodAllowedDomains() }
+        : {}),
+    }
+    if (Object.keys(heal).length === 0) return
     await db
       .update(widgetConfigs)
-      .set({ formConfig: { ...form, modes: [`feedback`, `support`] } })
+      .set(heal)
       .where(eq(widgetConfigs.id, existing.id))
     return
   }
@@ -371,7 +395,7 @@ async function ensureFeedbackWidgetConfig(publicTeamId: string) {
       boardId: board.id,
       name: FEEDBACK_WIDGET_NAME,
       publicKey: generateWidgetKey(),
-      allowedDomains: [],
+      allowedDomains: dogfoodAllowedDomains(),
       formConfig: { modes: [`feedback`, `support`] },
       widgetUserId,
     })

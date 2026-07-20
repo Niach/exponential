@@ -884,7 +884,8 @@ export const widgetConfigs = pgTable(
     // so it is stored in plaintext for direct lookup.
     publicKey: varchar(`public_key`, { length: 64 }).notNull().unique(),
     // Hostname[:port] patterns; `*.example.com` matches subdomains only.
-    // Empty array = any origin may use the key (settings UI warns about this).
+    // Must be non-empty to serve — an empty list blocks the key at serve
+    // time (EXP-209 removed allow-all); create/update require ≥1 domain.
     allowedDomains: jsonb(`allowed_domains`)
       .$type<string[]>()
       .notNull()

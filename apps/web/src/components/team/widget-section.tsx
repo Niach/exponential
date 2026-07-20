@@ -194,14 +194,16 @@ export function TeamWidgetSection({
   // support-only widget has none (tickets go to the team support inbox).
   const needsBoard = formMode !== `support`
   const canSave =
-    Boolean(formName.trim()) && (!needsBoard || Boolean(formBoardId))
+    Boolean(formName.trim()) &&
+    (!needsBoard || Boolean(formBoardId)) &&
+    parseDomains(formDomains).length > 0
 
   const save = async () => {
     if (!canSave) {
       setFormError(
         needsBoard
-          ? `Name and feedback board are required.`
-          : `Name is required.`
+          ? `Name, feedback board, and at least one allowed domain are required.`
+          : `Name and at least one allowed domain are required.`
       )
       return
     }
@@ -363,8 +365,11 @@ export function TeamWidgetSection({
                         {` · `}
                       </span>
                       {widget.allowedDomains.length === 0 ? (
+                        // Legacy pre-EXP-209 config: empty allowlist is now
+                        // denied at serve time, so the widget is dead until
+                        // domains are added.
                         <span className="text-amber-500">
-                          any website can use this key
+                          no allowed domains — widget blocked
                         </span>
                       ) : (
                         widget.allowedDomains.map((domain) => (
@@ -498,8 +503,8 @@ export function TeamWidgetSection({
                   className="min-h-20 font-mono text-xs"
                 />
                 <p className="text-xs text-muted-foreground">
-                  One per line. `*.example.com` matches subdomains only. Leave
-                  empty to allow any website (not recommended).
+                  One per line. `*.example.com` matches subdomains only. At
+                  least one domain is required.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4">

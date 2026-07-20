@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest"
 import { isOriginAllowed } from "./origin"
 
 describe(`isOriginAllowed`, () => {
-  it(`allows any origin when the allowlist is empty`, () => {
+  it(`denies every origin when the allowlist is empty`, () => {
     expect(isOriginAllowed(`https://anything.dev`, null, [])).toEqual({
-      allowed: true,
-      echoOrigin: `https://anything.dev`,
+      allowed: false,
+      echoOrigin: null,
     })
   })
 
-  it(`allows requests without origin when the allowlist is empty`, () => {
+  it(`denies requests without origin when the allowlist is empty`, () => {
     expect(isOriginAllowed(null, null, [])).toEqual({
-      allowed: true,
+      allowed: false,
       echoOrigin: null,
     })
   })

@@ -50,8 +50,10 @@ export function isOriginAllowed(
   const echoOrigin = origin ? origin.origin : null
 
   if (allowedDomains.length === 0) {
-    // Open key: any origin may use it (settings UI warns about this mode).
-    return { allowed: true, echoOrigin }
+    // Unconfigured allowlist blocks the key entirely — allow-all was
+    // removed in EXP-209 (anyone could lift a public key off a page and
+    // submit from anywhere).
+    return { allowed: false, echoOrigin: null }
   }
 
   if (!origin) {
