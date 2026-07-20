@@ -667,19 +667,55 @@ pub fn build_launch(
     Some((request, deps))
 }
 
-/// EXP-202: whether `identifier`'s persisted worktree already exists for
-/// `full_name` under the current coding settings — the launcher's OWN
-/// derivation (`branch_name` + `clone_path` + `worktree_path`), so it can
-/// never disagree with where a launch would land. Blocking `.git` stat —
-/// call from a background spawn (the dialog's probe closure), not render.
-pub fn issue_worktree_exists(
+/// EXP-202: whether `identifier`'s persisted worktree already exists —
+/// and, when it does, which agents are recorded as having coded in it
+/// (EXP-210: the Resume offer is per-agent — `--continue` under an agent
+/// that never ran in the worktree dies with "no conversation found to
+/// continue", so the dialog only offers resume for recorded agents).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum WorktreeResume {
+    /// No persisted worktree — nothing to resume.
+    #[default]
+    None,
+    /// Worktree exists but predates the recorded-agent marker — history
+    /// unknown, keep the legacy behavior (any agent may offer resume).
+    Any,
+    /// Worktree exists with a recorded-agent marker: only these agents have
+    /// a conversation there to continue.
+    Agents(Vec<coding::CodingAgent>),
+}
+
+impl WorktreeResume {
+    /// Whether the Resume affordance applies for `agent`.
+    pub fn offers(&self, agent: coding::CodingAgent) -> bool {
+        match self {
+            WorktreeResume::None => false,
+            WorktreeResume::Any => true,
+            WorktreeResume::Agents(agents) => agents.contains(&agent),
+        }
+    }
+}
+
+/// `identifier`'s persisted-worktree resume state for `full_name` under the
+/// current coding settings — the launcher's OWN derivation (`branch_name` +
+/// `clone_path` + `worktree_path`), so it can never disagree with where a
+/// launch would land. Blocking `.git` stat + marker read — call from a
+/// background spawn (the dialog's probe closure), not render.
+pub fn issue_worktree_resume(
     settings: &coding::Settings,
     full_name: &str,
     identifier: &str,
-) -> bool {
+) -> WorktreeResume {
     let branch = coding::branch_name(&settings.branch_prefix, identifier);
     let clone = coding::clone_path(&settings.repos_root_path(), full_name);
-    coding::worktree_path(&clone, &branch).join(".git").exists()
+    let worktree = coding::worktree_path(&clone, &branch);
+    if !worktree.join(".git").exists() {
+        return WorktreeResume::None;
+    }
+    match coding::worktree_agents(&worktree) {
+        None => WorktreeResume::Any,
+        Some(agents) => WorktreeResume::Agents(agents),
+    }
 }
 
 /// [`CodingDeps`] for a BATCH launch — the same assembly as [`build_launch`]

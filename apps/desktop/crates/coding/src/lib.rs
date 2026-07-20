@@ -54,6 +54,7 @@ pub(crate) mod test_support;
 pub mod token_cache;
 pub mod token_refresh;
 pub mod trunk_state;
+pub mod worktree_agents;
 
 pub use agent::CodingAgent;
 pub use argv::{
@@ -103,3 +104,4 @@ pub use settings::Settings;
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };
+pub use worktree_agents::{record_worktree_agent, worktree_agents, AGENTS_FILE};

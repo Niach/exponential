@@ -72,6 +72,7 @@ mod top_bar;
 mod undock;
 mod undocked_terminal;
 mod update;
+pub mod window_size;
 mod shell;
 
 pub use actions::*;

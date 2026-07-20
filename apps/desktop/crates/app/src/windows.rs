@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use gpui::{px, size, App, AppContext as _, Bounds, WindowBounds, WindowKind, WindowOptions};
+use gpui::{px, App, AppContext as _, Bounds, WindowBounds, WindowKind, WindowOptions};
 use gpui_component::Root;
 
 /// Per-window layout slot (window 0 = main). Monotonic within a run; each
@@ -27,9 +27,13 @@ pub fn open_shell_window(cx: &mut App) {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     crate::x11_window_icon::install();
 
-    // §3.6 default bounds; min size floors the §3.9 zero-size guard.
-    let default_size = size(px(1280.), px(820.));
-    let min_size = size(px(760.), px(480.));
+    // EXP-210: open at the last used size (main-window resizes persist it —
+    // `ui::window_size`, local file only), falling back to the §3.6 default;
+    // the 800×600 min size is the floor below which page layouts break (and
+    // still floors the §3.9 zero-size guard).
+    let default_size =
+        ui::window_size::load_last_size().unwrap_or(ui::window_size::DEFAULT_SIZE);
+    let min_size = ui::window_size::MIN_SIZE;
 
     let mut bounds = Bounds::centered(None, default_size, cx);
     let cascade = px(CASCADE_STEP * (ordinal.min(8)) as f32);
