@@ -1,4 +1,3 @@
-• Answer agent questions with a tap — steering cards with options, multi-select included
-• Coding sessions show a "ready for review" state once the PR is open
-• Cleaner segmented tabs on My Work and Support
+• Choose your coding agent — remote Start-coding now offers Claude, Codex, or pi, based on what's installed on your desktop
+• Per-agent model and effort options when starting sessions
 • Assorted fixes and polish

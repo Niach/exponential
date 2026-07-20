@@ -1,0 +1,1 @@
+Choose your coding agent (Claude, Codex, or pi) when starting sessions from your phone — the picker only offers agents installed on your desktop.
