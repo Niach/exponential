@@ -1,13 +1,30 @@
+import ExpCore
 import Foundation
 import os
 
 private let log = Logger(subsystem: "com.exponential", category: "IssueEditorModel")
 
+/// Why an inline image upload failed — drives the failed-tile copy.
+public enum ImageUploadFailureReason: Equatable, Sendable {
+    /// The server's storage cap (HTTP 412 from the images route) — retrying
+    /// keeps failing until the team frees space, so the tile explains why.
+    case storageFull
+    case other
+}
+
 /// Upload state for an inline image block, surfaced as status / retry UI.
 public enum ImageUploadState: Equatable, Sendable {
     case idle
     case uploading
-    case failed
+    case failed(ImageUploadFailureReason)
+}
+
+/// Classify an upload error for the failed tile: the images route answers the
+/// team storage cap with HTTP 412 (its body carries billing copy that must
+/// never render — EXP-216).
+private func uploadFailureReason(_ error: any Error) -> ImageUploadFailureReason {
+    if case IssueImagesError.httpError(412, _) = error { return .storageFull }
+    return .other
 }
 
 /// A team member the @-autocomplete can offer. The canonical interchange
@@ -518,7 +535,10 @@ public final class IssueEditorModel {
                         let url = try await uploader(draft.image)
                         return (draft.blockId, draft.draftUrl, .success(url))
                     } catch {
-                        return (draft.blockId, draft.draftUrl, .failure(error.localizedDescription))
+                        return (draft.blockId, draft.draftUrl, .failure(
+                            message: error.localizedDescription,
+                            reason: uploadFailureReason(error)
+                        ))
                     }
                 }
             }
@@ -534,9 +554,9 @@ public final class IssueEditorModel {
                 setImageURL(blockId: entry.blockId, url: realUrl)
                 pendingImages[entry.draftUrl] = nil
                 imageUploadStates[entry.blockId] = .idle
-            case .failure(let message):
+            case let .failure(message, reason):
                 log.error("Image upload failed: \(message, privacy: .public)")
-                imageUploadStates[entry.blockId] = .failed
+                imageUploadStates[entry.blockId] = .failed(reason)
                 allSucceeded = false
             }
         }
@@ -547,7 +567,7 @@ public final class IssueEditorModel {
     /// (a `Result<String, any Error>` would not be `Sendable`).
     private enum UploadOutcome: Sendable {
         case success(String)
-        case failure(String)
+        case failure(message: String, reason: ImageUploadFailureReason)
     }
 
     private var lastUploader: (@Sendable (PendingImage) async throws -> String)?
@@ -557,7 +577,7 @@ public final class IssueEditorModel {
     /// the real attachment URL and the host's edit hook fires so it can re-save.
     public func retryImage(blockId: UUID) async {
         guard let uploader = lastUploader,
-              uploadState(for: blockId) == .failed,
+              case .failed = uploadState(for: blockId),
               let idx = blocks.firstIndex(where: { $0.id == blockId }),
               case .image(_, let draftUrl, _) = blocks[idx],
               MarkdownImageUtils.isDraft(draftUrl),
@@ -571,7 +591,7 @@ public final class IssueEditorModel {
             notifyEdit()
         } catch {
             log.error("Image retry failed: \(error.localizedDescription, privacy: .public)")
-            imageUploadStates[blockId] = .failed
+            imageUploadStates[blockId] = .failed(uploadFailureReason(error))
         }
     }
 

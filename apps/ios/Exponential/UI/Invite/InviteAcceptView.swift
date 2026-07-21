@@ -1,4 +1,5 @@
 import ExpUI
+import ExpCore
 import SwiftUI
 
 struct InviteAcceptView: View {
@@ -59,7 +60,9 @@ struct InviteAcceptView: View {
                 try? await Task.sleep(for: .seconds(1.5))
                 dismiss()
             } catch {
-                self.error = error.localizedDescription
+                // trpcUserMessage, not localizedDescription: the raw error
+                // embeds the whole tRPC body (incl. seat-cap billing copy).
+                self.error = error.trpcUserMessage
                 loading = false
             }
         }

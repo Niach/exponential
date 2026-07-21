@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import android.util.Log
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -8,6 +9,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.isSuccess
 import java.util.UUID
@@ -87,7 +89,15 @@ class IssueImagesApi @Inject constructor(
         }
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            throw TrpcException("Image upload failed: HTTP ${response.status.value}: $text")
+            // 412 = the server's storage cap. Its body carries billing copy
+            // ("Upgrade to upload more.") the app must not render (EXP-216) —
+            // log it for diagnostics, surface neutral copy. Other statuses keep
+            // the raw body: the retry badge showing WHY is the EXP-61 contract.
+            if (response.status == HttpStatusCode.PreconditionFailed) {
+                Log.w("IssueImagesApi", "Storage-cap upload rejection: $text")
+                throw TrpcException("Team storage is full.", response.status)
+            }
+            throw TrpcException("Image upload failed: HTTP ${response.status.value}: $text", response.status)
         }
         return json.decodeFromString(UploadedImage.serializer(), text)
     }

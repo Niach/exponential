@@ -33,6 +33,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.InvitePreview
 import com.exponential.app.data.api.TeamInvitesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,7 +63,14 @@ class InviteAcceptViewModel @Inject constructor(
             _state.value = _state.value.copy(loading = true, error = null)
             runCatching { invitesApi.getByToken(accountId, token) }
                 .onSuccess { _state.value = _state.value.copy(loading = false, preview = it) }
-                .onFailure { _state.value = _state.value.copy(loading = false, error = it.message) }
+                // trpcErrorMessage, not it.message: the raw exception embeds
+                // the whole tRPC body (incl. seat-cap billing copy — EXP-216).
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        error = trpcErrorMessage(it, "Couldn't load the invite."),
+                    )
+                }
         }
     }
 
@@ -77,7 +85,12 @@ class InviteAcceptViewModel @Inject constructor(
                         acceptedTeamName = it.team.name,
                     )
                 }
-                .onFailure { _state.value = _state.value.copy(accepting = false, error = it.message) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        accepting = false,
+                        error = trpcErrorMessage(it, "Couldn't join the team."),
+                    )
+                }
         }
     }
 }

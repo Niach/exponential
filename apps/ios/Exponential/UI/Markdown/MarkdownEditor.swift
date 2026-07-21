@@ -679,6 +679,8 @@ private struct BlockImageView: View {
                     .aspectRatio(contentMode: .fit)
                 if uploadState == .uploading {
                     uploadingOverlay
+                } else if case .failed(let reason) = uploadState {
+                    uploadFailedOverlay(reason)
                 }
             }
         } else if failed {
@@ -716,6 +718,28 @@ private struct BlockImageView: View {
         .padding(.vertical, 6)
         .background(.black.opacity(0.45), in: Capsule())
         .padding(8)
+    }
+
+    /// Upload-failed badge on a still-visible draft image. Storage-full gets
+    /// an explanation (neutral copy — no billing language, EXP-216) instead of
+    /// looking like a transient error; retry stays available either way.
+    private func uploadFailedOverlay(_ reason: ImageUploadFailureReason) -> some View {
+        Button(action: onRetry) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.caption)
+                Text(reason == .storageFull
+                    ? "Team storage is full — tap to retry"
+                    : "Upload failed — tap to retry")
+                    .font(.caption)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.45), in: Capsule())
+            .padding(8)
+        }
+        .buttonStyle(.plain)
     }
 
     private func loadImage() async {

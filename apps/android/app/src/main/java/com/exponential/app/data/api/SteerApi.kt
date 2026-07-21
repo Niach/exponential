@@ -211,9 +211,24 @@ fun decodeSteerTicketPerm(ticket: String): String {
 }
 
 /**
+ * Prefix every plan-limit throw in the server's lib/billing.ts uses — kept in
+ * sync with the web's `PLAN_LIMIT_MESSAGE_PREFIX` (apps/web/src/lib/plan-limit-error.ts).
+ */
+const val PLAN_LIMIT_MESSAGE_PREFIX = "Your plan allows"
+
+/**
+ * Neutral plan-cap copy shown instead of the server's message, which carries
+ * purchase language ("Add seats or upgrade…") the native apps must not render
+ * (store billing policy — EXP-216).
+ */
+const val PLAN_LIMIT_NEUTRAL_MESSAGE = "This team has reached its plan limit."
+
+/**
  * Extract the human-readable message from a tRPC error body ([TrpcException]
  * messages embed the raw response, e.g. PRECONDITION_FAILED's "No repository
- * linked to this board…"). Falls back to [fallback] on anything unparsable.
+ * linked to this board…"). Plan-cap messages are replaced with neutral copy —
+ * the server's wording is written for the web, where billing lives. Falls
+ * back to [fallback] on anything unparsable.
  */
 fun trpcErrorMessage(error: Throwable, fallback: String): String {
     val raw = (error as? TrpcException)?.message ?: return fallback
@@ -224,7 +239,9 @@ fun trpcErrorMessage(error: Throwable, fallback: String): String {
             val err = envelope["error"]?.jsonObject ?: return@runCatching
             val payload = (err["json"] as? JsonObject) ?: err
             val message = (payload["message"] as? JsonPrimitive)?.contentOrNull
-            if (!message.isNullOrBlank()) return message
+            if (!message.isNullOrBlank()) {
+                return if (message.startsWith(PLAN_LIMIT_MESSAGE_PREFIX)) PLAN_LIMIT_NEUTRAL_MESSAGE else message
+            }
         }
     }
     return fallback

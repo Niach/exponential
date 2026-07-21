@@ -11,7 +11,6 @@ struct TeamSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var team: TeamEntity?
     @State private var members: [TeamMemberEntity] = []
-    @State private var invites: [TeamInviteEntity] = []
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
     @State private var users: [UserEntity] = []
@@ -54,18 +53,15 @@ struct TeamSettingsView: View {
                         protectedRepositoryIds: protectedRepositoryIds
                     )
 
-                    // Members section (includes invite controls)
+                    // Members section (view/manage only — inviting is web-only,
+                    // EXP-216)
                     TeamMembersSection(
                         accountId: accountId,
                         members: members,
                         users: users,
                         currentUserId: deps.auth.userId,
                         membersApi: deps.teamMembersApi,
-                        teamId: teamId,
-                        invites: invites.filter { $0.acceptedAt == nil },
-                        invitesApi: deps.teamInvitesApi,
-                        isOwner: isOwner,
-                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                        isOwner: isOwner
                     )
 
                     // Labels section
@@ -206,14 +202,6 @@ struct TeamSettingsView: View {
                 }
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { members = items }
-                }
-            }
-            Task {
-                let obs = ValueObservation.tracking { db in
-                    try TeamInviteEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }
-                for try await items in obs.values(in: pool) {
-                    await MainActor.run { invites = items }
                 }
             }
             Task {
