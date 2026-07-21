@@ -11,7 +11,6 @@ import {
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
-import { useSession } from "@/hooks/use-session"
 import {
   useUnreadNotificationCount,
   useUnreadSupportCount,
@@ -57,17 +56,14 @@ export function resolveBoardTarget(
   }
   const last = readLastVisited()
   if (last?.teamSlug === teamSlug && last.boardSlug) {
-    const remembered = boards.find(
-      (board) => board.slug === last.boardSlug
-    )
+    const remembered = boards.find((board) => board.slug === last.boardSlug)
     if (remembered) return remembered
   }
   return boards[0]
 }
 
-// Tiny authed-only dot components so the per-user shapes (requireAuth)
-// aren't subscribed for anonymous viewers — same caveat as the sidebar
-// badges. Native parity: dots, not counts.
+// Tiny unread-dot components fed by the per-user shapes. Native parity:
+// dots, not counts.
 function InboxDot() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
@@ -93,9 +89,7 @@ function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
 function AgentsDot({ teamId }: { teamId?: string }) {
   const { count, needsInput } = useAgentsRunningCount(teamId)
   if (count === 0) return null
-  return (
-    <TabDot className={needsInput ? `bg-amber-500` : `bg-emerald-500`} />
-  )
+  return <TabDot className={needsInput ? `bg-amber-500` : `bg-emerald-500`} />
 }
 
 function TabDot({ className }: { className: string }) {
@@ -132,8 +126,6 @@ export function MobileTabBar({
   boards,
   onOpenSearch,
 }: MobileTabBarProps) {
-  const { data: session } = useSession()
-  const isAuthed = Boolean(session?.user)
   const matchRoute = useMatchRoute()
   const visible = useMobileChromeVisible()
   const { boardSlug } = useParams({ strict: false })
@@ -144,9 +136,7 @@ export function MobileTabBar({
     matchRoute({ to: `/t/$teamSlug/boards/$boardSlug`, fuzzy: true })
   )
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
-  const onInbox = Boolean(
-    matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })
-  )
+  const onInbox = Boolean(matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true }))
   const onAgents = Boolean(
     matchRoute({ to: `/t/$teamSlug/agents`, fuzzy: true })
   )
@@ -184,18 +174,16 @@ export function MobileTabBar({
             <List className="size-5" />
           </Link>
         )}
-        {isAuthed && (
-          <Link
-            to="/t/$teamSlug/inbox"
-            params={{ teamSlug }}
-            aria-label="Inbox"
-            className={tabClass(onInbox)}
-          >
-            <Inbox className="size-5" />
-            <InboxDot />
-          </Link>
-        )}
-        {isAuthed && team?.helpdeskEnabled === true && (
+        <Link
+          to="/t/$teamSlug/inbox"
+          params={{ teamSlug }}
+          aria-label="Inbox"
+          className={tabClass(onInbox)}
+        >
+          <Inbox className="size-5" />
+          <InboxDot />
+        </Link>
+        {team?.helpdeskEnabled === true && (
           <Link
             to="/t/$teamSlug/support"
             params={{ teamSlug }}
@@ -206,28 +194,24 @@ export function MobileTabBar({
             <SupportDot teamId={team?.id} />
           </Link>
         )}
-        {isAuthed && (
-          <Link
-            to="/t/$teamSlug/agents"
-            params={{ teamSlug }}
-            aria-label="Agents"
-            className={tabClass(onAgents)}
-          >
-            <Bot className="size-5" />
-            <AgentsDot teamId={team?.id} />
-          </Link>
-        )}
-        {isAuthed && (
-          <Link
-            to="/t/$teamSlug/reviews"
-            params={{ teamSlug }}
-            aria-label="Reviews"
-            className={tabClass(onReviews)}
-          >
-            <GitPullRequest className="size-5" />
-            <ReviewsDot boards={boards} />
-          </Link>
-        )}
+        <Link
+          to="/t/$teamSlug/agents"
+          params={{ teamSlug }}
+          aria-label="Agents"
+          className={tabClass(onAgents)}
+        >
+          <Bot className="size-5" />
+          <AgentsDot teamId={team?.id} />
+        </Link>
+        <Link
+          to="/t/$teamSlug/reviews"
+          params={{ teamSlug }}
+          aria-label="Reviews"
+          className={tabClass(onReviews)}
+        >
+          <GitPullRequest className="size-5" />
+          <ReviewsDot boards={boards} />
+        </Link>
         {team && (
           <button
             type="button"
@@ -239,7 +223,7 @@ export function MobileTabBar({
           </button>
         )}
       </nav>
-      {isAuthed && boardTarget && (
+      {boardTarget && (
         <Link
           to="/t/$teamSlug/boards/$boardSlug"
           params={{ teamSlug, boardSlug: boardTarget.slug }}

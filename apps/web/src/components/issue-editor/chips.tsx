@@ -5,8 +5,14 @@ import type { IssuePriority, IssueStatus } from "@/lib/domain"
 import { formatDate } from "@/lib/utils"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
-import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
-import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  priorities,
+  PriorityIcon,
+} from "@/components/issue-properties/priority-dropdown"
+import {
+  statuses,
+  StatusIcon,
+} from "@/components/issue-properties/status-dropdown"
 
 // Marking a brand-new issue as a duplicate is nonsense (there is nothing yet to
 // dedupe), so the create/edit chip row never offers `duplicate` — the status is
@@ -44,7 +50,6 @@ export interface IssueEditorChipsProps {
   hideDueDateChip?: boolean
   disableStatus?: boolean
   disabled?: boolean
-  moderationDisabled?: boolean
   chipRowExtras?: ReactNode
   overflowMenuItems?: ReactNode
   onStatusChange: (status: IssueStatus) => void | Promise<void>
@@ -70,7 +75,6 @@ export function IssueEditorChips({
   hideDueDateChip,
   disableStatus,
   disabled,
-  moderationDisabled,
   chipRowExtras,
   overflowMenuItems,
   onStatusChange,
@@ -85,7 +89,7 @@ export function IssueEditorChips({
     <>
       <OptionDropdownMenu
         value={status}
-        disabled={moderationDisabled || disableStatus}
+        disabled={disabled || disableStatus}
         options={creatableStatuses}
         onSelect={onStatusChange}
         mobileTitle="Status"
@@ -94,7 +98,7 @@ export function IssueEditorChips({
             variant="ghost"
             size="xs"
             className="text-muted-foreground shrink-0"
-            disabled={moderationDisabled || disableStatus}
+            disabled={disabled || disableStatus}
           >
             <StatusIcon status={selected.value} className="!h-3 !w-3" />
             {selected.label}
@@ -104,7 +108,7 @@ export function IssueEditorChips({
 
       <OptionDropdownMenu
         value={priority}
-        disabled={moderationDisabled}
+        disabled={disabled}
         options={priorities}
         onSelect={onPriorityChange}
         mobileTitle="Priority"
@@ -113,7 +117,7 @@ export function IssueEditorChips({
             variant="ghost"
             size="xs"
             className="text-muted-foreground shrink-0"
-            disabled={moderationDisabled}
+            disabled={disabled}
           >
             <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
             {selected.label}
@@ -123,7 +127,7 @@ export function IssueEditorChips({
 
       {!hideAssignee && (
         <AssigneePicker
-          disabled={moderationDisabled}
+          disabled={disabled}
           users={users}
           selectedUserId={assigneeId}
           onSelect={onAssigneeChange}
@@ -144,7 +148,7 @@ export function IssueEditorChips({
               variant="ghost"
               size="xs"
               className="text-muted-foreground shrink-0"
-              disabled={moderationDisabled}
+              disabled={disabled}
             >
               <CalendarDays className="size-3" />
               {dueDate
@@ -207,7 +211,7 @@ export function IssueEditorChips({
               variant="ghost"
               size="icon-xs"
               aria-label="More options"
-              disabled={moderationDisabled}
+              disabled={disabled}
               className="text-muted-foreground shrink-0"
             >
               <MoreHorizontal className="size-3" />

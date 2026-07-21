@@ -42,10 +42,6 @@ interface IssueEditorDialogShellProps {
   closeDisabled?: boolean
   description: string
   disabled?: boolean
-  // When true, disables status / priority / assignee / due-date / overflow
-  // controls while keeping title, description, labels, and image upload
-  // available. Used for non-moderator contributors in public teams.
-  restrictModeration?: boolean
   dialogTestId?: string
   dueDate: Date | undefined
   editorRef?: Ref<MarkdownEditorRef>
@@ -91,7 +87,6 @@ export function IssueEditorDialogShell({
   closeDisabled,
   description,
   disabled,
-  restrictModeration,
   dialogTestId,
   dueDate,
   editorRef,
@@ -194,7 +189,6 @@ export function IssueEditorDialogShell({
     />
   )
 
-  const moderationDisabled = disabled || restrictModeration
   const chipNodes = (
     <IssueEditorChips
       status={status}
@@ -210,7 +204,6 @@ export function IssueEditorDialogShell({
       hideDueDateChip={hideDueDateChip}
       disableStatus={disableStatus}
       disabled={disabled}
-      moderationDisabled={moderationDisabled}
       chipRowExtras={chipRowExtras}
       overflowMenuItems={overflowMenuItems}
       onStatusChange={onStatusChange}

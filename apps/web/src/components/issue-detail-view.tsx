@@ -75,7 +75,6 @@ interface IssueDetailViewProps {
   teamSlug: string
   teamId: string
   readOnly?: boolean
-  restrictModeration?: boolean
   // Board filter params carried from the list view — preserved on prev/next
   // navigation and on the breadcrumb's back-to-board link.
   filterSearch?: IssueFilterSearch
@@ -141,7 +140,6 @@ export function IssueDetailView({
   teamSlug,
   teamId,
   readOnly = false,
-  restrictModeration = false,
   filterSearch,
   position = null,
 }: IssueDetailViewProps) {
@@ -542,7 +540,6 @@ export function IssueDetailView({
         })
       }}
       disabled={readOnly}
-      restrictModeration={restrictModeration}
       codingSlot={isMobile ? undefined : codingControl}
     />
   )
@@ -638,7 +635,7 @@ export function IssueDetailView({
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}
-        {!readOnly && !restrictModeration && (
+        {!readOnly && (
           <DropdownMenu>
             <IconTooltip label="More actions">
               <DropdownMenuTrigger asChild>

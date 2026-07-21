@@ -5,10 +5,7 @@ import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
-import {
-  useShowTeamChrome,
-  useTeamMemberships,
-} from "@/hooks/use-team-data"
+import { useShowTeamChrome, useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import {
@@ -43,7 +40,6 @@ export function BoardSwitcherSheet({
 }: BoardSwitcherSheetProps) {
   const navigate = useNavigate()
   const { data: session } = useSession()
-  const isAuthed = Boolean(session?.user)
   const { myTeams } = useTeamMemberships(session?.user?.id)
   const showTeams = useShowTeamChrome(team?.id, session?.user?.id)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
@@ -96,7 +92,7 @@ export function BoardSwitcherSheet({
                 )
               })
             )}
-            {isAuthed && team && (
+            {team && (
               <button
                 type="button"
                 className={cn(rowClass, `text-muted-foreground`)}
@@ -107,11 +103,9 @@ export function BoardSwitcherSheet({
               </button>
             )}
           </div>
-          {isAuthed && showTeams && (
+          {showTeams && (
             <>
-              <div className="px-4 pb-2 pt-4 text-sm font-semibold">
-                Teams
-              </div>
+              <div className="px-4 pb-2 pt-4 text-sm font-semibold">Teams</div>
               <div className="flex flex-col px-2">
                 {myTeams.map((ws) => (
                   <button
@@ -132,9 +126,7 @@ export function BoardSwitcherSheet({
                     <div className="flex size-5 shrink-0 items-center justify-center rounded bg-primary text-[0.625rem] font-bold text-primary-foreground">
                       {ws.name[0]?.toUpperCase()}
                     </div>
-                    <span className="min-w-0 flex-1 truncate">
-                      {ws.name}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate">{ws.name}</span>
                     {ws.slug === teamSlug && (
                       <Check className="size-4 shrink-0 text-muted-foreground" />
                     )}
@@ -153,19 +145,17 @@ export function BoardSwitcherSheet({
           )}
         </SheetContent>
       </Sheet>
-      {team && isAuthed && (
+      {team && (
         <CreateBoardDialog
           open={createBoardOpen}
           onOpenChange={setCreateBoardOpen}
           team={team}
         />
       )}
-      {isAuthed && (
-        <CreateTeamDialog
-          open={createTeamOpen}
-          onOpenChange={setCreateTeamOpen}
-        />
-      )}
+      <CreateTeamDialog
+        open={createTeamOpen}
+        onOpenChange={setCreateTeamOpen}
+      />
     </>
   )
 }

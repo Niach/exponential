@@ -8,8 +8,14 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
-import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  priorities,
+  PriorityIcon,
+} from "@/components/issue-properties/priority-dropdown"
+import {
+  statuses,
+  StatusIcon,
+} from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -52,7 +58,6 @@ export interface IssuePropertiesPanelProps {
   boardId?: string
   onBoardChange?: (boardId: string) => void | Promise<void>
   disabled?: boolean
-  restrictModeration?: boolean
   // Coding "Agent" section (EXP-184) — sidebar layout only. The slot owns its
   // own PropertyGroup (its gating lives in issue-coding-rows.tsx, so the panel
   // can't know whether it renders anything).
@@ -197,10 +202,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     selectedLabelIds,
     onToggleLabel,
     disabled,
-    restrictModeration,
   } = props
-
-  const moderationDisabled = disabled || restrictModeration
 
   // Solo team (exactly one human member): hide the assignee control
   // entirely — nobody else to assign to. `users` is the bot-excluded member
@@ -211,7 +213,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const statusControl = (
     <OptionDropdownMenu
       value={status}
-      disabled={moderationDisabled}
+      disabled={disabled}
       options={statuses}
       onSelect={onStatusChange}
       mobileTitle="Status"
@@ -224,7 +226,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
               ? `justify-start text-muted-foreground hover:text-foreground`
               : `text-muted-foreground shrink-0`
           }
-          disabled={moderationDisabled}
+          disabled={disabled}
         >
           <StatusIcon status={selected.value} className="!h-3 !w-3" />
           {selected.label}
@@ -236,7 +238,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const priorityControl = (
     <OptionDropdownMenu
       value={priority}
-      disabled={moderationDisabled}
+      disabled={disabled}
       options={priorities}
       onSelect={onPriorityChange}
       mobileTitle="Priority"
@@ -249,7 +251,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
               ? `justify-start text-muted-foreground hover:text-foreground`
               : `text-muted-foreground shrink-0`
           }
-          disabled={moderationDisabled}
+          disabled={disabled}
         >
           <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
           {selected.label}
@@ -260,7 +262,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
 
   const assigneeControl = (
     <AssigneePicker
-      disabled={moderationDisabled}
+      disabled={disabled}
       users={users}
       selectedUserId={assigneeId}
       onSelect={onAssigneeChange}
@@ -279,7 +281,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const dueDateControl = (
     <DueDateControl
       layout={layout}
-      disabled={moderationDisabled}
+      disabled={disabled}
       dueDate={props.dueDate}
       dueTime={props.dueTime}
       endTime={props.endTime}
@@ -292,7 +294,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const boardChip =
     props.boardId && props.onBoardChange ? (
       <BoardPicker
-        disabled={moderationDisabled}
+        disabled={disabled}
         teamId={teamId}
         selectedBoardId={props.boardId}
         onSelect={props.onBoardChange}
