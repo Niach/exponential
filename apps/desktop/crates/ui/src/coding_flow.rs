@@ -253,8 +253,9 @@ impl LocalSessions {
     }
 
     /// Every live local session's row id (issue + batch) — the EXP-105
-    /// quit-time sweep input.
-    fn session_ids(&self) -> Vec<String> {
+    /// quit-time sweep input, the EXP-229 reconcile skip-set, and the
+    /// sign-out sweep input.
+    pub(crate) fn session_ids(&self) -> Vec<String> {
         self.by_issue
             .values()
             .chain(self.by_batch.values())
@@ -280,6 +281,14 @@ impl LocalSessions {
         });
         if let Some(entry) = removed {
             TokenRefreshers::release(&entry.clone, cx);
+            // EXP-229: the session's end path is running (or already ran) —
+            // drop it from the crash-recovery registry so a later reconcile
+            // doesn't re-end it. If the end itself fails, the server sweep
+            // (or the next launch's reconcile of a still-registered quit-time
+            // entry) remains the backstop.
+            if let Some(auth) = cx.try_global::<AuthContext>() {
+                crate::session_registry::remove(&auth.data_dir, &entry.session_id);
+            }
         }
     }
 
@@ -298,6 +307,17 @@ impl LocalSessions {
         trpc: Arc<api::TrpcClient>,
         cx: &mut App,
     ) {
+        // EXP-229: persist the row id so a crash / forced logout / failed
+        // quit-time end can be reconciled (ended) on the next launch —
+        // in-memory tracking alone strands the row `running` for the server
+        // sweep's full 2h window. Dialog, relay remote-start, and batch
+        // launches all funnel through here (`spawn_into_window`).
+        if let (Some(auth), Some(account)) = (
+            cx.try_global::<AuthContext>().cloned(),
+            crate::queries::active_account(cx),
+        ) {
+            crate::session_registry::record(&auth.data_dir, &session.session_id, &account.id);
+        }
         let subject = session.subject.clone();
         let session_key = session.session_id.clone();
         let mut watchers: Vec<Subscription> = Vec::new();

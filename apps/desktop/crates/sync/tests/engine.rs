@@ -16,7 +16,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use sync::client::{ShapeClient, ShapeClientConfig, ShapeDelta, UreqTransport};
+use sync::client::{
+    ShapeClient, ShapeClientConfig, ShapeDelta, UreqTransport, UNAUTHORIZED_GRACE,
+};
 use sync::manager::{AccountSyncConfig, SyncManager};
 use sync::shapes::{shape_by_name, SHAPES};
 use sync::store::ShapeStore;
@@ -338,6 +340,25 @@ struct ClientHarness {
 
 impl ClientHarness {
     fn spawn(server: &MockShapeServer, store: Arc<ShapeStore>, shape: &'static str) -> Self {
+        Self::spawn_with_grace(
+            server,
+            store,
+            shape,
+            UNAUTHORIZED_GRACE,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+
+    /// [`ClientHarness::spawn`] with an explicit EXP-229 401 grace and an
+    /// observable `unauthorized_reported` flag (the recovery test asserts it
+    /// stays false through transient 401s).
+    fn spawn_with_grace(
+        server: &MockShapeServer,
+        store: Arc<ShapeStore>,
+        shape: &'static str,
+        unauthorized_grace: Duration,
+        unauthorized_reported: Arc<AtomicBool>,
+    ) -> Self {
         let (tx, rx) = flume::unbounded();
         let stop = Arc::new(AtomicBool::new(false));
         let client = ShapeClient::new(ShapeClientConfig {
@@ -348,10 +369,11 @@ impl ClientHarness {
             token: Arc::new(|| Some("tok-1".to_string())),
             transport: Arc::new(UreqTransport::new()),
             deltas: tx,
-            unauthorized_reported: Arc::new(AtomicBool::new(false)),
+            unauthorized_reported,
             on_unauthorized: None,
             upgrade_required_reported: Arc::new(AtomicBool::new(false)),
             on_upgrade_required: None,
+            unauthorized_grace,
         });
         let thread_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || client.run(&thread_stop));
@@ -664,10 +686,14 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
     let dir = TempDir::new("401");
     let unauthorized_calls = Arc::new(AtomicUsize::new(0));
     let calls = Arc::clone(&unauthorized_calls);
-    let manager = SyncManager::new().on_unauthorized(Arc::new(move |account_id| {
-        assert_eq!(account_id, "acct-1");
-        calls.fetch_add(1, Ordering::SeqCst);
-    }));
+    // Grace ZERO = the pre-EXP-229 first-401-is-terminal semantics; this test
+    // pins the teardown mechanics, the grace itself is covered below.
+    let manager = SyncManager::new()
+        .unauthorized_grace(Duration::ZERO)
+        .on_unauthorized(Arc::new(move |account_id| {
+            assert_eq!(account_id, "acct-1");
+            calls.fetch_add(1, Ordering::SeqCst);
+        }));
     let deltas = manager.deltas();
 
     let started = manager
@@ -711,6 +737,118 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
     let stopped_at = Instant::now();
     assert!(manager.stop_account("acct-1"));
     assert!(stopped_at.elapsed() < Duration::from_secs(2));
+}
+
+// ---------------------------------------------------------------------------
+// 3a. EXP-229 grace window: consecutive 401s PAST the grace still tear down
+//     (the dead-token path survives the deploy-blip fix)…
+// ---------------------------------------------------------------------------
+
+#[test]
+fn consecutive_401s_past_grace_tear_down() {
+    let server = MockShapeServer::start(unauthorized_401());
+
+    let dir = TempDir::new("401-grace");
+    let manager = SyncManager::new().unauthorized_grace(Duration::from_millis(300));
+    let deltas = manager.deltas();
+
+    let started = manager
+        .start_account(AccountSyncConfig {
+            account_id: "acct-1".into(),
+            base_url: server.base_url.clone(),
+            db_path: dir.db_path(),
+            token: Arc::new(|| Some("dead-token".to_string())),
+        })
+        .unwrap();
+    assert!(started);
+
+    // The Unauthorized still surfaces — just after the grace, not instantly.
+    let delta = deltas.recv_timeout(Duration::from_secs(10)).unwrap();
+    match delta {
+        ShapeDelta::Unauthorized { ref account_id } => assert_eq!(account_id, "acct-1"),
+        other => panic!("expected Unauthorized, got {other:?}"),
+    }
+
+    // The reporting thread retried THROUGH the grace instead of dying on its
+    // first 401: its shape path was polled at least twice (backoff 500ms >
+    // grace 300ms, so poll #2 crosses the window and reports).
+    let mut per_path: std::collections::HashMap<String, usize> = Default::default();
+    for request in server.requests() {
+        *per_path.entry(request.path).or_default() += 1;
+    }
+    assert!(
+        per_path.values().any(|&count| count >= 2),
+        "expected at least one shape to retry within the grace, got {per_path:?}"
+    );
+
+    // Teardown as in the instant-401 test: no polling after the report.
+    // Unlike that test, sibling threads may still be racing their in-grace
+    // retry when the delta fires — join them via stop_account before
+    // sampling, so stragglers can't trip the no-more-polls assert.
+    assert!(wait_until(Duration::from_secs(5), || {
+        manager.running_accounts().is_empty()
+    }));
+    assert!(manager.stop_account("acct-1"));
+    let polls_after_teardown = server.requests().len();
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        server.requests().len(),
+        polls_after_teardown,
+        "threads must stop polling after the 401 teardown"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 3b. …while a TRANSIENT 401 burst (a prod deploy answering long-polls with
+//     401 for a moment, EXP-229) recovers without logout: no Unauthorized, no
+//     token deletion, loop keeps polling and syncs once the server heals.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transient_401_recovers_without_logout() {
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
+    // Two 401s (the deploy blip), then the healed server answers normally.
+    server.push(unauthorized_401());
+    server.push(unauthorized_401());
+    server.push(snapshot("h-1", "0_0", &[("a", "A"), ("b", "B")]));
+
+    let dir = TempDir::new("401-transient");
+    let store = Arc::new(ShapeStore::open(&dir.db_path()).unwrap());
+    let unauthorized_reported = Arc::new(AtomicBool::new(false));
+    let mut harness = ClientHarness::spawn_with_grace(
+        &server,
+        Arc::clone(&store),
+        "issues",
+        UNAUTHORIZED_GRACE,
+        Arc::clone(&unauthorized_reported),
+    );
+
+    // Recovery: the snapshot lands after the 401s (backoff between them is
+    // 0.5s + 1s) and the shape flips live — the loop never tore down.
+    assert!(wait_until(Duration::from_secs(10), || {
+        store
+            .shape_state("issues")
+            .unwrap()
+            .is_some_and(|s| s.is_live)
+    }));
+    assert_eq!(issue_ids(&store), HashSet::from(["a".into(), "b".into()]));
+
+    // No logout signal of any kind: no Unauthorized delta, flag untouched.
+    assert!(!unauthorized_reported.load(Ordering::SeqCst));
+    while let Ok(delta) = harness.deltas.try_recv() {
+        assert!(
+            !matches!(delta, ShapeDelta::Unauthorized { .. }),
+            "a transient 401 within the grace must never surface Unauthorized"
+        );
+    }
+
+    // And the loop is still alive, long-polling the healed server.
+    let polls = server.requests().len();
+    assert!(wait_until(Duration::from_secs(5), || {
+        server.requests().len() > polls
+    }));
+
+    harness.stop();
 }
 
 // ---------------------------------------------------------------------------

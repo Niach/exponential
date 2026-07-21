@@ -74,6 +74,12 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // §08 device presence: dial the steer control socket for this
             // account (no-op when steer is disabled/unconfigured).
             crate::steer_wiring::start_control_channel(account, cx);
+            // EXP-229: end the coding_sessions rows a crash / forced logout
+            // stranded `running` — this is the single choke point every
+            // sign-in path (warm start, dev inject, OAuth, login form) runs
+            // through, so orphans heal on the next connect instead of
+            // blocking "coding now" for the server sweep's 2h window.
+            crate::session_registry::reconcile_stale_sessions(account, cx);
             true
         }
         Err(err) => {
@@ -91,6 +97,16 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
 /// revocation on a background thread, local token deletion, pipeline stop,
 /// collections cleared, session → `SignedOut` (§5.10 — the SQLite DB stays on
 /// disk for offline resume).
+///
+/// EXP-229: the same background task first ENDS every coding_sessions row
+/// this process launched — sign-out used to strand them `running` (ghost
+/// "coding now" on every client) until the server's 2h sweep. Ordering is
+/// load-bearing: the ends must precede the revocation, and both use a
+/// SNAPSHOTTED token (`StaticToken`) — the provider-backed client would race
+/// the foreground's `auth.auth.sign_out` token deletion below. Failed ends
+/// just leave their registry entries for the next sign-in's reconcile.
+/// (Local claude children survive sign-out unchanged — pre-existing
+/// behavior; only the synced rows are closed out here.)
 pub fn sign_out_active(cx: &mut App) {
     let store = Store::global(cx).clone();
     let Some(account_id) = store.session(cx).account_id().map(String::from) else {
@@ -100,15 +116,36 @@ pub fn sign_out_active(cx: &mut App) {
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     let auth = AuthContext::global(cx).clone();
 
-    // Best-effort server-side revocation — local sign-out proceeds even when
-    // this fails (offline sign-out is legal, §5.7).
+    // Best-effort server-side session ends + revocation — local sign-out
+    // proceeds even when this fails (offline sign-out is legal, §5.7).
     if let (Some(token), Some(account)) = (
         auth.auth.token(&account_id),
         auth.auth.account(&account_id),
     ) {
+        let session_ids = crate::coding_flow::LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).session_ids())
+            .unwrap_or_default();
+        let data_dir = auth.data_dir.clone();
         let client = Arc::clone(&auth.client);
         cx.background_executor()
             .spawn(async move {
+                if !session_ids.is_empty() {
+                    let trpc = api::TrpcClient::new(
+                        &account.instance_url,
+                        Arc::new(api::StaticToken(token.clone())),
+                    );
+                    for id in session_ids {
+                        let result = api::coding_sessions::end(&trpc, &id);
+                        if let Err(err) = &result {
+                            eprintln!(
+                                "[exp-desktop] session: sign-out end of coding session {id} failed: {err}"
+                            );
+                        }
+                        if crate::session_registry::end_outcome_resolves(&result) {
+                            crate::session_registry::remove(&data_dir, &id);
+                        }
+                    }
+                }
                 if let Err(err) = client.sign_out(&account.instance_url, &token) {
                     eprintln!("[exp-desktop] session: server-side sign-out failed: {err}");
                 }
