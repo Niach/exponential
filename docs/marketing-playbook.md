@@ -26,7 +26,7 @@ Two audiences, two wedges:
 Exponential is under the **Exponential Small Team License 1.0 (ESTL-1.0)** — *source-available*, **not open source / not FOSS**. Learn the four sentences and never improvise:
 
 1. The source is public. You can read it, modify it, and run it.
-2. Self-hosting in production is **free while your company and its affiliates have fewer than 10 total people** (employees + contractors). 10 or more → commercial licence, dennis@straehhuber.com.
+2. Self-hosting in production is **free while your company and its affiliates have fewer than 10 total people** (employees + contractors). 10 or more → commercial licence, danny@exponential.at.
 3. Evaluating, developing and testing is free at **any** size.
 4. Nobody may resell Exponential as a hosted or managed service.
 

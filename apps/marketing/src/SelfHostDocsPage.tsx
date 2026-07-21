@@ -501,7 +501,7 @@ docker rm -f exponential-web
             <p>
               Once you count 10 or more, you need a commercial license. Email
               {` `}
-              <a href="mailto:dennis@straehhuber.com">dennis@straehhuber.com</a>
+              <a href="mailto:danny@exponential.at">danny@exponential.at</a>
               {` `}
               and we&apos;ll sort it out.
             </p>

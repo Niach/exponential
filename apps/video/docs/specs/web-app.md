@@ -127,7 +127,7 @@ Structure top→bottom:
 │   ⬇  Download desktop app   (members only)      │
 │   💬 Feedback                                    │
 │ ┌──────────────────────────────────────────────┐ │
-│ │ (DS) dennis@straehhuber.com          ⇅       │ │  user row: avatar h-6 w-6
+│ │ (DS) danny@exponential.at          ⇅       │ │  user row: avatar h-6 w-6
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
 ```

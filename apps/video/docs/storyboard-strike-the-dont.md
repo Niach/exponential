@@ -60,7 +60,7 @@ click = 24px ripple ring (border `rgba(255,255,255,.5)`) expanding 0→40px over
 ## 2. SHARED FIXTURE — the one dataset every scene draws from
 
 **Workspace**: `Exponential` (slug `exponential`). Members: **Dennis Strähhuber**
-(`dennis@straehhuber.com`, avatar initials `DS`). Widget agent user: **Exponential App** (isAgent).
+(`danny@exponential.at`, avatar initials `DS`). Widget agent user: **Exponential App** (isAgent).
 Device running the coding session: **MacBook Pro** (owner Dennis).
 
 **Project**: `Exponential` — type **dev**, color `#6366f1`, prefix `EXP`, repo `Niach/exponential`,
