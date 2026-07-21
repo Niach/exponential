@@ -40,6 +40,10 @@ struct TeamRepositoriesSection: View {
     // `exponential://github-connected` and auto-dismisses the in-app session.
     @State private var github: GithubReposResult?
     @State private var connectSession = InstallWebAuthSession()
+    // "Add repository" picker sheet (EXP-225): registers a repo in the
+    // server-only registry via repositories.add (web parity —
+    // repositories-section.tsx's "Connect repository" dialog).
+    @State private var showAddRepo = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -68,6 +72,15 @@ struct TeamRepositoriesSection: View {
                 repoRow(repo)
             }
 
+            // The GitHub accounts linked to THIS team (EXP-225, web parity:
+            // repositories-section.tsx's installation chips). Without this the
+            // section looked like a no-op after a successful connect — the
+            // registry stays empty until a repo is added, so the linked
+            // accounts are the only visible proof the connect landed.
+            if let github, !github.installations.isEmpty {
+                connectedAccounts(github)
+            }
+
             // Grant-model fail-closed state: a linked installation with no
             // captured grants yields zero repos everywhere until the owner
             // re-runs the OAuth connect. Owner-gated like every connect
@@ -83,6 +96,30 @@ struct TeamRepositoriesSection: View {
                 Text(errorText)
                     .font(.caption)
                     .foregroundStyle(.red.opacity(0.8))
+            }
+
+            // Register a repo from the linked accounts into the team registry
+            // (EXP-225 — the native counterpart of web's "Connect repository"
+            // dialog). Owner-gated like the connect hop: repositories.add is
+            // assertCanManageRepos server-side. Only offered once at least one
+            // GitHub account is linked — before that the picker could show
+            // nothing anyway.
+            if isOwner, let github, !github.installations.isEmpty {
+                Button {
+                    showAddRepo = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.caption)
+                        Text("Add repository")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .glassButton()
+                .buttonStyle(.plain)
             }
 
             // In-app connect (EXP-45): the same ASWebAuthenticationSession hop
@@ -128,6 +165,31 @@ struct TeamRepositoriesSection: View {
         // (GithubRepoPicker parity).
         .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
             Task { await reload(refreshGithub: true) }
+        }
+        // Same picker + presentation as RepositorySelector's add-by-name path;
+        // here the pick lands in the registry directly (repositories.add). The
+        // picker dismisses itself after onPick.
+        .sheet(isPresented: $showAddRepo) {
+            if let teamId = team?.id {
+                GithubRepoPicker(
+                    accountId: accountId,
+                    teamId: teamId,
+                    integrationsApi: integrationsApi
+                ) { repo in
+                    Task {
+                        await mutate {
+                            try await repositoriesApi.add(
+                                accountId: accountId,
+                                teamId: teamId,
+                                fullName: repo.fullName,
+                                defaultBranch: repo.defaultBranch,
+                                isPrivate: repo.`private`
+                            )
+                        }
+                    }
+                }
+                .presentationBackground(.ultraThinMaterial)
+            }
         }
         .alert("Remove Repository", isPresented: Binding(
             get: { removeTarget != nil },
@@ -201,6 +263,44 @@ struct TeamRepositoriesSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .glassRow()
+    }
+
+    // MARK: - Connected GitHub accounts (EXP-225)
+
+    // Chips for the installations linked to this team — visible to every
+    // member (the connect/add affordances stay owner-gated). A yellow glyph
+    // marks an installation whose grants were never captured (needsReauth);
+    // the reconnect notice below explains it.
+    @ViewBuilder
+    private func connectedAccounts(_ github: GithubReposResult) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Connected GitHub accounts")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            FlowLayout(spacing: 6) {
+                ForEach(github.installations) { inst in
+                    HStack(spacing: 6) {
+                        Image(systemName: inst.accountType == "Organization" ? "building.2" : "person")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        Text(inst.accountLogin ?? "Installation \(inst.installationId)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if inst.needsReauth {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.caption2)
+                                .foregroundStyle(.yellow.opacity(0.8))
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassButton()
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Reconnect (grant model)

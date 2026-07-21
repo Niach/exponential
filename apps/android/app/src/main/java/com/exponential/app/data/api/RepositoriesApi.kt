@@ -10,8 +10,8 @@ import kotlinx.serialization.builtins.nullable
 // Mirrors apps/web/src/lib/trpc/repositories.ts + boards.ts. Repositories are
 // server-only (NOT an Electric shape) — read on demand over tRPC for the
 // team-settings registry and the create-board / retarget pickers.
-// Connecting NEW repos (the GitHub-App install flow) stays web-only; Android
-// links out to the web settings for that (masterplan v4 §6).
+// The GitHub-App install/connect hop runs in-app via a Custom Tab (EXP-45);
+// registering a picked repo in the registry is `add` (EXP-225).
 
 /**
  * A board that points at a repo, computed from `boards.repository_id`
@@ -46,6 +46,14 @@ private data class RepoTeamIdInput(val teamId: String)
 private data class RepositoryIdInput(val repositoryId: String)
 
 @Serializable
+private data class AddRepoInput(
+    val teamId: String,
+    val fullName: String,
+    val defaultBranch: String,
+    @SerialName("private") val isPrivate: Boolean,
+)
+
+@Serializable
 private data class SetRepositoryInput(
     val boardId: String,
     val repositoryId: String,
@@ -65,6 +73,26 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             input = RepoTeamIdInput(teamId),
             inputSerializer = RepoTeamIdInput.serializer(),
             outputSerializer = ListSerializer(TeamRepo.serializer()),
+        )
+
+    /**
+     * Owner-only (server-enforced): register a repo reachable through one of the
+     * team's linked GitHub accounts (`repositories.add`, web parity —
+     * repositories-section.tsx). The `{repository}` response is discarded;
+     * callers re-fetch the registry list.
+     */
+    suspend fun add(
+        accountId: String,
+        teamId: String,
+        fullName: String,
+        defaultBranch: String,
+        isPrivate: Boolean,
+    ) =
+        trpc.mutationUnit(
+            accountId,
+            path = "repositories.add",
+            input = AddRepoInput(teamId, fullName, defaultBranch, isPrivate),
+            inputSerializer = AddRepoInput.serializer(),
         )
 
     /**
