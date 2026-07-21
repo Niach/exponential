@@ -586,7 +586,14 @@ async fn pump_connection(
     // Hold the `\r` back until the child has had a beat to drain the text.
     // Ordering is safe — this task is the only remote-input writer.
     const ENTER_SEPARATION: Duration = Duration::from_millis(150);
+    // REV2-X: Send periodic pings so the relay can detect dead publishers.
+    // During plan mode (or any idle period), the desktop sends no output/activity,
+    // and without pings, a dropped connection can sit undetected while UIs retry
+    // endlessly against a stale `no_such_session`.
+    const PING_INTERVAL: Duration = Duration::from_secs(30);
     let mut last_input_at: Option<Instant> = None;
+    let mut ping_interval = tokio::time::interval(PING_INTERVAL);
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             // 1) terminal output → binary 0x01 frame (+ replay ring).
@@ -710,6 +717,13 @@ async fn pump_connection(
                     return LoopEnd::Dropped;
                 }
                 None => return LoopEnd::Dropped,
+            }
+            // 4) periodic ping to keep the connection alive and let the relay
+            // detect dead publishers (REV2-X: plan mode can idle for minutes).
+            _ = ping_interval.tick() => {
+                if ws.send(Message::Ping(vec![])).await.is_err() {
+                    return LoopEnd::Dropped;
+                }
             }
         }
     }

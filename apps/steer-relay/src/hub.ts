@@ -63,6 +63,10 @@ interface Room {
   ring: RingBuffer
   /** Publisher dropped without `bye`; room closes when the grace expires. */
   staleTimer: ReturnType<typeof setTimeout> | null
+  /** REV2-X: Last time we received ANY message from the publisher (including
+   * pings). Updated on every publisher frame to detect dead publishers during
+   * idle periods (plan mode). */
+  lastPublisherActivity: number
   // ── Scrubbed activity channel (tool headlines / narration / diffs) ──────
   // activityMembers: authenticated viewer tickets that joined with
   // channel:'activity'. Strictly separated from the PTY mirror: they receive
@@ -85,6 +89,12 @@ const RING_CAP_BYTES = 256 * 1024
 const VIEWER_HIGH_WATER = 512 * 1024
 const VIEWER_LAG_EVICT_MS = 10_000
 const PUBLISHER_GRACE_MS = 60_000
+// REV2-X: If we receive no frames (including pings) from a publisher for this
+// long, assume the connection is dead and close the room. Desktop pings every
+// 30s, so 90s = 3 missed pings = definitely dead. Fixes the plan-mode hang
+// where a dropped connection sits undetected and UIs retry `no_such_session`.
+const PUBLISHER_IDLE_TIMEOUT_MS = 90_000
+const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
 
 export class RingBuffer {
   private chunks: Uint8Array[] = []
@@ -127,6 +137,21 @@ export class Hub {
   private devices = new Map<string, Map<string, DeviceEntry>>()
   /** sessionId (== coding_sessions.id) → room. */
   private rooms = new Map<string, Room>()
+  /** REV2-X: Periodic check for idle publishers. */
+  private idleCheckInterval: ReturnType<typeof setInterval>
+
+  constructor() {
+    // REV2-X: Start the idle publisher detector — checks every 30s for
+    // publishers that haven't sent ANY frame (including pings) in 90s.
+    this.idleCheckInterval = setInterval(() => {
+      this.checkIdlePublishers()
+    }, PUBLISHER_IDLE_CHECK_INTERVAL_MS)
+  }
+
+  /** REV2-X: Stop the idle check interval (for clean shutdown/tests). */
+  destroy() {
+    clearInterval(this.idleCheckInterval)
+  }
 
   // ── Socket lifecycle (called from the Bun ws handlers) ────────────────────
 
@@ -144,6 +169,16 @@ export class Hub {
   onMessage(sock: RelaySocket, data: string | Uint8Array) {
     const conn = this.conns.get(sock)
     if (!conn) return
+
+    // REV2-X: Update last activity timestamp for publisher connections — ANY
+    // message (including pings) counts, so an idle-but-connected publisher
+    // (plan mode) stays alive while a truly-dead publisher times out.
+    if (conn.claims.role === `publisher` && conn.sessionId) {
+      const room = this.rooms.get(conn.sessionId)
+      if (room && room.publisher === conn) {
+        room.lastPublisherActivity = Date.now()
+      }
+    }
 
     if (typeof data !== `string`) {
       // Binary = terminal output; only the room's publisher may produce it.
@@ -240,6 +275,7 @@ export class Hub {
             steerer: null,
             ring: new RingBuffer(),
             staleTimer: null,
+            lastPublisherActivity: Date.now(), // REV2-X
             activityMembers: new Map(),
             activityLog: [],
             lastDiff: null,
@@ -255,6 +291,7 @@ export class Hub {
             room.publisher.sock.close(CLOSE_REPLACED, `replaced`)
           }
           room.publisher = conn
+          room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
           // The re-hello carries the publisher's TRUE current geometry — it
           // may have been resized while disconnected, so already-attached
           // viewers need a resize frame or they keep rendering the stale grid.
@@ -570,5 +607,32 @@ export class Hub {
       member.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
     }
     room.activityMembers.clear()
+  }
+
+  /** REV2-X: Periodic check for publishers that have sent no frames (including
+   * pings) within PUBLISHER_IDLE_TIMEOUT_MS. A silent publisher is a dead
+   * publisher — close the room so viewers stop retrying `no_such_session`. */
+  private checkIdlePublishers() {
+    const now = Date.now()
+    for (const room of this.rooms.values()) {
+      if (!room.publisher) continue // already detached
+      const idleMs = now - room.lastPublisherActivity
+      if (idleMs >= PUBLISHER_IDLE_TIMEOUT_MS) {
+        console.log(
+          `[hub] publisher for session ${room.sessionId} idle for ${Math.floor(idleMs / 1000)}s — closing room`
+        )
+        // Close the publisher socket first, which triggers onClose's grace
+        // period logic. BUT the room is dead either way: if the publisher
+        // reconnects within the grace period, re-hello resets
+        // lastPublisherActivity (line 294) so the next idle check won't
+        // re-fire; if it doesn't reconnect, the grace timer closes the room.
+        if (room.publisher) {
+          room.publisher.sock.close(
+            CLOSE_SESSION_ENDED,
+            `publisher_idle_${Math.floor(idleMs / 1000)}s`
+          )
+        }
+      }
+    }
   }
 }
