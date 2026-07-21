@@ -174,6 +174,26 @@ public final class AuthApi: Sendable {
         }
     }
 
+    /// `POST /api/auth/sign-out` — best-effort server-side session revocation
+    /// (desktop `login.rs` parity). Without it a leaked bearer token would
+    /// survive local sign-out for the full 60-day sliding session expiry.
+    /// Local sign-out must proceed even when this fails (offline sign-out is
+    /// legal), so the call is timeout-capped and never throws; callers await it
+    /// AFTER the push-token unregister (which still needs a live session) and
+    /// BEFORE the token is dropped locally.
+    @discardableResult
+    public func signOut(instanceUrl: String, token: String) async -> Bool {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/sign-out") else { return false }
+        do {
+            let (_, response) = try await httpClient.post(
+                url, body: Data("{}".utf8), bearerToken: token, timeout: 3
+            )
+            return (200...299).contains(response.statusCode)
+        } catch {
+            return false
+        }
+    }
+
     /// Extract the user-presentable `message` from a Better Auth error body
     /// (`{"code": "...", "message": "Invalid email or password"}`).
     private static func authErrorMessage(from data: Data) -> String? {

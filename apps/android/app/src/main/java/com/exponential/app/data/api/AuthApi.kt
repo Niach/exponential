@@ -15,6 +15,7 @@ import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -119,6 +120,32 @@ class AuthApi @Inject constructor(
     }
 
     /**
+     * `POST /api/auth/sign-out` — best-effort server-side session revocation
+     * (desktop login.rs parity). Without it a leaked bearer token would survive
+     * local sign-out for the full 60-day sliding session expiry. Local sign-out
+     * must proceed even when this fails (offline sign-out is legal), so the
+     * call is timeout-capped and never throws; callers await it AFTER the
+     * push-token unregister (which still needs a live session) and BEFORE the
+     * token is dropped locally.
+     */
+    suspend fun signOut(baseUrl: String, token: String) {
+        withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) {
+            try {
+                client.post("$baseUrl/api/auth/sign-out") {
+                    contentType(ContentType.Application.Json)
+                    // Same-origin Origin header as signInWithPassword — Better
+                    // Auth's CSRF check 403s POSTs without one.
+                    header("Origin", baseUrl.trimEnd('/'))
+                    header("Authorization", "Bearer $token")
+                    setBody("{}")
+                }
+            } catch (e: Exception) {
+                // Best-effort: offline/unreachable servers must not block sign-out.
+            }
+        }
+    }
+
+    /**
      * Extract the user-presentable `message` from a Better Auth error body
      * (`{"code": "...", "message": "Invalid email or password"}`).
      */
@@ -210,5 +237,11 @@ class AuthApi @Inject constructor(
         } catch (e: Exception) {
             null
         }
+    }
+
+    companion object {
+        // Mirrors PushTokenManager.UNREGISTER_TIMEOUT_MS — both are awaited
+        // best-effort network calls on the sign-out path.
+        private const val SIGN_OUT_TIMEOUT_MS = 3_000L
     }
 }

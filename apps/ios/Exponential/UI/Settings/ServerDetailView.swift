@@ -57,6 +57,11 @@ struct ServerDetailView: View {
                     // Unregister while the credentials still exist — the
                     // request needs the bearer token removeAccount drops.
                     await deps.pushTokenManager.unregister(accountId: account.id)
+                    // Revoke the server session AFTER the unregister (which
+                    // needs it live) and BEFORE removeAccount drops the token.
+                    if let token = account.token {
+                        await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
+                    }
                     await deps.syncManager.signOut(accountId: account.id)
                     deps.auth.removeAccount(id: account.id)
                     deps.db.closePool(forAccountId: account.id)
@@ -164,12 +169,19 @@ struct ServerDetailView: View {
 
                     Button {
                         Task {
-                            // Capture the URL BEFORE removeAccount — `account` is
-                            // a computed lookup that returns nil once removed.
+                            // Capture the URL + token BEFORE removeAccount —
+                            // `account` is a computed lookup that returns nil
+                            // once removed.
                             let url = account?.instanceUrl
+                            let token = account?.token
                             // Unregister while the credentials still exist — the
                             // request needs the bearer token removeAccount drops.
                             await deps.pushTokenManager.unregister(accountId: accountId)
+                            // Revoke the server session AFTER the unregister
+                            // (which needs it live) and BEFORE the token drops.
+                            if let url, let token {
+                                await deps.authApi.signOut(instanceUrl: url, token: token)
+                            }
                             await deps.syncManager.signOut(accountId: accountId)
                             deps.auth.removeAccount(id: accountId)
                             // Delete the local DB so a signed-out account leaves

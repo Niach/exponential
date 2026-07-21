@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UpdateGate
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
@@ -47,6 +48,7 @@ class AppViewModel @Inject constructor(
     private val databaseHolder: DatabaseHolder,
     private val teamSelection: TeamSelection,
     private val updateGate: UpdateGate,
+    private val authApi: AuthApi,
 ) : ViewModel() {
 
     init {
@@ -286,9 +288,14 @@ class AppViewModel @Inject constructor(
 
     fun clearInstance() {
         viewModelScope.launch {
+            // Capture credentials BEFORE clearInstanceUrl drops the row.
+            val active = activeAccount()
             // Awaited before the credentials drop — the unregister request
             // needs the bearer token that clearInstanceUrl removes.
             auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
+            // Revoke the server session AFTER the unregister (which needs it
+            // live) and BEFORE the token drops locally (REV2-15).
+            revokeSession(active)
             syncManager.signOut()
             auth.clearInstanceUrl()
         }
@@ -296,7 +303,9 @@ class AppViewModel @Inject constructor(
 
     fun signOut() {
         viewModelScope.launch {
+            val active = activeAccount()
             auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
+            revokeSession(active)
             syncManager.signOut()
             auth.clearToken()
         }
@@ -308,10 +317,22 @@ class AppViewModel @Inject constructor(
 
     fun removeAccount(id: String) {
         viewModelScope.launch {
+            val account = auth.accounts.value.firstOrNull { it.id == id }
             pushTokenManager.unregisterToken(id)
+            revokeSession(account)
             auth.removeAccount(id)
             databaseHolder.deleteFiles(id)
         }
+    }
+
+    private fun activeAccount(): ServerAccount? =
+        auth.activeAccountId.value?.let { id -> auth.accounts.value.firstOrNull { it.id == id } }
+
+    // Best-effort server-side session revocation — sign-out must actually end
+    // the Better Auth session, not just drop the local token copy (REV2-15).
+    private suspend fun revokeSession(account: ServerAccount?) {
+        val token = account?.token ?: return
+        authApi.signOut(account.instanceUrl, token)
     }
 
 }
