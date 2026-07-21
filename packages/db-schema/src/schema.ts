@@ -850,7 +850,8 @@ export const emailDeliveries = pgTable(
     }),
     // notification|digest|widget_resolution — documented varchar.
     kind: varchar({ length: 32 }).notNull(),
-    // queued|sent|failed — documented varchar.
+    // queued|sent|failed|bounced|complained — documented varchar (the last
+    // two are stamped post-send by the SES feedback webhook).
     status: varchar({ length: 16 }).notNull().default(`queued`),
     provider: varchar({ length: 16 }), // ses|smtp (legacy rows: resend)
     providerMessageId: text(`provider_message_id`),
@@ -864,6 +865,27 @@ export const emailDeliveries = pgTable(
     unique(`uniq_email_delivery_notification`).on(table.notificationId),
   ]
 )
+
+// Bounce/complaint feedback per recipient ADDRESS (SERVER-ONLY, admin
+// console). One upserted row per address, fed by the SES→SNS feedback
+// webhook (/api/webhooks/ses); `suppressed_at` records the admin putting the
+// address on the SES account-level suppression list (EXP-227 — repeated
+// sends to bouncing addresses damage sender reputation).
+export const emailBounces = pgTable(`email_bounces`, {
+  id: uuidPk(),
+  email: varchar({ length: 320 }).notNull().unique(),
+  // bounce|complaint — the LAST event's kind (documented varchar).
+  kind: varchar({ length: 16 }).notNull(),
+  // SES bounce classification of the last event (e.g. Permanent/General);
+  // complaints carry the feedback type in bounceSubType.
+  bounceType: varchar(`bounce_type`, { length: 32 }),
+  bounceSubType: varchar(`bounce_sub_type`, { length: 64 }),
+  diagnostic: text(),
+  eventCount: integer(`event_count`).notNull().default(1),
+  lastEventAt: timestamp(`last_event_at`, { withTimezone: true }).notNull(),
+  suppressedAt: timestamp(`suppressed_at`, { withTimezone: true }),
+  ...timestamps,
+})
 
 // Embeddable feedback-widget configs (server-only, NOT Electric-synced; read
 // via the `widgets` tRPC router). One row = one paste-in snippet: a public

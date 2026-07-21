@@ -82,6 +82,8 @@ const EMAIL_STATUS_VARIANT: Record<
   sent: `secondary`,
   queued: `outline`,
   failed: `destructive`,
+  bounced: `destructive`,
+  complained: `destructive`,
 }
 
 export function EmailStatusBadge({ status }: { status: string }) {

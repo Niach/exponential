@@ -110,19 +110,19 @@ export async function runEmailDigestSweep(
   )
 
   // Cadence gate input: when did each user last get a digest (sent_at, stamped
-  // on success) — and when was the last ATTEMPT of any outcome (created_at of
-  // the ledger row)? The attempt aggregate feeds the failure backoff: without
-  // it a failing transport (SES sandboxed, EXP-114) would retry at every
-  // sweep tick, flooding the ledger with failed rows (EXP-227).
+  // on success) — and when did their last FAILED attempt happen (ledger row
+  // with no sent_at)? The failed aggregate feeds the daily failure backoff:
+  // without it a failing transport (SES sandboxed, EXP-114) would retry at
+  // every sweep tick, flooding the ledger with failed rows (EXP-227).
   const lastRows =
     userIds.length > 0
       ? await db
           .select({
             userId: emailDeliveries.userId,
             lastSentAt: sql<Date | string | null>`max(${emailDeliveries.sentAt})`,
-            lastAttemptAt: sql<
+            lastFailedAt: sql<
               Date | string | null
-            >`max(${emailDeliveries.createdAt})`,
+            >`max(${emailDeliveries.createdAt}) filter (where ${emailDeliveries.sentAt} is null)`,
           })
           .from(emailDeliveries)
           .where(
@@ -139,10 +139,10 @@ export async function runEmailDigestSweep(
       row.lastSentAt ? new Date(row.lastSentAt) : null,
     ])
   )
-  const lastAttemptByUser = new Map<string, Date | null>(
+  const lastFailedByUser = new Map<string, Date | null>(
     lastRows.map((row) => [
       row.userId as string,
-      row.lastAttemptAt ? new Date(row.lastAttemptAt) : null,
+      row.lastFailedAt ? new Date(row.lastFailedAt) : null,
     ])
   )
 
@@ -150,7 +150,7 @@ export async function runEmailDigestSweep(
     candidates,
     prefsByUser,
     lastDigestByUser,
-    lastAttemptByUser,
+    lastFailedByUser,
     now,
   })
 
@@ -250,8 +250,8 @@ export async function runEmailDigestSweep(
         console.error(`[digest] email to ${to} failed:`, err)
         // Un-claim this batch so a later sweep retries — a transient
         // transport error must not permanently swallow the digest. The failed
-        // ledger row above feeds the attempt gate, so the retry is backed off
-        // ~hourly rather than firing at every sweep. Rows read in the
+        // ledger row above feeds the failure backoff, so the retry waits a
+        // full day rather than firing at every sweep. Rows read in the
         // meantime stay claimed (the push did its job late).
         try {
           await db
