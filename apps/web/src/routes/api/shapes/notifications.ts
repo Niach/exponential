@@ -1,29 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router"
-import {
-  andClauses,
-  buildWhereClause,
-  getUserBoardIds,
-  orClauses,
-  sqlStringLiteral,
-} from "@/lib/team-membership"
+import { andClauses, sqlStringLiteral } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Per-user inbox feed. Streams only the requesting user's notification rows;
-// never anonymous. The where clause is server-computed from the bearer token.
+// never anonymous. The where clause is server-computed from the bearer token
+// and — REV2-5 — fully STATIC per user: it embeds no membership id lists, so
+// this shape's identity never rotates (not even on team join/leave).
 //
-// Rows are additionally scoped to non-trashed boards the user can still
-// reach via the trigger-denormalized board_id (REV-109): notifications of
-// a soft-deleted board hide for the 48h trash window along with the
-// board itself (and return on restore). The IS NULL arm is defensive — an
-// issue-less notification carries no board identity and must never be
-// silently dropped.
+// Trash-awareness rides the trigger-maintained board_deleted_at mirror
+// (REV-109 semantics, REV2-5 mechanism): notifications of a soft-deleted
+// board hide for the 48h trash window along with the board itself (and
+// return on restore). Issue-less rows (helpdesk support_reply) carry a NULL
+// board_deleted_at and always sync — nothing issue-less is ever silently
+// dropped.
 //
-// `emailed_at` (the hourly digest sweep's server-side claim stamp) and
-// `board_id` (trash-scoping bookkeeping, filtered on above) are
-// deliberately excluded via the columns allowlist — neither is inbox state.
-// `team_id` IS synced: issue-less rows (helpdesk support_reply) carry it so
-// clients can route the notification to the right team's Support inbox;
-// issue-anchored rows leave it NULL (their team comes from the issue).
+// Deliberately NOT membership-scoped: rows are written exclusively for this
+// user by the server-side fan-out, which is itself membership-filtered at
+// delivery time (lib/integrations/notifications.ts — an ex-member never
+// receives NEW rows). Notifications already delivered before a member was
+// removed stay in their inbox, like received email.
+//
+// `emailed_at` (the hourly digest sweep's server-side claim stamp),
+// `board_id`, and `board_deleted_at` (trash-scoping bookkeeping, filtered on
+// above) are deliberately excluded via the columns allowlist — none is inbox
+// state. `team_id` IS synced: issue-less rows (helpdesk support_reply) carry
+// it so clients can route the notification to the right team's Support
+// inbox; issue-anchored rows leave it NULL (their team comes from the
+// issue).
 export const Route = createFileRoute(`/api/shapes/notifications`)({
   server: {
     handlers: {
@@ -45,13 +48,9 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
         ],
         getWhere: async (userId) => {
           if (!userId) return null
-          const boardIds = await getUserBoardIds(userId)
           return andClauses(
             `"user_id" = ${sqlStringLiteral(userId)}`,
-            orClauses(
-              `"board_id" IS NULL`,
-              buildWhereClause(`board_id`, boardIds)
-            )
+            `"board_deleted_at" IS NULL`
           )
         },
       }),

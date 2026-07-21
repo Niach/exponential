@@ -376,6 +376,7 @@ async function main() {
       .insert(issues)
       .values({
         boardId: board.id,
+        teamId: board.teamId,
         title: spec.title,
         description: spec.description,
         status: spec.status,

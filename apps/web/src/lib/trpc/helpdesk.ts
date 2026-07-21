@@ -325,6 +325,9 @@ export const helpdeskRouter = router({
           .insert(issues)
           .values({
             boardId: input.boardId,
+            // populate_issue_board_context overwrites with board-derived
+            // truth; passed to satisfy the NOT NULL insert contract.
+            teamId: thread.teamId,
             title: input.title ?? thread.title,
             status: `backlog`,
             priority: `none`,

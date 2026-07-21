@@ -28,6 +28,8 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     number: 1,
     priority: `none`,
     boardId: `board-1`,
+    teamId: `team-1`,
+    boardDeletedAt: null,
     duplicateOfId: null,
     prUrl: null,
     prNumber: null,
@@ -61,6 +63,7 @@ function makeIssueLabel(overrides: Partial<IssueLabel>): IssueLabel {
     labelId: `label-1`,
     teamId: `team-1`,
     boardId: `board-1`,
+    boardDeletedAt: null,
     ...overrides,
   }
 }

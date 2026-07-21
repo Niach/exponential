@@ -114,6 +114,8 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
   return {
     id: `issue-1`,
     boardId: `board-1`,
+    teamId: `team-1`,
+    boardDeletedAt: null,
     number: 1,
     identifier: `APP-1`,
     title: `Ship custom context menu`,

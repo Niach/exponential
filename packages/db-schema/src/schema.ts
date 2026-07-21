@@ -264,6 +264,22 @@ export const issues = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Trigger-denormalized from the board (populate_issue_board_context —
+    // writers pass the value they already resolved for auth, the trigger
+    // overwrites with board-derived truth) so the issues Electric shape can be
+    // TEAM-scoped: a per-user board-id where clause rotated the shape identity
+    // on every board create/trash in ANY of the user's teams (REV2-5).
+    // Server-only — excluded from the shape via its columns allowlist (native
+    // schemas don't carry it).
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at, maintained by
+    // populate_issue_board_context on insert/move and fanned out by
+    // propagate_board_deleted_at on trash/restore. Lets the shape's trash
+    // filter be the STATIC predicate `board_deleted_at IS NULL` instead of a
+    // per-request board-id list (REV2-5). Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     number: integer().notNull().default(0),
     identifier: varchar({ length: 20 }).notNull().default(``),
     title: varchar({ length: 500 }).notNull(),
@@ -312,6 +328,7 @@ export const issues = pgTable(
   },
   (table) => [
     index(`idx_issues_board_status`).on(table.boardId, table.status),
+    index(`idx_issues_team`).on(table.teamId),
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_due_date`).on(table.dueDate),
     // Backstop under generate_issue_number()'s counter allocator (see
@@ -366,12 +383,15 @@ export const issueLabels = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Denormalized from issue→board by populate_issue_child_board_id so
-    // anonymous feedback-board shape filters stay board-scoped (Electric
-    // where clauses are single-table).
+    // Denormalized from issue→board by populate_issue_child_board_id so the
+    // trash fan-out can target a board's child rows (Electric where clauses
+    // are single-table).
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.labelId] }),
@@ -391,11 +411,14 @@ export const comments = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters.
+    // Denormalized from issue→board (populate_issue_child_board_id) so the
+    // trash fan-out can target a board's child rows.
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -432,13 +455,16 @@ export const codingSessions = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters. Nullable: a
-    // batch-scoped session spans boards (never anonymous-visible — the
-    // anonymous board_id clause can't match NULL).
+    // Denormalized from issue→board (populate_issue_child_board_id).
+    // Nullable: a batch-scoped session spans boards and carries no board
+    // identity.
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate; stays NULL on batch rows, which
+    // therefore always sync. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity.
     userId: text(`user_id`)
@@ -476,12 +502,14 @@ export const attachments = pgTable(
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
-    // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters + the public
-    // attachment-bytes read path.
+    // Denormalized from issue→board (populate_issue_child_board_id) so the
+    // trash fan-out can target a board's child rows.
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     commentId: uuid(`comment_id`).references(() => comments.id, {
       onDelete: `set null`,
     }),
@@ -639,13 +667,17 @@ export const notifications = pgTable(
       onDelete: `cascade`,
     }),
     // Trigger-denormalized from the issue (0001_triggers.sql §7) so the
-    // notifications shape can hide rows of trashed boards for the 48h
-    // trash window. Server-only scoping — excluded from the shape via its
-    // columns allowlist, like emailed_at. Nullable like issue_id: an
-    // issue-less notification carries no board identity.
+    // trash fan-out can target a board's notification rows. Server-only
+    // scoping — excluded from the shape via its columns allowlist, like
+    // emailed_at. Nullable like issue_id: an issue-less notification carries
+    // no board identity.
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate; stays NULL on issue-less rows,
+    // which therefore always sync. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     // App-written team pointer for ISSUE-LESS rows (helpdesk support_reply):
     // with no issue to resolve a team from, clients need this to route the
     // notification to the right team's Support inbox. Synced (in the shape
@@ -695,9 +727,8 @@ export const issueSubscribers = pgTable(
     // Set for widget_reporter rows; null for member rows.
     email: varchar({ length: 320 }),
     // Denormalized from issue→board by populate_issue_subscriber_team_id.
-    // Retained for notification fan-out and team-level queries; the Electric
-    // shape filter is board-scoped (see the board_id column below) so a
-    // trashed board's subscriptions drop out of member sync.
+    // Scopes the Electric shape filter (team-stable, REV2-5) and serves the
+    // notification fan-out and team-level queries.
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
@@ -705,6 +736,9 @@ export const issueSubscribers = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     source: subscriberSourceEnum().notNull(),
     unsubscribed: boolean().notNull().default(false),
     ...timestamps,
@@ -740,6 +774,9 @@ export const issueEvents = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
+    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
+    // the shape's static trash predicate. Server-only, shape-excluded.
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
@@ -1158,6 +1195,9 @@ export const createIssueSchema = createInsertSchema(issues).omit({
   id: true,
   number: true,
   identifier: true,
+  // Server-derived (populate_issue_board_context) — never client input.
+  teamId: true,
+  boardDeletedAt: true,
   createdAt: true,
   updatedAt: true,
 })

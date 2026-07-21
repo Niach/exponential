@@ -6,10 +6,8 @@ export {
   assertAssigneeInTeam,
   assertMatchingTeamIds,
   getReadableTeamIds,
-  getReadableBoardIds,
   getReadableUserIdsInTeams,
   getUserTeamIds,
-  getUserBoardIds,
   getSoleHumanMemberId,
   getTeamMember,
   assertTeamMember,
@@ -34,6 +32,7 @@ export {
   sqlStringLiteral,
   buildWhereClause,
   buildTextInClause,
+  buildTeamScopedChildWhere,
   andClauses,
   orClauses,
 } from "@/lib/auth/shape-where"

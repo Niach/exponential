@@ -1,25 +1,38 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
-  buildWhereClause,
-  getUserBoardIds,
+  buildTeamScopedChildWhere,
+  getUserTeamIds,
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Activity-log timeline events. Members: board-scoped (board_id is
-// denormalized from issue→board by a trigger and never null here) so a
-// trashed board's events drop out of sync for the 48h trash window along
-// with the board itself. Anonymous callers sync nothing.
+// Server-pinned column allowlist — excludes the REV2-5 `board_deleted_at`
+// trash mirror (server-only; the where clause filters on it).
+const ISSUE_EVENT_COLUMNS = [
+  `id`,
+  `issue_id`,
+  `team_id`,
+  `board_id`,
+  `actor_user_id`,
+  `type`,
+  `payload`,
+  `created_at`,
+  `updated_at`,
+]
+
+// Activity-log timeline events. Members: team-scoped + trash-aware (REV2-5)
+// — a trashed board's events still drop out of sync for the 48h trash window
+// via the static board_deleted_at predicate, without the per-user board-id
+// list that rotated the shape identity on every board create/trash.
+// Anonymous callers sync nothing.
 export const Route = createFileRoute(`/api/shapes/issue-events`)({
   server: {
     handlers: {
       GET: createShapeRouteHandler({
         table: `issue_events`,
+        columns: ISSUE_EVENT_COLUMNS,
         getWhere: async (userId) => {
-          if (userId) {
-            const boardIds = await getUserBoardIds(userId)
-            return buildWhereClause(`board_id`, boardIds)
-          }
-          return buildWhereClause(`board_id`, [])
+          const teamIds = userId ? await getUserTeamIds(userId) : []
+          return buildTeamScopedChildWhere(teamIds)
         },
       }),
     },
