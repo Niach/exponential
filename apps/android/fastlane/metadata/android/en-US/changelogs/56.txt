@@ -1,0 +1,1 @@
+Issues filed through the feedback widget now show a "Feedback widget" label, and behind the scenes feedback no longer creates hidden bot users.

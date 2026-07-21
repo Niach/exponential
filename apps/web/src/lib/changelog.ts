@@ -23,6 +23,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-feedback-widget-origin`,
+    date: `2026-07-21`,
+    title: `See what came from your feedback widget`,
+    summary: `Issues filed through the embeddable feedback widget now carry a clear "Feedback widget" label.`,
+    body: `- **Feedback widget label** — issues that arrive through your embeddable widget now show a "Feedback widget" origin pill on the issue, on web, iOS, Android, and the desktop IDE.
+- **No more hidden bot users** — feedback used to be filed by a synthetic per-widget user that could show up in member lists; those are gone. Widget-filed issues simply have no sender, and everything (member lists, seat counts, account deletion) treats them cleanly.`,
+  },
+  {
     id: `2026-07-invites-from-the-web`,
     date: `2026-07-21`,
     title: `Invites now live on the web`,

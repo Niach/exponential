@@ -1,4 +1,3 @@
-• Sign in with Apple now runs natively, so your name is captured on first sign-in
-• Teammate avatars and cleaner per-member action menus in team settings
-• Accounts without a name now show their email instead of a blank
-• Repositories settings tidied into a single GitHub card
+• Issues filed through the feedback widget now show a "Feedback widget" label on the issue
+• Feedback no longer creates hidden bot users behind the scenes
+• Widget feedback issues without a sender are handled cleanly everywhere
