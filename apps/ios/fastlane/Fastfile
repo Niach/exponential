@@ -177,6 +177,22 @@ platform :ios do
     )
   end
 
+  desc "Upload listing metadata ONLY (no binary, no screenshots). Use when copy changes"
+  desc "between releases — `sync_store` would also push fastlane/screenshots/, which is"
+  desc "wrong whenever those are known-stale."
+  lane :sync_metadata do
+    deliver(
+      api_key: asc_api_key,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      force: true, # skip the interactive HTML preview
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
   desc "Build + upload to App Store Connect (deliver). Does NOT auto-submit for review."
   lane :release do
     build
