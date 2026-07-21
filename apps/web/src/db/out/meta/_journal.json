@@ -295,6 +295,13 @@
       "when": 1784670093946,
       "tag": "0041_outstanding_thunderbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1784675606508,
+      "tag": "0042_sparkling_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
