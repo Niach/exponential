@@ -15,8 +15,9 @@ import XCTest
 // precedent) — v2_notification_team_id was the first, v3_team_invite_email
 // (EXP-188) the second, v4_coding_session_needs_input (EXP-214) the third,
 // v5_drop_user_is_agent + v6_issue_source_nullable_creator (issues.source /
-// nullable creator_id, is_agent removal) the fourth/fifth.
-// These tests pin the fresh-install schema and the
+// nullable creator_id, is_agent removal) the fourth/fifth, and
+// v7_drop_board_dead_columns (REV2-91: boards.github_repo/preview_config)
+// the sixth. These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
@@ -55,7 +56,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
         )
     }
 
@@ -69,7 +70,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
         )
     }
 
@@ -111,7 +112,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -173,7 +174,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -198,6 +199,26 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(offsetValue, "-1")
         XCTAssertEqual(needsRefetch, true)
         XCTAssertEqual(isLive, false)
+    }
+
+    // v7 (REV2-91): a `-v5` store created while the dead JSONB-era board
+    // columns still existed must lose them via the guarded drop (today's v1
+    // create no longer declares them — hand-add them to model the old state).
+    func testDeadBoardColumnsDroppedFromExistingV5Store() throws {
+        let pool = try makePool("board-dead-cols")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v6_issue_source_nullable_creator")
+        try pool.write { db in
+            try db.alter(table: "boards") { t in
+                t.add(column: "github_repo", .text)
+                t.add(column: "preview_config", .text)
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let boardCols = try columnNames(pool, "boards")
+        XCTAssertFalse(boardCols.contains("github_repo"))
+        XCTAssertFalse(boardCols.contains("preview_config"))
     }
 
     // The end-state schema must expose the tables + key columns sync writes to,
@@ -272,6 +293,10 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(boardCols.contains("public_show_coding"))
         XCTAssertTrue(boardCols.contains("is_protected"))
         XCTAssertTrue(boardCols.contains("icon"))
+        // The JSONB-era board columns are gone (REV2-91): repos live in the
+        // server-only registry and the releases-era preview feature is deleted.
+        XCTAssertFalse(boardCols.contains("github_repo"))
+        XCTAssertFalse(boardCols.contains("preview_config"))
         // The team-level helpdesk switch (EXP-180 Support inbox) IS stored —
         // the teams shape serves it and the Support segment gates on it.
         XCTAssertTrue(try columnNames(pool, "teams").contains("helpdesk_enabled"))

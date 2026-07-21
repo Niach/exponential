@@ -131,8 +131,7 @@ final class SyncApplyTests: XCTestCase {
         let board = BoardEntity(
             id: "p1", teamId: "ws1", name: "Dogfood", slug: "exponential",
             prefix: "EXP", color: "#6366f1", sortOrder: 0, archivedAt: nil,
-            githubRepo: nil, repositoryId: "repo1",
-            isProtected: true, previewConfig: nil,
+            repositoryId: "repo1", isProtected: true,
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
         )
         let message = ShapeMessage<BoardEntity>.insert(

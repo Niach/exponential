@@ -169,7 +169,7 @@ public final class DatabaseManager: @unchecked Sendable {
         // column names and nullability matching packages/db-schema. SQLite type
         // affinities are looser than Postgres — uuid/timestamp/date columns are
         // stored as text (ISO-8601 for timestamps), enums as text, jsonb
-        // (issues.description, comments.body) as text.
+        // (issue_events.payload) as text.
         migrator.registerMigration("v1_initial") { db in
             try db.create(table: "electric_offsets", ifNotExists: true) { t in
                 t.primaryKey("shape", .text)
@@ -205,10 +205,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("color", .text).notNull().defaults(to: "#6366f1")
                 t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("archived_at", .text)
-                // Repos live in a server-only registry; the column stays so the
-                // (now-inert) repo-picker UI still compiles. Electric no longer
-                // populates it.
-                t.column("github_repo", .text)
                 // The repo backing this board (Electric ride-along on the
                 // boards shape). Nullable — repos are optional on every board;
                 // coding affordances gate on presence.
@@ -218,8 +214,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Server-managed protection flag: a protected board (the
                 // bootstrap dogfood board) can't be deleted/archived/repointed.
                 t.column("is_protected", .boolean).notNull().defaults(to: false)
-                // Display-only mirror of the preview run targets + feedback target.
-                t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -591,6 +585,23 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'issues'
                     """)
+            }
+        }
+
+        // v7 (REV2-91 JSONB-era cleanup): `boards.github_repo` (repos live in
+        // the server-only registry) and `boards.preview_config` (the deleted
+        // releases-era preview feature) no longer exist server-side and the
+        // boards shape's columns allowlist never carried them — nothing ever
+        // populated the local columns. Drop them from the cache (the
+        // v5_drop_user_is_agent precedent); guarded on presence so fresh
+        // installs (which never create them above) and re-runs are no-ops.
+        migrator.registerMigration("v7_drop_board_dead_columns") { db in
+            guard try db.tableExists("boards") else { return }
+            let existing = Set(try db.columns(in: "boards").map(\.name))
+            for column in ["github_repo", "preview_config"] where existing.contains(column) {
+                try db.alter(table: "boards") { t in
+                    t.drop(column: column)
+                }
             }
         }
 
