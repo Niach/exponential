@@ -335,6 +335,7 @@ STEER_RELAY_URL               # URL of the steer relay (unset = remote start/ste
 STEER_RELAY_SECRET            # Shared HS256 secret: web mints steer tickets, relay verifies (must match the relay process env)
 ANDROID_APP_LINK_FINGERPRINTS # Comma-separated SHA-256 cert fingerprints for /.well-known/assetlinks.json (Android App Links; unset = 404 and links open in the browser)
 SECURITY_HEADERS_ENABLED      # 'true' to emit CSP/HSTS etc. from the Bun server
+BUN_CONFIG_MAX_HTTP_REQUESTS  # Bun RUNTIME cap on simultaneous outbound fetches (default 256; read by Bun at process start, not app code). Baked as 65336 into the web Docker image — 14 Electric long-poll proxies per synced client saturate the default at ~18 clients and stall ALL other outbound fetches (REV2-6)
 INITIAL_ADMIN_EMAILS          # Comma-separated emails auto-promoted to global admin at startup
 CLIENT_MIN_VERSION_ANDROID    # Min Android client version — below it tRPC/shape requests answer HTTP 426 (blocking update screen); unset = gate off (fail-open). ALL CLIENT_*_VERSION_* values are marketing versions (versionName / CFBundleShortVersionString / desktop tag, e.g. 0.13.3), NEVER versionCode or build number
 CLIENT_MIN_VERSION_IOS        # Min iOS client version (same 426 gate)

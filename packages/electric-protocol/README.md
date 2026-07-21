@@ -151,12 +151,14 @@ initializer. The Drizzle/tRPC mutation path stays camelCase. See
 
 | Layer | File | Value |
 | --- | --- | --- |
-| Bun | `apps/web/src/server-bun.ts` | `idleTimeout: 255` (max) |
+| Bun (inbound) | `apps/web/src/server-bun.ts` | `idleTimeout: 255` (max) |
+| Bun (outbound fetch cap) | root `Dockerfile` (web image) | `ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336` — Bun's default of 256 simultaneous outbound fetches saturates at ~18 clients (14 held long-poll proxies each) |
 | Caddy | `Caddyfile` | `transport http { read_timeout 5m; write_timeout 5m; keepalive 5m }`, `flush_interval -1` |
 | Electric upstream | `docker-compose.yaml` `electric` service | defaults are fine |
 | TanStack Start proxy | `apps/web/src/lib/electric-proxy.ts` | forwards `request.signal` (client cancel propagates); buffers body for HTTP/1.1 framing |
 
-If you tune any of these down, the canary test will fail.
+If you tune any of these down, the canary tests in
+`fixtures/long-poll-canary.md` will fail.
 
 ---
 
@@ -178,4 +180,5 @@ See `fixtures/`:
 - `must-refetch-409.json` — the common 409 form with a replacement `electric-handle`.
 - `snake-case.json`, `camel-case.json` — same row in both casings.
 - `unknown-columns.json` — forward-compat vector: unknown columns + an object-valued known column that apply layers must tolerate-and-drop.
-- `long-poll-canary.md` — the manual test for verifying ~60s connection hold.
+- `long-poll-canary.md` — manual tests for the ~60s connection hold and the
+  >256 outbound-concurrency cap (REV2-6).
