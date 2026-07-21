@@ -143,14 +143,15 @@ subsequent release goes through the lanes below.
 
 ### Store screenshots (automated)
 
-`fastlane screenshots` captures the six Play shots (board, issue detail, comments,
-new issue, search, inbox) by signing into the real app from an instrumentation test
-(`app/src/androidTest/.../StoreScreenshotsTest.kt`). Prereqs, from the repo root:
+`fastlane screenshots` captures the eight Play shots (board, issue detail, comments,
+new issue, search, inbox, agents, support inbox) by signing into the real app from an
+instrumentation test (`app/src/androidTest/.../StoreScreenshotsTest.kt`). Prereqs,
+from the repo root:
 
 ```bash
 bun run backend:up                                  # Postgres + Electric
 bun dev                                             # web dev server on :5173
-cd apps/web && bun run seed:screenshots             # demo user + "Acme" workspace
+cd apps/web && bun run seed:screenshots             # demo user + "Acme" team
 ~/Library/Android/sdk/emulator/emulator -avd <avd>  # boot an English phone emulator
 cd apps/android && PATH="$PATH:$HOME/Library/Android/sdk/platform-tools" fastlane screenshots
 ```
@@ -162,9 +163,12 @@ Notes:
 - The seed script is idempotent and recreates the demo users each run on purpose —
   fresh ids force fresh Electric shapes, sidestepping the dev bridge stripping the
   `electric-*` headers (shapes can't advance past their snapshot in local dev).
-  Re-run it right before capturing.
-- Output **overwrites** the store screenshots that `closed`/`production` upload when
-  `skip_upload_screenshots` is flipped off; review the PNGs before pushing metadata.
+  It also enables the team helpdesk (support threads for the Support shot) and
+  inserts live coding sessions (Agents shot — their heartbeat goes stale after a
+  couple of hours). Re-run it right before capturing.
+- Output **overwrites** the committed store screenshots, and the `production` lane
+  uploads them with the listing metadata (`skip_upload_screenshots: false`); review
+  the PNGs before pushing metadata.
 - `adb` must be on PATH (screengrab shells out to it) and the run reinstalls the app
   (clears state) so the sign-in flow always executes.
 

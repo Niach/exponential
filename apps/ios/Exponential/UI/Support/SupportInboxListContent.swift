@@ -77,6 +77,7 @@ struct SupportInboxListContent: View {
                             threadRow(thread)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("support-thread-row")
                     }
                 }
                 .padding()

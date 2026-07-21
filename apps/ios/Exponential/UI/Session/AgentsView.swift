@@ -274,6 +274,7 @@ struct AgentsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
+        .accessibilityIdentifier("agent-session-row")
     }
 
     /// Static-dot/label tint per parked display state (EXP-194/EXP-214):

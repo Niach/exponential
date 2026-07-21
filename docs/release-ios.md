@@ -163,29 +163,45 @@ distribution — `ITSAppUsesNonExemptEncryption` is already declared `false` in
 
 ## Store screenshots (automated)
 
-`fastlane screenshots` captures the five store shots (board, issue detail, comments,
-project switcher with the v7 typed projects, inbox) by signing into the real app from a UI test
-(`ExponentialUITests/StoreScreenshots.swift`). Prereqs, from the repo root:
+`fastlane screenshots` captures the nine store shots (board, issue detail, comments,
+board switcher, inbox, agents, support inbox, search, create issue) by signing into the
+real app from a UI test (`ExponentialUITests/StoreScreenshots.swift`). Prereqs, from
+the repo root:
 
 ```bash
 bun run backend:up                                  # Postgres + Electric
 bun dev                                             # web dev server on :5173
-cd apps/web && bun run seed:screenshots             # demo user + "Acme" workspace
+cd apps/web && bun run seed:screenshots             # demo user + "Acme" team
 cd ../ios && fastlane screenshots                   # both simulators, en-US
 ```
 
 Notes:
 - The seed script (`apps/web/scripts/seed-screenshots.ts`) is idempotent and prints
-  the demo login. It recreates the demo **users** each run on purpose: the vite dev
-  bridge strips the `electric-*` headers from the shape proxies, so shapes can never
-  advance past their snapshot in local dev — fresh user/workspace ids force fresh
-  shapes with fresh snapshots. Re-run it right before capturing.
+  the demo login. Besides the board/issue/inbox data it enables the team helpdesk
+  (support threads for the Support shot) and inserts live coding sessions (Agents
+  shot — their heartbeat goes stale after a couple of hours, another reason to
+  re-seed right before capturing). It recreates the demo **users** each run on
+  purpose: the vite dev bridge strips the `electric-*` headers from the shape
+  proxies, so shapes can never advance past their snapshot in local dev — fresh
+  user/team ids force fresh shapes with fresh snapshots.
 - The Snapfile **erases both simulators** first (a leftover keychain session would
   skip the sign-in flow) and overrides the status bar (9:41, full battery).
 - The instance URL defaults to `http://localhost:5173`; override with the
   `SNAPSHOT_INSTANCE_URL` launch environment variable if needed.
 - Use the Homebrew `fastlane` (`brew install fastlane`), not `bundle exec` — the
   committed `Gemfile.lock` pins a bundler version the system Ruby doesn't ship.
+- Run with a UTF-8 locale (`LC_ALL=en_US.UTF-8`) — snapshot's simctl parsing
+  reads subprocess output as US-ASCII otherwise and crashes with
+  `undefined method 'name' for an instance of String`. If `xcode-select` points
+  at an Xcode beta, prefix with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+- Comment out `STEER_RELAY_URL` in the local web `.env` before capturing —
+  with a relay configured but no desktop connected, the Agents shot leads with
+  a "No desktop online" hint row instead of the clean session list.
+- If the second simulator's build dies with `cp … module.modulemap: Permission
+  denied` (GRDB's copy-module-map phase), the SPM checkout's modulemap is
+  read-only and the copy inherits it: run
+  `chmod u+w Tuist/.build/checkouts/GRDB.swift/Sources/GRDBSQLite/module.modulemap`
+  once and re-run.
 
 ## Manual fallback (Xcode Organizer)
 
