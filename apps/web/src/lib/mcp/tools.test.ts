@@ -149,7 +149,6 @@ const USER: McpUser = {
   image: null,
   emailVerified: true,
   isAdmin: false,
-  isAgent: false,
   creemCustomerId: null,
   hadTrial: false,
   onboardingCompletedAt: null,
@@ -456,35 +455,23 @@ describe(`exponential_notifications_list`, () => {
   })
 })
 
-// ── members_list (direct DB read, team-gated, agent-excluded) ───────────
+// ── members_list (direct DB read, team-gated) ───────────────────────────
 
 describe(`exponential_members_list`, () => {
-  it(`returns members and excludes agents by default`, async () => {
+  it(`returns the team members`, async () => {
     dbRows.current = [
-      { id: `user-1`, name: `User One`, role: `owner`, isAgent: false },
+      { id: `user-1`, name: `User One`, role: `owner` },
     ]
     const result = await tool(`exponential_members_list`)({
       teamId: WS,
-      includeAgents: false,
     })
     expect(parseOk(result)).toEqual([
-      { id: `user-1`, name: `User One`, role: `owner`, isAgent: false },
+      { id: `user-1`, name: `User One`, role: `owner` },
     ])
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(
       `user-1`,
       WS
     )
-    const { sql, params } = new PgDialect().sqlToQuery(state.capturedWhere as never)
-    expect(sql).toContain(`is_agent`)
-    expect(params).toContain(false)
-  })
-
-  it(`includes agents when includeAgents=true`, async () => {
-    dbRows.current = []
-    await tool(`exponential_members_list`)({
-      teamId: WS,
-      includeAgents: true,
-    })
     const { sql } = new PgDialect().sqlToQuery(state.capturedWhere as never)
     expect(sql).not.toContain(`is_agent`)
   })
@@ -493,7 +480,6 @@ describe(`exponential_members_list`, () => {
     membership.resolveTeamAccess.mockRejectedValue(forbidden())
     const result = await tool(`exponential_members_list`)({
       teamId: WS,
-      includeAgents: false,
     })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)

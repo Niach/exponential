@@ -7,6 +7,7 @@ object DomainContract {
     val issueStatusDisplayOrder: List<String> = listOf("in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate")
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
+    val issueSourceValues: List<String> = listOf("user", "widget")
     val teamRoleValues: List<String> = listOf("owner", "member")
     val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle")
     val commentKindValues: List<String> = listOf("regular")
@@ -25,6 +26,8 @@ object DomainContract {
 
     const val codingSessionStaleMs: Long = 7200000L
 
+    const val issueSourceUser: String = "user"
+    const val issueSourceWidget: String = "widget"
     const val teamRoleOwner: String = "owner"
     const val teamRoleMember: String = "member"
     const val commentKindRegular: String = "regular"

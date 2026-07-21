@@ -13,10 +13,9 @@ const USER = `user-1`
 function m(
   teamId: string,
   userId: string,
-  role: `owner` | `member`,
-  isAgent = false
+  role: `owner` | `member`
 ): MembershipRow {
-  return { teamId, userId, role, isAgent }
+  return { teamId, userId, role }
 }
 
 describe(`classifyTeamsForUserDeletion`, () => {
@@ -101,48 +100,4 @@ describe(`classifyTeamsForUserDeletion`, () => {
     })
   })
 
-  it(`ignores the synthetic widget bot — a widget-owning personal team stays solo (REV-6)`, () => {
-    // createWidgetUser adds an isAgent role=member row that widgets.delete
-    // intentionally retains; it must never block account deletion.
-    const rows = [
-      m(`ws-p`, USER, `owner`),
-      m(`ws-p`, `widget-bot`, `member`, true),
-    ]
-    expect(classifyTeamsForUserDeletion(rows, USER)).toEqual({
-      stranded: [],
-      solo: [`ws-p`],
-    })
-  })
-
-  it(`still flags a team as stranded when a real member exists alongside a bot`, () => {
-    const rows = [
-      m(`ws-t`, USER, `owner`),
-      m(`ws-t`, `widget-bot`, `member`, true),
-      m(`ws-t`, `user-2`, `member`),
-    ]
-    expect(classifyTeamsForUserDeletion(rows, USER)).toEqual({
-      stranded: [`ws-t`],
-      solo: [],
-    })
-  })
-
-  it(`never counts an agent as another owner (defensive)`, () => {
-    const rows = [
-      m(`ws-t`, USER, `owner`),
-      m(`ws-t`, `bot`, `owner`, true),
-      m(`ws-t`, `user-2`, `member`),
-    ]
-    expect(classifyTeamsForUserDeletion(rows, USER)).toEqual({
-      stranded: [`ws-t`],
-      solo: [],
-    })
-  })
-
-  it(`counts the target's own rows even when the target is an agent (admin deleting a bot)`, () => {
-    const rows = [m(`ws-x`, USER, `member`, true)]
-    expect(classifyTeamsForUserDeletion(rows, USER)).toEqual({
-      stranded: [],
-      solo: [`ws-x`],
-    })
-  })
 })

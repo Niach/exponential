@@ -24,6 +24,7 @@ interface Section {
 interface Contract {
   issueStatus: Section
   issuePriority: Section
+  issueSource: Section
   teamRole: Section
   boardIcon: Section
   commentKind: Section
@@ -132,6 +133,7 @@ ${swiftStringArray("issueStatusValues", contract.issueStatus.values)}
 ${swiftStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
+${swiftStringArray("issueSourceValues", contract.issueSource.values)}
 ${swiftStringArray("teamRoleValues", contract.teamRole.values)}
 ${swiftStringArray("boardIconValues", contract.boardIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
@@ -150,6 +152,7 @@ ${swiftStringArray("piThinkingValues", contract.piThinking.values)}
 
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
 
+${swiftNamedValues("issueSource", contract.issueSource.values)}
 ${swiftNamedValues("teamRole", contract.teamRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
@@ -167,6 +170,7 @@ ${kotlinStringArray("issueStatusValues", contract.issueStatus.values)}
 ${kotlinStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
+${kotlinStringArray("issueSourceValues", contract.issueSource.values)}
 ${kotlinStringArray("teamRoleValues", contract.teamRole.values)}
 ${kotlinStringArray("boardIconValues", contract.boardIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
@@ -185,6 +189,7 @@ ${kotlinStringArray("piThinkingValues", contract.piThinking.values)}
 
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
 
+${kotlinNamedValues("issueSource", contract.issueSource.values)}
 ${kotlinNamedValues("teamRole", contract.teamRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
@@ -204,6 +209,7 @@ ${rustStrSlice("issueStatusValues", contract.issueStatus.values)}
 ${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
+${rustStrSlice("issueSourceValues", contract.issueSource.values)}
 ${rustStrSlice("teamRoleValues", contract.teamRole.values)}
 ${rustStrSlice("boardIconValues", contract.boardIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
@@ -222,6 +228,7 @@ ${rustStrSlice("piThinkingValues", contract.piThinking.values)}
 
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 
+${rustNamedValues("issueSource", contract.issueSource.values)}
 ${rustNamedValues("teamRole", contract.teamRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}

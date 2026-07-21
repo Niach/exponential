@@ -10,7 +10,7 @@ export const Route = createFileRoute(`/api/shapes/users`)({
     handlers: {
       GET: createShapeRouteHandler({
         table: `users`,
-        // Server-pinned allowlist: exactly the columns every client stores.
+        // Server-pinned allowlist: exactly the 6 columns every client stores.
         // Keeps web-only/server-only columns (email_verified, is_admin,
         // creem_customer_id, had_trial, onboarding_completed_at) OUT of sync —
         // native schemas don't have them, and a partial update touching one
@@ -21,7 +21,6 @@ export const Route = createFileRoute(`/api/shapes/users`)({
           `name`,
           `email`,
           `image`,
-          `is_agent`,
           `created_at`,
           `updated_at`,
         ],

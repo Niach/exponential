@@ -1365,30 +1365,26 @@ export function registerExponentialTools(
     `exponential_members_list`,
     {
       title: `List team members`,
-      description: `List the members of a team with their id, name, email, and role — use this to resolve an assigneeId for issues. Synthetic bot users (the feedback-widget helpdesk identity) are excluded unless includeAgents is set.`,
+      description: `List the members of a team with their id, name, email, and role — use this to resolve an assigneeId for issues.`,
       inputSchema: {
         teamId: z.string().uuid(),
-        includeAgents: z.boolean().default(false),
       },
     },
-    async ({ teamId, includeAgents }) => {
+    async ({ teamId }) => {
       try {
         assertTeamVisible(access, teamId)
         await resolveTeamAccess(user.id, teamId)
-        const conditions = [eq(teamMembers.teamId, teamId)]
-        if (!includeAgents) conditions.push(eq(users.isAgent, false))
         const rows = await db
           .select({
             id: users.id,
             name: users.name,
             email: users.email,
             image: users.image,
-            isAgent: users.isAgent,
             role: teamMembers.role,
           })
           .from(teamMembers)
           .innerJoin(users, eq(users.id, teamMembers.userId))
-          .where(and(...conditions))
+          .where(eq(teamMembers.teamId, teamId))
           .orderBy(asc(users.name))
         return ok(rows)
       } catch (e) {

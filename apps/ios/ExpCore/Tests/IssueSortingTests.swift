@@ -31,6 +31,7 @@ final class IssueSortingTests: XCTestCase {
             priority: priority.rawValue,
             assigneeId: nil,
             creatorId: nil,
+            source: nil,
             dueDate: dueDate,
             dueTime: nil,
             endTime: nil,

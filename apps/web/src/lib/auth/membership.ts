@@ -4,7 +4,6 @@ import {
   attachments,
   issues,
   boards,
-  users,
   teamMembers,
   teams,
 } from "@/db/schema"
@@ -175,8 +174,7 @@ export async function assertAssigneeInTeam(
 
 // EXP-50: solo-team default assignment. Returns the user id of the
 // team's only human (non-agent) member, or null when the team has
-// zero or two-plus humans. Agents (widget-helpdesk bots) never count — a
-// personal team with a feedback widget still reads as "solo".
+// zero or two-plus members.
 export async function getSoleHumanMemberId(
   teamId: string
 ): Promise<string | null> {
@@ -184,13 +182,7 @@ export async function getSoleHumanMemberId(
   const rows = await db
     .select({ userId: teamMembers.userId })
     .from(teamMembers)
-    .innerJoin(users, eq(users.id, teamMembers.userId))
-    .where(
-      and(
-        eq(teamMembers.teamId, teamId),
-        eq(users.isAgent, false)
-      )
-    )
+    .where(eq(teamMembers.teamId, teamId))
     .limit(2)
   return rows.length === 1 ? rows[0].userId : null
 }

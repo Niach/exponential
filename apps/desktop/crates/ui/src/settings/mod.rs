@@ -387,20 +387,13 @@ pub(crate) fn is_solo_team(cx: &App, team_id: &str) -> bool {
     if collections.teams.read(cx).get(team_id).is_none() {
         return true;
     }
-    let users = collections.users.read(cx);
-    let human_members = collections
+    let member_count = collections
         .team_members
         .read(cx)
         .iter()
         .filter(|member| member.team_id == team_id)
-        .filter(|member| {
-            users
-                .get(&member.user_id)
-                .map(|user| user.is_agent != Some(true))
-                .unwrap_or(true)
-        })
         .count();
-    human_members <= 1
+    member_count <= 1
 }
 
 /// Web `useShowTeamChrome`: revealed when the team stops being solo

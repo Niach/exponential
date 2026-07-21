@@ -516,6 +516,7 @@ export function IssueDetailView({
         if (readOnly) return
         await trpc.issues.update.mutate({ id: issue.id, endTime: time })
       }}
+      source={issue.source}
       boardName={board.name}
       boardColor={board.color}
       boardPrefix={board.prefix}

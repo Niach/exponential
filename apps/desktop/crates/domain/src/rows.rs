@@ -101,6 +101,10 @@ pub struct Issue {
     pub assignee_id: Option<String>,
     #[serde(default)]
     pub creator_id: Option<String>,
+    /// `issues.source` wire value (`user`/`widget`) — tolerant raw string
+    /// (`crate::contract::ISSUE_SOURCE_VALUES`); `None` on pre-column rows.
+    #[serde(default)]
+    pub source: Option<String>,
     /// `date` column — `"2026-05-20"`; parse at the UI edge if needed (§5.5).
     #[serde(default)]
     pub due_date: Option<String>,
@@ -173,8 +177,6 @@ pub struct User {
     pub image: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub is_admin: Option<bool>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_agent: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

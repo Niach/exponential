@@ -76,7 +76,8 @@ data class IssueEntity(
     val status: String,
     val priority: String,
     @ColumnInfo(name = "assignee_id") @SerialName("assignee_id") @JsonNames("assigneeId") val assigneeId: String? = null,
-    @ColumnInfo(name = "creator_id") @SerialName("creator_id") @JsonNames("creatorId") val creatorId: String,
+    @ColumnInfo(name = "creator_id") @SerialName("creator_id") @JsonNames("creatorId") val creatorId: String? = null,
+    @ColumnInfo(name = "source") @SerialName("source") @JsonNames("source") val source: String? = null,
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate") val dueDate: String? = null,
     @ColumnInfo(name = "due_time") @SerialName("due_time") @JsonNames("dueTime") val dueTime: String? = null,
     @ColumnInfo(name = "end_time") @SerialName("end_time") @JsonNames("endTime") val endTime: String? = null,
@@ -131,7 +132,6 @@ data class UserEntity(
     val name: String? = null,
     val email: String,
     val image: String? = null,
-    @ColumnInfo(name = "is_agent") @SerialName("is_agent") @JsonNames("isAgent") val isAgent: PgBool = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

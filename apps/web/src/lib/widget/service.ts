@@ -350,9 +350,10 @@ export async function createWidgetSubmission(args: {
     // tRPC create's "no images at create time" rule exists because client
     // uploads happen after create — here the attachment exists before commit,
     // so the embedded image URL is valid the moment the issue is visible.
-    // The creator is an isAgent user (no subscription, no inbox); member
-    // fan-out happens AFTER commit via fireAndForgetNewIssueNotify (EXP-53) —
-    // every human team member gets an `issue_created` notification.
+    // The issue has NO user creator (creator_id null, source `widget`) — there
+    // is no synthetic bot; clients key the "Feedback widget" origin off source.
+    // Member fan-out happens AFTER commit via fireAndForgetNewIssueNotify
+    // (EXP-53) — every human team member gets an `issue_created` notification.
     const result = await db.transaction(async (tx) => {
       await generateTxId(tx)
       const [issue] = await tx
@@ -367,7 +368,8 @@ export async function createWidgetSubmission(args: {
           // description — store null like the tRPC mutations do.
           description: description || null,
           assigneeId: soleMemberId,
-          creatorId: config.widgetUserId,
+          creatorId: null,
+          source: `widget`,
         })
         .returning({ id: issues.id, identifier: issues.identifier })
 
@@ -377,7 +379,8 @@ export async function createWidgetSubmission(args: {
           teamId: config.teamId,
           boardId,
           issueId,
-          uploaderId: config.widgetUserId,
+          // No synthetic uploader — widget screenshots have a null uploader.
+          uploaderId: null,
           filename: sanitizeUploadFilename(screenshot.name, `screenshot.png`),
           contentType: screenshot.type,
           sizeBytes: screenshot.size,

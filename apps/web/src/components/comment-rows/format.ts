@@ -11,9 +11,7 @@ export function relativeTime(date: Date | string | null | undefined): string {
 
 export function authorLabel(
   author: User | undefined,
-  isAgent: boolean,
   authorId?: string | null
 ): string {
-  if (isAgent) return author?.name || `Agent`
   return displayUserName(author, authorId)
 }

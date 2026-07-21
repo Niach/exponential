@@ -277,10 +277,11 @@ describe(`shape column + trash contracts`, () => {
       `name`,
       `email`,
       `image`,
-      `is_agent`,
       `created_at`,
       `updated_at`,
     ])
+    // is_agent was removed from the users schema + shape entirely.
+    expect(columns).not.toContain(`is_agent`)
     // The columns that used to crash native partial-update loops must be gone.
     expect(columns).not.toContain(`onboarding_completed_at`)
     expect(columns).not.toContain(`is_admin`)

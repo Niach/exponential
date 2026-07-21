@@ -88,7 +88,7 @@ struct CommentThreadView: View {
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
                     httpClient: deps.httpClient,
-                    mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                    mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
                     onIssueRefTap: { issueId in deps.deepLinkBus.navigateToIssue(issueId) }
                 )
                 .frame(minHeight: 44, maxHeight: 140)
@@ -137,7 +137,7 @@ struct CommentThreadView: View {
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             httpClient: deps.httpClient,
-            mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+            mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
             resolveIssueRef: { identifier in resolveIssueRef(identifier) },
             onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
             onEdit: {

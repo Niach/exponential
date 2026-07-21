@@ -6,7 +6,6 @@ import { db } from "@/db/connection"
 import {
   boards,
   supportThreads,
-  users,
   widgetConfigs,
   widgetSubmissions,
   teams,
@@ -18,7 +17,6 @@ import {
   getBoardTeamId,
 } from "@/lib/team-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
-import { createWidgetUser, widgetUserName } from "@/lib/widget/widget-user"
 import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
 
 const widgetNameSchema = z.string().trim().min(1).max(255)
@@ -213,26 +211,19 @@ export const widgetsRouter = router({
         await assertSupportModeUsable(input.teamId)
       }
 
-      return await ctx.db.transaction(async (tx) => {
-        const widgetUserId = await createWidgetUser(tx, {
+      const [config] = await ctx.db
+        .insert(widgetConfigs)
+        .values({
           teamId: input.teamId,
-          configName: input.name,
+          boardId,
+          name: input.name,
+          publicKey: generateWidgetKey(),
+          allowedDomains: input.allowedDomains,
+          formConfig: input.formConfig ?? null,
+          createdByUserId: ctx.session.user.id,
         })
-        const [config] = await tx
-          .insert(widgetConfigs)
-          .values({
-            teamId: input.teamId,
-            boardId,
-            name: input.name,
-            publicKey: generateWidgetKey(),
-            allowedDomains: input.allowedDomains,
-            formConfig: input.formConfig ?? null,
-            widgetUserId,
-            createdByUserId: ctx.session.user.id,
-          })
-          .returning()
-        return config
-      })
+        .returning()
+      return config
     }),
 
   update: authedProcedure
@@ -288,41 +279,26 @@ export const widgetsRouter = router({
         }
       }
 
-      await ctx.db.transaction(async (tx) => {
-        await tx
-          .update(widgetConfigs)
-          .set({
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.boardId !== undefined
-              ? { boardId: input.boardId }
-              : {}),
-            ...(input.allowedDomains !== undefined
-              ? { allowedDomains: input.allowedDomains }
-              : {}),
-            ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-            ...(input.formConfig !== undefined
-              ? { formConfig: input.formConfig ?? null }
-              : {}),
-          })
-          .where(eq(widgetConfigs.id, config.id))
-
-        // Keep the synthetic creator's display name in sync so issue
-        // timelines keep saying "Widget: <current name>".
-        if (input.name !== undefined && input.name !== config.name) {
-          await tx
-            .update(users)
-            .set({ name: widgetUserName(input.name) })
-            .where(eq(users.id, config.widgetUserId))
-        }
-      })
+      await ctx.db
+        .update(widgetConfigs)
+        .set({
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.boardId !== undefined ? { boardId: input.boardId } : {}),
+          ...(input.allowedDomains !== undefined
+            ? { allowedDomains: input.allowedDomains }
+            : {}),
+          ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+          ...(input.formConfig !== undefined
+            ? { formConfig: input.formConfig ?? null }
+            : {}),
+        })
+        .where(eq(widgetConfigs.id, config.id))
       return { ok: true }
     }),
 
-  // Deletes the config row ONLY. The synthetic widget user (and its agent
-  // membership) is intentionally retained: issues.creator_id cascades on
-  // user delete, so removing the user would delete every issue this widget
-  // ever created. widget_configs.widget_user_id is `restrict` for the same
-  // reason. widget_submissions rows survive via their `set null` FK.
+  // Deletes the config row ONLY. Widget-filed issues carry a null creator +
+  // source `widget` (no synthetic user to clean up). widget_submissions rows
+  // survive via their `set null` FK.
   delete: authedProcedure
     .input(z.object({ widgetConfigId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

@@ -130,7 +130,6 @@ const config = {
   id: `cfg-1`,
   teamId: `ws-1`,
   boardId: `proj-1`,
-  widgetUserId: `widget-bot`,
   publicKey: `expw_test`,
   enabled: true,
   allowedDomains: [`example.com`],
@@ -181,7 +180,8 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
 
     expect(h.getSoleHumanMemberId).toHaveBeenCalledWith(`ws-1`)
     expect(issueInsert()?.values.assigneeId).toBe(`member-1`)
-    expect(issueInsert()?.values.creatorId).toBe(`widget-bot`)
+    expect(issueInsert()?.values.creatorId).toBeNull()
+    expect(issueInsert()?.values.source).toBe(`widget`)
 
     expect(h.ensureSubscribed).toHaveBeenCalledTimes(1)
     expect(h.ensureSubscribed).toHaveBeenCalledWith(tx, {

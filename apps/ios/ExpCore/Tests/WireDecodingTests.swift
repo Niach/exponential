@@ -113,18 +113,6 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(attachment.filename, "3.5")
     }
 
-    // MARK: - User (regression for the latent always-false is_agent bug)
-
-    func testUserDecodesWireStringIsAgent() throws {
-        let user = try decode(UserEntity.self, #"""
-        {
-          "id": "u1", "email": "u@example.com", "is_agent": "true",
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        XCTAssertTrue(user.isAgent)
-    }
-
     // MARK: - Notification (issue-less support_reply rows carry team_id)
 
     func testNotificationDecodesIssuelessSupportReplyWithTeamId() throws {
@@ -195,13 +183,15 @@ final class WireDecodingTests: XCTestCase {
     }
 
     func testWireBoolUnknownStringFallsBackToDefault() throws {
-        // is_agent's default is false; an unrecognized string keeps the default.
-        let user = try decode(UserEntity.self, #"""
+        // The wire-bool default (here `unsubscribed` → false); an unrecognized
+        // string keeps the default.
+        let sub = try decode(IssueSubscriberEntity.self, #"""
         {
-          "id": "u1", "email": "u@example.com", "is_agent": "maybe",
+          "id": "s1", "issue_id": "i1", "team_id": "w1", "source": "manual",
+          "unsubscribed": "maybe",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)
-        XCTAssertFalse(user.isAgent)
+        XCTAssertFalse(sub.unsubscribed)
     }
 }

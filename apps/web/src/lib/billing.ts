@@ -7,7 +7,6 @@ import {
   attachments,
   creem_subscriptions,
   widgetConfigs,
-  users,
 } from "@/db/schema"
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
@@ -256,8 +255,6 @@ export async function countOwnedTeams(userId: string): Promise<number> {
 }
 
 export type TeamUsage = {
-  // Human members only — the widget's synthetic isAgent user is excluded so a
-  // fresh single-owner team reads "1 member", never "2".
   members: number
   storageMb: number
   widgetConfigs: number
@@ -270,13 +267,7 @@ export async function getTeamUsage(
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, teamId),
-          eq(users.isAgent, false)
-        )
-      ),
+      .where(eq(teamMembers.teamId, teamId)),
     db
       .select({
         totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
@@ -330,9 +321,9 @@ export async function assertCanCreateTeam(userId: string): Promise<void> {
 }
 
 // Invite-time seat check (team-invites.create/accept). Current member
-// count EXCLUDING isAgent users must be below the purchased seat count.
-// Downgrade policy (L19/§3.2): this ONLY blocks NEW invites — it never removes
-// or locks out existing members.
+// count must be below the purchased seat count. Downgrade policy (L19/§3.2):
+// this ONLY blocks NEW invites — it never removes or locks out existing
+// members.
 export async function assertCanInviteMember(
   teamId: string
 ): Promise<void> {

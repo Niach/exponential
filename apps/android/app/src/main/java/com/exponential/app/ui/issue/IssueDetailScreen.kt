@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issuePriorityOrder
@@ -307,7 +309,11 @@ fun IssueDetailScreen(
             if (syncBanner != SyncBanner.None) Spacer(Modifier.height(8.dp))
             // Header: identifier chip (actions live in the nav bar). The repo
             // chip renders once, above the agent/PR card (EXP-170).
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
                     issue.identifier,
                     style = MaterialTheme.typography.labelMedium,
@@ -317,6 +323,11 @@ fun IssueDetailScreen(
                         .glassButton()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
+                // Origin chip: issues filed via the feedback widget carry
+                // source == "widget" (no user creator). Read-only indicator.
+                if (issue.source == DomainContract.issueSourceWidget) {
+                    FeedbackWidgetChip()
+                }
             }
 
             // Conflict affordance: a remote edit to the title or description
@@ -426,7 +437,6 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(16.dp))
             val mentionMembers = remember(state.users) {
                 state.users
-                    .filter { !it.isAgent }
                     .map { MentionMember(it.name ?: it.email, it.email) }
             }
             MarkdownEditor(
@@ -545,8 +555,7 @@ fun IssueDetailScreen(
     }
 
     if (assigneeMenuOpen && isModerator) {
-        // Only real people are assignable; the widget helpdesk bot (isAgent) is excluded.
-        val people = state.users.filter { !it.isAgent }
+        val people = state.users
         val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
             listOf<com.exponential.app.data.db.UserEntity?>(null) + people
         IssuePickerSheet(
@@ -691,6 +700,31 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
         Text(
             "Updated by someone else — tap to reload",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+    }
+}
+
+// Origin pill for widget-filed issues (source == "widget"): a muted, read-only
+// "Feedback widget" indicator matching the RepoChip glass idiom.
+@Composable
+private fun FeedbackWidgetChip() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .glassButton()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Icon(
+            Icons.Filled.Feedback,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            "Feedback widget",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }

@@ -1,6 +1,11 @@
-import { CalendarDays } from "lucide-react"
+import { CalendarDays, Megaphone } from "lucide-react"
 import type { User } from "@/db/schema"
-import { type IssuePriority, type IssueStatus } from "@/lib/domain"
+import {
+  type IssuePriority,
+  type IssueSource,
+  type IssueStatus,
+} from "@/lib/domain"
+import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
@@ -35,6 +40,9 @@ export interface IssuePropertiesPanelProps {
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onDueTimeChange: (time: string | null) => void | Promise<void>
   onEndTimeChange: (time: string | null) => void | Promise<void>
+  // Where the issue came from. Only `widget` renders anything (a muted
+  // "Feedback widget" pill); `user` (the default) shows nothing.
+  source?: IssueSource
   boardName: string
   boardColor: string
   boardPrefix: string
@@ -161,6 +169,20 @@ function BoardChip({
   )
 }
 
+// Muted origin pill shown only for widget-filed issues (no user creator). The
+// author byline slot for feedback that came in through the embeddable widget.
+function SourceChip() {
+  return (
+    <Badge
+      variant="secondary"
+      className="gap-1 font-normal text-muted-foreground"
+    >
+      <Megaphone className="size-3" />
+      Feedback widget
+    </Badge>
+  )
+}
+
 export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const {
     layout,
@@ -284,6 +306,8 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       />
     )
 
+  const isWidgetSourced = props.source === `widget`
+
   if (layout === `sidebar`) {
     return (
       <aside className="w-72 shrink-0 border-l border-border px-4 py-4 space-y-4 text-sm">
@@ -295,6 +319,11 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
         <PropertyGroup label="Due date">{dueDateControl}</PropertyGroup>
         <PropertyGroup label="Board">{boardChip}</PropertyGroup>
+        {isWidgetSourced && (
+          <PropertyGroup label="Source">
+            <SourceChip />
+          </PropertyGroup>
+        )}
         {props.codingSlot}
       </aside>
     )
@@ -309,6 +338,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {labelControl}
       {dueDateControl}
       {boardChip}
+      {isWidgetSourced && <SourceChip />}
     </div>
   )
 }

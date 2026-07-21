@@ -13,7 +13,9 @@ import XCTest
 // team_id/board_id columns) directly. Additive columns added AFTER `-v5`
 // stores shipped ride incremental guarded-ALTER steps again (the old v3…v6
 // precedent) — v2_notification_team_id was the first, v3_team_invite_email
-// (EXP-188) the second, v4_coding_session_needs_input (EXP-214) the third.
+// (EXP-188) the second, v4_coding_session_needs_input (EXP-214) the third,
+// v5_drop_user_is_agent + v6_issue_source_nullable_creator (issues.source /
+// nullable creator_id, is_agent removal) the fourth/fifth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -52,7 +54,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
-             "v4_coding_session_needs_input"]
+             "v4_coding_session_needs_input", "v5_drop_user_is_agent",
+             "v6_issue_source_nullable_creator"]
         )
     }
 
@@ -65,7 +68,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
-             "v4_coding_session_needs_input"]
+             "v4_coding_session_needs_input", "v5_drop_user_is_agent",
+             "v6_issue_source_nullable_creator"]
         )
     }
 
@@ -106,7 +110,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
-             "v4_coding_session_needs_input"]
+             "v4_coding_session_needs_input", "v5_drop_user_is_agent",
+             "v6_issue_source_nullable_creator"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -167,7 +172,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
-             "v4_coding_session_needs_input"]
+             "v4_coding_session_needs_input", "v5_drop_user_is_agent",
+             "v6_issue_source_nullable_creator"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -235,6 +241,16 @@ final class DatabaseMigrationTests: XCTestCase {
 
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
+        // issues.source ('user'|'widget') + a nullable creator_id (a
+        // widget-sourced issue has no human creator).
+        XCTAssertTrue(try columnNames(pool, "issues").contains("source"))
+        let issueCreatorId = try pool.read { db in
+            try db.columns(in: "issues").first { $0.name == "creator_id" }
+        }
+        XCTAssertNotNil(issueCreatorId)
+        XCTAssertFalse(issueCreatorId?.isNotNull ?? true)
+        // users.is_agent was removed with the synced 6-column users shape.
+        XCTAssertFalse(try columnNames(pool, "users").contains("is_agent"))
         // The deleted releases/recurrence features never existed in this schema.
         XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))

@@ -3,6 +3,7 @@ import { contract } from "@exp/domain-contract"
 import {
   issueStatusValues,
   issuePriorityValues,
+  issueSourceValues,
   teamRoleValues,
   boardIconValues,
   commentKindValues,
@@ -27,6 +28,10 @@ describe(`domain-contract parity`, () => {
 
   it(`issue priority values match the contract`, () => {
     expect([...issuePriorityValues]).toEqual([...contract.issuePriority.values])
+  })
+
+  it(`issue source values match the contract`, () => {
+    expect([...issueSourceValues]).toEqual([...contract.issueSource.values])
   })
 
   it(`team role values match the contract`, () => {

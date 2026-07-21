@@ -200,6 +200,7 @@ final class SearchViewModel {
             priority: hit.priority,
             assigneeId: nil,
             creatorId: nil,
+            source: nil,
             dueDate: nil,
             dueTime: nil,
             endTime: nil,

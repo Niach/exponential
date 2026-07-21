@@ -34,17 +34,12 @@ use crate::timeline::IssueTimeline;
 // format.ts mirrors
 // ---------------------------------------------------------------------------
 
-/// Web `authorLabel` (`comment-rows/format.ts`): `name || email || "Someone"`,
-/// except agents label as `name || "Agent"` (no email fallback — synthetic
-/// widget/agent users have no meaningful address).
+/// Web `authorLabel` (`comment-rows/format.ts`): `name || email || "Someone"`.
 pub(crate) fn author_label(author: Option<&User>) -> String {
     let Some(user) = author else {
         return "Someone".to_string();
     };
     let name = user.name.clone().filter(|name| !name.is_empty());
-    if user.is_agent == Some(true) {
-        return name.unwrap_or_else(|| "Agent".to_string());
-    }
     name.or_else(|| user.email.clone().filter(|email| !email.is_empty()))
         .unwrap_or_else(|| "Someone".to_string())
 }
@@ -326,13 +321,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(author_label(Some(&email_only)), "no-name@example.com");
-
-        // Agents: name || "Agent", never the email (web authorLabel isAgent arm).
-        let agent: User = serde_json::from_value(json!({
-            "id": "u-3", "email": "bot@internal", "is_agent": true
-        }))
-        .unwrap();
-        assert_eq!(author_label(Some(&agent)), "Agent");
 
         assert_eq!(author_label(None), "Someone");
     }

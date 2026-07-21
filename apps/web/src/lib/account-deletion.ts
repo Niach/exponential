@@ -3,8 +3,6 @@ import { eq, inArray, or } from "drizzle-orm"
 import {
   attachments,
   githubInstallationRepoGrants,
-  issues,
-  users,
   teams,
   teamMembers,
 } from "@/db/schema"
@@ -24,7 +22,6 @@ export type MembershipRow = {
   teamId: string
   userId: string
   role: string
-  isAgent: boolean
 }
 
 /**
@@ -40,27 +37,13 @@ export type MembershipRow = {
  *   solo teams). These are deleted along with the account so no orphaned
  *   data survives — the privacy policy promises deletion of "all associated
  *   data".
- * - Agent members (users.isAgent — the synthetic widget bot) are ignored: a
- *   team whose only non-agent member is the user classifies `solo` and
- *   is deleted with the account.
  */
 export function classifyTeamsForUserDeletion(
   memberships: MembershipRow[],
   userId: string
 ): { stranded: string[]; solo: string[] } {
-  // Synthetic agent users (the widget bot) never count as "other members":
-  // they hold no owner powers, every member-list surface hides them, and
-  // billing/seat counts already exclude them (lib/billing.ts). Counting one
-  // here would permanently classify a widget-owning personal team as
-  // stranded — blocking self-service account deletion with an error that
-  // points at an invisible member. The user being deleted always counts as
-  // themselves, whatever their own flag (admin-deleting a retained bot must
-  // still solo-classify a team where the bot is the entire membership).
-  const humanRows = memberships.filter(
-    (r) => r.userId === userId || !r.isAgent
-  )
   const byTeam = new Map<string, MembershipRow[]>()
-  for (const row of humanRows) {
+  for (const row of memberships) {
     const list = byTeam.get(row.teamId) ?? []
     list.push(row)
     byTeam.set(row.teamId, list)
@@ -126,10 +109,8 @@ export async function guardAndCleanupTeamsForUserDeletion(
       teamId: teamMembers.teamId,
       userId: teamMembers.userId,
       role: teamMembers.role,
-      isAgent: users.isAgent,
     })
     .from(teamMembers)
-    .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(inArray(teamMembers.teamId, myTeamIds))
 
   const { stranded, solo } = classifyTeamsForUserDeletion(
@@ -175,17 +156,12 @@ export async function guardAndCleanupTeamsForUserDeletion(
 
   // Collect every S3 object the deletes below and the users-row cascade will
   // strand — none of those DB deletes touch storage: (a) attachments in the
-  // solo teams being deleted, (b) attachments of issues this user created
-  // (issues.creator_id cascade), (c) attachments this user uploaded
+  // solo teams being deleted, (b) attachments this user uploaded
   // (attachments.uploader_id cascade). Deduped; collected BEFORE any delete.
-  const myIssueIds = tx
-    .select({ id: issues.id })
-    .from(issues)
-    .where(eq(issues.creatorId, userId))
-  const keyConditions = [
-    inArray(attachments.issueId, myIssueIds),
-    eq(attachments.uploaderId, userId),
-  ]
+  // NOTE: issues this user CREATED are NOT reclaimed — issues.creator_id is
+  // ON DELETE SET NULL, so those issues (and their attachments) survive the
+  // account deletion; reclaiming their blobs would strand live images.
+  const keyConditions = [eq(attachments.uploaderId, userId)]
   if (soloToDelete.length > 0) {
     keyConditions.push(inArray(attachments.teamId, soloToDelete))
   }

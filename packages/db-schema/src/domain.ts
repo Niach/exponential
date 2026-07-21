@@ -24,6 +24,13 @@ export const issuePriorityValues = [
 
 export const teamRoleValues = [`owner`, `member`] as const
 
+// Where an issue came from (issues.source). `user` = filed by a signed-in
+// member (the default, and the value the trigger/insert paths leave in place).
+// `widget` = filed anonymously through the embeddable feedback widget — those
+// rows carry a NULL creator_id (no synthetic user), so clients key the
+// "Feedback widget" author label off this value.
+export const issueSourceValues = [`user`, `widget`] as const
+
 // Curated board icon set (boards.icon) — lucide names on the web; the
 // native clients carry their own per-platform glyph mapping keyed by these
 // values (via the domain contract). NULL icon = clients derive a fallback
@@ -161,6 +168,7 @@ export const issueEventTypeValues = [
 
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
+export type IssueSource = (typeof issueSourceValues)[number]
 export type TeamRole = (typeof teamRoleValues)[number]
 export type BoardIcon = (typeof boardIconValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
@@ -176,6 +184,7 @@ export type SupportMessageVisibility =
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
+export const issueSourceSchema = z.enum(issueSourceValues)
 export const teamRoleSchema = z.enum(teamRoleValues)
 export const boardIconSchema = z.enum(boardIconValues)
 export const commentKindSchema = z.enum(commentKindValues)

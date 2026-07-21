@@ -9,7 +9,6 @@ import {
   getIssueTeamContext,
 } from "@/lib/team-membership"
 import { isUserAdmin } from "@/lib/admin"
-import { isAgentUser } from "@/lib/auth/app-user"
 import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { resolveMentions } from "@/lib/integrations/mentions"
@@ -51,10 +50,6 @@ export const commentsRouter = router({
         `comment`
       )
 
-      // The widget-helpdesk bot (users.isAgent) authors issues, not threaded
-      // comments — but guard anyway so a bot-authored comment never fans out.
-      const isBotAuthor = isAgentUser(ctx.session.user)
-
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [comment] = await tx
@@ -95,15 +90,12 @@ export const commentsRouter = router({
         return { txId, comment, mentionedUserIds }
       })
 
-      // Bot-authored comments never fan out as notifications.
-      if (!isBotAuthor) {
-        fireAndForgetCommentNotify({
-          issueId: input.issueId,
-          actorUserId: ctx.session.user.id,
-          commentBodyText: getCommentBodyText(input.body),
-          mentionedUserIds: result.mentionedUserIds,
-        })
-      }
+      fireAndForgetCommentNotify({
+        issueId: input.issueId,
+        actorUserId: ctx.session.user.id,
+        commentBodyText: getCommentBodyText(input.body),
+        mentionedUserIds: result.mentionedUserIds,
+      })
 
       return result
     }),

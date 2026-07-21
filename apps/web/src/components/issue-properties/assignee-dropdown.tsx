@@ -41,8 +41,7 @@ export function AssigneeDropdown({
   const [open, setOpen] = useState(false)
   const assignee = assigneeId ? userMap.get(assigneeId) : undefined
 
-  // Hide bot users (the widget helpdesk bot) from assignment.
-  const people = users.filter((u) => !u.isAgent)
+  const people = users
 
   const avatarVisual = assignee ? (
     <Avatar className="size-5">

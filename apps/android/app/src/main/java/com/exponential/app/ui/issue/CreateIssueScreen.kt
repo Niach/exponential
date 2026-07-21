@@ -315,7 +315,6 @@ fun CreateIssueScreen(
                     initialPendingImages = initialPendingImages,
                     mentionMembers = remember(users) {
                         users
-                            .filter { !it.isAgent }
                             .map { MentionMember(it.name ?: it.email, it.email) }
                     },
                 )

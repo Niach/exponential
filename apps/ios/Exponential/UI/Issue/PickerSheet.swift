@@ -76,10 +76,7 @@ struct AssigneeOption: Identifiable, Hashable {
     )
 }
 
-/// User ids of a team's HUMAN members (widget/agent bots excluded), from
-/// the synced `team_members ⋈ users` store. A member whose `users` row
-/// hasn't synced yet is counted as human — conservative, so we never wrongly
-/// hide the assignee picker on a team that actually has other people.
+/// User ids of a team's members, from the synced `team_members` store.
 ///
 /// When this returns exactly one id the team is solo: both create + detail
 /// surfaces skip the assignee picker and auto-assign that sole member (EXP-50).
@@ -87,22 +84,13 @@ func humanTeamMemberIds(teamId: String, db: Database) throws -> [String] {
     let members = try TeamMemberEntity
         .filter(Column("team_id") == teamId)
         .fetchAll(db)
-    var ids: [String] = []
-    for member in members {
-        if let user = try UserEntity.fetchOne(db, key: member.userId) {
-            if !user.isAgent { ids.append(member.userId) }
-        } else {
-            // User row not synced yet → assume human rather than hide the picker.
-            ids.append(member.userId)
-        }
-    }
-    return ids
+    return members.map(\.userId)
 }
 
-// Assignable members — the widget helpdesk bot (is_agent) is excluded.
+// Assignable members.
 func assigneeOptions(users: [UserEntity]) -> [AssigneeOption] {
     var options: [AssigneeOption] = [.unassigned]
-    for user in users.filter({ !$0.isAgent }) {
+    for user in users {
         options.append(
             AssigneeOption(
                 id: user.id,

@@ -184,10 +184,9 @@ pub(crate) fn issue_team_id(cx: &App, issue_id: &str) -> Option<String> {
 }
 
 /// `use-team-data.ts` `useTeamUsers`: `team_members` ⨝ `users`
-/// (name-sorted for deterministic pickers). Synthetic `is_agent` users
-/// (widget creators) are excluded — every assignee/member picker wants the
-/// HUMAN members, matching the web's `people` filter (EXP-50 alignment: this
-/// query and the properties panel's member read now share the rule).
+/// (name-sorted for deterministic pickers), matching the web's `people`
+/// filter (EXP-50 alignment: this query and the properties panel's member
+/// read share the rule).
 pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     let collections = Store::global(cx).collections();
     let members = collections.team_members.read(cx);
@@ -200,7 +199,7 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
         .users
         .read(cx)
         .iter()
-        .filter(|user| member_ids.contains(user.id.as_str()) && user.is_agent != Some(true))
+        .filter(|user| member_ids.contains(user.id.as_str()))
         .cloned()
         .collect();
     out.sort_by_key(|user| {
