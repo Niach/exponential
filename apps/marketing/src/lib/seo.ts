@@ -127,7 +127,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `download/index.html`,
     sources: [`src/DownloadPage.tsx`, `src/components/DownloadSection.tsx`],
     title: `Download Exponential`,
-    description: `Get Exponential on every platform — the native Rust desktop IDE for macOS and Linux, plus iOS and Android companions.`,
+    description: `Get Exponential on every platform — the native Rust desktop IDE for macOS, Windows and Linux, plus iOS and Android companions.`,
     ogImage: `/og/og-download.png`,
   },
   {
