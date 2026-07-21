@@ -41,7 +41,8 @@ function stripTrailingSlashes(url: string): string {
 
 export function steerWsBase(relayUrl: string): string {
   const base = stripTrailingSlashes(relayUrl)
-  if (base.startsWith(`https://`)) return `wss://${base.slice(`https://`.length)}`
+  if (base.startsWith(`https://`))
+    return `wss://${base.slice(`https://`.length)}`
   if (base.startsWith(`http://`)) return `ws://${base.slice(`http://`.length)}`
   return base
 }
@@ -177,12 +178,6 @@ export interface SteerDevice {
   /** EXP-201: agent CLIs the device advertised (`claude`/`codex`/`pi`).
    * Absent from an old relay ⇒ treat as claude-only. */
   agents?: string[]
-}
-
-/** The agents a device can run — absent advertisement (old relay/desktop)
- * means exactly what every desktop could do before EXP-201: claude. */
-export function deviceAgents(device: Pick<SteerDevice, `agents`>): string[] {
-  return device.agents && device.agents.length > 0 ? device.agents : [`claude`]
 }
 
 /** GET /devices/:userId — online desktops for the "Start on my desktop" picker. */

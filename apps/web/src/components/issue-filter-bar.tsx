@@ -20,8 +20,7 @@ interface IssueFilterBarProps {
   onNewIssue: () => void
   canCreate?: boolean
   title?: string
-  // Extra header actions rendered before the filter button (e.g. the public
-  // board Share button).
+  // Extra header actions rendered before the filter button.
   actions?: React.ReactNode
 }
 

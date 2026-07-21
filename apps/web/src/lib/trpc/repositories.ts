@@ -4,10 +4,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { issues, boards, repositories } from "@/db/schema"
-import {
-  assertTeamMember,
-  getIssueTeamContext,
-} from "@/lib/team-membership"
+import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
   fetchBranchDiff,
   githubAppConfigured,
@@ -104,7 +101,8 @@ export async function connectRepositoryInTx(
   let defaultBranch = input.defaultBranch
   if (!defaultBranch) {
     try {
-      defaultBranch = (await resolveRepoDefaultBranch(input.fullName)) ?? undefined
+      defaultBranch =
+        (await resolveRepoDefaultBranch(input.fullName)) ?? undefined
     } catch (err) {
       console.warn(
         `[repositories] default-branch lookup threw for ${input.fullName}; falling back to main`,
@@ -175,14 +173,16 @@ export async function healRepoDefaultBranches<
     fullName: string
     defaultBranch: string
     inaccessibleAt?: Date | null
-  }
+  },
 >(
   repos: R[],
   persist: (
     id: string,
     patch: { defaultBranch?: string; clearInaccessible?: boolean }
   ) => Promise<void>,
-  resolve: (fullName: string) => Promise<string | null> = resolveRepoDefaultBranchCached
+  resolve: (
+    fullName: string
+  ) => Promise<string | null> = resolveRepoDefaultBranchCached
 ): Promise<R[]> {
   return Promise.all(
     repos.map(async (repo) => {
@@ -282,10 +282,7 @@ async function resolveGatedRepoToken(repo: {
   })
   if (!resolved) return null
   if (
-    !(await isInstallationLinkedToTeam(
-      repo.teamId,
-      resolved.installationId
-    ))
+    !(await isInstallationLinkedToTeam(repo.teamId, resolved.installationId))
   ) {
     return null
   }
@@ -293,9 +290,8 @@ async function resolveGatedRepoToken(repo: {
 }
 
 export const repositoriesRouter = router({
-  // Member-readable (moderator-only on public teams): the team's
-  // repos + the boards each one backs (for the settings "in use by" chips
-  // and mobile pickers).
+  // Member-readable: the team's repos + the boards each one backs (for the
+  // settings "in use by" chips and mobile pickers).
   list: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -322,7 +318,9 @@ export const repositoriesRouter = router({
         ctx.db
           .update(repositories)
           .set({
-            ...(patch.defaultBranch ? { defaultBranch: patch.defaultBranch } : {}),
+            ...(patch.defaultBranch
+              ? { defaultBranch: patch.defaultBranch }
+              : {}),
             ...(patch.clearInaccessible ? { inaccessibleAt: null } : {}),
           })
           .where(eq(repositories.id, id))
@@ -338,12 +336,7 @@ export const repositoriesRouter = router({
           repositoryId: boards.repositoryId,
         })
         .from(boards)
-        .where(
-          and(
-            eq(boards.teamId, input.teamId),
-            isNull(boards.archivedAt)
-          )
-        )
+        .where(and(eq(boards.teamId, input.teamId), isNull(boards.archivedAt)))
 
       return repos.map((repo) => ({
         ...repo,
@@ -390,12 +383,7 @@ export const repositoriesRouter = router({
         .select({ prUrl: issues.prUrl })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
-        .where(
-          and(
-            eq(boards.teamId, input.teamId),
-            isNotNull(issues.prUrl)
-          )
-        )
+        .where(and(eq(boards.teamId, input.teamId), isNotNull(issues.prUrl)))
       const linkedUrls = new Set(
         linkedRows.map((row) => row.prUrl).filter(Boolean)
       )
@@ -555,7 +543,7 @@ export const repositoriesRouter = router({
     }),
 
   // The launcher's clone-target resolution: issue → board → repositoryId.
-  // Member-readable (moderator-only on public teams).
+  // Member-readable.
   forIssue: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -628,9 +616,7 @@ export const repositoriesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
       // Team coding: any member of the repo's team may mint a JIT token
-      // (assertRepoCapability = membership, moderator-clamped on PUBLIC
-      // teams only — so on the public feedback board it's owner/moderator
-      // exclusively, while in a normal private team every teammate passes).
+      // (assertRepoCapability = plain team membership).
       // Per-installer attribution is intentionally NOT required here: the repo
       // is only present in this team because a member legitimately
       // connected it, and connectRepositoryInTx already enforced
@@ -660,7 +646,10 @@ export const repositoriesRouter = router({
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
           .where(
-            and(eq(repositories.id, repo.id), isNull(repositories.inaccessibleAt))
+            and(
+              eq(repositories.id, repo.id),
+              isNull(repositories.inaccessibleAt)
+            )
           )
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -690,7 +679,10 @@ export const repositoriesRouter = router({
       ) {
         await ctx.db
           .update(repositories)
-          .set({ installationId: resolved.installationId, inaccessibleAt: null })
+          .set({
+            installationId: resolved.installationId,
+            inaccessibleAt: null,
+          })
           .where(eq(repositories.id, repo.id))
       }
       // GitHub is authoritative on the default branch — a stale/misseeded row

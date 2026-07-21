@@ -12,9 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
 
-// Team visibility is deliberately NOT configurable: the only public
-// team is the bootstrap-created feedback board. Regular teams are
-// always private, so this card is just the name.
+// Team visibility is deliberately NOT configurable: every team is
+// member-only (EXP-180), so this card is just the name.
 export function TeamGeneralSection({
   team,
   solo = false,

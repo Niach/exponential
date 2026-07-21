@@ -5,11 +5,12 @@
 //! Three shared pieces live here:
 //!
 //! - [`CodingHub`] — the app-global coding state: the §7.7 settings
-//!   (claude path / repos root / branch prefix, file-persisted, per-install)
-//!   and the tooling-doctor report. The settings pane edits through it; the
-//!   Start-coding button and the launcher read from it. The doctor runs on
-//!   the background executor (it spawns `claude --version` / `git --version`)
-//!   and re-runs whenever the settings change.
+//!   (per-agent path/model/effort + repos root / branch prefix,
+//!   file-persisted, per-install) and the tooling-doctor report. The settings
+//!   pane edits through it; the Start-coding button and the launcher read
+//!   from it. The doctor runs on the background executor (it probes every
+//!   agent CLI — claude/codex/pi — plus `git`, EXP-201) and re-runs whenever
+//!   the settings change.
 //! - [`LocalSessions`] — the sessions THIS process launched (issue →
 //!   `{session_id, tab, manager}`). Drives the §7.5 play↔stop flip: while an
 //!   issue has a local session, the header shows a "Coding…" indicator and a
@@ -21,9 +22,11 @@
 //!   release observer per session) and app quit ([`install_quit_hook`]).
 //! - [`StartCodingControl`] — the header affordance itself. Enabled iff
 //!   `repositories.forIssue` resolves non-null AND the doctor is green
-//!   (BOTH `claude` and `git`, §7.1 step 1); disabled states carry the EXACT
-//!   §7 reasons (never a false "not connected", never an unexplained
-//!   block). Click → the shared Start-coding dialog
+//!   (EXP-201: `git` plus ANY usable agent enables the affordance; a launch
+//!   additionally gates on the SELECTED agent via `first_failure_for`);
+//!   disabled states carry the EXACT §7 reasons (never a false "not
+//!   connected", never an unexplained block). Click → the shared
+//!   Start-coding dialog
 //!   (`crate::start_coding_dialog`), which owns the model/effort/plan-mode
 //!   choices and the prepare→spawn task.
 //!
@@ -984,7 +987,8 @@ impl StartCodingControl {
     }
 
     /// The disabled reason right now, `None` when the button may launch
-    /// (§7.1 step 1: repo non-null AND doctor green — BOTH tools).
+    /// (repo non-null AND doctor green — `git` plus ANY usable agent;
+    /// the launch path re-gates on the SELECTED agent).
     fn disabled_reason(&self, cx: &App) -> Option<SharedString> {
         let hub = CodingHub::global_ref(cx)?;
         let hub = hub.read(cx);

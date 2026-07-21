@@ -24,7 +24,7 @@ export const users = pgTable(`users`, {
     withTimezone: true,
   }),
   // One-shot dismissal of the "Get the desktop app" card on the web Agents
-  // view. SERVER-ONLY (users shape allowlist pins 7 columns; this never syncs).
+  // view. SERVER-ONLY (users shape allowlist pins 6 columns; this never syncs).
   desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
     withTimezone: true,
   }),
@@ -98,7 +98,9 @@ export const oauthApplications = pgTable(`oauth_applications`, {
   clientSecret: text(`client_secret`),
   redirectUrls: text(`redirect_urls`).notNull(),
   type: text(`type`).notNull(),
-  disabled: boolean(`disabled`).$defaultFn(() => false).notNull(),
+  disabled: boolean(`disabled`)
+    .$defaultFn(() => false)
+    .notNull(),
   userId: text(`user_id`).references(() => users.id, { onDelete: `cascade` }),
   createdAt: timestamp(`created_at`).notNull(),
   updatedAt: timestamp(`updated_at`).notNull(),
@@ -134,7 +136,7 @@ export const oauthConsents = pgTable(`oauth_consents`, {
 })
 
 // NOTE: `creem_subscriptions` lives in `schema.ts` (not here) so its
-// `workspace_id` FK can reference `workspaces` without auth-schema.ts taking a
+// `team_id` FK can reference `teams` without auth-schema.ts taking a
 // static import on schema.ts — that edge would form an eval-time circular
 // import (schema.ts re-exports auth-schema.ts) and crash `createSelectSchema`.
 // The Better Auth adapter still receives it via the `@/db/auth-schema`
@@ -161,13 +163,17 @@ export const apikeys = pgTable(
     refillInterval: integer(`refill_interval`),
     refillAmount: integer(`refill_amount`),
     lastRefillAt: timestamp(`last_refill_at`),
-    enabled: boolean(`enabled`).$defaultFn(() => true).notNull(),
+    enabled: boolean(`enabled`)
+      .$defaultFn(() => true)
+      .notNull(),
     rateLimitEnabled: boolean(`rate_limit_enabled`)
       .$defaultFn(() => true)
       .notNull(),
     rateLimitTimeWindow: integer(`rate_limit_time_window`),
     rateLimitMax: integer(`rate_limit_max`),
-    requestCount: integer(`request_count`).$defaultFn(() => 0).notNull(),
+    requestCount: integer(`request_count`)
+      .$defaultFn(() => 0)
+      .notNull(),
     remaining: integer(`remaining`),
     lastRequest: timestamp(`last_request`),
     expiresAt: timestamp(`expires_at`),
