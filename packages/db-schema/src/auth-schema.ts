@@ -150,7 +150,12 @@ export const apikeys = pgTable(
     configId: text(`config_id`).notNull(),
     name: text(`name`),
     start: text(`start`),
-    referenceId: text(`reference_id`).notNull(),
+    // The owning user's id. Better Auth's api-key plugin calls this
+    // `reference_id` (not `user_id`), but it must cascade like every other
+    // user-linked auth table — account deletion relies on it (REV2-16).
+    referenceId: text(`reference_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
     prefix: text(`prefix`),
     key: text(`key`).notNull(),
     refillInterval: integer(`refill_interval`),
