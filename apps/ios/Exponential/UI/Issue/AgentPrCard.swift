@@ -32,7 +32,6 @@ struct AgentPrCard: View {
     @State private var sentToLabel: String?
     @State private var sentBatch = false
     @State private var startError: String?
-    @State private var watchingSession: CodingSessionEntity?
     @State private var showStartSheet = false
     @State private var startCandidates: [StartCodingSheet.IssueOption] = []
 
@@ -70,9 +69,6 @@ struct AgentPrCard: View {
             config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             await refreshDevices()
         }
-        .fullScreenCover(item: $watchingSession) { session in
-            AgentSessionView(accountId: accountId, session: session)
-        }
         .sheet(isPresented: $showStartSheet) {
             StartCodingSheet(
                 devices: devices ?? [],
@@ -109,9 +105,9 @@ struct AgentPrCard: View {
         let canWatch = permissions.isMember && config?.enabled == true
         VStack(alignment: .leading, spacing: 6) {
             if canWatch {
-                Button {
-                    watchingSession = session
-                } label: {
+                NavigationLink(value: AppRoute.agentSession(
+                    accountId: accountId, sessionId: session.id
+                )) {
                     sessionRowContent(session, chevron: true)
                 }
                 .buttonStyle(.plain)

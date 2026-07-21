@@ -25,6 +25,10 @@ enum AppRoute: Hashable {
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
+    /// The live agent-session (steering) screen — pushed from the Agents tab
+    /// or the issue detail's coding card. A pushed destination (EXP-221), not
+    /// a fullScreenCover, so it gets the native back button + swipe-back.
+    case agentSession(accountId: String, sessionId: String)
     case settings
     case serverDetail(accountId: String)
     case teamSettings(accountId: String, teamId: String)
@@ -522,6 +526,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .changes(accountId, issueId):
             ChangesView(issueId: issueId)
+                .environment(\.accountId, accountId)
+        case let .agentSession(accountId, sessionId):
+            AgentSessionRouteView(sessionId: sessionId)
                 .environment(\.accountId, accountId)
         case .settings:
             SettingsView()

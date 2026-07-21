@@ -16,7 +16,6 @@ struct AgentsView: View {
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
-    @State private var watchingSession: CodingSessionEntity?
     @State private var startSheetDevice: SteerDevice?
     // Success feedback (informational, tertiary) vs. failure (red) are kept
     // separate: a start error must read as an error and not persist forever.
@@ -58,9 +57,6 @@ struct AgentsView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
-        }
-        .fullScreenCover(item: $watchingSession) { session in
-            AgentSessionView(accountId: accountId, session: session)
         }
         .sheet(item: $startSheetDevice) { device in
             StartCodingSheet(
@@ -247,9 +243,9 @@ struct AgentsView: View {
             // card shows whatever is available.
             Group {
                 if steerEnabled {
-                    Button {
-                        watchingSession = row.session
-                    } label: {
+                    NavigationLink(value: AppRoute.agentSession(
+                        accountId: accountId, sessionId: row.session.id
+                    )) {
                         sessionRowContent(row)
                     }
                     .buttonStyle(.plain)
