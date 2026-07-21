@@ -32,7 +32,7 @@ import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 
-// Fire-and-forget: seed the public team and promote initial admins.
+// Fire-and-forget: seed the bootstrap feedback team and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
 // server-bun.ts keeps the entire boostrap module (and its drizzle/pg deps)
 // out of the client bundle.
@@ -110,9 +110,9 @@ function withSecurityHeaders(response: Response): Response {
   return response
 }
 
-// Nothing served by an app instance belongs in a search index — public feedback
-// boards included (EXP-99): the board content is user-submitted feedback, and
-// the indexable product surface is the marketing site. The `noindex` meta from
+// Nothing served by an app instance belongs in a search index — every surface
+// is member-only (EXP-180), and the indexable product surface is the marketing
+// site. The `noindex` meta from
 // __root.tsx only reaches crawlers that parse the HTML head; this header also
 // covers attachments, API JSON, and crawlers that never render. Ungated
 // (unlike SECURITY_HEADERS_ENABLED) — self-hosted instances must not be indexed

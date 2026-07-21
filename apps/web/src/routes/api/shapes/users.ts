@@ -25,9 +25,8 @@ export const Route = createFileRoute(`/api/shapes/users`)({
           `updated_at`,
         ],
         // The users shape syncs FULL rows (including email), so its scope is
-        // membership-only: co-members of teams the caller has joined.
-        // Public-team viewers who aren't members get no user rows —
-        // see getReadableUserIdsInTeams for the rationale.
+        // membership-only: co-members of teams the caller has joined, plus
+        // themself — see getReadableUserIdsInTeams for the rationale.
         getWhere: async (userId) => {
           const sharedUserIds = await getReadableUserIdsInTeams(userId)
           return buildWhereClause(`id`, sharedUserIds)

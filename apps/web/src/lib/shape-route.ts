@@ -15,8 +15,9 @@ function hasTokenCredentials(request: Request): boolean {
 }
 
 interface ShapeRouteHandlerOptions {
-  // userId is null when the request is anonymous. The shape proxy is expected
-  // to return a where clause scoped to public-team data in that case.
+  // userId is null when the request is anonymous. Every shape is member-only
+  // (EXP-180): the proxy is expected to return the impossible-match sentinel
+  // in that case — anonymous callers sync nothing.
   getWhere?: (userId: string | null) => Promise<string | null | undefined>
   table: string
   // If true, anonymous requests are rejected with 401 even when getWhere can
@@ -45,9 +46,11 @@ export function createShapeRouteHandler({
     if (upgradeRequired) return upgradeRequired
 
     // Auth accepts the session cookie (web), `Authorization: Bearer
-    // <sessionToken>` (iOS, Android), personal `expu_` api keys, or a human MCP
-    // client's OAuth2 access token — all via the single resolveSession
-    // chokepoint. May be null for anonymous requests reading public data.
+    // <sessionToken>` (iOS, Android), and personal `expu_` api keys via the
+    // resolveSession chokepoint. Human MCP clients' OAuth2 access tokens are
+    // deliberately NOT accepted — those are consent-scoped and only /api/mcp
+    // resolves them (see lib/auth/resolve-bearer.ts) — so a presented MCP
+    // token fails to resolve and 401s below. Null when anonymous.
     const session = await resolveSession(request)
 
     // A request that PRESENTED token credentials but failed to resolve a
@@ -55,7 +58,8 @@ export function createShapeRouteHandler({
     // must NOT fall back to the anonymous where clause: that silently swaps
     // the shape identity with HTTP 200 and 409-loops native sync engines.
     // Explicit 401 so the client re-authenticates. Requests with no token
-    // credentials at all keep the anonymous/public-only fallback.
+    // credentials at all keep the anonymous fallback — the impossible-match
+    // sentinel, an empty shape rather than an error.
     if (!session && (requireAuth || hasTokenCredentials(request))) {
       return new Response(`Unauthorized`, { status: 401 })
     }

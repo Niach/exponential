@@ -5,9 +5,8 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Membership rosters sync only to members. Anonymous callers get
-// NOTHING — a public board must not expose who runs the team (user ids +
-// roles), tighter than the old public-team behavior.
+// Membership rosters sync only to members. Anonymous callers get NOTHING
+// (the impossible-match sentinel) — like every shape since EXP-180.
 export const Route = createFileRoute(`/api/shapes/team-members`)({
   server: {
     handlers: {
