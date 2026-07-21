@@ -13,7 +13,6 @@ import {
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email"
 import { generateWidgetKey } from "@/lib/widget/key"
-import { createWidgetUser } from "@/lib/widget/widget-user"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -385,20 +384,13 @@ async function ensureFeedbackWidgetConfig(publicTeamId: string) {
     .limit(1)
   if (!board) return
 
-  await db.transaction(async (tx) => {
-    const widgetUserId = await createWidgetUser(tx, {
-      teamId: publicTeamId,
-      configName: FEEDBACK_WIDGET_NAME,
-    })
-    await tx.insert(widgetConfigs).values({
-      teamId: publicTeamId,
-      boardId: board.id,
-      name: FEEDBACK_WIDGET_NAME,
-      publicKey: generateWidgetKey(),
-      allowedDomains: dogfoodAllowedDomains(),
-      formConfig: { modes: [`feedback`, `support`] },
-      widgetUserId,
-    })
+  await db.insert(widgetConfigs).values({
+    teamId: publicTeamId,
+    boardId: board.id,
+    name: FEEDBACK_WIDGET_NAME,
+    publicKey: generateWidgetKey(),
+    allowedDomains: dogfoodAllowedDomains(),
+    formConfig: { modes: [`feedback`, `support`] },
   })
 }
 

@@ -32,11 +32,8 @@ export function useTeamBySlug(teamSlug: string) {
   return (data?.[0] ?? null) as Team | null
 }
 
-// A team is "solo" when it has at most one human member. Bot users
-// (users.isAgent — the widget helpdesk bot) are excluded from the count so a
-// widget config on a private team never makes it look shared. Defaults to
-// `true` while data loads to avoid a flash of team chrome in the common
-// solo case.
+// A team is "solo" when it has at most one member. Defaults to `true` while
+// data loads to avoid a flash of team chrome in the common solo case.
 export function useIsSolo(teamId?: string): boolean {
   const { data: members } = useLiveQuery(
     (query) =>
@@ -48,20 +45,10 @@ export function useIsSolo(teamId?: string): boolean {
     [teamId]
   )
 
-  const { data: allUsers } = useLiveQuery((query) =>
-    query.from({ users: userCollection })
-  )
-
   return useMemo(() => {
     if (!members) return true
-    const botUserIds = new Set(
-      (allUsers ?? []).filter((user) => user.isAgent).map((user) => user.id)
-    )
-    const humanMembers = members.filter(
-      (member) => !botUserIds.has(member.userId)
-    ).length
-    return humanMembers <= 1
-  }, [members, allUsers])
+    return members.length <= 1
+  }, [members])
 }
 
 // Count of teams the user OWNS (role 'owner'). Drives the per-plan
@@ -147,16 +134,9 @@ export function useTeamMemberships(userId?: string) {
   }
 }
 
-// Human team users, keyed for pickers + display. Bot users
-// (users.isAgent — the widget helpdesk bot, only ever an issue *creator*,
-// never an assignee/comment author/rendered name) are excluded at the source
-// so every consumer (assignee pickers, row-menu, mentions, member lists) hides
-// them at once. Pass `includeAgents` for the rare consumer that needs the bot
-// rows (none today).
-export function useTeamUsers(
-  teamId?: string,
-  includeAgents = false
-) {
+// Team users, keyed for pickers + display (assignee pickers, row-menu,
+// mentions, member lists).
+export function useTeamUsers(teamId?: string) {
   const { data: members } = useLiveQuery(
     (query) =>
       teamId
@@ -177,32 +157,16 @@ export function useTeamUsers(
     }
 
     const userIds = new Set(members.map((member) => member.userId))
-    return allUsers.filter(
-      (user) =>
-        userIds.has(user.id) && (includeAgents || !user.isAgent)
-    )
-  }, [allUsers, members, includeAgents])
+    return allUsers.filter((user) => userIds.has(user.id))
+  }, [allUsers, members])
 
   const userMap = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
 
-  // Drop the bot's member row too so the members list + count match the human
-  // user set (no phantom "2 members" on a fresh solo team). A member
-  // whose user hasn't synced yet is kept (can't be proven a bot). Skipped
-  // when includeAgents.
-  const filteredMembers = useMemo(() => {
-    const rows = (members ?? []) as TeamMember[]
-    if (includeAgents || !allUsers) return rows
-    const agentUserIds = new Set(
-      allUsers.filter((user) => user.isAgent).map((user) => user.id)
-    )
-    return rows.filter((member) => !agentUserIds.has(member.userId))
-  }, [members, allUsers, includeAgents])
-
   return {
-    members: filteredMembers,
+    members: (members ?? []) as TeamMember[],
     userMap: userMap as Map<string, User>,
     users: users as User[],
   }

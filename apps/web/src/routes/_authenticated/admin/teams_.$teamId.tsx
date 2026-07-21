@@ -320,11 +320,6 @@ function AdminTeamDetail() {
                   <span className="text-sm truncate group-hover:underline">
                     {m.name || m.email}
                   </span>
-                  {m.isAgent && (
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      agent
-                    </Badge>
-                  )}
                 </Link>
                 <div>
                   <Badge variant="secondary" className="text-xs capitalize">

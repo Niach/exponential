@@ -77,7 +77,6 @@ export const adminRouter = router({
         lastActiveAt: sql<Date | null>`max(${sessions.updatedAt})`,
       })
       .from(users)
-      .where(eq(users.isAgent, false))
       .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
       .leftJoin(accounts, eq(accounts.userId, users.id))
       .leftJoin(sessions, eq(sessions.userId, users.id))
@@ -131,22 +130,12 @@ export const adminRouter = router({
       }
 
       const [target] = await ctx.db
-        .select({ isAdmin: users.isAdmin, isAgent: users.isAgent })
+        .select({ isAdmin: users.isAdmin })
         .from(users)
         .where(eq(users.id, input.userId))
         .limit(1)
       if (!target) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `User not found` })
-      }
-      if (target.isAgent) {
-        // Same guard as users.deleteAccount: synthetic widget bot users own
-        // every issue their widget created, and issues.creator_id cascades on
-        // user delete — deleting the bot would irreversibly erase all its
-        // widget-submitted feedback.
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `This is a synthetic widget user — deleting it would cascade-delete every issue its widget created`,
-        })
       }
 
       // Block deleting the last admin.
@@ -396,7 +385,6 @@ export const adminRouter = router({
             name: users.name,
             email: users.email,
             image: users.image,
-            isAgent: users.isAgent,
             role: teamMembers.role,
             memberSince: teamMembers.createdAt,
             lastActiveAt: sql<Date | null>`max(${sessions.updatedAt})`,
@@ -529,7 +517,6 @@ export const adminRouter = router({
           email: users.email,
           image: users.image,
           isAdmin: users.isAdmin,
-          isAgent: users.isAgent,
           createdAt: users.createdAt,
         })
         .from(users)
@@ -683,10 +670,7 @@ export const adminRouter = router({
       signupRows,
       wsCreatedRows,
     ] = await Promise.all([
-      ctx.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(users)
-        .where(eq(users.isAgent, false)),
+      ctx.db.select({ count: sql<number>`count(*)::int` }).from(users),
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(teams),
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(boards),
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(issues),
@@ -710,12 +694,7 @@ export const adminRouter = router({
       ctx.db
         .select({ day: signupDay, count: sql<number>`count(*)::int` })
         .from(users)
-        .where(
-          and(
-            eq(users.isAgent, false),
-            sql`${users.createdAt} >= now() - interval '30 days'`
-          )
-        )
+        .where(sql`${users.createdAt} >= now() - interval '30 days'`)
         .groupBy(signupDay)
         .orderBy(signupDay),
       ctx.db

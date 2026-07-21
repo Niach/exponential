@@ -103,9 +103,8 @@ export function TeamBillingSection({
   // Seat changes mutate the existing subscription (billing.updateSeats) — a
   // second checkout would stack a second full-price subscription (pay-twice).
   const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
-  // Seats are counted from non-agent members (usage.members already excludes
-  // the widget's synthetic isAgent user). A full or over-provisioned team
-  // blocks new invites (downgrade policy: existing members keep working).
+  // A full or over-provisioned team blocks new invites (downgrade policy:
+  // existing members keep working).
   const seatsFull =
     limits.seats !== Infinity && usage.members >= limits.seats
 

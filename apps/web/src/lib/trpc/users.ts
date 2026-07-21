@@ -124,26 +124,23 @@ export const usersRouter = router({
   // App Store guideline 5.1.1(v) requires in-app account deletion when the app
   // supports account creation (email-only deletion is explicitly insufficient).
   // Mirrors admin.deleteUser: the users row delete cascades sessions, accounts,
-  // apikeys, memberships, issues/comments authored, fcm tokens, notifications.
-  // Additionally removes teams where the caller is the ONLY member (their
-  // personal team + solo teams) so no orphaned data survives — the
-  // privacy policy promises deletion of "all associated data".
+  // apikeys, memberships, comments authored, fcm tokens, notifications, and the
+  // attachments the user uploaded. Issues the user CREATED are NOT deleted —
+  // issues.creator_id is now ON DELETE SET NULL, so they survive with a null
+  // creator (they may be shared team data). Additionally removes teams where
+  // the caller is the ONLY member (their personal team + solo teams) so no
+  // orphaned data survives — the privacy policy promises deletion of "all
+  // associated data".
   deleteAccount: authedProcedure
     .input(z.object({ confirm: z.literal(true) }))
     .mutation(async ({ ctx }) => {
       const userId = ctx.session.user.id
 
       const [me] = await ctx.db
-        .select({ isAdmin: users.isAdmin, isAgent: users.isAgent })
+        .select({ isAdmin: users.isAdmin })
         .from(users)
         .where(eq(users.id, userId))
       if (!me) throw new TRPCError({ code: `NOT_FOUND` })
-      if (me.isAgent) {
-        // Widget-helpdesk bot users own widget-created issues; deleting one
-        // cascades those issues away. They also never have interactive
-        // sessions — refuse defensively.
-        throw new TRPCError({ code: `FORBIDDEN` })
-      }
       if (me.isAdmin) {
         const [{ adminCount }] = await ctx.db
           .select({ adminCount: sql<number>`count(*)::int` })

@@ -130,11 +130,6 @@ function AdminUserDetail() {
                     </Badge>
                   ))
                 )}
-                {user.isAgent && (
-                  <Badge variant="outline" className="text-xs">
-                    agent
-                  </Badge>
-                )}
                 <span>joined {formatDate(user.createdAt)}</span>
                 <span aria-hidden>·</span>
                 <span>

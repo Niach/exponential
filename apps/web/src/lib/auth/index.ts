@@ -149,13 +149,6 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
-      // True for the synthetic widget-helpdesk bot user (owns issues created
-      // through the embeddable feedback widget). Never settable by a client.
-      isAgent: {
-        type: `boolean`,
-        defaultValue: false,
-        input: false,
-      },
       onboardingCompletedAt: {
         type: `date`,
         defaultValue: null,

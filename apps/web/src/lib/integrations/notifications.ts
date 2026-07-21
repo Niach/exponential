@@ -77,12 +77,10 @@ export async function deliverableRecipients(
   const rows = await db
     .select({ id: teamMembers.userId })
     .from(teamMembers)
-    .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
       and(
         eq(teamMembers.teamId, teamId),
-        inArray(teamMembers.userId, userIds),
-        eq(users.isAgent, false)
+        inArray(teamMembers.userId, userIds)
       )
     )
   const allowed = new Set(rows.map((r) => r.id))
@@ -234,10 +232,9 @@ export function fireAndForgetAssignmentNotify(args: {
 
 /**
  * Notify every human member of the issue's team that a new issue landed
- * (EXP-53: widget feedback submissions). There is no actor to exclude — the
- * creator is the isAgent widget-helpdesk bot, which deliver()'s membership
- * filter drops anyway. Writes `issue_created` rows + push; email follows via
- * the digest sweep like every other type.
+ * (EXP-53: widget feedback submissions). There is no actor to exclude — a
+ * widget-filed issue has a null creator. Writes `issue_created` rows + push;
+ * email follows via the digest sweep like every other type.
  */
 export function fireAndForgetNewIssueNotify(args: { issueId: string }): void {
   void (async () => {

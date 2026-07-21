@@ -69,7 +69,6 @@ export async function runEmailDigestSweep(
       readAt: notifications.readAt,
       email: users.email,
       emailVerified: users.emailVerified,
-      isAgent: users.isAgent,
       issueIdentifier: issues.identifier,
       teamSlug: teams.slug,
       boardSlug: boards.slug,
@@ -91,16 +90,15 @@ export async function runEmailDigestSweep(
     .limit(SCAN_LIMIT)
   if (rows.length === 0) return { emailsSent: 0, notificationsClaimed: 0 }
 
-  // Bot/addressless/unverified recipients can never be emailed — claim their
-  // rows outright so they don't rescan forever (deliver() filters bots, so
-  // these are stragglers at most). Unverified addresses are excluded because
-  // digest content must never go to an address the account holder hasn't
-  // proven they own.
+  // Addressless/unverified recipients can never be emailed — claim their
+  // rows outright so they don't rescan forever. Unverified addresses are
+  // excluded because digest content must never go to an address the account
+  // holder hasn't proven they own.
   const unmailable = rows.filter(
-    (row) => row.isAgent || !row.email || !row.emailVerified
+    (row) => !row.email || !row.emailVerified
   )
   const candidates = rows.filter(
-    (row) => !row.isAgent && row.email && row.emailVerified
+    (row) => row.email && row.emailVerified
   )
 
   const userIds = [...new Set(candidates.map((row) => row.userId))]

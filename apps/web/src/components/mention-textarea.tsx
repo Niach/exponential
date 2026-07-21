@@ -50,7 +50,7 @@ export function MentionTextarea({
   const [menu, setMenu] = useState<AutocompleteMenu | null>(null)
   const [active, setActive] = useState(0)
 
-  const people = users.filter((u) => !u.isAgent)
+  const people = users
   const mentionCandidates =
     menu?.kind === `mention`
       ? people

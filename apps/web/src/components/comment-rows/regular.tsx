@@ -40,7 +40,7 @@ export function RegularCommentRow({
   users,
 }: RegularCommentRowProps) {
   const bodyText = getCommentBodyText(comment.body)
-  const name = authorLabel(author, false, comment.authorId)
+  const name = authorLabel(author, comment.authorId)
 
   return (
     <div className="flex gap-2.5 py-2">
