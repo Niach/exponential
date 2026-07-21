@@ -13,7 +13,8 @@ import XCTest
 // team_id/board_id columns) directly. Additive columns added AFTER `-v5`
 // stores shipped ride incremental guarded-ALTER steps again (the old v3…v6
 // precedent) — v2_notification_team_id was the first, v3_team_invite_email
-// (EXP-188) the second. These tests pin the fresh-install schema and the
+// (EXP-188) the second, v4_coding_session_needs_input (EXP-214) the third.
+// These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
@@ -50,7 +51,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         XCTAssertEqual(
             try appliedMigrations(pool),
-            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
+             "v4_coding_session_needs_input"]
         )
     }
 
@@ -62,7 +64,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         XCTAssertEqual(
             try appliedMigrations(pool),
-            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
+             "v4_coding_session_needs_input"]
         )
     }
 
@@ -102,7 +105,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool))
         XCTAssertEqual(
             try appliedMigrations(pool),
-            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
+             "v4_coding_session_needs_input"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -162,7 +166,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool))
         XCTAssertEqual(
             try appliedMigrations(pool),
-            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email"]
+            ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
+             "v4_coding_session_needs_input"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

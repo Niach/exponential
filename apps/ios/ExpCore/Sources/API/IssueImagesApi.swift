@@ -73,6 +73,12 @@ public final class IssueImagesApi: Sendable {
     }
 }
 
+/// Neutral storage-cap copy shown instead of the images route's HTTP 412 body,
+/// which carries purchase language ("Upgrade to upload more.") that must never
+/// render in the iOS app (App Store 3.1.1 — EXP-216). Mirrors the failed-tile
+/// wording in the main editor.
+public let storageFullNeutralMessage = "Team storage is full."
+
 public enum IssueImagesError: Error, LocalizedError, Sendable {
     case noInstanceUrl
     case invalidUrl
@@ -82,7 +88,10 @@ public enum IssueImagesError: Error, LocalizedError, Sendable {
         switch self {
         case .noInstanceUrl: "No instance URL configured"
         case .invalidUrl: "Invalid image upload URL"
-        case let .httpError(code, message): "Image upload failed: HTTP \(code) \(message)"
+        // The raw body is kept on the case (surfaces classify on the 412) but
+        // never rendered: it is the team storage cap's billing copy.
+        case let .httpError(code, message):
+            code == 412 ? storageFullNeutralMessage : "Image upload failed: HTTP \(code) \(message)"
         }
     }
 }

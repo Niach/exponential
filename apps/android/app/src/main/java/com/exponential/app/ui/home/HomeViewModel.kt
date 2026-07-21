@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.TeamsApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
@@ -143,7 +144,7 @@ class HomeViewModel @Inject constructor(
                 val team = teamsApi.create(accountId, trimmed)
                 runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
                 selection.select(team.id)
-            }.onFailure { _error.value = it.message ?: "Couldn't create the team" }
+            }.onFailure { _error.value = trpcErrorMessage(it, "Couldn't create the team") }
         }
     }
 
