@@ -19,7 +19,7 @@
         "key": "\"issues\"/\"01J9K0A0X3CB4E5F6G7H8J9K0L\"",
         "value": {
           "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
-          "project_id": "01J9K0A0X3CB4E5F6G7H8J9K0M",
+          "board_id": "01J9K0A0X3CB4E5F6G7H8J9K0M",
           "number": 1,
           "identifier": "EXP-1",
           "title": "First issue (renamed)",

@@ -71,29 +71,14 @@ fn row_by_id<'a>(rows: &'a [Map<String, Value>], id: &str) -> &'a Map<String, Va
         .unwrap_or_else(|| panic!("row {id} missing"))
 }
 
-/// Load a single-message fixture (camel-case.json / snake-case.json) and
-/// decode it through the real parser.
-///
-/// EXP-180: the shared conformance fixtures still carry the pre-rename wire
-/// names (`project_id`/`projectId`). The protocol layer is column-name-
-/// agnostic so they stay valid there (see tests/protocol.rs), but THESE tests
-/// exercise the desktop schema, which now models the renamed columns — remap
-/// the legacy keys to `board_id`/`boardId` before the apply. Drop the remap
-/// once `packages/electric-protocol` refreshes its fixtures to the renamed
-/// wire.
+/// Load a single-message fixture (camel-case.json / snake-case.json /
+/// unknown-columns.json) and decode it through the real parser.
 fn fixture_message(name: &str) -> ShapeMessage {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../packages/electric-protocol/fixtures")
         .join(name);
-    let mut fixture: Value =
+    let fixture: Value =
         serde_json::from_slice(&std::fs::read(&path).expect("fixture")).unwrap();
-    if let Some(value) = fixture.get_mut("value").and_then(Value::as_object_mut) {
-        for (legacy, renamed) in [("project_id", "board_id"), ("projectId", "boardId")] {
-            if let Some(v) = value.remove(legacy) {
-                value.insert(renamed.to_string(), v);
-            }
-        }
-    }
     let body = serde_json::to_vec(&Value::Array(vec![fixture])).unwrap();
     let mut msgs = parse_messages(&body, false);
     assert_eq!(msgs.len(), 1);
@@ -104,13 +89,11 @@ fn fixture_message(name: &str) -> ShapeMessage {
 // §5.4 apply-level fixture tolerance (known-column allowlist)
 // ---------------------------------------------------------------------------
 
-/// §5.4: the conformance fixtures carry columns that do NOT exist in the
-/// desktop `issues` table (`due_time`, `end_time`) plus a stale nested
-/// `description` object. The apply must tolerate-and-drop the unknowns and
-/// land the row with NO error — an unfiltered `INSERT … due_time …` would
-/// roll back every batch and wedge the shape forever.
+/// The shared casing fixtures push through the REAL apply path: both casings
+/// normalize to the same row, and the current wire (board_id, plain GFM
+/// description) lands verbatim.
 #[test]
-fn apply_tolerates_and_drops_stale_fixture_columns() {
+fn apply_accepts_both_casing_fixtures() {
     let db = TempDb::new();
     let store = db.open();
 
@@ -130,10 +113,39 @@ fn apply_tolerates_and_drops_stale_fixture_columns() {
         Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
     );
     assert_eq!(row.get("due_date").and_then(Value::as_str), Some("2026-05-20"));
+    assert_eq!(
+        row.get("description").and_then(Value::as_str),
+        Some("Body **content** in plain GFM markdown.")
+    );
+}
+
+/// §5.4: `unknown-columns.json` carries columns that do NOT exist in the
+/// desktop `issues` table (`due_time`, `end_time`, `some_future_column`) plus
+/// an object-valued `description`. The apply must tolerate-and-drop the
+/// unknowns and land the row with NO error — an unfiltered
+/// `INSERT … due_time …` would roll back every batch and wedge the shape
+/// forever.
+#[test]
+fn apply_tolerates_and_drops_unknown_fixture_columns() {
+    let db = TempDb::new();
+    let store = db.open();
+
+    let msg = fixture_message("unknown-columns.json");
+    store
+        .apply_batch(issues(), &[msg], Some(&state("h-1", "0_0", true)))
+        .unwrap_or_else(|e| panic!("unknown-columns.json must apply cleanly: {e}"));
+
+    let rows = store.read_all(issues()).unwrap();
+    let row = row_by_id(&rows, "01J9K0A0X3CB4E5F6G7H8J9K0L");
+    assert_eq!(
+        row.get("board_id").and_then(Value::as_str),
+        Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
+    );
     // Dropped, not stored — the columns don't even exist locally.
     assert!(!row.contains_key("due_time"));
     assert!(!row.contains_key("end_time"));
-    // The stale nested description object IS a known column → JSON text
+    assert!(!row.contains_key("some_future_column"));
+    // The object-valued description IS a known column → JSON text
     // (bind_value's Array/Object branch), never a crash.
     assert_eq!(
         row.get("description").and_then(Value::as_str),

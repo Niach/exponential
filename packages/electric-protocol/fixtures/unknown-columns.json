@@ -1,0 +1,26 @@
+{
+  "description": "Forward-compat tolerance vector: the same issue row carrying columns a client may not model locally (`due_time`/`end_time` — real server columns some clients deliberately exclude; `some_future_column` — a column no build has heard of) plus an object-valued known column (`description` as the pre-GFM `{text}` shape). The protocol layer must surface all keys verbatim; the apply layer must tolerate-and-drop unknown columns (an unfiltered INSERT carrying an unknown column would roll back every batch and wedge the shape) and must never crash on a non-scalar value.",
+  "headers": { "operation": "insert" },
+  "key": "\"issues\"/\"01J9K0A0X3CB4E5F6G7H8J9K0L\"",
+  "value": {
+    "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
+    "board_id": "01J9K0A0X3CB4E5F6G7H8J9K0M",
+    "number": 1,
+    "identifier": "EXP-1",
+    "title": "First issue",
+    "description": { "text": "Body content" },
+    "status": "todo",
+    "priority": "medium",
+    "assignee_id": null,
+    "creator_id": "user_123",
+    "due_date": "2026-05-20",
+    "due_time": null,
+    "end_time": null,
+    "some_future_column": "ignore-me",
+    "sort_order": 1.0,
+    "completed_at": null,
+    "archived_at": null,
+    "created_at": "2025-12-01T12:00:00Z",
+    "updated_at": "2025-12-01T12:00:00Z"
+  }
+}

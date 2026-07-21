@@ -19,5 +19,5 @@
       }
     ]
   },
-  "expectedClientBehavior": "Discard local rows for this shape, reset persisted offset/handle, immediately re-request with offset=-1 (a fresh initial snapshot)."
+  "expectedClientBehavior": "Discard local rows for this shape, reset persisted offset/handle, immediately re-request with offset=-1 (a fresh initial snapshot). This is the INLINE (200-status) form — no replacement handle rides it; the more common transport is HTTP 409 with a replacement electric-handle header, see must-refetch-409.json."
 }
