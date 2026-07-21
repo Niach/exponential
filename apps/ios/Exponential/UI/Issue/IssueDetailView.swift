@@ -65,6 +65,22 @@ struct IssueDetailView: View {
                                     repositoryId: board.repositoryId
                                 )
                             }
+                            // Origin chip: issues filed through the embeddable
+                            // feedback widget carry source='widget' and no user
+                            // creator — surface that provenance read-only.
+                            if issue.source == DomainContract.issueSourceWidget {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "megaphone")
+                                        .font(.caption2)
+                                    Text("Feedback widget")
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .glassButton()
+                            }
                             Spacer()
                         }
 

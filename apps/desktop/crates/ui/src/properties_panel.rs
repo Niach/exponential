@@ -452,6 +452,32 @@ impl PropertiesPanel {
             })
     }
 
+    /// Origin chip for widget-filed issues (web keys a "Feedback widget"
+    /// origin off `issues.source`). Widget rows carry a null creator, so this
+    /// is the only author/origin signal; renders NOTHING for `user`/None.
+    fn origin_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
+        if issue.source.as_deref() != Some(domain::contract::ISSUE_SOURCE_WIDGET) {
+            return None;
+        }
+        Some(
+            h_flex()
+                .gap_1p5()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(cx.theme().accent.opacity(0.4))
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .items_center()
+                .child(
+                    Icon::from(ExpIcon::MessageSquare)
+                        .xsmall()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(SharedString::from("Feedback widget")),
+        )
+    }
+
     fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
         let board: Board = Store::global(cx)
             .collections()
@@ -524,6 +550,9 @@ impl Render for PropertiesPanel {
             ))
             .when_some(self.board_chip(&issue, cx), |panel, chip| {
                 panel.child(property_group("Board", chip, cx))
+            })
+            .when_some(self.origin_chip(&issue, cx), |panel, chip| {
+                panel.child(property_group("Origin", chip, cx))
             })
     }
 }
