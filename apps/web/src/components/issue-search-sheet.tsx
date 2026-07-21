@@ -5,6 +5,13 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -34,8 +41,10 @@ interface SearchResult {
 type ServerHit = Awaited<ReturnType<typeof trpc.issues.search.query>>[number]
 
 // One search experience, two presentations: a full-screen bottom sheet on
-// mobile (reached from the topbar) and a centered dialog on desktop (reached
-// from the sidebar). The search logic is shared — only the container differs.
+// mobile (reached from the topbar) and a centered cmdk dialog on desktop
+// (reached from the sidebar or Cmd/Ctrl+F). The search logic is shared; the
+// desktop container is a `Command` so keyboard users get arrow-key row
+// selection and Enter-to-open for free, while mobile stays touch-only.
 export function IssueSearchSheet({
   open,
   onOpenChange,
@@ -143,73 +152,40 @@ export function IssueSearchSheet({
     })
   }
 
-  const searchHeader = (
-    <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">
-      <Search className="size-4 text-muted-foreground shrink-0" />
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search issues..."
-        autoFocus
-        className="border-none shadow-none focus-visible:ring-0 h-9 text-base md:text-sm"
-      />
-      {isMobile && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => handleOpenChange(false)}
-          className="text-sm text-muted-foreground px-2"
-        >
-          Cancel
-        </Button>
-      )}
-    </div>
-  )
+  const emptyState =
+    query.trim() === `` ? (
+      <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
+        <Search className="size-8 mb-3 opacity-50" />
+        <p className="text-sm">Type to search issues</p>
+      </div>
+    ) : (
+      <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
+        <p className="text-sm">No issues match "{query}"</p>
+      </div>
+    )
 
-  const resultList = (
-    <div className="flex-1 overflow-y-auto">
-      {query.trim() === `` && (
-        <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-          <Search className="size-8 mb-3 opacity-50" />
-          <p className="text-sm">Type to search issues</p>
+  const resultRow = (issue: SearchResult) => {
+    const board = boardMap.get(issue.boardId)
+    return (
+      <>
+        <StatusIcon status={issue.status} className="size-4 shrink-0" />
+        <div className="flex flex-col flex-1 min-w-0">
+          <span className="text-sm truncate">{issue.title}</span>
+          {board && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className="h-1.5 w-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: board.color }}
+              />
+              <span className="truncate">
+                {board.name} · {issue.identifier}
+              </span>
+            </span>
+          )}
         </div>
-      )}
-      {query.trim() !== `` && results.length === 0 && (
-        <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-          <p className="text-sm">No issues match "{query}"</p>
-        </div>
-      )}
-      {results.map((issue) => {
-        const board = boardMap.get(issue.boardId)
-        return (
-          <Button
-            key={issue.id}
-            type="button"
-            variant="ghost"
-            onClick={() => handlePick(issue)}
-            className="flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-3 text-left font-normal hover:bg-accent active:bg-accent/70 border-b border-border/30"
-          >
-            <StatusIcon status={issue.status} className="size-4 shrink-0" />
-            <div className="flex flex-col flex-1 min-w-0">
-              <span className="text-sm truncate">{issue.title}</span>
-              {board && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span
-                    className="h-1.5 w-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: board.color }}
-                  />
-                  <span className="truncate">
-                    {board.name} · {issue.identifier}
-                  </span>
-                </span>
-              )}
-            </div>
-          </Button>
-        )
-      })}
-    </div>
-  )
+      </>
+    )
+  }
 
   if (isMobile) {
     return (
@@ -220,13 +196,48 @@ export function IssueSearchSheet({
           className="top-0 h-[100dvh] p-0 gap-0 flex flex-col"
         >
           <SheetTitle className="sr-only">Search issues</SheetTitle>
-          {searchHeader}
-          {resultList}
+          <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">
+            <Search className="size-4 text-muted-foreground shrink-0" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search issues..."
+              autoFocus
+              className="border-none shadow-none focus-visible:ring-0 h-9 text-base md:text-sm"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleOpenChange(false)}
+              className="text-sm text-muted-foreground px-2"
+            >
+              Cancel
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {results.length === 0 && emptyState}
+            {results.map((issue) => (
+              <Button
+                key={issue.id}
+                type="button"
+                variant="ghost"
+                onClick={() => handlePick(issue)}
+                className="flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-3 text-left font-normal hover:bg-accent active:bg-accent/70 border-b border-border/30"
+              >
+                {resultRow(issue)}
+              </Button>
+            ))}
+          </div>
         </SheetContent>
       </Sheet>
     )
   }
 
+  // Desktop: cmdk owns the keyboard model (ArrowUp/Down move the highlighted
+  // row, Enter opens it, the first result is pre-selected as results arrive).
+  // Its internal filtering is off — `results` is already the local+server
+  // merge — so items render exactly as computed.
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
@@ -234,8 +245,31 @@ export function IssueSearchSheet({
         className="top-[15%] translate-y-0 p-0 gap-0 flex max-h-[60vh] flex-col overflow-hidden sm:max-w-lg"
       >
         <DialogTitle className="sr-only">Search issues</DialogTitle>
-        {searchHeader}
-        {resultList}
+        <Command
+          shouldFilter={false}
+          className="min-h-0 bg-transparent **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50"
+        >
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search issues..."
+            autoFocus
+            className="text-base md:text-sm"
+          />
+          <CommandList className="max-h-none flex-1 overflow-y-auto">
+            <CommandEmpty className="p-0">{emptyState}</CommandEmpty>
+            {results.map((issue) => (
+              <CommandItem
+                key={issue.id}
+                value={issue.id}
+                onSelect={() => handlePick(issue)}
+                className="gap-3 rounded-none px-4 py-3 cursor-pointer border-b border-border/30"
+              >
+                {resultRow(issue)}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
       </DialogContent>
     </Dialog>
   )
