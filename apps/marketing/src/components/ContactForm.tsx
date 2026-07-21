@@ -10,12 +10,12 @@ import { LINKS } from "../lib/links"
 
 type SubmitState = `idle` | `submitting` | `success` | `rateLimited` | `error`
 
-const SALES_MAILTO = `mailto:dennis@straehhuber.com?subject=Exponential%20Enterprise`
+const SALES_MAILTO = `mailto:danny@exponential.at?subject=Exponential%20Enterprise`
 
 function MailtoFallback() {
   return (
     <a className="contact-mailto" href={SALES_MAILTO}>
-      dennis@straehhuber.com
+      danny@exponential.at
     </a>
   )
 }

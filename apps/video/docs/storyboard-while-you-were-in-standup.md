@@ -63,7 +63,7 @@ Recreated macOS pointer, 24px white with dark outline + soft shadow, moves on `e
 ## 3. Shared fixture — the ONE dataset (cross-scene continuity)
 
 **Workspace** `Exponential` · **Project** `Exponential` (type dev, color #6366F1, prefix EXP) · **Repo** `Niach/exponential` (default branch `main`).
-**People/devices**: Dennis Strähhuber (`DS`, dennis@straehhuber.com) on **MacBook Pro** (`dennis-mbp`); Ada Lindqvist (`AL`) appears only as a watcher in the web presence strip.
+**People/devices**: Dennis Strähhuber (`DS`, danny@exponential.at) on **MacBook Pro** (`dennis-mbp`); Ada Lindqvist (`AL`) appears only as a watcher in the web presence strip.
 **Release**: `v1.0 – Launch` · Target Jul 15 · 8 issues · integration branch `exp/rel-v1-0` · release PR **#222** `Release v1.0 → main`.
 
 **The 8 release issues** (order = board order top→bottom in S1; every scene draws from this table):

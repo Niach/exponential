@@ -85,8 +85,8 @@ export function TermsPage() {
             that company and its affiliates have fewer than 10 total individuals
             working as employees and independent contractors; at 10 or more you
             need a commercial license (
-            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
-              dennis@straehhuber.com
+            <a href="mailto:danny@exponential.at" style={linkStyle}>
+              danny@exponential.at
             </a>
             ). You may not offer a self-hosted instance to third parties as a
             hosted or managed service. As operator of a self-hosted instance,
@@ -125,8 +125,8 @@ export function TermsPage() {
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
             Questions about these terms:{` `}
-            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
-              dennis@straehhuber.com
+            <a href="mailto:danny@exponential.at" style={linkStyle}>
+              danny@exponential.at
             </a>
             .
           </p>
