@@ -7,13 +7,14 @@
 // this module is the DB + transport shell plus the in-process scheduler
 // started from server-bun.ts.
 
-import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   emailDeliveries,
   issues,
   notifications,
   boards,
+  teamMembers,
   users,
   teams,
 } from "@/db/schema"
@@ -29,6 +30,7 @@ import {
   appBaseUrl,
   buildIssueDeepLinkPath,
   buildUnsubscribeUrl,
+  isDigestSendable,
   planEmailDigest,
   type EmailPrefsLike,
 } from "@/lib/notification-email-policy"
@@ -72,34 +74,48 @@ export async function runEmailDigestSweep(
       issueIdentifier: issues.identifier,
       teamSlug: teams.slug,
       boardSlug: boards.slug,
+      // REV2-14: mirror of the notifications shape's membership scoping —
+      // the recipient must still be a member of the row's team (boards.team_id
+      // for issue-anchored rows, the app-written notifications.team_id for
+      // issue-less helpdesk support_reply rows). A row with no team identity
+      // at all passes, matching the shape's defensive "board_id IS NULL" arm.
+      isMember: sql<boolean>`(coalesce(${boards.teamId}, ${notifications.teamId}) is null or exists (select 1 from ${teamMembers} where ${teamMembers.userId} = ${notifications.userId} and ${teamMembers.teamId} = coalesce(${boards.teamId}, ${notifications.teamId})))`,
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.userId))
     .leftJoin(issues, eq(issues.id, notifications.issueId))
-    .leftJoin(boards, eq(boards.id, issues.boardId))
+    // Join on the trigger-denormalized notifications.board_id — the exact
+    // column the shape scopes on (issues.move re-points it, so it never
+    // diverges from the issue's live board).
+    .leftJoin(boards, eq(boards.id, notifications.boardId))
     .leftJoin(teams, eq(teams.id, boards.teamId))
     .where(
       and(
         isNull(notifications.readAt),
         isNull(notifications.emailedAt),
         lte(notifications.createdAt, minAgeCutoff),
-        gt(notifications.createdAt, maxAgeFloor)
+        gt(notifications.createdAt, maxAgeFloor),
+        // Trashed-board rows are hidden in-app for the 48h trash window
+        // (REV-109) — guaranteed still-unread — and their deep links dead-end;
+        // digesting them would email exactly what the trash window hides.
+        // Leave them UNCLAIMED (filtered from the scan, not claim-only): a
+        // restore inside the 24h backstop lets them digest late, and a purge
+        // cascade-deletes them.
+        or(isNull(notifications.boardId), isNull(boards.deletedAt))
       )
     )
     .orderBy(notifications.createdAt)
     .limit(SCAN_LIMIT)
   if (rows.length === 0) return { emailsSent: 0, notificationsClaimed: 0 }
 
-  // Addressless/unverified recipients can never be emailed — claim their
-  // rows outright so they don't rescan forever. Unverified addresses are
-  // excluded because digest content must never go to an address the account
-  // holder hasn't proven they own.
-  const unmailable = rows.filter(
-    (row) => !row.email || !row.emailVerified
-  )
-  const candidates = rows.filter(
-    (row) => row.email && row.emailVerified
-  )
+  // Addressless/unverified recipients can never be emailed, and rows whose
+  // recipient lost team access since creation must not be (REV2-14 — the
+  // email-leg twin of REV-8's create-time fan-out recheck: teamMembers.remove
+  // leaves pending unread rows behind, and the shape hides them from the
+  // ex-member, so they can never be marked read in-app). Claim all of these
+  // outright so they don't rescan forever.
+  const unmailable = rows.filter((row) => !isDigestSendable(row))
+  const candidates = rows.filter((row) => isDigestSendable(row))
 
   const userIds = [...new Set(candidates.map((row) => row.userId))]
   const prefs = await getEmailPrefsMap(userIds)

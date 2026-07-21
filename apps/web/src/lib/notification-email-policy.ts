@@ -101,6 +101,26 @@ export function isDigestRetryDue(
   return now.getTime() - lastFailedAt.getTime() >= DIGEST_FAILED_RETRY_GAP_MS
 }
 
+// Per-row sendability gate applied to the sweep's scan BEFORE planning
+// (REV2-14). A row may only produce email when the recipient address is
+// present AND verified (digest content must never go to an address the
+// account holder hasn't proven they own) AND the recipient still holds
+// membership of the row's team — the sweep mirrors the notifications shape's
+// scoping: teamMembers.remove leaves pending unread rows behind, the shape
+// hides them from the ex-member (so they can never be read in-app), and
+// emailing them would deliver issue titles + previews after access was
+// revoked. Rows failing this gate are claimed WITHOUT sending, like the
+// pref-opted-out claimOnly bucket, so they don't rescan forever.
+export interface DigestRecipientLike {
+  email: string | null
+  emailVerified: boolean
+  isMember: boolean
+}
+
+export function isDigestSendable(row: DigestRecipientLike): boolean {
+  return Boolean(row.email) && row.emailVerified && row.isMember
+}
+
 // The minimal row shape the planner needs. The DB runner passes richer rows
 // (recipient address, issue deep-link data) through generically.
 export interface DigestCandidate {
