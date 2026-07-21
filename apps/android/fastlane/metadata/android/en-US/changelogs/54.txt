@@ -1,0 +1,1 @@
+Error messages are now clear and readable instead of raw server responses.

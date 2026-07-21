@@ -1,3 +1,2 @@
-• Team invites are now sent from the web app — invite links still open and join right here
-• Clearer message when your team runs out of attachment storage, with a retry
-• Sharing an image into Exponential now reports upload problems properly
+• Error messages are now clear and readable instead of raw server responses
+• Back out of a live agent session with a swipe or the back button — it reconnects cleanly when you return
