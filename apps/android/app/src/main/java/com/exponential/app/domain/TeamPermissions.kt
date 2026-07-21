@@ -6,10 +6,9 @@ import com.exponential.app.data.db.TeamEntity
 // these rules too — the helper exists so the UI can disable controls a viewer
 // can't change instead of bouncing them on submit.
 //
-// Since board types landed (public boards are read-only boards, not public
-// teams), permissions collapse to membership-only: any member moderates
-// and any member can create. Anonymous public-board viewing is web-only — the
-// mobile app only syncs teams the user is a member of.
+// Permissions are membership-only (EXP-180 removed public boards — nothing
+// is anonymously readable on any client): any member moderates and any
+// member can create. Owner-only controls key off `isOwner`.
 data class TeamPermissions(
     val isAuthed: Boolean,
     val isMember: Boolean,
