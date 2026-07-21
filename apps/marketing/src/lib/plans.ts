@@ -108,7 +108,7 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     name: `Self-hosted`,
     amount: `Free`,
     cadence: `your hardware`,
-    tagline: `Free for individuals and small businesses — under 10 people.`,
+    tagline: `Free for everyone, at any team size.`,
     selfHost: true,
     features: [
       `Every feature unlocked`,
@@ -123,7 +123,7 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     name: `Enterprise`,
     amount: `Custom`,
     cadence: `self-hosted, supported`,
-    tagline: `For teams of 10 or more running it in-house.`,
+    tagline: `Optional paid support for larger in-house rollouts.`,
     enterprise: true,
     features: [
       `Everything in self-hosted`,

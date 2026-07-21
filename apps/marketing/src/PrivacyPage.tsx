@@ -23,20 +23,19 @@ export function PrivacyPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · exponential.at · last updated 2026-07-09
+            Exponential · exponential.at · last updated 2026-07-21
           </p>
 
           <p style={prose}>
             This privacy policy describes what data the Exponential service and
             its apps (web, Android, iOS, and desktop — together “Exponential”,
-            “the service”) collect, how it is used, stored, shared, and
-            deleted. Exponential is operated by Dennis Strähhuber, Germany
-            (“we”). It applies to the hosted cloud service at{` `}
+            “the service”) collect, how it is used, stored, shared, and deleted.
+            Exponential is operated by Dennis Strähhuber, Germany (“we”). It
+            applies to the hosted cloud service at{` `}
             <code style={inlineCode}>app.exponential.at</code>. If you connect
-            the apps to a self-hosted Exponential instance instead, the
-            operator of that instance is responsible for the data it stores;
-            this policy then applies only to what the apps themselves do on
-            your device.
+            the apps to a self-hosted Exponential instance instead, the operator
+            of that instance is responsible for the data it stores; this policy
+            then applies only to what the apps themselves do on your device.
           </p>
 
           <h2 style={h2Style}>1. Data we collect</h2>
@@ -47,16 +46,19 @@ export function PrivacyPage() {
               Google’s OAuth flow (scopes{` `}
               <code style={inlineCode}>openid</code>,{` `}
               <code style={inlineCode}>profile</code>,{` `}
-              <code style={inlineCode}>email</code>). We request no other
-              Google scopes and never access your contacts, mail, files,
-              calendar, or location.
+              <code style={inlineCode}>email</code>). We request no other Google
+              scopes and never access your contacts, mail, files, calendar, or
+              location. When you sign in with Apple we receive your name and
+              email address from Apple — if you chose “Hide My Email”, that
+              address is an Apple private-relay address and we never see the
+              real one. No other Apple account data is accessed.
             </li>
             <li style={listItem}>
-              <strong>Content you create.</strong> Teams, boards,
-              issues, comments, labels, and file attachments (including
-              screenshots submitted through the feedback widget) are stored so
-              the service can function. Issue and comment text may contain
-              whatever you choose to write.
+              <strong>Content you create.</strong> Teams, boards, issues,
+              comments, labels, and file attachments (including screenshots
+              submitted through the feedback widget) are stored so the service
+              can function. Issue and comment text may contain whatever you
+              choose to write.
             </li>
             <li style={listItem}>
               <strong>Feedback widget submissions.</strong> If a site operator
@@ -64,17 +66,17 @@ export function PrivacyPage() {
               request through it, we store what you send — your message and
               optional screenshot — plus the page URL you were on, your
               browser’s user-agent and viewport/screen size, and any email,
-              name, or custom data the host site chooses to pass along with
-              your submission. This lets the site operator triage and follow
-              up on your report — the members of the operator’s team who
-              handle feedback can see your email and message. Your email is
-              never exposed outside that team.
+              name, or custom data the host site chooses to pass along with your
+              submission. This lets the site operator triage and follow up on
+              your report — the members of the operator’s team who handle
+              feedback can see your email and message. Your email is never
+              exposed outside that team.
             </li>
             <li style={listItem}>
               <strong>Push notification tokens.</strong> If you enable push
-              notifications on Android or iOS, a Firebase Cloud Messaging
-              device token is stored to deliver them. The token identifies the
-              app install, not your physical device identity.
+              notifications on Android or iOS, a Firebase Cloud Messaging device
+              token is stored to deliver them. The token identifies the app
+              install, not your physical device identity.
             </li>
             <li style={listItem}>
               <strong>GitHub integration data.</strong> If you connect the
@@ -84,16 +86,15 @@ export function PrivacyPage() {
               password or personal access tokens.
             </li>
             <li style={listItem}>
-              <strong>Billing data.</strong> Paid subscriptions are processed
-              by Creem (merchant of record). We store your subscription state
-              and a customer reference; payment card details never touch our
-              servers.
+              <strong>Billing data.</strong> Paid subscriptions are processed by
+              Creem (merchant of record). We store your subscription state and a
+              customer reference; payment card details never touch our servers.
             </li>
             <li style={listItem}>
-              <strong>Technical logs.</strong> Standard server logs (IP
-              address, request path, timestamps) are kept short-term for
-              security and operations. We run no third-party analytics, no ad
-              networks, and no tracking pixels.
+              <strong>Technical logs.</strong> Standard server logs (IP address,
+              request path, timestamps) are kept short-term for security and
+              operations. We run no third-party analytics, no ad networks, and
+              no tracking pixels.
             </li>
           </ul>
 
@@ -109,8 +110,7 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>3. Sharing and processors</h2>
           <p style={prose}>
-            We share data only with the processors required to run the
-            service:
+            We share data only with the processors required to run the service:
           </p>
           <ul style={listStyle}>
             <li style={listItem}>
@@ -119,22 +119,23 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               <strong>Google Firebase Cloud Messaging</strong> — delivery of
-              push notifications (receives the device token and the
-              notification payload).
+              push notifications (receives the device token and the notification
+              payload).
             </li>
             <li style={listItem}>
-              <strong>Amazon Web Services (Amazon SES)</strong> — transactional email (receives your
-              email address and the message content, e.g. notification,
-              account-verification, and password-reset emails).
+              <strong>Amazon Web Services (Amazon SES)</strong> — transactional
+              email (receives your email address and the message content, e.g.
+              notification, account-verification, and password-reset emails).
             </li>
             <li style={listItem}>
-              <strong>Creem</strong> — subscription billing (merchant of
-              record; receives the billing details you enter with them).
+              <strong>Creem</strong> — subscription billing (merchant of record;
+              receives your account email address to create the checkout
+              session, plus the billing and payment details you enter with
+              them).
             </li>
             <li style={listItem}>
               <strong>GitHub</strong> — only if you connect the GitHub App;
-              repository operations happen through GitHub’s API on your
-              behalf.
+              repository operations happen through GitHub’s API on your behalf.
             </li>
           </ul>
           <p style={prose}>
@@ -146,8 +147,7 @@ export function PrivacyPage() {
           <h2 style={h2Style}>4. Storage and protection</h2>
           <ul style={listStyle}>
             <li style={listItem}>
-              All traffic between your devices and the service uses TLS
-              (HTTPS).
+              All traffic between your devices and the service uses TLS (HTTPS).
             </li>
             <li style={listItem}>
               Data is stored in a PostgreSQL database and S3-compatible object
@@ -155,22 +155,28 @@ export function PrivacyPage() {
               application servers.
             </li>
             <li style={listItem}>
-              Access is session-authenticated; a team’s data is only synced
-              to members of that team. Server-side authorization enforces
-              the same rules for every API call.
+              Access is session-authenticated; a team’s data is only synced to
+              members of that team. Server-side authorization enforces the same
+              rules for every API call.
             </li>
           </ul>
 
           <h2 style={h2Style}>5. Retention and deletion</h2>
           <p style={prose}>
             Your data is retained while your account is active. You can delete
-            issues, comments, attachments, boards, and teams yourself
-            inside the app — deletions are immediate and propagate to all
+            issues, comments, attachments, boards, and teams yourself inside the
+            app. Deleting a board moves it to a trash for 48 hours, during which
+            the team owner can restore it from team settings → Boards; after
+            that window it is purged permanently, including the attachments
+            stored on it. All other deletions are immediate and propagate to all
             synced devices. You can also delete your entire account and all
             associated data directly in the product: on the web under Account →
-            Notifications → Danger Zone, and in the mobile apps under Settings
-            → your server → “Delete account”. Deletion is immediate and
-            removes your personal teams and everything you created.
+            Notifications → Danger Zone, and in the mobile apps under Settings →
+            your server → “Delete account”. Deletion is immediate and removes
+            your account together with every team where you are the only member.
+            If you are the sole owner of a team that still has other members,
+            transfer ownership or remove those members first — we will not
+            delete a shared team out from under the people still using it.
             Alternatively, email{` `}
             <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
               dennis@straehhuber.com
@@ -183,7 +189,59 @@ export function PrivacyPage() {
             >
               Google Account → Third-party access
             </a>
+            ; Apple access under Settings → Apple ID → Sign-In &amp; Security →
+            Sign in with Apple on your device, or at{` `}
+            <a href="https://appleid.apple.com" style={linkStyle}>
+              appleid.apple.com
+            </a>
             .
+          </p>
+
+          <h2 style={h2Style}>6. Legal bases</h2>
+          <p style={prose}>
+            Under the GDPR we rely on three legal bases. Performance of a
+            contract (Art. 6(1)(b)) covers everything needed to provide the
+            service you signed up for — your account, your team’s content, and
+            the paid subscription if you have one. Legitimate interests (Art.
+            6(1)(f)) cover keeping the service secure, preventing abuse, and the
+            short-lived operational logs that come with running servers. Consent
+            (Art. 6(1)(a)) covers anything that asks for it first, such as the
+            push notifications you switch on; you can withdraw it at any time by
+            turning the feature off again.
+          </p>
+
+          <h2 style={h2Style}>7. International transfers</h2>
+          <p style={prose}>
+            The database and attachment storage stay on servers in Germany. Some
+            processors are US companies or process data outside the EU/EEA —
+            Google (Firebase Cloud Messaging) for push notifications, Amazon Web
+            Services for transactional email, and GitHub for the optional
+            repository integration. Those transfers rely on the EU–US Data
+            Privacy Framework and/or the EU Standard Contractual Clauses.
+          </p>
+
+          <h2 style={h2Style}>8. Cookies and local storage</h2>
+          <p style={prose}>
+            We use only strictly necessary cookies and local storage: a session
+            cookie to keep you signed in, and device-local preferences such as
+            the team you last opened. There are no advertising cookies and no
+            cross-site tracking.
+          </p>
+
+          <h2 style={h2Style}>9. Your rights</h2>
+          <p style={prose}>
+            You have the right to access the personal data we hold about you, to
+            have it corrected or erased, to restrict or object to its
+            processing, and to receive it in a portable format. Much of this you
+            can do yourself in the app — edit or delete your content, or delete
+            your account outright (see section 5). For anything else, email{` `}
+            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
+              dennis@straehhuber.com
+            </a>
+            {` `}from the address tied to your account; requests are honoured
+            within 30 days. You also have the right to lodge a complaint with a
+            data protection supervisory authority, typically the one where you
+            live or work.
           </p>
 
           <h2 style={h2Style}>Limited Use disclosure</h2>
@@ -201,17 +259,17 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>Children</h2>
           <p style={prose}>
-            The service is a professional productivity tool and is not
-            directed at children under 16. We do not knowingly collect data
-            from children.
+            The service is a professional productivity tool and is not directed
+            at children under 16. We do not knowingly collect data from
+            children.
           </p>
 
           <h2 style={h2Style}>Changes to this policy</h2>
           <p style={prose}>
             If this policy changes, the “last updated” date at the top of the
-            page will be revised. Material changes that reduce user
-            protections will be communicated to registered users by email
-            before they take effect.
+            page will be revised. Material changes that reduce user protections
+            will be communicated to registered users by email before they take
+            effect.
           </p>
 
           <h2 style={h2Style}>Contact</h2>
