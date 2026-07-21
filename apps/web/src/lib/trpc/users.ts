@@ -124,7 +124,8 @@ export const usersRouter = router({
   // App Store guideline 5.1.1(v) requires in-app account deletion when the app
   // supports account creation (email-only deletion is explicitly insufficient).
   // Mirrors admin.deleteUser: the users row delete cascades sessions, accounts,
-  // apikeys, memberships, comments authored, fcm tokens, notifications, and the
+  // apikeys (via reference_id — the plugin's name for the user FK), memberships,
+  // comments authored, fcm tokens, notifications, and the
   // attachments the user uploaded. Issues the user CREATED are NOT deleted —
   // issues.creator_id is now ON DELETE SET NULL, so they survive with a null
   // creator (they may be shared team data). Additionally removes teams where
