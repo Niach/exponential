@@ -71,8 +71,22 @@ const INPUT_CHUNK_CHARS = 4096
 const FEED_CAP = 500
 /** Auto-release the steer claim after this long with no sends. */
 const IDLE_RELEASE_MS = 60_000
-/** Redial cadence while the desktop's publisher socket is still starting. */
-const STARTING_RETRY_MS = 3_000
+/** Redial backoff while the desktop's publisher socket is still starting:
+ *  3s doubling to 30s. Each redial mints a fresh ticket and opens a fresh
+ *  relay socket, so a fixed cadence across many waiting viewers would eat the
+ *  relay's per-IP connect budget in lockstep. */
+const STARTING_RETRY_BASE_MS = 3_000
+const STARTING_RETRY_MAX_MS = 30_000
+
+/** Equal jitter (half fixed, half random) — desynchronizes viewers that
+ *  started waiting together while keeping a floor on the delay. */
+function startingRetryDelay(retries: number): number {
+  const capped = Math.min(
+    STARTING_RETRY_BASE_MS * 2 ** retries,
+    STARTING_RETRY_MAX_MS
+  )
+  return capped / 2 + Math.random() * (capped / 2)
+}
 
 interface PresenceViewer {
   userId: string
@@ -186,7 +200,8 @@ type ViewerPhase =
   | { kind: `idle` }
   | { kind: `connecting` }
   // no_such_session while the synced row still says running — the desktop is
-  // still dialing its publisher socket; the view auto-redials every ~3s.
+  // still dialing its publisher socket; the view auto-redials with jittered
+  // backoff (3s → 30s).
   | { kind: `starting` }
   | { kind: `live` }
   // The session ended (relay `bye`, or the room was never live).
@@ -276,6 +291,9 @@ export function AgentSessionView({
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let ws: WebSocket | null = null
+    // Consecutive `starting` redials — drives the backoff; a live connection
+    // resets it so the next stall starts fast again.
+    let startingRetries = 0
 
     const clearIdleRelease = () => {
       if (idleReleaseRef.current) {
@@ -284,8 +302,10 @@ export function AgentSessionView({
       }
     }
 
-    const markLive = () =>
+    const markLive = () => {
+      startingRetries = 0
       setPhase((prev) => (prev.kind === `live` ? prev : { kind: `live` }))
+    }
 
     const append = (item: NewFeedItem) => {
       setFeed((prev) =>
@@ -366,7 +386,7 @@ export function AgentSessionView({
     const dial = async (retrying: boolean) => {
       if (disposed) return
       // Hold the `starting` phase steady across auto-retry redials — flipping
-      // to `connecting` per attempt makes the header flicker every ~3s.
+      // to `connecting` per attempt makes the header flicker on every redial.
       if (!retrying) setPhase({ kind: `connecting` })
       setViewers([])
       setSteererId(null)
@@ -473,7 +493,10 @@ export function AgentSessionView({
             // — only a truly ended session stops the redial.
             if (sessionStatusRef.current !== `ended`) {
               setPhase({ kind: `starting` })
-              retryTimer = setTimeout(() => void dial(true), STARTING_RETRY_MS)
+              retryTimer = setTimeout(
+                () => void dial(true),
+                startingRetryDelay(startingRetries++)
+              )
             } else {
               setPhase({ kind: `ended` })
             }

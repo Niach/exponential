@@ -449,4 +449,24 @@ describe(`steer relay end-to-end`, () => {
 
     desktop.close()
   })
+
+  // Runs LAST: it deliberately drains the shared failed-auth bucket (no
+  // TRUST_PROXY here, so every request keys to the `unknown` fallback), which
+  // would 429 any later bad-ticket assertions.
+  test(`failed-auth floods never starve ticket-valid connects`, async () => {
+    let saw429 = false
+    for (let i = 0; i < 150 && !saw429; i++) {
+      const res = await fetch(`${base}/ws?ticket=garbage-${i}`, {
+        headers: { upgrade: `websocket`, connection: `upgrade` },
+      })
+      expect([401, 429]).toContain(res.status)
+      saw429 = res.status === 429
+    }
+    expect(saw429).toBe(true)
+
+    // A valid ticket still upgrades — it counts against a separate, larger
+    // per-IP bucket (mirrors push-relay's failed-auth-only philosophy).
+    const ws = await connect(ticket({ sessionId: `sess-flood` }))
+    ws.close()
+  })
 })
