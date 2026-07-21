@@ -287,6 +287,12 @@ final class AgentSessionModel {
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
         connected = false
+        // Reset to the pre-connection state so a later resume() can redial: the
+        // socket is gone, so leaving phase at .live/.connecting would make
+        // connect()'s guard early-return and the reopened view would show a
+        // stale "live" status over a dead socket (EXP-221). The normal
+        // socket-drop path sets .closed itself and never routes through here.
+        phase = .idle
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }
