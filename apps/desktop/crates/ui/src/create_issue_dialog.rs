@@ -1075,9 +1075,13 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
 /// — web shows `user.name`; a row with neither field is a co-member whose PII
 /// didn't sync).
 fn display_name(user: &User) -> String {
+    // Filter blanks before each fallback: a name-less Apple-ID user has
+    // `name = ""` (Better Auth stores empty, not null), which must fall through
+    // to the email rather than render as an empty label (EXP-228).
     user.name
         .clone()
-        .or_else(|| user.email.clone())
+        .filter(|name| !name.is_empty())
+        .or_else(|| user.email.clone().filter(|email| !email.is_empty()))
         .unwrap_or_else(|| domain::member_fallback_label(&user.id))
 }
 

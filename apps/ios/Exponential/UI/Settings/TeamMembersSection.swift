@@ -68,19 +68,15 @@ struct TeamMembersSection: View {
         let user = users.first { $0.id == member.userId }
         let isSelf = member.userId == currentUserId
         let isLastOwner = member.role == DomainContract.teamRoleOwner && ownerCount <= 1
+        let displayName = memberDisplayName(user, id: member.userId)
         HStack(spacing: 12) {
-            // Avatar (inert — there is no member-profile screen)
-            let initial = memberDisplayName(user, id: member.userId).prefix(1).uppercased()
-            Text(initial)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(Color.white.opacity(0.15))
-                .clipShape(Circle())
+            // Avatar (inert — there is no member-profile screen): the member's
+            // photo when synced, else initials.
+            UserAvatar(user: user, id: member.userId, size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(memberDisplayName(user, id: member.userId))
+                    Text(displayName)
                         .font(.subheadline)
                         .foregroundStyle(.white)
                     if isSelf {
@@ -89,9 +85,14 @@ struct TeamMembersSection: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
-                Text(user?.email ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                // Skip the email sub-line when it IS the display name — a
+                // name-less Apple user falls back to the email as the primary
+                // line, and repeating it below would read as email-over-email.
+                if let email = user?.email, !email.isEmpty, email != displayName {
+                    Text(email)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
 
             Spacer()
@@ -104,37 +105,39 @@ struct TeamMembersSection: View {
                 .padding(.vertical, 3)
                 .glassButton()
 
-            // Actions menu — only rendered when there is an action to offer:
-            // owners get role/remove; any member gets self-leave. A non-owner,
-            // non-self row has no actions, so the ellipsis is hidden entirely.
-            if isOwner || (isSelf && !isLastOwner) {
+            // Actions menu — only rendered when there is at least one action to
+            // offer. Each action is a precomputed boolean, and the ellipsis is
+            // hidden entirely when they are all false. "Make member" is HIDDEN
+            // (not disabled) for the last owner, so the sole owner's own row —
+            // whose only candidate action was that no-op — shows no menu at all.
+            let canMakeOwner = isOwner && member.role != DomainContract.teamRoleOwner
+            let canMakeMember = isOwner && member.role != DomainContract.teamRoleMember && !isLastOwner
+            let canLeave = isSelf && !isLastOwner
+            let canRemove = isOwner && !isSelf
+            if canMakeOwner || canMakeMember || canLeave || canRemove {
                 Menu {
-                    if isOwner {
-                        if member.role != DomainContract.teamRoleOwner {
-                            Button {
-                                confirm = .changeRole(member, to: DomainContract.teamRoleOwner)
-                            } label: {
-                                Label("Make owner", systemImage: "crown")
-                            }
-                        }
-                        if member.role != DomainContract.teamRoleMember {
-                            Button {
-                                confirm = .changeRole(member, to: DomainContract.teamRoleMember)
-                            } label: {
-                                Label("Make member", systemImage: "shield")
-                            }
-                            .disabled(isLastOwner)
+                    if canMakeOwner {
+                        Button {
+                            confirm = .changeRole(member, to: DomainContract.teamRoleOwner)
+                        } label: {
+                            Label("Make owner", systemImage: "crown")
                         }
                     }
-                    if isSelf {
-                        if !isLastOwner {
-                            Button(role: .destructive) {
-                                confirm = .remove(member, isSelf: true)
-                            } label: {
-                                Label("Leave", systemImage: "xmark")
-                            }
+                    if canMakeMember {
+                        Button {
+                            confirm = .changeRole(member, to: DomainContract.teamRoleMember)
+                        } label: {
+                            Label("Make member", systemImage: "shield")
                         }
-                    } else if isOwner {
+                    }
+                    if canLeave {
+                        Button(role: .destructive) {
+                            confirm = .remove(member, isSelf: true)
+                        } label: {
+                            Label("Leave", systemImage: "xmark")
+                        }
+                    }
+                    if canRemove {
                         Button(role: .destructive) {
                             confirm = .remove(member, isSelf: false)
                         } label: {

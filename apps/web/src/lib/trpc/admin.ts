@@ -27,6 +27,10 @@ import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
+  captureAppleTokens,
+  revokeAppleTokensBestEffort,
+} from "@/lib/auth/apple-revocation"
+import {
   ACTIVE_SUBSCRIPTION_STATUSES,
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForUser,
@@ -166,6 +170,11 @@ export const adminRouter = router({
         input.userId
       )
 
+      // Apple pairing to revoke after the delete (guideline 5.1.1(v)) —
+      // captured now because the accounts row cascades with the users row.
+      // Native-idToken pairings store no tokens (nothing to revoke).
+      const appleTokens = await captureAppleTokens(ctx.db, input.userId)
+
       let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
@@ -194,6 +203,8 @@ export const adminRouter = router({
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
       // The users-row cascade dropped attachment rows but not their S3 blobs.
       await deleteStorageObjects(storageKeys)
+      // Revoke the deleted user's Apple pairing (best-effort).
+      await revokeAppleTokensBestEffort(appleTokens)
 
       return { ok: true }
     }),

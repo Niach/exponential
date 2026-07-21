@@ -3,7 +3,7 @@ import { MoreHorizontal } from "lucide-react"
 import type { Comment, User } from "@/db/schema"
 import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -45,6 +45,7 @@ export function RegularCommentRow({
   return (
     <div className="flex gap-2.5 py-2">
       <Avatar className="h-7 w-7 shrink-0">
+        {author?.image && <AvatarImage src={author.image} />}
         <AvatarFallback className="text-xs">{getInitials(name)}</AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">

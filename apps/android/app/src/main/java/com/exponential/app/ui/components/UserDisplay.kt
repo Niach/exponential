@@ -14,6 +14,13 @@ fun memberPseudonym(userId: String?): String {
     return "Member ${userId.takeLast(4).uppercase()}"
 }
 
-/** Real name, else email, else the anonymized `Member XXXX` pseudonym. */
+/**
+ * Real name, else email, else the anonymized `Member XXXX` pseudonym.
+ *
+ * `name` is treated as missing when blank, not just null: Better Auth stores an
+ * empty string (NOT NULL column) for an Apple-ID login that arrives without a
+ * name, so a nil-only check would render a blank Text + empty initials. Falling
+ * back to the email matches web's truthy `displayUserName`.
+ */
 fun userDisplayName(user: UserEntity?, userId: String?): String =
-    user?.name ?: user?.email ?: memberPseudonym(userId ?: user?.id)
+    user?.name?.takeIf { it.isNotBlank() } ?: user?.email ?: memberPseudonym(userId ?: user?.id)

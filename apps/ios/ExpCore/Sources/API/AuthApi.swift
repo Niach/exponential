@@ -113,6 +113,67 @@ public final class AuthApi: Sendable {
         }
     }
 
+    /// Native Sign in with Apple: exchange the on-device ASAuthorization
+    /// identityToken for a Better Auth session via the social sign-in endpoint.
+    /// The `nonce` (when present) must be the SAME raw string the SIWA request
+    /// was created with — Apple embeds the request nonce verbatim in the idToken
+    /// claim and Better Auth's apple provider compares raw equality. Fails
+    /// gracefully so the caller can fall back to the web OAuth hop (self-hosted
+    /// / pre-SIWA servers reject the native exchange).
+    public func signInWithApple(instanceUrl: String, identityToken: String, nonce: String?) async -> SignInResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/sign-in/social") else {
+            return .failure(message: "Invalid instance URL")
+        }
+
+        do {
+            let body = try JSONEncoder().encode(
+                AppleSignInInput(provider: "apple", idToken: AppleIdToken(token: identityToken, nonce: nonce))
+            )
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
+
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(message: Self.authErrorMessage(from: data)
+                    ?? "Sign-in failed (HTTP \(response.statusCode))")
+            }
+
+            let parsed = try JSONDecoder().decode(SignInResponseBody.self, from: data)
+
+            // Better Auth bearer plugin returns { token, user }
+            if let token = parsed.token, let user = parsed.user {
+                return .success(token: token, user: user)
+            }
+
+            // Fallback: extract session token from Set-Cookie header
+            if let user = parsed.user,
+               let cookies = response.value(forHTTPHeaderField: "Set-Cookie"),
+               let range = cookies.range(of: #"session_token=([^;]+)"#, options: .regularExpression),
+               let tokenRange = cookies[range].range(of: "=") {
+                let token = String(cookies[tokenRange.upperBound...].prefix(while: { $0 != ";" }))
+                return .success(token: token, user: user)
+            }
+
+            return .failure(message: "Sign-in succeeded but no session token returned")
+        } catch {
+            return .failure(message: error.localizedDescription)
+        }
+    }
+
+    /// Best-effort push of the user's name to Better Auth's core update-user
+    /// endpoint (bearer-authenticated). Used right after a native SIWA sign-in
+    /// to persist the `fullName` Apple delivers ONLY in the on-device credential
+    /// (never in the idToken). Returns whether the write succeeded; callers
+    /// never surface a failure.
+    public func updateUserName(instanceUrl: String, token: String, name: String) async -> Bool {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/update-user") else { return false }
+        do {
+            let body = try JSONEncoder().encode(["name": name])
+            let (_, response) = try await httpClient.post(url, body: body, bearerToken: token)
+            return (200...299).contains(response.statusCode)
+        } catch {
+            return false
+        }
+    }
+
     /// Extract the user-presentable `message` from a Better Auth error body
     /// (`{"code": "...", "message": "Invalid email or password"}`).
     private static func authErrorMessage(from data: Data) -> String? {
@@ -204,6 +265,21 @@ public final class AuthApi: Sendable {
             return nil
         }
     }
+}
+
+// MARK: - Request Types
+
+// Native SIWA exchange body: { provider: "apple", idToken: { token, nonce? } }.
+// The synthesized encoder omits `nonce` when nil (optional → encodeIfPresent),
+// matching Better Auth's optional nonce field.
+private struct AppleIdToken: Encodable {
+    let token: String
+    let nonce: String?
+}
+
+private struct AppleSignInInput: Encodable {
+    let provider: String
+    let idToken: AppleIdToken
 }
 
 // MARK: - Response Types

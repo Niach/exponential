@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -59,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,7 +70,7 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.ui.components.InitialsAvatar
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.onboarding.CreateBoardSheet
@@ -360,6 +362,35 @@ private fun DangerZone(
 // the OAuth connect / App install hop runs in a Custom Tab, exactly like the
 // repo picker — the web team settings link survives only as a fallback
 // when the GitHub grant state can't be loaded at all.
+/**
+ * Compact capsule action (icon + label) on a glass pill — the inline header /
+ * card affordance the iOS settings use for "Add repository" / "Connect GitHub".
+ * Dims to quaternary emphasis and ignores taps when [enabled] is false.
+ */
+@Composable
+private fun GlassPillButton(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val fg = MaterialTheme.colorScheme.onSurface.copy(
+        alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .glassButton()
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = fg)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = fg)
+    }
+}
+
 @Composable
 private fun RepositoriesSection(
     state: TeamSettingsState,
@@ -368,8 +399,35 @@ private fun RepositoriesSection(
 ) {
     val context = LocalContext.current
     var showAddRepo by remember { mutableStateOf(false) }
+    val github = state.github
+    val installations = github?.installations.orEmpty()
+    val needsReauth = installations.any { it.needsReauth }
+    val configured = github != null && github.configured
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Repositories")
+        // Header row: title + repo count + a compact "Add repository" button
+        // (owner + ≥1 linked installation), mirroring the Labels header's
+        // inline action and the iOS Repositories header.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            SectionHeader("Repositories")
+            Spacer(Modifier.width(8.dp))
+            Text(
+                state.repos.size.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = tertiary,
+            )
+            Spacer(Modifier.weight(1f))
+            // repositories.add is owner-only server-side, and only meaningful
+            // once an account is linked (the picker draws from linked repos).
+            if (isOwner && installations.isNotEmpty()) {
+                GlassPillButton(
+                    label = "Add repository",
+                    icon = Icons.Filled.Add,
+                    onClick = { showAddRepo = true },
+                )
+            }
+        }
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
             if (state.repos.isEmpty()) {
                 Text(
@@ -390,133 +448,136 @@ private fun RepositoriesSection(
                 )
             }
         }
-        // The GitHub accounts linked to THIS team (EXP-225, web parity:
-        // repositories-section.tsx's installation chips). Visible to every
-        // member — without it a successful connect looked like a no-op, since
-        // the registry stays empty until a repo is added. A warning glyph marks
-        // an installation whose grants were never captured (needsReauth).
-        val installations = state.github?.installations.orEmpty()
-        if (installations.isNotEmpty()) {
-            Text(
-                "Connected GitHub accounts",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+
+        // One grouped "GitHub" card (EXP-228, iOS parity): the connected-accounts
+        // caption + connect/reconnect action, the installation chips, the
+        // reconnect notice, and the "Manage on GitHub" link all live inside a
+        // single glassRow instead of a loose vertical stack. Visible to every
+        // member when an account is linked, and always to an owner (so they keep
+        // the connect entry point); hidden for non-owners with no installations.
+        if (installations.isNotEmpty() || isOwner) {
+            // Grant-model connect (web parity, same hop as the repo picker): the
+            // single-consent OAuth connect claims the installation for this team
+            // AND captures the repo grants; the server's post-connect page fires
+            // exponential://github-connected, which refreshes this section without
+            // leaving the screen. A linked installation with no captured grants
+            // (linked before grants existed, or OAuth revoked) flags `needsReauth`.
+            val connectUrl = github?.connectUrl ?: github?.installUrl
+            val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
+                state.team?.slug?.let { slug -> "$base/t/$slug/settings" }
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassRow()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                installations.forEach { inst ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.glassButton().padding(horizontal = 10.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            if (inst.accountType == "Organization") Icons.Filled.Business else Icons.Filled.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                        Text(
-                            inst.accountLogin ?: "Installation ${inst.installationId}",
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                        )
-                        if (inst.needsReauth) {
-                            Icon(
-                                Icons.Filled.Warning,
-                                contentDescription = "Needs reconnect",
-                                modifier = Modifier.size(14.dp),
-                                tint = Color(0xFFEAB308),
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Connected GitHub accounts",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tertiary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (isOwner) {
+                        if (configured) {
+                            GlassPillButton(
+                                label = if (needsReauth) "Reconnect" else "Connect GitHub",
+                                icon = if (needsReauth) Icons.Filled.Refresh else Icons.Filled.Code,
+                                enabled = connectUrl != null,
+                                onClick = {
+                                    connectUrl?.let {
+                                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
+                                    }
+                                },
                             )
+                        } else {
+                            // Grant state unavailable (query failed) or the server
+                            // has no GitHub App — fall back to the web team
+                            // settings, which explain/handle both.
+                            TextButton(
+                                onClick = {
+                                    webSettingsUrl?.let { url ->
+                                        runCatching {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(intent)
+                                        }
+                                    }
+                                },
+                                enabled = webSettingsUrl != null,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Connect on the web", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }
-            }
-        }
-        if (isOwner) {
-            val github = state.github
-            if (github != null && github.configured) {
-                // Grant-model connect (web parity, same hop as the repo picker):
-                // the single-consent OAuth connect claims the installation for
-                // this team AND captures the repo grants; the server's
-                // post-connect page fires exponential://github-connected, which
-                // refreshes this section without leaving the screen. A linked
-                // installation with no captured grants (linked before grants
-                // existed, or OAuth revoked) flags `needsReauth` — same button,
-                // extra notice.
-                val connectUrl = github.connectUrl ?: github.installUrl
-                // Register a repo from the linked accounts into the registry
-                // (EXP-225 — the native counterpart of web's "Connect
-                // repository" dialog; repositories.add is owner-only
-                // server-side). Only offered once an account is linked.
-                if (github.installations.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = { showAddRepo = true },
-                        modifier = Modifier.fillMaxWidth(),
+                if (installations.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Add repository")
+                        installations.forEach { inst ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.glassButton().padding(horizontal = 10.dp, vertical = 6.dp),
+                            ) {
+                                Icon(
+                                    if (inst.accountType == "Organization") Icons.Filled.Business else Icons.Filled.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                )
+                                Text(
+                                    inst.accountLogin ?: "Installation ${inst.installationId}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                )
+                                if (inst.needsReauth) {
+                                    Icon(
+                                        Icons.Filled.Warning,
+                                        contentDescription = "Needs reconnect",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = Color(0xFFEAB308),
+                                    )
+                                }
+                            }
+                        }
                     }
+                } else if (isOwner) {
+                    Text(
+                        "No GitHub account connected yet.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tertiary,
+                    )
                 }
-                if (github.installations.any { it.needsReauth }) {
+                if (isOwner && needsReauth) {
                     Text(
                         "GitHub needs to be reconnected to load this team's repositories.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        color = Color(0xFFEAB308),
                     )
                 }
-                OutlinedButton(
-                    onClick = {
-                        connectUrl?.let {
-                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
-                        }
-                    },
-                    enabled = connectUrl != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.Code, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (github.installations.any { it.needsReauth }) "Reconnect GitHub" else "Connect GitHub")
-                }
                 // Repo access itself (which repos the App may see) is granted and
-                // managed on GitHub's install page — mirror the repo picker's footer.
-                TextButton(
-                    onClick = {
-                        github.installUrl?.let {
-                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
-                        }
-                    },
-                    enabled = github.installUrl != null,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Manage repositories on GitHub", style = MaterialTheme.typography.labelMedium)
-                }
-            } else {
-                // Grant state unavailable (query failed) or the server has no
-                // GitHub App — fall back to the web team settings, which
-                // explain/handle both.
-                val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
-                    state.team?.slug?.let { slug -> "$base/t/$slug/settings" }
-                }
-                TextButton(
-                    onClick = {
-                        webSettingsUrl?.let { url ->
-                            runCatching {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                            }
-                        }
-                    },
-                    enabled = webSettingsUrl != null,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Connect repositories on the web", style = MaterialTheme.typography.labelMedium)
+                // managed on GitHub's install page — mirror the repo picker's
+                // footer (Android-only extra beyond the iOS card).
+                val installUrl = if (configured) github?.installUrl else null
+                if (installUrl != null) {
+                    TextButton(
+                        onClick = {
+                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(installUrl))
+                        },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Manage repositories on GitHub", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
         }
@@ -678,27 +739,35 @@ private fun MembersSection(
                 if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                 val isYou = row.member.userId == state.currentUserId
                 val isLastOwner = row.member.role == DomainContract.teamRoleOwner && ownerCount <= 1
-                // Menu contents are all owner-gated except a member's own
-                // "Leave"; hide the trigger entirely when it would be empty.
-                val hasActions = isOwner || (isYou && !isLastOwner)
+                // Each menu item gates on an explicit capability; the trigger is
+                // hidden entirely when none apply (e.g. the sole owner's own row,
+                // which used to show a single disabled "Make member").
+                val canMakeOwner = isOwner && row.member.role != DomainContract.teamRoleOwner
+                val canMakeMember = isOwner && row.member.role != DomainContract.teamRoleMember && !isLastOwner
+                val canLeave = isYou && !isLastOwner
+                val canRemove = isOwner && !isYou
+                val hasActions = canMakeOwner || canMakeMember || canLeave || canRemove
+                val displayName = userDisplayName(row.user, row.member.userId)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    InitialsAvatar(userDisplayName(row.user, row.member.userId), size = 32.dp)
+                    UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             buildString {
-                                append(userDisplayName(row.user, row.member.userId))
+                                append(displayName)
                                 if (isYou) append(" (you)")
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // Hide the sub-line when it would just repeat the primary
+                        // line — a name-less Apple user's display name IS the email.
                         val email = row.user?.email
-                        if (!email.isNullOrBlank()) {
+                        if (!email.isNullOrBlank() && email != displayName) {
                             Text(
                                 email,
                                 style = MaterialTheme.typography.labelSmall,
@@ -725,41 +794,38 @@ private fun MembersSection(
                             }
                             DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                                 // Role changes + removing others are owner-only.
-                                // The last owner can't be demoted or leave.
-                                if (isOwner) {
-                                    if (row.member.role != DomainContract.teamRoleOwner) {
-                                        DropdownMenuItem(
-                                            text = { Text("Make owner") },
-                                            onClick = {
-                                                rowMenu = false
-                                                onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleOwner))
-                                            },
-                                        )
-                                    }
-                                    if (row.member.role != DomainContract.teamRoleMember) {
-                                        DropdownMenuItem(
-                                            text = { Text("Make member") },
-                                            enabled = !isLastOwner,
-                                            onClick = {
-                                                rowMenu = false
-                                                onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleMember))
-                                            },
-                                        )
-                                    }
+                                // The last owner can't be demoted or leave — the
+                                // "Make member" item is hidden (not disabled) then.
+                                if (canMakeOwner) {
+                                    DropdownMenuItem(
+                                        text = { Text("Make owner") },
+                                        onClick = {
+                                            rowMenu = false
+                                            onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleOwner))
+                                        },
+                                    )
                                 }
-                                if (isYou) {
-                                    if (!isLastOwner) {
-                                        if (isOwner) HorizontalDivider()
-                                        DropdownMenuItem(
-                                            text = { Text("Leave team", color = MaterialTheme.colorScheme.error) },
-                                            onClick = {
-                                                rowMenu = false
-                                                onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
-                                            },
-                                        )
-                                    }
-                                } else if (isOwner) {
-                                    HorizontalDivider()
+                                if (canMakeMember) {
+                                    DropdownMenuItem(
+                                        text = { Text("Make member") },
+                                        onClick = {
+                                            rowMenu = false
+                                            onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleMember))
+                                        },
+                                    )
+                                }
+                                if (canLeave) {
+                                    if (canMakeOwner || canMakeMember) HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Leave team", color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            rowMenu = false
+                                            onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
+                                        },
+                                    )
+                                }
+                                if (canRemove) {
+                                    if (canMakeOwner || canMakeMember) HorizontalDivider()
                                     DropdownMenuItem(
                                         text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
                                         onClick = {

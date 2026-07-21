@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 
 interface AssigneePickerProps {
   disabled?: boolean
@@ -61,15 +62,15 @@ export function AssigneePicker({
                 {selectedUser.image && (
                   <AvatarImage
                     src={selectedUser.image}
-                    alt={selectedUser.name}
+                    alt={displayUserName(selectedUser, selectedUser.id)}
                   />
                 )}
                 <AvatarFallback className="text-[0.5rem]">
-                  {getInitials(selectedUser.name)}
+                  {getInitials(displayUserName(selectedUser, selectedUser.id))}
                 </AvatarFallback>
               </Avatar>
               <span className="max-w-[6.25rem] truncate">
-                {selectedUser.name}
+                {displayUserName(selectedUser, selectedUser.id)}
               </span>
             </>
           ) : (
@@ -103,28 +104,31 @@ export function AssigneePicker({
                   <span className="text-sm">Unassign</span>
                 </CommandItem>
               )}
-              {users.map((user) => (
-                <CommandItem
-                  key={user.id}
-                  value={user.id}
-                  keywords={[user.name]}
-                  onSelect={() => {
-                    onSelect(user.id)
-                    setOpen(false)
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <Avatar className="size-5">
-                    {user.image && (
-                      <AvatarImage src={user.image} alt={user.name} />
-                    )}
-                    <AvatarFallback className="text-[0.5625rem]">
-                      {getInitials(user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="truncate text-sm">{user.name}</span>
-                </CommandItem>
-              ))}
+              {users.map((user) => {
+                const name = displayUserName(user, user.id)
+                return (
+                  <CommandItem
+                    key={user.id}
+                    value={user.id}
+                    keywords={[name, user.email ?? ``]}
+                    onSelect={() => {
+                      onSelect(user.id)
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Avatar className="size-5">
+                      {user.image && (
+                        <AvatarImage src={user.image} alt={name} />
+                      )}
+                      <AvatarFallback className="text-[0.5625rem]">
+                        {getInitials(name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate text-sm">{name}</span>
+                  </CommandItem>
+                )
+              })}
             </CommandGroup>
           </CommandList>
         </Command>

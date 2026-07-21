@@ -41,7 +41,7 @@ import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { FeedbackButton } from "@/components/feedback-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -132,9 +132,10 @@ export function TeamSidebar({
 
   const handleSignOut = useSignOut()
 
-  const userInitials = session?.user?.name
-    ? getInitials(session.user.name)
-    : `?`
+  // Name-less accounts (Apple sign-in stores an empty name) fall back to the
+  // email for initials instead of a bare "?".
+  const userLabel = session?.user?.name || session?.user?.email
+  const userInitials = userLabel ? getInitials(userLabel) : `?`
 
   return (
     <>
@@ -374,6 +375,9 @@ export function TeamSidebar({
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton className="w-full" aria-label="User menu">
                   <Avatar className="h-6 w-6">
+                    {session?.user?.image && (
+                      <AvatarImage src={session.user.image} />
+                    )}
                     <AvatarFallback className="text-xs">
                       {userInitials}
                     </AvatarFallback>

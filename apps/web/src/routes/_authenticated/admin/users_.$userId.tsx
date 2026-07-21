@@ -104,16 +104,20 @@ function AdminUserDetail() {
             </Avatar>
             <div className="min-w-0">
               <div className="text-lg font-semibold truncate">
-                {user.name}
+                {user.name || user.email}
                 {isSelf && (
                   <span className="text-muted-foreground font-normal text-sm">
                     {` (you)`}
                   </span>
                 )}
               </div>
-              <div className="text-sm text-muted-foreground truncate">
-                {user.email}
-              </div>
+              {/* Name-less accounts show the email as the heading; don't
+                  repeat it below. */}
+              {user.name && user.name !== user.email && (
+                <div className="text-sm text-muted-foreground truncate">
+                  {user.email}
+                </div>
+              )}
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 {user.providers.length === 0 ? (
                   <Badge variant="secondary" className="text-xs">

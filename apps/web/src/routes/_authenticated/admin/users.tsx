@@ -136,16 +136,20 @@ function AdminUsers() {
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate group-hover:underline">
-                      {user.name}
+                      {user.name || user.email}
                       {isSelf && (
                         <span className="text-muted-foreground font-normal">
                           {` (you)`}
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {user.email}
-                    </div>
+                    {/* Name-less accounts show the email as the primary line;
+                        don't repeat it below. */}
+                    {user.name && user.name !== user.email && (
+                      <div className="text-xs text-muted-foreground truncate">
+                        {user.email}
+                      </div>
+                    )}
                   </div>
                 </Link>
                 {/* Mobile: switch + menu on the right of the avatar row */}

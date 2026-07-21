@@ -14,6 +14,7 @@ import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -267,11 +268,13 @@ function ReviewsPage() {
                           {assignee.image && (
                             <AvatarImage
                               src={assignee.image}
-                              alt={assignee.name}
+                              alt={displayUserName(assignee, assignee.id)}
                             />
                           )}
                           <AvatarFallback className="text-[0.625rem]">
-                            {getInitials(assignee.name)}
+                            {getInitials(
+                              displayUserName(assignee, assignee.id)
+                            )}
                           </AvatarFallback>
                         </Avatar>
                       )}

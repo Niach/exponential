@@ -271,7 +271,9 @@ impl MembersPane {
                 )
                 .child(role_chip(role_icon, SharedString::from(role.clone()), cx)),
         );
-        if let Some(email) = email {
+        // Skip the email sub-line when the resolved name already IS the email
+        // (the name-less Apple-ID case above), so it never shows twice.
+        if let Some(email) = email.filter(|email| *email != name) {
             identity = identity.child(
                 div()
                     .text_xs()
@@ -325,35 +327,26 @@ fn member_actions_menu(
             let name = name.to_string();
             move |mut menu, _, _| {
                 if i_am_owner && !is_self {
-                    for (label, role, icon, disabled) in [
-                        (
-                            "Make owner",
-                            api::teams::TeamRole::Owner,
-                            IconName::Star,
-                            is_owner_row,
-                        ),
-                        (
-                            "Make member",
-                            api::teams::TeamRole::Member,
-                            IconName::User,
-                            !is_owner_row,
-                        ),
-                    ] {
-                        let member_id = member_id.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new(label)
-                                .icon(Icon::new(icon))
-                                .disabled(disabled)
-                                .on_click(move |_, _, cx| {
-                                    let member_id = member_id.clone();
-                                    spawn_trpc(cx, "teamMembers.updateRole", move |trpc| {
-                                        api::teams::team_members_update_role(
-                                            trpc, &member_id, role,
-                                        )
-                                    });
-                                }),
-                        );
-                    }
+                    // Only the applicable role change renders — demoting another
+                    // owner is always safe (I stay an owner). The no-op variant
+                    // is HIDDEN, not a disabled dead item (EXP-228).
+                    let role_item = if is_owner_row {
+                        ("Make member", api::teams::TeamRole::Member, IconName::User)
+                    } else {
+                        ("Make owner", api::teams::TeamRole::Owner, IconName::Star)
+                    };
+                    let (label, role, icon) = role_item;
+                    let member_id = member_id.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .icon(Icon::new(icon))
+                            .on_click(move |_, _, cx| {
+                                let member_id = member_id.clone();
+                                spawn_trpc(cx, "teamMembers.updateRole", move |trpc| {
+                                    api::teams::team_members_update_role(trpc, &member_id, role)
+                                });
+                            }),
+                    );
                 }
                 if is_self || i_am_owner {
                     let member_id = member_id.clone();
@@ -600,11 +593,19 @@ impl Render for MembersPane {
 }
 
 fn display_name(row: &MemberRow) -> String {
-    // Web: `user?.name ?? member.userId`.
-    row.user
-        .as_ref()
-        .and_then(|user| user.name.clone())
-        .unwrap_or_else(|| row.member.user_id.clone())
+    // Mirror `comments::author_label`: name (non-empty), else email
+    // (non-empty), else the `Member <LAST4>` fallback. A blank name is the
+    // Apple-ID case (Better Auth stores `name = ""` when Apple omits it), so a
+    // truthy filter is what makes the email show through instead of an empty
+    // label (EXP-228).
+    let user = row.user.as_ref();
+    user.and_then(|user| user.name.clone())
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            user.and_then(|user| user.email.clone())
+                .filter(|email| !email.is_empty())
+        })
+        .unwrap_or_else(|| domain::member_fallback_label(&row.member.user_id))
 }
 
 /// "Invite sent to X" confirmation (EXP-188 invite-by-email).

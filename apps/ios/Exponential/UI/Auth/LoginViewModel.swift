@@ -8,7 +8,8 @@ import os
 private let logger = Logger(subsystem: "at.exponential", category: "LoginViewModel")
 
 @MainActor @Observable
-final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProviding {
+final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProviding,
+    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     var email = ""
     var password = ""
     var loading = false
@@ -23,6 +24,11 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // The in-flight OAuth attempt's PKCE pair (REV-13). In-memory only —
     // never persisted; last-start-wins (a new attempt replaces the old).
     private var pendingPkce: Pkce?
+    // Native Sign in with Apple (EXP-228): the in-flight request's nonce and a
+    // strong ref to the controller (ASAuthorizationController does not retain
+    // itself for the duration of the sheet). In-memory only.
+    private var appleNonce: String?
+    private var appleAuthController: ASAuthorizationController?
 
     init(authApi: AuthApi, auth: AuthRepository) {
         self.authApi = authApi
@@ -33,6 +39,16 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // MARK: - ASWebAuthenticationPresentationContextProviding
 
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        keyWindowAnchor()
+    }
+
+    // MARK: - ASAuthorizationControllerPresentationContextProviding
+
+    nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        keyWindowAnchor()
+    }
+
+    nonisolated private func keyWindowAnchor() -> ASPresentationAnchor {
         MainActor.assumeIsolated {
             UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
@@ -128,7 +144,36 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         launchWebAuth(url: url)
     }
 
+    // Native Sign in with Apple (EXP-228). Runs the on-device ASAuthorization
+    // sheet first — the only path that yields the user's name, since Apple
+    // delivers `fullName` solely in this credential and never in the idToken —
+    // then exchanges the identityToken for a Better Auth session. Any failure
+    // other than an explicit user cancel falls back automatically to the web
+    // OAuth hop, so self-hosted / pre-SIWA servers keep working.
     func startAppleOAuthFlow() {
+        guard !loading else { return }
+        loading = true
+        error = nil
+
+        let nonce = Self.randomNonce()
+        appleNonce = nonce
+
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = nonce
+
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        appleAuthController = controller
+        controller.performRequests()
+    }
+
+    // The original web OAuth hop, kept as the automatic fallback for native
+    // SIWA failures (idToken exchange rejected, malformed credential, or any
+    // non-cancel authorization error).
+    private func startAppleWebOAuthFlow() {
+        loading = false
         let pkce = Pkce.generate()
         guard let instanceUrl = auth.instanceUrl,
               let url = authApi.appleStartUrl(instanceUrl: instanceUrl, codeChallenge: pkce.challenge) else {
@@ -137,6 +182,101 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         }
         pendingPkce = pkce
         launchWebAuth(url: url)
+    }
+
+    // MARK: - ASAuthorizationControllerDelegate
+
+    nonisolated func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithAuthorization authorization: ASAuthorization
+    ) {
+        // identityToken is Data? holding the raw JWT bytes — decode as UTF-8.
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8) else {
+            Task { @MainActor in self.startAppleWebOAuthFlow() }
+            return
+        }
+        // Capture the name NOW — Apple sends `fullName` only on this credential
+        // (blank on every subsequent sign-in for an existing pairing).
+        var fullName: String?
+        if let components = credential.fullName {
+            let formatter = PersonNameComponentsFormatter()
+            formatter.style = .default
+            let formatted = formatter.string(from: components)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            fullName = formatted.isEmpty ? nil : formatted
+        }
+        Task { @MainActor in
+            await self.completeAppleSignIn(identityToken: identityToken, fullName: fullName)
+        }
+    }
+
+    nonisolated func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithError error: Error
+    ) {
+        // Reduce the non-Sendable error to Sendable values before hopping to the
+        // main actor.
+        let cancelled = (error as? ASAuthorizationError)?.code == .canceled
+        let description = error.localizedDescription
+        Task { @MainActor in
+            self.appleAuthController = nil
+            if cancelled {
+                // User cancelled the sheet — stay silent, no fallback.
+                self.error = nil
+                self.loading = false
+                return
+            }
+            // Any other authorization failure → fall back to the web OAuth hop.
+            logger.info("Native SIWA failed, falling back to web: \(description)")
+            self.startAppleWebOAuthFlow()
+        }
+    }
+
+    // Exchange the Apple identityToken for a session and complete the login. On
+    // exchange failure (e.g. a server without APPLE_APP_BUNDLE_IDENTIFIER) fall
+    // back to the web hop instead of surfacing an error.
+    private func completeAppleSignIn(identityToken: String, fullName: String?) async {
+        appleAuthController = nil
+        let nonce = appleNonce
+        appleNonce = nil
+        guard let instanceUrl = auth.instanceUrl else {
+            startAppleWebOAuthFlow()
+            return
+        }
+        // The nonce sent here is the SAME raw string set on the request: Apple
+        // embeds the request nonce verbatim in the idToken's `nonce` claim and
+        // Better Auth compares raw equality.
+        let result = await authApi.signInWithApple(
+            instanceUrl: instanceUrl, identityToken: identityToken, nonce: nonce
+        )
+        switch result {
+        case let .success(token, user):
+            error = nil
+            // Push the captured Apple name BEFORE applyLogin so the session
+            // fetch it performs already reflects the name. Only when the stored
+            // name is still blank — never clobber an existing non-empty name.
+            if let fullName, !fullName.isEmpty,
+               (user.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = await authApi.updateUserName(instanceUrl: instanceUrl, token: token, name: fullName)
+            }
+            await applyLogin(token: token, user: user)
+            loading = false
+        case .failure:
+            logger.info("Native SIWA exchange failed, falling back to web")
+            startAppleWebOAuthFlow()
+        }
+    }
+
+    // A random 32-hex-char nonce for the SIWA request.
+    private static func randomNonce(length: Int = 32) -> String {
+        let hex = "0123456789abcdef"
+        var result = ""
+        for _ in 0..<length {
+            result.append(hex.randomElement()!)
+        }
+        return result
     }
 
     func handleOAuthToken(_ token: String) async {
