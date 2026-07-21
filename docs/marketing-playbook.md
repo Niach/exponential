@@ -23,7 +23,7 @@ Two audiences, two wedges:
 
 ## 1. License reality — READ THIS BEFORE POSTING ANYWHERE
 
-Since **2026-07-21** Exponential is under the **Exponential Small Team License 1.0 (ESTL-1.0)** — *source-available*, **not open source / not FOSS**. Versions released before that date stay available under the Elastic License 2.0; the change is prospective only. Learn the four sentences and never improvise:
+Exponential is under the **Exponential Small Team License 1.0 (ESTL-1.0)** — *source-available*, **not open source / not FOSS**. Learn the four sentences and never improvise:
 
 1. The source is public. You can read it, modify it, and run it.
 2. Self-hosting in production is **free while your company and its affiliates have fewer than 10 total people** (employees + contractors). 10 or more → commercial licence, dennis@straehhuber.com.
@@ -34,7 +34,7 @@ This changes how you market:
 
 - Say **"free & self-hostable under 10 people"** or **"source-available"**. **Never say "open source."** HN and r/opensource will eviscerate a mislabeled license, and it torches trust.
 - Write a short **"Why this license, honestly"** explainer page before the launch window — it preempts the #1 HN objection, and under a bespoke headcount cap it is *more* load-bearing than a stock license would be. Cover, in this order: (a) one solo developer, no VC, the cloud is the business; (b) the cap is a **headcount** test — not seats in the product, not revenue, so nobody has to open their books; (c) it is **permanent** — say so out loud, because the obvious question is "does it convert to open source in 4 years?" and the honest answer is no, that was considered and rejected; (d) enforcement is **honor system** — no license server, no seat check, no phone-home, no nag banner; (e) what you can still do: read it, fork it, patch it, run it in production for free under 10 people; (f) what you can't: resell it as a service. Own the trade-off instead of burying it — "this is not open source, here's why I picked that" reads far better than a euphemism, and the number is generous enough to defend.
-- **Naming discipline:** the license is *Exponential Small Team License 1.0*, or *ESTL-1.0* on second reference. Do not call it "our ELv2", "a BUSL variant", or anything with another vendor's brand in it. Referring to ELv2 factually — "releases before July 2026 remain under the Elastic License 2.0" — is correct and expected.
+- **Naming discipline:** the license is *Exponential Small Team License 1.0*, or *ESTL-1.0* on second reference. Never describe it by reference to another vendor's licence or brand. Don't volunteer what the licence used to be — the licence is what it is, and the history isn't part of the pitch.
 - **r/selfhosted:** the F/LOSS exemption to the 10% self-promo rule *does not cover you* — the license is non-free by any definition the sub uses. Plan to satisfy **both** the ~3-month account-age gate **and** the 10% participation rule. → **Start participating today** (see W1).
 - **awesome-selfhosted:** requires first release > 4 months ago. `v0.1.0` was tagged 2026-03-10, so you clear the age gate ~**July 10**. But its FOSS requirement makes acceptance unlikely — submit via **awesome-selfhosted-data** with the **non-free license marker** and expect pushback. Ask the maintainers *before* burning a PR.
 - r/opensource is **OUT**. r/SideProject, r/webdev showoff threads, r/homelab are **IN**.

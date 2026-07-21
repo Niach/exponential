@@ -93,5 +93,3 @@ First call opens a browser login; every tool call after runs as your user.
 ## License
 
 [Exponential Small Team License 1.0](./LICENSE) — source-available, not open source. Read it, change it, and self-host it in production for free while your company, affiliates included, has **fewer than 10 people** (employees plus independent contractors). 10 or more needs a commercial license — dennis@straehhuber.com. Evaluation, development, testing, and non-commercial research stay free at any size. Nobody may offer it to third parties as a hosted or managed service, whatever their size.
-
-Versions released before 2026-07-21 remain available under the [Elastic License 2.0](https://www.elastic.co/licensing/elastic-license) — the relicense applies going forward only.

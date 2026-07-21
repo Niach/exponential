@@ -37,10 +37,7 @@ export function TermsPage() {
           <p style={prose}>
             Exponential is source-available under the Exponential Small Team
             License 1.0 (ESTL-1.0). The full license text and source are at{` `}
-            <a
-              href="https://github.com/Niach/exponential"
-              style={linkStyle}
-            >
+            <a href="https://github.com/Niach/exponential" style={linkStyle}>
               github.com/Niach/exponential
             </a>
             . You may use, modify, and redistribute the software subject to the
@@ -51,12 +48,6 @@ export function TermsPage() {
             any size. Nobody may offer the software to third parties as a hosted
             or managed service.
           </p>
-          <p style={prose}>
-            Versions of Exponential released before 2026-07-21 were made
-            available under the Elastic License 2.0 and remain available under
-            it. The license change is prospective only and takes nothing away
-            from those earlier versions.
-          </p>
 
           <h2 style={h2Style}>No warranty</h2>
           <p style={prose}>
@@ -65,14 +56,14 @@ export function TermsPage() {
             merchantability, fitness for a particular purpose, and
             non-infringement. In no event shall the author be liable for any
             claim, damages, or other liability, whether in an action of
-            contract, tort, or otherwise, arising from, out of, or in
-            connection with the software or its use.
+            contract, tort, or otherwise, arising from, out of, or in connection
+            with the software or its use.
           </p>
 
           <h2 style={h2Style}>Cloud service</h2>
           <p style={prose}>
-            The hosted cloud instance at app.exponential.at is offered on a
-            free tier and paid subscription plans (see{` `}
+            The hosted cloud instance at app.exponential.at is offered on a free
+            tier and paid subscription plans (see{` `}
             <a href="/pricing/" style={linkStyle}>
               Pricing
             </a>
@@ -82,14 +73,15 @@ export function TermsPage() {
             infrastructure operated by the author; see the{` `}
             <a href="/privacy/" style={linkStyle}>
               Privacy Policy
-            </a>{` `}
+            </a>
+            {` `}
             for details.
           </p>
 
           <h2 style={h2Style}>Self-hosted operation</h2>
           <p style={prose}>
-            You may self-host Exponential on your own infrastructure, subject
-            to the license above. Running it for your own company is free while
+            You may self-host Exponential on your own infrastructure, subject to
+            the license above. Running it for your own company is free while
             that company and its affiliates have fewer than 10 total individuals
             working as employees and independent contractors; at 10 or more you
             need a commercial license (
@@ -111,22 +103,23 @@ export function TermsPage() {
             own terms and policies. See the{` `}
             <a href="/privacy/" style={linkStyle}>
               Privacy Policy
-            </a>{` `}
+            </a>
+            {` `}
             for how Exponential handles data from connected accounts.
           </p>
 
           <h2 style={h2Style}>Acceptable use</h2>
           <p style={prose}>
-            Do not use Exponential to violate any law, infringe on the rights
-            of others, distribute malware, or attempt to compromise any system
-            you do not own or are not authorized to access.
+            Do not use Exponential to violate any law, infringe on the rights of
+            others, distribute malware, or attempt to compromise any system you
+            do not own or are not authorized to access.
           </p>
 
           <h2 style={h2Style}>Changes</h2>
           <p style={prose}>
-            These terms may be updated to reflect changes to the software or
-            its integrations. Material changes will be reflected by updating
-            the “last updated” date at the top of this page.
+            These terms may be updated to reflect changes to the software or its
+            integrations. Material changes will be reflected by updating the
+            “last updated” date at the top of this page.
           </p>
 
           <h2 style={h2Style}>Contact</h2>

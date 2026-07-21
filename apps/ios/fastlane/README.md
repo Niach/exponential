@@ -103,6 +103,18 @@ Upload listing metadata + screenshots to App Store Connect WITHOUT building.
 
 Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/.
 
+### ios sync_metadata
+
+```sh
+[bundle exec] fastlane ios sync_metadata
+```
+
+Upload listing metadata ONLY (no binary, no screenshots). Use when copy changes
+
+between releases — `sync_store` would also push fastlane/screenshots/, which is
+
+wrong whenever those are known-stale.
+
 ### ios release
 
 ```sh

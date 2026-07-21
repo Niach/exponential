@@ -132,9 +132,9 @@ bun dev
 
             <DocsCallout kind="note" title="GitHub App — only for coding">
               Boards work out of the box. Only coding — backing a board with a
-              GitHub repository for coding sessions and PRs — needs a
-              configured GitHub App; the next section walks through creating
-              one, and you can skip it if you just want issue tracking.
+              GitHub repository for coding sessions and PRs — needs a configured
+              GitHub App; the next section walks through creating one, and you
+              can skip it if you just want issue tracking.
             </DocsCallout>
 
             <h3>Connect the apps</h3>
@@ -182,8 +182,8 @@ docker run -d --name exponential-web \\
           <DocsSection id="github-app" num="02" label="GitHub App">
             <h2>GitHub App</h2>
             <p>
-              Coding runs against a GitHub repository, so a GitHub App
-              is a <strong>prerequisite for coding sessions and PRs</strong>
+              Coding runs against a GitHub repository, so a GitHub App is a{" "}
+              <strong>prerequisite for coding sessions and PRs</strong>
               {` `}
               (repo-less boards need none). The server uses it to mint
               short-lived per-repo installation tokens — no personal access
@@ -269,8 +269,7 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             </p>
             <DocsCallout kind="note" title="If the App loses repo access">
               Drop a repo from the installation on GitHub and{` `}
-              <strong>Team settings → Repositories</strong> flags it with a
-              {` `}
+              <strong>Team settings → Repositories</strong> flags it with a{` `}
               <strong>&quot;no access — re-grant on GitHub&quot;</strong> badge
               and a re-grant link; coding-session token minting fails with a
               clear message instead of handing out a broken token.
@@ -396,8 +395,8 @@ PUSH_RELAY_SECRET=<shared secret>
                 Show Google sign-in button (default: <code>false</code>).
               </EnvVar>
               <EnvVar name="GITHUB_APP_ID">
-                GitHub App numeric ID — required to connect repositories
-                (coding sessions and PRs).
+                GitHub App numeric ID — required to connect repositories (coding
+                sessions and PRs).
               </EnvVar>
               <EnvVar name="GITHUB_APP_SLUG">
                 GitHub App URL slug (builds the install link).
@@ -502,9 +501,7 @@ docker rm -f exponential-web
             <p>
               Once you count 10 or more, you need a commercial license. Email
               {` `}
-              <a href="mailto:dennis@straehhuber.com">
-                dennis@straehhuber.com
-              </a>
+              <a href="mailto:dennis@straehhuber.com">dennis@straehhuber.com</a>
               {` `}
               and we&apos;ll sort it out.
             </p>
@@ -529,9 +526,7 @@ docker rm -f exponential-web
               </a>
               {` `}
               (ESTL-1.0) — that text is the authority, this section is just a
-              plain-language summary. Versions released before 2026-07-21 were
-              made available under the Elastic License 2.0 and remain available
-              under it; the license change applies going forward only.
+              plain-language summary.
             </p>
             <p>
               Nothing in the software enforces any of this: no seat check, no
