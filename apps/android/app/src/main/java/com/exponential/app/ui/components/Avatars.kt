@@ -83,13 +83,19 @@ fun UserAvatar(
 ) {
     val url = user?.image?.takeIf { it.isNotBlank() }
     if (url != null) {
-        AsyncImage(
-            model = url,
-            contentDescription = null,
-            modifier = modifier
-                .size(size)
-                .clip(CircleShape),
-        )
+        // Draw the initials underneath so a still-loading or failed image
+        // degrades to initials (parity with iOS/web) instead of a blank
+        // circle; the loaded image paints over them.
+        Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+            InitialsAvatar(nameOrEmail, size = size)
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
+            )
+        }
     } else {
         InitialsAvatar(nameOrEmail, modifier = modifier, size = size)
     }
