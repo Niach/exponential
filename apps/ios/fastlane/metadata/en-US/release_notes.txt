@@ -1,3 +1,3 @@
-• Agents that need your input now show an attention badge on the Agents tab
-• Reworked Start-coding sheet with per-agent model and effort picks
-• Smoother steering when answering agent questions
+• Team invites are now sent from the web app — invite links still open and join right here
+• Clearer message when your team runs out of attachment storage, with a retry
+• Sharing an image into Exponential now reports upload problems properly

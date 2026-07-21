@@ -109,7 +109,7 @@ struct TeamRepositoriesSection: View {
                 }
                 .glassButton()
                 .buttonStyle(.plain)
-            } else if isOwner, let url = webSettingsURL {
+            } else if isOwner, let url = webRepositoriesURL {
                 Link(destination: url) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.up.right.square")
@@ -263,12 +263,16 @@ struct TeamRepositoriesSection: View {
 
     // MARK: - Data (server-only registry; refetched after every mutation)
 
-    private var webSettingsURL: URL? {
+    // Deep-links straight at the repositories subpage rather than the settings
+    // index: the index is a section menu, and landing an iOS user on a menu that
+    // offers Plan & Billing is exactly the App Store 3.1.1 exposure we avoid.
+    // Billing stays web-only and is never surfaced as a destination from here.
+    private var webRepositoriesURL: URL? {
         guard let base = instanceBaseURL, let slug = team?.slug else { return nil }
         let baseString = base.absoluteString.hasSuffix("/")
             ? String(base.absoluteString.dropLast())
             : base.absoluteString
-        return URL(string: "\(baseString)/t/\(slug)/settings")
+        return URL(string: "\(baseString)/t/\(slug)/settings/repositories")
     }
 
     private func reload(refreshGithub: Bool = false) async {

@@ -6,15 +6,21 @@ let sharedSources: SourceFilesList = ["Exponential/**"]
 // bundles exactly one, copied in as `GoogleService-Info.plist` (the name the
 // Firebase SDK loads). The staging copy lives outside Exponential/ so the two
 // files of the same bundle name don't collide.
+// PrivacyInfo.xcprivacy must land at the ROOT of the .app bundle, so it is copied
+// as a plain flat resource (same treatment as GoogleService-Info.plist). Both app
+// targets share ONE file: prod and staging ship identical code, so their
+// required-reason APIs and collected data are identical too.
 let prodResources: ResourceFileElements = [
     "Exponential/Assets.xcassets",
     "Exponential/Resources/**",
     "Exponential/GoogleService-Info.plist",
+    "Exponential/PrivacyInfo.xcprivacy",
 ]
 let stagingResources: ResourceFileElements = [
     "Exponential/Assets.xcassets",
     "Exponential/Resources/**",
     "Firebase-Staging/GoogleService-Info.plist",
+    "Exponential/PrivacyInfo.xcprivacy",
 ]
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
@@ -74,10 +80,19 @@ let shareExtensionSources: SourceFilesList = [
     "ShareExtension/**",
 ]
 
+// The .appex is its own bundle and needs its own manifest — it can't inherit the
+// app's. Deliberately a SEPARATE file from the app's rather than a shared one:
+// the curated source list above is much narrower than the app, so the extension
+// declares only the UserDefaults reason plus the content the user shares (no
+// name/email capture, no Firebase push token). Both extension targets share it.
+let shareExtensionResources: ResourceFileElements = [
+    "ShareExtension/PrivacyInfo.xcprivacy",
+]
+
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.13.15"
-let appBuildVersion = "47"
+let appMarketingVersion = "0.13.16"
+let appBuildVersion = "48"
 
 let shareExtensionInfoPlist: [String: Plist.Value] = [
     // Must match the parent app's version (CFBundleVersion mismatch trips
@@ -230,6 +245,7 @@ let project = Project(
                 "CFBundleDisplayName": "Exponential",
             ]) { _, new in new }),
             sources: shareExtensionSources,
+            resources: shareExtensionResources,
             entitlements: "Exponential.entitlements",
             dependencies: [],
             settings: .settings(base: baseSettings)
@@ -244,6 +260,7 @@ let project = Project(
                 "CFBundleDisplayName": "Exp Staging",
             ]) { _, new in new }),
             sources: shareExtensionSources,
+            resources: shareExtensionResources,
             entitlements: "ExponentialStaging.entitlements",
             dependencies: [],
             settings: .settings(base: baseSettings.merging([

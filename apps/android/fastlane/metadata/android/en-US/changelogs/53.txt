@@ -1,0 +1,1 @@
+Team invites are now sent from the web app — invite links still open and join right here — and uploads explain themselves when a team runs out of storage.

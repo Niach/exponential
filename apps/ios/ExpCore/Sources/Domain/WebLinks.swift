@@ -10,7 +10,7 @@ import Foundation
 /// ONLY the new form — a dead route must not deep-link into the app either.
 ///
 /// `base` is the account's `instanceUrl` (per `AuthRepository`); any trailing
-/// slash is trimmed first (precedent: TeamRepositoriesSection.webSettingsURL).
+/// slash is trimmed first (precedent: TeamRepositoriesSection.webRepositoriesURL).
 /// Slug/identifier path segments are percent-encoded defensively even though the
 /// server only ever mints URL-safe slugs. (Board-level links were removed —
 /// sharing is issue-only on every client.)
