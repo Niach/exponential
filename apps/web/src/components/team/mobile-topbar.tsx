@@ -4,7 +4,6 @@ import {
   Bell,
   ChevronsUpDown,
   LifeBuoy,
-  LogIn,
   LogOut,
   Megaphone,
   Settings,
@@ -51,7 +50,6 @@ export function TeamMobileTopbar({
   boards,
 }: TeamMobileTopbarProps) {
   const { data: session } = useSession()
-  const isAuthed = Boolean(session?.user)
   const navigate = useNavigate()
   const handleSignOut = useSignOut()
   const matchRoute = useMatchRoute()
@@ -109,83 +107,65 @@ export function TeamMobileTopbar({
       )}
 
       <div className="ml-auto flex items-center">
-        {isAuthed ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 rounded-full"
-                aria-label="User menu"
-              >
-                <Avatar className="size-7">
-                  {session?.user?.image && (
-                    <AvatarImage src={session.user.image} />
-                  )}
-                  <AvatarFallback className="text-xs">
-                    {userInitials}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {isAdminUser(session?.user) && (
-                <DropdownMenuItem
-                  onClick={() => navigate({ to: `/admin` })}
-                >
-                  <Shield className="mr-2 size-4" />
-                  Admin
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() =>
-                  navigate({
-                    to: `/t/$teamSlug/settings`,
-                    params: { teamSlug },
-                  })
-                }
-              >
-                <Settings className="mr-2 size-4" />
-                Settings
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-full"
+              aria-label="User menu"
+            >
+              <Avatar className="size-7">
+                {session?.user?.image && (
+                  <AvatarImage src={session.user.image} />
+                )}
+                <AvatarFallback className="text-xs">
+                  {userInitials}
+                </AvatarFallback>
+              </Avatar>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {isAdminUser(session?.user) && (
+              <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
+                <Shield className="mr-2 size-4" />
+                Admin
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => navigate({ to: `/account/notifications` })}
-              >
-                <Bell className="mr-2 size-4" />
-                Account & notifications
+            )}
+            <DropdownMenuItem
+              onClick={() =>
+                navigate({
+                  to: `/t/$teamSlug/settings`,
+                  params: { teamSlug },
+                })
+              }
+            >
+              <Settings className="mr-2 size-4" />
+              Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => navigate({ to: `/account/notifications` })}
+            >
+              <Bell className="mr-2 size-4" />
+              Account & notifications
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
+              <Megaphone className="mr-2 size-4" />
+              What&apos;s new
+            </DropdownMenuItem>
+            {feedbackAvailable && (
+              <DropdownMenuItem onClick={() => openFeedbackWidget()}>
+                <LifeBuoy className="mr-2 size-4" />
+                Feedback & support
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-                <Megaphone className="mr-2 size-4" />
-                What&apos;s new
-              </DropdownMenuItem>
-              {feedbackAvailable && (
-                <DropdownMenuItem onClick={() => openFeedbackWidget()}>
-                  <LifeBuoy className="mr-2 size-4" />
-                  Feedback & support
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut}>
-                <LogOut className="mr-2 size-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              navigate({
-                to: `/auth/login`,
-                search: { redirect: undefined },
-              })
-            }
-          >
-            <LogIn className="mr-1 size-4" />
-            Sign in
-          </Button>
-        )}
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut}>
+              <LogOut className="mr-2 size-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <BoardSwitcherSheet
@@ -196,12 +176,7 @@ export function TeamMobileTopbar({
         boards={boards}
         activeBoardSlug={boardSlug}
       />
-      {isAuthed && (
-        <ChangelogSheet
-          open={whatsNewOpen}
-          onOpenChange={setWhatsNewOpen}
-        />
-      )}
+      <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
     </header>
   )
 }

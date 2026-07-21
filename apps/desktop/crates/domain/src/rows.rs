@@ -163,7 +163,8 @@ pub struct IssueLabel {
     pub created_at: Option<String>,
 }
 
-/// `users` shape row (co-member-scoped; full rows incl. email, §5.9).
+/// `users` shape row (co-member-scoped; the server pins the 6-column
+/// contract list — admin/verification/billing fields never sync).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct User {
     pub id: String,
@@ -171,12 +172,8 @@ pub struct User {
     pub name: Option<String>,
     #[serde(default)]
     pub email: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub email_verified: Option<bool>,
     #[serde(default)]
     pub image: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub is_admin: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

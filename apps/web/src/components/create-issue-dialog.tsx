@@ -44,7 +44,6 @@ interface CreateIssueDialogProps {
   boardPrefix: string
   users: User[]
   teamId: string
-  restrictModeration?: boolean
 }
 
 export function CreateIssueDialog({
@@ -57,7 +56,6 @@ export function CreateIssueDialog({
   boardPrefix,
   users,
   teamId,
-  restrictModeration = false,
 }: CreateIssueDialogProps) {
   const [title, setTitle] = useState(prefill?.title ?? ``)
   const [description, setDescription] = useState(prefill?.description ?? ``)
@@ -358,13 +356,11 @@ export function CreateIssueDialog({
       boardPrefix={boardPrefix}
       boardColor={boardColor}
       dialogTestId="issue-editor-create"
-      restrictModeration={restrictModeration}
       formProps={{ onSubmit: handleSubmit }}
       primaryAction={{
         type: `submit`,
         disabled: !title.trim() || closeDisabled,
-        loading:
-          submitPhase === `creating` || submitPhase === `uploading`,
+        loading: submitPhase === `creating` || submitPhase === `uploading`,
       }}
       headerContent={<span className="text-sm">New issue</span>}
       title={title}

@@ -66,11 +66,7 @@ export const notificationTypeEnum = pgEnum(
   notificationTypeValues
 )
 
-export const teamMemberRoleEnum = pgEnum(
-  `team_member_role`,
-  teamRoleValues
-)
-
+export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 
@@ -155,7 +151,9 @@ export const creem_subscriptions = pgTable(`creem_subscriptions`, {
     onDelete: `set null`,
   }),
   seats: integer(`seats`).default(1).notNull(),
-  status: text(`status`).$defaultFn(() => `pending`).notNull(),
+  status: text(`status`)
+    .$defaultFn(() => `pending`)
+    .notNull(),
   periodStart: timestamp(`period_start`),
   periodEnd: timestamp(`period_end`),
   cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
@@ -435,7 +433,8 @@ export const comments = pgTable(
 )
 
 // The live "coding now" record — one row per interactive desktop coding
-// session (one terminal tab + one `claude` child). SYNCED as an Electric shape
+// session (one terminal tab + one agent CLI child — claude/codex/pi,
+// EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Two session subjects: issue-scoped
@@ -503,7 +502,8 @@ export const attachments = pgTable(
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
     // Denormalized from issue→board (populate_issue_child_board_id) so the
-    // trash fan-out can target a board's child rows.
+    // trash fan-out can target a board's child rows. Attachment byte reads
+    // are member-only too (EXP-180).
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
@@ -1165,18 +1165,12 @@ export const createTeamSchema = createInsertSchema(teams).omit({
   updatedAt: true,
 })
 
-export const selectTeamMemberSchema = createSelectSchema(
-  teamMembers,
-  {
-    role: teamRoleSchema,
-  }
-)
-export const selectTeamInviteSchema = createSelectSchema(
-  teamInvites,
-  {
-    role: teamRoleSchema,
-  }
-)
+export const selectTeamMemberSchema = createSelectSchema(teamMembers, {
+  role: teamRoleSchema,
+})
+export const selectTeamInviteSchema = createSelectSchema(teamInvites, {
+  role: teamRoleSchema,
+})
 export const selectBoardSchema = createSelectSchema(boards)
 export const createBoardSchema = createInsertSchema(boards).omit({
   id: true,
@@ -1226,9 +1220,12 @@ export const selectAttachmentSchema = createSelectSchema(attachments)
 
 export const selectNotificationSchema = createSelectSchema(notifications)
 
-export const selectIssueSubscriberSchema = createSelectSchema(issueSubscribers, {
-  source: subscriberSourceSchema,
-})
+export const selectIssueSubscriberSchema = createSelectSchema(
+  issueSubscribers,
+  {
+    source: subscriberSourceSchema,
+  }
+)
 
 export const selectIssueEventSchema = createSelectSchema(issueEvents, {
   type: issueEventTypeSchema,

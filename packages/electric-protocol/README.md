@@ -1,25 +1,30 @@
 # @exp/electric-protocol
 
 The single source-of-truth for how every Exponential client (web, iOS,
-Android) talks to the Electric SQL shape proxy at `/api/shapes/*`.
+Android, desktop) talks to the Electric SQL shape proxy at
+`/api/shapes/*`.
 
 This package ships **no code** — it is documentation plus JSON fixtures
-that all three clients use in their tests so the protocol contract can't
-drift across platforms.
+that pin the protocol contract across platforms. The desktop app is the
+fixture consumer: `apps/desktop/crates/sync/tests/protocol.rs` runs every
+`fixtures/*.json` as a conformance suite against `sync::protocol`, and
+`tests/store.rs` pushes them through the real apply path. The web, iOS,
+and Android clients implement the same contract but test it with their
+own in-repo vectors.
 
 If you're touching `apps/web/src/lib/shape-route.ts`,
 `apps/web/src/lib/electric-proxy.ts`, the iOS `ShapeClient.swift`, the
-Android `ShapeClient.kt`, or the Bun / Caddy timeout knobs — read this
-first.
+Android `ShapeClient.kt`, the desktop `crates/sync`, or the Bun / Caddy
+timeout knobs — read this first.
 
 ---
 
 ## Why long-polling
 
 The web client uses `@electric-sql/client` (via
-`@tanstack/electric-db-collection`). Mobile clients implement the
-protocol by hand. All three converge on the same wire format and the
-same long-polling loop.
+`@tanstack/electric-db-collection`). The mobile and desktop clients
+implement the protocol by hand. All four converge on the same wire
+format and the same long-polling loop.
 
 "No polling" is achieved by Electric's `live=true` parameter: after the
 initial snapshot, the client requests `?live=true`, and the **server
@@ -86,6 +91,12 @@ opens the next `live=true` request.
 | `up-to-date` | Persist new handle/offset, reopen live loop. |
 | `must-refetch` | Discard local data for this shape, reset to `offset=-1`. |
 
+`must-refetch` arrives over two transports: most commonly an **HTTP 409**
+whose `electric-handle` header carries the replacement shape handle
+(adopt it for the re-snapshot — `fixtures/must-refetch-409.json`), and
+occasionally inline in a 200 body with no replacement handle
+(`fixtures/must-refetch.json`). Clients must handle both.
+
 ### Message operations
 
 | `headers.operation` value | Meaning |
@@ -97,7 +108,7 @@ opens the next `live=true` request.
 ### Casing
 
 Electric delivers Postgres column names verbatim (snake_case:
-`workspace_id`, `created_at`). Some server-side rewriting can yield
+`board_id`, `created_at`). Some server-side rewriting can yield
 camelCase. **Clients must accept both** — the Android `ShapeClient`
 uses `@JsonNames` on entity fields; the iOS client maps in the entity
 initializer. The Drizzle/tRPC mutation path stays camelCase. See
@@ -127,7 +138,7 @@ initializer. The Drizzle/tRPC mutation path stays camelCase. See
 5. **Single auth header.** `Authorization: Bearer <token>` (mobile) or
    the session cookie (web). The shape proxy accepts either via
    `better-auth`'s `bearer()` plugin (registered in
-   `apps/web/src/lib/auth.ts`).
+   `apps/web/src/lib/auth/index.ts`).
 
 6. **Timeout headroom.** Client request timeout should be **longer**
    than the server-side long-poll window (~60s). Android uses
@@ -152,8 +163,9 @@ If you tune any of these down, the canary test will fail.
 ## Reference implementations
 
 - Web: `apps/web/src/lib/collections.ts` (via `@electric-sql/client` / `@tanstack/electric-db-collection`)
-- iOS: `apps/ios/Exponential/Data/Electric/ShapeClient.swift`
+- iOS: `apps/ios/ExpCore/Sources/Electric/ShapeClient.swift`
 - Android: `apps/android/app/src/main/java/com/exponential/app/data/electric/ShapeClient.kt`
+- Desktop: `apps/desktop/crates/sync/src/client.rs` (+ `protocol.rs`; conformance tests in `crates/sync/tests/protocol.rs` run these fixtures)
 
 ## Fixtures
 
@@ -162,6 +174,8 @@ See `fixtures/`:
 - `initial-snapshot.json` — typical first response with `offset=-1`.
 - `live-update.json` — a delta arriving over a live=true connection.
 - `up-to-date.json` — empty long-poll response just before timeout.
-- `must-refetch.json` — server signals client should reset to `offset=-1`.
+- `must-refetch.json` — the inline (200-status) reset signal.
+- `must-refetch-409.json` — the common 409 form with a replacement `electric-handle`.
 - `snake-case.json`, `camel-case.json` — same row in both casings.
+- `unknown-columns.json` — forward-compat vector: unknown columns + an object-valued known column that apply layers must tolerate-and-drop.
 - `long-poll-canary.md` — the manual test for verifying ~60s connection hold.

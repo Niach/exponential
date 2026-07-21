@@ -347,10 +347,6 @@ export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
   })
 }
 
-export function stripMarkdownImages(text: string) {
-  return updateMarkdownImages(text, () => ``)
-}
-
 export function getRemovedAttachmentIds(
   previousText: string,
   nextText: string,

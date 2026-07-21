@@ -125,9 +125,7 @@ async function resolveIssueId(
     const boardRows = await db
       .select({ id: boards.id, teamId: boards.teamId })
       .from(boards)
-      .where(
-        and(inArray(boards.teamId, teamIds), isNull(boards.deletedAt))
-      )
+      .where(and(inArray(boards.teamId, teamIds), isNull(boards.deletedAt)))
     const boardIds = boardRows
       .filter((r) => isBoardGranted(access, r.id, r.teamId))
       .map((r) => r.id)
@@ -177,9 +175,7 @@ async function getRunConfigContext(id: string) {
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 const boardIconEnumSchema = z.enum(boardIconValues)
-const dateOnly = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
 
 export function registerExponentialTools(
   server: McpServer,
@@ -211,15 +207,12 @@ export function registerExponentialTools(
             updatedAt: teams.updatedAt,
           })
           .from(teams)
-          .innerJoin(
-            teamMembers,
-            eq(teamMembers.teamId, teams.id)
-          )
+          .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
           .where(eq(teamMembers.userId, user.id))
           .orderBy(asc(teams.name))
 
-        // Membership-only, matching the sync semantics: public teams
-        // appear once the user has explicitly joined, never implicitly.
+        // Membership-only, matching the sync semantics: a team appears
+        // only once the user is a member.
         return ok(memberRows.filter((row) => isTeamVisible(access, row.id)))
       } catch (e) {
         return err(e)
@@ -465,10 +458,7 @@ export function registerExponentialTools(
             .select({ id: boards.id, teamId: boards.teamId })
             .from(boards)
             .where(
-              and(
-                inArray(boards.teamId, teamIds),
-                isNull(boards.deletedAt)
-              )
+              and(inArray(boards.teamId, teamIds), isNull(boards.deletedAt))
             )
           allowedBoardIds = boardRows
             .filter((r) => isBoardGranted(access, r.id, r.teamId))
@@ -1052,10 +1042,7 @@ export function registerExponentialTools(
         // writes through the App.
         for (const wsId of new Set(teamIdByIssue.values())) {
           if (
-            !(await isInstallationLinkedToTeam(
-              wsId,
-              resolved.installationId
-            ))
+            !(await isInstallationLinkedToTeam(wsId, resolved.installationId))
           ) {
             throw new Error(
               `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`

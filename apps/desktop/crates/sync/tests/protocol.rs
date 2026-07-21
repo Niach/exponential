@@ -61,19 +61,16 @@ fn initial_snapshot_two_inserts_and_up_to_date() {
         panic!("message 0 must be an insert: {:?}", msgs[0]);
     };
     assert_eq!(key, &RowKey::Single("01J9K0A0X3CB4E5F6G7H8J9K0L".into()));
-    // Values arrive snake_case and stay snake_case. (The shared fixtures
-    // still carry the pre-rename `project_id` wire name — the protocol layer
-    // is column-name-agnostic, so the fixture key is asserted verbatim; the
-    // schema-level rename is covered in tests/store.rs.)
+    // Values arrive snake_case and stay snake_case.
     assert_eq!(
-        value.get("project_id").and_then(Value::as_str),
+        value.get("board_id").and_then(Value::as_str),
         Some("01J9K0A0X3CB4E5F6G7H8J9K0M")
     );
     assert_eq!(
         value.get("created_at").and_then(Value::as_str),
         Some("2025-12-01T12:00:00Z")
     );
-    assert!(!value.contains_key("projectId"));
+    assert!(!value.contains_key("boardId"));
     assert_eq!(value.get("title").and_then(Value::as_str), Some("First issue"));
     // Heterogeneous scalars stay raw at parse time (§5.5): number is bare 1.
     assert_eq!(value.get("number"), Some(&Value::from(1)));
@@ -167,19 +164,51 @@ fn camel_and_snake_fixtures_normalize_byte_identically() {
         serde_json::to_string(&snake).unwrap()
     );
 
-    // Spot-check the normalization actually happened. (Fixture keys keep the
-    // pre-rename `project_id` wire name — protocol-level, name-agnostic.)
-    assert!(snake.contains_key("project_id"));
-    assert!(camel.contains_key("project_id"));
-    assert!(!camel.contains_key("projectId"));
+    // Spot-check the normalization actually happened.
+    assert!(snake.contains_key("board_id"));
+    assert!(camel.contains_key("board_id"));
+    assert!(!camel.contains_key("boardId"));
     assert_eq!(camel.get("sort_order"), Some(&Value::from(1.0)));
 
-    // The stale pre-GFM fields ARE modeled as ordinary keys by the parser
-    // (the STORE drops them via the known-column allowlist — see
-    // tests/store.rs; do not "fix" the fixture by hiding them here).
-    assert_eq!(camel.get("due_time"), Some(&Value::Null));
-    assert_eq!(camel.get("end_time"), Some(&Value::Null));
-    assert!(camel.get("description").unwrap().is_object());
+    // Descriptions are plain GFM text on the wire.
+    assert!(camel.get("description").unwrap().is_string());
+}
+
+// --- §5.2 assertion 7: unknown-columns.json ---------------------------------
+
+/// The parser models EVERY key verbatim — unknown columns and non-scalar
+/// values included (the STORE drops unknowns via the known-column allowlist —
+/// see tests/store.rs; do not "fix" the fixture by hiding them here).
+#[test]
+fn unknown_columns_survive_parsing_verbatim() {
+    let value = parse_single_message_fixture("unknown-columns.json");
+    assert!(value.contains_key("board_id"));
+    assert_eq!(value.get("due_time"), Some(&Value::Null));
+    assert_eq!(value.get("end_time"), Some(&Value::Null));
+    assert_eq!(
+        value.get("some_future_column").and_then(Value::as_str),
+        Some("ignore-me")
+    );
+    // Object-valued known column (the pre-GFM `{text}` description shape).
+    assert!(value.get("description").unwrap().is_object());
+}
+
+// --- §5.2 assertion 8: must-refetch-409.json --------------------------------
+
+/// The 409 transport: the body is still a lone must-refetch control, and the
+/// response headers carry the REPLACEMENT shape handle the client must adopt
+/// for the re-snapshot.
+#[test]
+fn must_refetch_409_carries_replacement_handle() {
+    let fixture = load_fixture("must-refetch-409.json");
+    assert_eq!(
+        fixture.pointer("/response/status").and_then(Value::as_i64),
+        Some(409)
+    );
+    let msgs = parse_messages(&response_body_bytes(&fixture), false);
+    assert_eq!(msgs, vec![ShapeMessage::MustRefetch]);
+    let headers = response_headers(&fixture);
+    assert_eq!(headers.handle.as_deref(), Some("h-9d4f0a21"));
 }
 
 // --- §5.2 assertion 6: empty bodies ------------------------------------------

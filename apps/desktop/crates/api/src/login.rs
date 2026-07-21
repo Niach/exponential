@@ -13,18 +13,13 @@
 //!   capture surfaces — the `exponential://oauth-return?code=…#code=…`
 //!   deep-link parser (PRIMARY; a single-use code redeemed via
 //!   `POST /api/mobile-oauth-exchange` with the in-memory verifier — legacy
-//!   pre-PKCE servers still send `#token=…` with the raw session token) and
-//!   the `127.0.0.1` loopback listener (FALLBACK; token as `?token=` query).
+//!   pre-PKCE servers still send `#token=…` with the raw session token).
 //!
 //! The login *view* (cloud button first) is §4/Phase-3 UI
 //! territory; this module owns only the mechanics.
 
 use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
 use serde::Deserialize;
-use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::encode::{base64url_nopad, percent_decode, percent_encode};
@@ -309,11 +304,11 @@ pub fn normalize_instance_url(input: &str) -> String {
 // servers (self-hosted lag) still deep-link `#token=<session-token>`; the
 // parser surfaces both forms as [`OAuthCallback`].
 //
-// TODO(v3 §5.7 / Phase 3): the loopback FALLBACK additionally needs a NEW
-// server-side `redirect=` param on /api/mobile-oauth-return (127.0.0.1-bound,
-// single-use, short-lived token as `?token=` query) — a coordinated server
-// change that has not landed yet; [`LoopbackListener`] below is the ready
-// client half.
+// The v3-era loopback FALLBACK (an ephemeral 127.0.0.1 listener for
+// environments where the scheme registration didn't take) was dropped: its
+// server half (a `redirect=` param on /api/mobile-oauth-return) is not
+// scheduled by any live plan, and unregistered dev builds degrade to the
+// copyable-URL flow instead.
 
 /// The custom URL scheme the app registers (macOS `CFBundleURLTypes`, Linux
 /// `.desktop` `MimeType=x-scheme-handler/exponential;`, Windows
@@ -389,8 +384,7 @@ pub enum OAuthCallback {
     /// A single-use PKCE code — redeem via [`AuthClient::exchange_oauth_code`]
     /// with the verifier held from [`generate_pkce`].
     Code(String),
-    /// The raw session token (DEPRECATED legacy form — pre-PKCE servers, and
-    /// the loopback listener until its server half lands).
+    /// The raw session token (DEPRECATED legacy form — pre-PKCE servers).
     Token(String),
 }
 
@@ -402,9 +396,8 @@ pub enum OAuthCallback {
 ///
 /// - PRIMARY custom scheme: `exponential://oauth-return?code=<c>#code=<c>`
 ///   (or legacy `…?token=<t>#token=<t>`).
-/// - FALLBACK loopback: `http://127.0.0.1:<port>/cb?token=<t>` — query only
-///   (fragments are never sent to servers, so the loopback listener could
-///   not see one).
+/// - Query-only `…?token=<t>` URLs (no fragment) parse too — the wire shape
+///   of the dropped v3 loopback fallback, kept for legacy tolerance.
 ///
 /// Values are percent-decoded (the server `encodeURIComponent`s them; a PKCE
 /// code is base64url and decode-inert).
@@ -457,126 +450,6 @@ fn extract_session_token_cookie(set_cookie: &str) -> Option<String> {
     } else {
         Some(value.to_string())
     }
-}
-
-// ---- Loopback fallback listener (§5.7) ----
-
-/// Ephemeral `127.0.0.1` HTTP listener that captures ONE OAuth callback of
-/// the form `GET /cb?token=…` — the fallback for environments where the
-/// `exponential://` scheme registration didn't take. Server-side support (the
-/// `redirect=` param on `/api/mobile-oauth-return`) is a coordinated change
-/// that hasn't landed yet; see the module TODO above.
-pub struct LoopbackListener {
-    port: u16,
-    token_rx: flume::Receiver<String>,
-    stop: Arc<AtomicBool>,
-}
-
-impl LoopbackListener {
-    /// Bind `127.0.0.1:0` (ephemeral port) and start the accept thread.
-    pub fn bind() -> std::io::Result<Self> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        let port = listener.local_addr()?.port();
-        let (token_tx, token_rx) = flume::bounded::<String>(1);
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_flag = Arc::clone(&stop);
-
-        std::thread::Builder::new()
-            .name("oauth-loopback".to_string())
-            .spawn(move || {
-                for stream in listener.incoming() {
-                    if stop_flag.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let Ok(stream) = stream else { continue };
-                    match handle_loopback_connection(stream) {
-                        Some(token) => {
-                            let _ = token_tx.send(token);
-                            break;
-                        }
-                        None => continue, // favicon probes etc. — keep listening
-                    }
-                }
-            })?;
-
-        Ok(Self {
-            port,
-            token_rx,
-            stop,
-        })
-    }
-
-    /// The bound ephemeral port.
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
-    /// The redirect URI to hand the server once the `redirect=` param lands:
-    /// `http://127.0.0.1:{port}/cb`.
-    pub fn redirect_uri(&self) -> String {
-        format!("http://127.0.0.1:{}/cb", self.port)
-    }
-
-    /// Block up to `timeout` for the callback token.
-    pub fn recv_token(&self, timeout: Duration) -> Option<String> {
-        self.token_rx.recv_timeout(timeout).ok()
-    }
-}
-
-impl Drop for LoopbackListener {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        // Wake the accept() so the thread observes the stop flag and exits.
-        let _ = TcpStream::connect(("127.0.0.1", self.port));
-    }
-}
-
-/// Read one HTTP request head; if it is `GET …?token=…`, answer with a tiny
-/// "return to the app" page and yield the token. Anything else gets a 404.
-fn handle_loopback_connection(stream: TcpStream) -> Option<String> {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut reader = BufReader::new(stream);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).ok()?;
-    // Drain the rest of the head so the client sees a clean HTTP exchange.
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) if line == "\r\n" || line == "\n" => break,
-            Ok(_) => continue,
-            Err(_) => break,
-        }
-    }
-
-    // "GET /cb?token=abc HTTP/1.1"
-    let path = request_line.split_whitespace().nth(1)?;
-    // Only the legacy `?token=` form for now: the loopback redirect's server
-    // half (`redirect=` param) hasn't landed, and when it does it should adopt
-    // the PKCE code form — until then a `code` here has no held verifier to
-    // pair with, so it is ignored rather than half-handled.
-    let token = match parse_oauth_callback(path) {
-        Some(OAuthCallback::Token(token)) => Some(token),
-        _ => None,
-    };
-
-    let mut stream = reader.into_inner();
-    let (status, body) = if token.is_some() {
-        (
-            "200 OK",
-            "<html><body style=\"font-family:sans-serif\"><p>Signed in — you can return to Exponential.</p></body></html>",
-        )
-    } else {
-        ("404 Not Found", "")
-    };
-    let _ = stream.write_all(
-        format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-        .as_bytes(),
-    );
-    token
 }
 
 #[cfg(test)]
@@ -664,7 +537,7 @@ mod tests {
             parse_oauth_callback("http://127.0.0.1:49152/cb?token=tok-1&x=y"),
             Some(OAuthCallback::Token("tok-1".to_string()))
         );
-        // Bare path form (what the listener sees on the request line).
+        // Bare path form (a request-line-style path with query).
         assert_eq!(
             parse_oauth_callback("/cb?token=tok-2"),
             Some(OAuthCallback::Token("tok-2".to_string()))
@@ -732,29 +605,5 @@ mod tests {
         assert!(sparse.password_enabled); // defaults true like iOS
         assert!(!sparse.apple_login_enabled);
         assert!(sparse.oidc_providers.is_empty());
-    }
-
-    #[test]
-    fn loopback_listener_captures_token() {
-        let listener = LoopbackListener::bind().unwrap();
-        let uri = listener.redirect_uri();
-        assert!(uri.starts_with("http://127.0.0.1:"));
-
-        // Simulate the browser hitting the redirect target.
-        let port = listener.port();
-        std::thread::spawn(move || {
-            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-            stream
-                .write_all(b"GET /cb?token=loop-tok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
-                .unwrap();
-            // Read the response so the exchange completes.
-            let mut buf = Vec::new();
-            use std::io::Read;
-            let _ = stream.read_to_end(&mut buf);
-            assert!(String::from_utf8_lossy(&buf).contains("200 OK"));
-        });
-
-        let token = listener.recv_token(Duration::from_secs(5));
-        assert_eq!(token.as_deref(), Some("loop-tok"));
     }
 }

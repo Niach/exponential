@@ -1,10 +1,7 @@
 import { useMemo } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import {
-  useTeamBoards,
-  useTeamUsers,
-} from "@/hooks/use-team-data"
+import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
@@ -14,7 +11,7 @@ export interface AgentSessionRow {
   /** May be undefined while the issue row is still syncing. */
   issue: Issue | undefined
   board: Board | undefined
-  /** Undefined for unsynced users (public boards) — render via displayUserName. */
+  /** May be undefined while the user row is still syncing — render via displayUserName. */
   user: User | undefined
 }
 

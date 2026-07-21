@@ -1,6 +1,5 @@
 import "@dotenvx/dotenvx/config"
 import {
-  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -72,22 +71,6 @@ export async function uploadObject(options: {
       Body: options.body,
       ContentLength: options.contentLength,
       ContentType: options.contentType,
-    })
-  )
-}
-
-export async function copyObject(options: {
-  sourceKey: string
-  destKey: string
-}) {
-  await ensureBucketReady()
-  // Storage keys are restricted to a URL-safe charset (uuids + sanitized
-  // filenames joined by `/`), so the CopySource can carry the key verbatim.
-  await storageClient.send(
-    new CopyObjectCommand({
-      Bucket: storageBucket,
-      CopySource: `${storageBucket}/${options.sourceKey}`,
-      Key: options.destKey,
     })
   )
 }

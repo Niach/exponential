@@ -1,6 +1,6 @@
 {
-  "id": "dd99f24a-2ecf-4f0f-8258-ea13df154ffa",
-  "prevId": "5701c2e6-8986-4a69-a4b0-6133aa37c183",
+  "id": "7382c645-fc26-4667-855f-2098bbd791ed",
+  "prevId": "dd99f24a-2ecf-4f0f-8258-ea13df154ffa",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -32,6 +32,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "comment_id": {
           "name": "comment_id",
@@ -422,6 +428,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "user_id": {
           "name": "user_id",
           "type": "text",
@@ -627,6 +639,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "author_id": {
           "name": "author_id",
@@ -1570,6 +1588,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "actor_user_id": {
           "name": "actor_user_id",
           "type": "text",
@@ -1738,6 +1762,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1949,6 +1979,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "source": {
           "name": "source",
           "type": "subscriber_source",
@@ -2146,6 +2182,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "number": {
           "name": "number",
           "type": "integer",
@@ -2319,6 +2367,21 @@
           "method": "btree",
           "with": {}
         },
+        "idx_issues_team": {
+          "name": "idx_issues_team",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "idx_issues_assignee": {
           "name": "idx_issues_assignee",
           "columns": [
@@ -2378,6 +2441,19 @@
           "tableTo": "boards",
           "columnsFrom": [
             "board_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "issues_team_id_teams_id_fk": {
+          "name": "issues_team_id_teams_id_fk",
+          "tableFrom": "issues",
+          "tableTo": "teams",
+          "columnsFrom": [
+            "team_id"
           ],
           "columnsTo": [
             "id"
@@ -2650,6 +2726,12 @@
         "board_id": {
           "name": "board_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "board_deleted_at": {
+          "name": "board_deleted_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

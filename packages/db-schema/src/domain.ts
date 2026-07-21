@@ -34,7 +34,7 @@ export const issueSourceValues = [`user`, `widget`] as const
 // Curated board icon set (boards.icon) — lucide names on the web; the
 // native clients carry their own per-platform glyph mapping keyed by these
 // values (via the domain contract). NULL icon = clients derive a fallback
-// from publicness/repo presence. Mirrors packages/domain-contract/contract.json.
+// from repo presence. Mirrors packages/domain-contract/contract.json.
 export const boardIconValues = [
   `code`,
   `square-kanban`,
@@ -130,8 +130,9 @@ export const notificationTypeValues = [
 export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 
 // Lifecycle of a live desktop coding session (coding_sessions.status). A row
-// is one interactive terminal session (one ghostty + one claude child in one
-// worktree); `running` drives the "coding now" badge + Watch/Steer button.
+// is one interactive terminal session (one embedded terminal + one agent CLI
+// child — claude/codex/pi — in one worktree); `running` drives the "coding
+// now" badge + Watch/Steer button.
 // `in_review` = the agent's PR is open and the terminal is still alive
 // awaiting review (EXP-194) — the server only ever writes running→in_review,
 // NEVER →ended: that flip is the desktop's remote-kill signal.
@@ -141,7 +142,7 @@ export const codingSessionStatusValues = [
   `ended`,
 ] as const
 
-// Why a user is subscribed to an issue (issue_subscribers.source, varchar).
+// Why a user is subscribed to an issue (issue_subscribers.source, pg enum).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
 // `widget_reporter` rows model an external feedback-widget reporter: null
 // userId, `email` set — they receive the one-way resolution email on close.
@@ -154,7 +155,7 @@ export const subscriberSourceValues = [
   `widget_reporter`,
 ] as const
 
-// Activity-log event kinds (issue_events.type, varchar). Drives the
+// Activity-log event kinds (issue_events.type, pg enum). Drives the
 // Linear-style timeline on every client.
 export const issueEventTypeValues = [
   `status_changed`,

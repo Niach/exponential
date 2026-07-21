@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/shapes/issues?offset=0_1&handle=h-2c3e9f10&live=true",
+    "headers": {
+      "authorization": "Bearer eyJhbGciOi..."
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "electric-handle": "h-9d4f0a21",
+      "content-type": "application/json"
+    },
+    "body": [
+      {
+        "headers": { "control": "must-refetch" }
+      }
+    ]
+  },
+  "expectedClientBehavior": "The shape rotated: adopt the replacement `electric-handle` from the 409 response headers, mark the shape for refetch, and re-request a fresh initial snapshot (offset=-1) with the new handle. Do NOT delete local rows eagerly — keep them visible until the refetched snapshot replaces them atomically. This is the common transport for must-refetch; the inline 200-status form in must-refetch.json is the rarer variant."
+}

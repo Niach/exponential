@@ -6,10 +6,7 @@ import {
   issueLabelCollection,
   boardCollection,
 } from "@/lib/collections"
-import {
-  useTeamBySlug,
-  useTeamUsers,
-} from "@/hooks/use-team-data"
+import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
@@ -25,13 +22,10 @@ export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
 )({
   // No route-level auth guard: the parent `/t/$teamSlug` layout route
-  // (route.tsx) already gates access with public-team-aware logic —
-  // anonymous visitors of a PUBLIC team pass through, while non-public /
-  // inaccessible teams are redirected to login or 404'd there. Mirroring
-  // the sibling board-view route, which likewise carries no beforeLoad, this
-  // lets signed-out visitors open the read-only detail page (masterplan §4.3,
-  // L29). The view renders read-only via `permissions.canMutateIssue` (false
-  // when unauthenticated) and the comment/timeline UI is hidden for anonymous.
+  // (route.tsx) already gates access — anonymous or non-member requests are
+  // redirected to login there (EXP-180: nothing is anonymously readable).
+  // Mirroring the sibling board-view route, which likewise carries no
+  // beforeLoad.
   //
   // Optional ?status/priority/labels mirror the board route's filter params —
   // navigating from a filtered board carries them here so the header's
@@ -55,10 +49,7 @@ function IssueDetailPage() {
         ? query
             .from({ boards: boardCollection })
             .where(({ boards }) =>
-              and(
-                eq(boards.teamId, team.id),
-                eq(boards.slug, boardSlug)
-              )
+              and(eq(boards.teamId, team.id), eq(boards.slug, boardSlug))
             )
         : undefined,
     [team?.id, boardSlug]
@@ -120,17 +111,15 @@ function IssueDetailPage() {
   const permissions = useTeamPermissions(team)
 
   if (!team || !board) {
-    return (
-      <div className="text-muted-foreground text-sm p-6">Loading…</div>
-    )
+    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
 
   if (!issue) {
     return (
       <div className="flex flex-col items-start gap-3 p-6 text-sm">
         <div className="text-muted-foreground">
-          Issue <span className="font-mono">{issueIdentifier}</span> not found in
-          this board.
+          Issue <span className="font-mono">{issueIdentifier}</span> not found
+          in this board.
         </div>
         <Link
           to="/t/$teamSlug/boards/$boardSlug"

@@ -4,10 +4,7 @@ import { eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
 import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
-import {
-  resolveTeamAccess,
-  getIssueTeamContext,
-} from "@/lib/team-membership"
+import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { isUserAdmin } from "@/lib/admin"
 import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
@@ -118,15 +115,10 @@ export const commentsRouter = router({
         })
       }
       if (!isAdmin) {
-        // Authorship alone isn't enough: the author must still have comment
-        // access to the team (membership, or any-authed-user on a public
-        // team). Blocks edits by authors who since left a private
-        // team. Global admins keep their bypass.
-        await resolveTeamAccess(
-          ctx.session.user.id,
-          existing.teamId,
-          `comment`
-        )
+        // Authorship alone isn't enough: the author must still be a member
+        // of the team. Blocks edits by authors who have since left.
+        // Global admins keep their bypass.
+        await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
       }
 
       const result = await ctx.db.transaction(async (tx) => {
@@ -157,11 +149,7 @@ export const commentsRouter = router({
       if (!isAdmin) {
         // Same team-access gate as update (see comment there); global
         // admins keep their bypass.
-        await resolveTeamAccess(
-          ctx.session.user.id,
-          existing.teamId,
-          `comment`
-        )
+        await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
       }
 
       const result = await ctx.db.transaction(async (tx) => {
@@ -173,4 +161,3 @@ export const commentsRouter = router({
       return result
     }),
 })
-

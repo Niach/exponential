@@ -210,6 +210,11 @@ export function PlanComparison({
       await startCheckout(productId, seats)
     } catch (err) {
       console.error(`[billing] checkout failed:`, err)
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't start checkout — try again`
+      )
     } finally {
       setLoading(null)
     }

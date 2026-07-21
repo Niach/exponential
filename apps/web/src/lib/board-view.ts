@@ -16,9 +16,9 @@ const priorityRank: Record<IssuePriority, number> = {
   none: 4,
 }
 
-// The minimal shape the canonical comparator needs — `Issue` satisfies it, and
-// so do the public feedback board's tRPC rows (whose timestamps arrive as
-// strings rather than Dates).
+// The minimal shape the canonical comparator needs — `Issue` satisfies it,
+// and so do optimistic upserts (whose timestamps arrive as strings rather
+// than Dates).
 export interface SortableIssue {
   priority: IssuePriority
   dueDate: string | null
@@ -27,8 +27,8 @@ export interface SortableIssue {
   updatedAt: Date | string
 }
 
-// Electric rows carry real Dates, but tRPC-serialized rows (public board) and
-// optimistic upserts carry strings — Electric's `YYYY-MM-DD hh:mm:ss…+00`
+// Electric rows carry real Dates, but optimistic upserts carry strings —
+// Electric's `YYYY-MM-DD hh:mm:ss…+00`
 // vs ISO `…T…Z`. Normalize the space to `T` and pad a bare `±hh` offset to
 // `±hh:00` (JS Date rejects hour-only offsets) so mixed formats compare as
 // real instants (EXP-38 timestamp gotcha).

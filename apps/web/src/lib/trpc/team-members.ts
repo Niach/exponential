@@ -7,8 +7,8 @@ import { assertTeamMember } from "@/lib/team-membership"
 import { isUserAdmin } from "@/lib/admin"
 
 // v7: the self-service `join` procedure is gone with public teams —
-// membership is invite-only everywhere; public feedback boards are read-only
-// for non-members (writes arrive via the embedded widget).
+// membership is invite-only everywhere; the only anonymous write path is
+// the embedded widget (non-members have no read access at all).
 
 /** Member management is allowed for a team owner OR a global admin. */
 async function assertCanManageMembers(userId: string, teamId: string) {
@@ -119,9 +119,7 @@ export const teamMembersRouter = router({
       // membership, so rows left behind by pre-fix removals are already inert
       // for delivery.)
       await ctx.db.transaction(async (tx) => {
-        await tx
-          .delete(teamMembers)
-          .where(eq(teamMembers.id, input.memberId))
+        await tx.delete(teamMembers).where(eq(teamMembers.id, input.memberId))
         await tx
           .delete(issueSubscribers)
           .where(

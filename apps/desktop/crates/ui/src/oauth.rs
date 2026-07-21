@@ -15,12 +15,10 @@
 //! sign-in. Legacy pre-PKCE servers (self-hosted lag) still deep-link
 //! `#token=<session-token>`; that path is kept for compatibility.
 //!
-//! RESIDUAL (§5.7 fallback): the `127.0.0.1` loopback capture needs a NEW
-//! server-side `redirect=` param on `/api/mobile-oauth-return`
-//! (127.0.0.1-bound allowlist, `?token=` query) that has not landed in
-//! `apps/web` — until it does, unpackaged dev builds without the `exponential://`
-//! scheme registration rely on the copyable-URL degradation, and
-//! `api::login::LoopbackListener` stays the ready client half.
+//! The v3-era `127.0.0.1` loopback fallback was dropped (its server half — a
+//! `redirect=` param on `/api/mobile-oauth-return` — is not scheduled by any
+//! live plan): unpackaged dev builds without the `exponential://` scheme
+//! registration rely on the copyable-URL degradation instead.
 
 use std::sync::Arc;
 

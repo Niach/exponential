@@ -80,7 +80,8 @@ export function classifyTeamsForUserDeletion(
  *    them out, leaving permanently unreachable rows that keep entitling the
  *    team to browse/connect the departed user's private repos).
  * 3. Delete teams whose entire membership is just this user (the
- *    is_public check keeps the bootstrap feedback board untouchable).
+ *    getFeedbackTeamId() guard keeps the bootstrap feedback team
+ *    untouchable).
  *
  * Returns the ids of the teams actually deleted PLUS the active Creem
  * subscriptions bound to them (captured in-tx BEFORE the delete — the
@@ -113,10 +114,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .from(teamMembers)
     .where(inArray(teamMembers.teamId, myTeamIds))
 
-  const { stranded, solo } = classifyTeamsForUserDeletion(
-    memberships,
-    userId
-  )
+  const { stranded, solo } = classifyTeamsForUserDeletion(memberships, userId)
 
   if (stranded.length > 0) {
     const rows = await tx
@@ -182,8 +180,10 @@ export async function guardAndCleanupTeamsForUserDeletion(
   // `set null`, so after the delete these rows can no longer be found by
   // team — and the buyer-scoped capture the callers run misses
   // subscriptions another user purchased for these teams.
-  const doomedTeamSubscriptions =
-    await findActiveSubscriptionsForTeams(soloToDelete, tx)
+  const doomedTeamSubscriptions = await findActiveSubscriptionsForTeams(
+    soloToDelete,
+    tx
+  )
   const deleted = await tx
     .delete(teams)
     .where(inArray(teams.id, soloToDelete))

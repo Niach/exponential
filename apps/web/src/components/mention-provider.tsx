@@ -7,9 +7,8 @@ import { useTeamUsers } from "@/hooks/use-team-data"
 // layout (beside IssueRefProvider). Powers the name-pill rendering and the
 // @-autocomplete in the TipTap markdown editors — built on useTeamUsers,
 // which intersects the team member rows with the synced users shape, so
-// on public boards (where co-member identities are anonymized and their user
-// rows never sync) only members the viewer may actually see are offered or
-// rendered as pills.
+// only members the viewer may actually see are offered or rendered as
+// pills.
 
 export interface MentionContextValue {
   /** Resolve a mention email (case-insensitive) to a visible member, or null. */

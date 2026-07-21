@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { toast } from "sonner"
 import {
   ChevronDown,
   ChevronUp,
@@ -117,9 +118,15 @@ export function TeamBillingSection({
         body: JSON.stringify({}),
       })
       const data = await res.json()
-      if (data?.url) window.location.href = data.url
+      if (!res.ok || !data?.url) {
+        console.error(`[billing] portal failed:`, res.status, data)
+        toast.error(`Couldn't open the billing portal — try again`)
+        return
+      }
+      window.location.href = data.url
     } catch (err) {
       console.error(`[billing] portal failed:`, err)
+      toast.error(`Couldn't open the billing portal — try again`)
     } finally {
       setPortalLoading(false)
     }
