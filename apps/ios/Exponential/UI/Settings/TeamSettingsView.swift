@@ -57,7 +57,13 @@ struct TeamSettingsView: View {
                     // EXP-216)
                     TeamMembersSection(
                         accountId: accountId,
-                        members: members,
+                        // Exclude synthetic agent users (widget feedback bots,
+                        // users.isAgent) from the roster — web/Android/desktop
+                        // already filter them; the membership is retained after
+                        // a widget config is deleted but is never a real member.
+                        members: members.filter { member in
+                            !(users.first { $0.id == member.userId }?.isAgent ?? false)
+                        },
                         users: users,
                         currentUserId: deps.auth.userId,
                         membersApi: deps.teamMembersApi,
