@@ -1,4 +1,3 @@
-import { createPrivateKey, sign as cryptoSign } from "node:crypto"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { bearer, customSession, genericOAuth, mcp } from "better-auth/plugins"
@@ -18,6 +17,7 @@ import {
   sendVerificationEmail,
 } from "@/lib/email"
 import { isAdminUser } from "./app-user"
+import { mintAppleClientSecret } from "./apple"
 import {
   resolveDismissalFlags,
   resolveOnboardingCompletedAt,
@@ -82,47 +82,11 @@ const googleSocialEnabled = googleLoginEnabled
 
 // Sign in with Apple — required by App Store guideline 4.8 whenever the iOS
 // app offers Google login. clientId is the Apple *Services ID* (web flow);
-// the client secret is an ES256 JWT that Apple hard-caps at 6 months, so
-// instead of a static APPLE_CLIENT_SECRET that someone must re-mint twice a
-// year, the server mints it at boot from the SIWA .p8 key
-// (APPLE_PRIVATE_KEY, base64 like GITHUB_APP_PRIVATE_KEY) — every
-// restart/redeploy refreshes it. An explicit APPLE_CLIENT_SECRET still wins
-// when set. Caveat: a container left running >6 months without a restart
-// will see Apple logins fail until it is restarted.
-function mintAppleClientSecret(): string | undefined {
-  const keyB64 = process.env.APPLE_PRIVATE_KEY
-  const keyId = process.env.APPLE_KEY_ID
-  const teamId = process.env.APPLE_TEAM_ID
-  const clientId = process.env.APPLE_CLIENT_ID
-  if (!keyB64 || !keyId || !teamId || !clientId) return undefined
-  try {
-    const key = createPrivateKey(Buffer.from(keyB64, `base64`).toString(`utf8`))
-    const b64u = (input: string | Buffer) =>
-      Buffer.from(input).toString(`base64url`)
-    const now = Math.floor(Date.now() / 1000)
-    const data = `${b64u(JSON.stringify({ alg: `ES256`, kid: keyId }))}.${b64u(
-      JSON.stringify({
-        iss: teamId,
-        iat: now,
-        exp: now + 180 * 24 * 60 * 60, // Apple's maximum is 6 months
-        aud: `https://appleid.apple.com`,
-        sub: clientId,
-      })
-    )}`
-    const sig = cryptoSign(`sha256`, Buffer.from(data), {
-      key,
-      dsaEncoding: `ieee-p1363`,
-    })
-    return `${data}.${b64u(sig)}`
-  } catch (err) {
-    console.error(
-      `[auth] failed to mint the Apple client secret from APPLE_PRIVATE_KEY:`,
-      err
-    )
-    return undefined
-  }
-}
-
+// the client secret is an ES256 JWT minted from the SIWA .p8 key at boot (see
+// mintAppleClientSecret in lib/auth/apple.ts — an explicit APPLE_CLIENT_SECRET
+// still wins). Apple hard-caps that JWT at 6 months, so a container left
+// running that long without a restart will see Apple logins fail until it is
+// restarted.
 const appleClientSecret =
   process.env.APPLE_CLIENT_SECRET || mintAppleClientSecret()
 const appleClientConfigured = Boolean(

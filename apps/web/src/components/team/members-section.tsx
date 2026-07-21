@@ -20,7 +20,7 @@ import { useTeamInvites } from "@/hooks/use-team-data"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -113,6 +113,7 @@ export function TeamMembersSection({
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
+                    {user?.image && <AvatarImage src={user.image} />}
                     <AvatarFallback className="text-xs">
                       {getInitials(displayName)}
                     </AvatarFallback>
@@ -133,7 +134,7 @@ export function TeamMembersSection({
                         {member.role}
                       </Badge>
                     </div>
-                    {user?.email && (
+                    {user?.email && user.email !== displayName && (
                       <div className="truncate text-xs text-muted-foreground">
                         {user.email}
                       </div>
@@ -157,24 +158,26 @@ export function TeamMembersSection({
                       <DropdownMenuContent align="end">
                         {canManageMembers && !isSelf && (
                           <>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateRole(member.id, `owner`)
-                              }
-                              disabled={member.role === `owner`}
-                            >
-                              <Crown className="mr-2 h-4 w-4" />
-                              Make owner
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateRole(member.id, `member`)
-                              }
-                              disabled={member.role === `member`}
-                            >
-                              <Shield className="mr-2 h-4 w-4" />
-                              Make member
-                            </DropdownMenuItem>
+                            {member.role !== `owner` && (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleUpdateRole(member.id, `owner`)
+                                }
+                              >
+                                <Crown className="mr-2 h-4 w-4" />
+                                Make owner
+                              </DropdownMenuItem>
+                            )}
+                            {member.role !== `member` && (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleUpdateRole(member.id, `member`)
+                                }
+                              >
+                                <Shield className="mr-2 h-4 w-4" />
+                                Make member
+                              </DropdownMenuItem>
+                            )}
                           </>
                         )}
                         {isSelf ? (

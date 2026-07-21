@@ -107,7 +107,9 @@ func assigneeOptions(users: [UserEntity]) -> [AssigneeOption] {
             AssigneeOption(
                 id: user.id,
                 userId: user.id,
-                displayName: user.name ?? user.email
+                // memberDisplayName falls back to the email for a blank name
+                // (name-less Apple logins), so the option never renders empty.
+                displayName: memberDisplayName(user, id: user.id)
             )
         )
     }

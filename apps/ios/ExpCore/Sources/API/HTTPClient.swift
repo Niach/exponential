@@ -103,6 +103,29 @@ public final class HTTPClient: Sendable {
         return (data, httpResponse)
     }
 
+    // POST with an explicit bearer token — used by AuthApi.updateUserName
+    // during login, before the token is persisted to the account store. Sends
+    // the instance's own Origin like postUnauthenticated, since Better Auth's
+    // CSRF check 403s cross-origin POSTs that carry no Origin header.
+    public func post(_ url: URL, body: Data, bearerToken: String?) async throws -> (Data, HTTPURLResponse) {
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let bearerToken {
+            req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let scheme = url.scheme, let host = url.host {
+            let origin = url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
+            req.setValue(origin, forHTTPHeaderField: "Origin")
+        }
+        let (data, response) = try await session.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw HTTPError.invalidResponse
+        }
+        return (data, httpResponse)
+    }
+
     // Unauthenticated GET — used by AuthApi.fetchAuthConfig before any
     // account exists.
     public func getUnauthenticated(_ url: URL) async throws -> (Data, HTTPURLResponse) {

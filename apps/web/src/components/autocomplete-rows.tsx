@@ -1,5 +1,6 @@
 import type { User } from "@/db/schema"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
@@ -21,6 +22,9 @@ export function UserCandidateRow({
   onSelect: () => void
   onHover: () => void
 }) {
+  // Name-less accounts (Apple sign-in stores an empty name) fall back to the
+  // email — don't render it a second time on the trailing line.
+  const name = displayUserName(user, user.id)
   return (
     <button
       type="button"
@@ -34,15 +38,17 @@ export function UserCandidateRow({
       }`}
     >
       <Avatar className="size-5">
-        {user.image && <AvatarImage src={user.image} alt={user.name} />}
+        {user.image && <AvatarImage src={user.image} alt={name} />}
         <AvatarFallback className="text-[0.5625rem]">
-          {getInitials(user.name)}
+          {getInitials(name)}
         </AvatarFallback>
       </Avatar>
-      <span className="truncate">{user.name}</span>
-      <span className="ml-auto truncate text-xs text-muted-foreground">
-        {user.email}
-      </span>
+      <span className="truncate">{name}</span>
+      {user.email && user.email !== name && (
+        <span className="ml-auto truncate text-xs text-muted-foreground">
+          {user.email}
+        </span>
+      )}
     </button>
   )
 }

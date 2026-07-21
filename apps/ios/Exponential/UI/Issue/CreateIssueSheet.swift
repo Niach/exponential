@@ -105,7 +105,10 @@ struct CreateIssueSheet: View {
                                         showAssigneePicker = true
                                     } label: {
                                         let assignee = users.first { $0.id == assigneeId }
-                                        Text(assignee?.name ?? assignee?.email ?? "Unassigned")
+                                        // memberDisplayName falls back to the email for a
+                                        // blank name (name-less Apple logins); keep the
+                                        // "Unassigned" sentinel when there is no assignee.
+                                        Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
                                             .font(.subheadline)
                                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     }

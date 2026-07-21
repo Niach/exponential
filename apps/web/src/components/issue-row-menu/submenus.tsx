@@ -7,6 +7,7 @@ import {
   issueStatusOptions,
 } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   ContextMenuCheckboxItem,
@@ -90,11 +91,13 @@ export function AssigneeSubmenu({
             {selectedAssignee.image && (
               <AvatarImage
                 src={selectedAssignee.image}
-                alt={selectedAssignee.name}
+                alt={displayUserName(selectedAssignee, selectedAssignee.id)}
               />
             )}
             <AvatarFallback className="text-[0.5rem]">
-              {getInitials(selectedAssignee.name)}
+              {getInitials(
+                displayUserName(selectedAssignee, selectedAssignee.id)
+              )}
             </AvatarFallback>
           </Avatar>
         ) : (
@@ -102,7 +105,9 @@ export function AssigneeSubmenu({
         )}
         Assignee
         <ContextMenuShortcut className={topLevelValueClass}>
-          {selectedAssignee?.name ?? `Unassigned`}
+          {selectedAssignee
+            ? displayUserName(selectedAssignee, selectedAssignee.id)
+            : `Unassigned`}
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[15rem]">
@@ -120,23 +125,26 @@ export function AssigneeSubmenu({
               No team members yet
             </ContextMenuItem>
           ) : (
-            orderedUsers.map((user) => (
-              <ContextMenuRadioItem
-                key={user.id}
-                value={user.id}
-                onSelect={() => onSelect(user.id)}
-              >
-                <Avatar className="size-5">
-                  {user.image && (
-                    <AvatarImage src={user.image} alt={user.name} />
-                  )}
-                  <AvatarFallback className="text-[0.5625rem]">
-                    {getInitials(user.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="truncate">{user.name}</span>
-              </ContextMenuRadioItem>
-            ))
+            orderedUsers.map((user) => {
+              const name = displayUserName(user, user.id)
+              return (
+                <ContextMenuRadioItem
+                  key={user.id}
+                  value={user.id}
+                  onSelect={() => onSelect(user.id)}
+                >
+                  <Avatar className="size-5">
+                    {user.image && (
+                      <AvatarImage src={user.image} alt={name} />
+                    )}
+                    <AvatarFallback className="text-[0.5625rem]">
+                      {getInitials(name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate">{name}</span>
+                </ContextMenuRadioItem>
+              )
+            })
           )}
         </ContextMenuRadioGroup>
       </ContextMenuSubContent>

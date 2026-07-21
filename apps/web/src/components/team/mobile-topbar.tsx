@@ -23,7 +23,7 @@ import {
   resolveBoardTarget,
   useMobileChromeVisible,
 } from "@/components/team/mobile-tab-bar"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -81,9 +81,10 @@ export function TeamMobileTopbar({
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const switcherLabel = boardTarget?.name ?? team?.name ?? teamSlug
 
-  const userInitials = session?.user?.name
-    ? getInitials(session.user.name)
-    : `?`
+  // Name-less accounts (Apple sign-in stores an empty name) fall back to the
+  // email for initials instead of a bare "?".
+  const userLabel = session?.user?.name || session?.user?.email
+  const userInitials = userLabel ? getInitials(userLabel) : `?`
 
   return (
     <header className="flex h-12 items-center gap-2 border-b px-3 md:hidden">
@@ -118,6 +119,9 @@ export function TeamMobileTopbar({
                 aria-label="User menu"
               >
                 <Avatar className="size-7">
+                  {session?.user?.image && (
+                    <AvatarImage src={session.user.image} />
+                  )}
                   <AvatarFallback className="text-xs">
                     {userInitials}
                   </AvatarFallback>

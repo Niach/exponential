@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.data.db.UserEntity
 
 /**
  * Up-to-two-letter initials derived from a display name or email. Unifies the
@@ -64,6 +65,33 @@ fun InitialsAvatar(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * Circular user avatar: the synced `user.image` (Google/GitHub photo) clipped to
+ * a circle when present, else the initials fallback. `nameOrEmail` seeds the
+ * initials (pass the resolved display name so a name-less Apple user still gets
+ * email initials rather than "?").
+ */
+@Composable
+fun UserAvatar(
+    user: UserEntity?,
+    nameOrEmail: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp,
+) {
+    val url = user?.image?.takeIf { it.isNotBlank() }
+    if (url != null) {
+        AsyncImage(
+            model = url,
+            contentDescription = null,
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape),
+        )
+    } else {
+        InitialsAvatar(nameOrEmail, modifier = modifier, size = size)
     }
 }
 

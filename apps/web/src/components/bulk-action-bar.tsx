@@ -15,6 +15,7 @@ import { trpc } from "@/lib/trpc-client"
 import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -243,20 +244,23 @@ export function BulkActionBar({
             <X className="size-4 text-muted-foreground" />
             Unassigned
           </DropdownMenuItem>
-          {orderedUsers.map((user) => (
-            <DropdownMenuItem
-              key={user.id}
-              onSelect={() => void applyAssignee(user.id)}
-            >
-              <Avatar className="size-5">
-                {user.image && <AvatarImage src={user.image} alt={user.name} />}
-                <AvatarFallback className="text-[0.5625rem]">
-                  {getInitials(user.name)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="truncate">{user.name}</span>
-            </DropdownMenuItem>
-          ))}
+          {orderedUsers.map((user) => {
+            const name = displayUserName(user, user.id)
+            return (
+              <DropdownMenuItem
+                key={user.id}
+                onSelect={() => void applyAssignee(user.id)}
+              >
+                <Avatar className="size-5">
+                  {user.image && <AvatarImage src={user.image} alt={name} />}
+                  <AvatarFallback className="text-[0.5625rem]">
+                    {getInitials(name)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate">{name}</span>
+              </DropdownMenuItem>
+            )
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
 

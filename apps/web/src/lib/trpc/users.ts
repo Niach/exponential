@@ -5,6 +5,10 @@ import { apikeys, users } from "@/db/auth-schema"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInTeams } from "@/lib/team-membership"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
+import {
+  captureAppleTokens,
+  revokeAppleTokensBestEffort,
+} from "@/lib/auth/apple-revocation"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   cancelCreemSubscriptionsBestEffort,
@@ -158,6 +162,12 @@ export const usersRouter = router({
       // subscription would keep charging with nothing left to find it by.
       const doomedSubscriptions = await findActiveSubscriptionsForUser(userId)
 
+      // Sign in with Apple pairing to revoke after the delete (guideline
+      // 5.1.1(v)) — captured now because the accounts row cascades away with
+      // the users row. Web-flow accounts carry tokens; native-idToken pairings
+      // store none (nothing to revoke). See lib/auth/apple-revocation.ts.
+      const appleTokens = await captureAppleTokens(ctx.db, userId)
+
       let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Fail closed when the caller is the sole owner of a team that
@@ -185,6 +195,8 @@ export const usersRouter = router({
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
       // The users-row cascade dropped attachment rows but not their S3 blobs.
       await deleteStorageObjects(storageKeys)
+      // Revoke the Apple pairing so a re-signup delivers the name again.
+      await revokeAppleTokensBestEffort(appleTokens)
 
       return { ok: true }
     }),
