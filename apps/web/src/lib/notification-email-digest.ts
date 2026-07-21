@@ -109,14 +109,20 @@ export async function runEmailDigestSweep(
     [...prefs.entries()].map(([userId, p]) => [userId, p])
   )
 
-  // Cadence gate input: when did each user last get a digest? (email_deliveries
-  // kind='digest', sent_at stamped on success.)
+  // Cadence gate input: when did each user last get a digest (sent_at, stamped
+  // on success) — and when was the last ATTEMPT of any outcome (created_at of
+  // the ledger row)? The attempt aggregate feeds the failure backoff: without
+  // it a failing transport (SES sandboxed, EXP-114) would retry at every
+  // sweep tick, flooding the ledger with failed rows (EXP-227).
   const lastRows =
     userIds.length > 0
       ? await db
           .select({
             userId: emailDeliveries.userId,
             lastSentAt: sql<Date | string | null>`max(${emailDeliveries.sentAt})`,
+            lastAttemptAt: sql<
+              Date | string | null
+            >`max(${emailDeliveries.createdAt})`,
           })
           .from(emailDeliveries)
           .where(
@@ -133,11 +139,18 @@ export async function runEmailDigestSweep(
       row.lastSentAt ? new Date(row.lastSentAt) : null,
     ])
   )
+  const lastAttemptByUser = new Map<string, Date | null>(
+    lastRows.map((row) => [
+      row.userId as string,
+      row.lastAttemptAt ? new Date(row.lastAttemptAt) : null,
+    ])
+  )
 
   const plan = planEmailDigest({
     candidates,
     prefsByUser,
     lastDigestByUser,
+    lastAttemptByUser,
     now,
   })
 
@@ -236,8 +249,10 @@ export async function runEmailDigestSweep(
       } catch (err) {
         console.error(`[digest] email to ${to} failed:`, err)
         // Un-claim this batch so a later sweep retries — a transient
-        // transport error must not permanently swallow the digest. Rows read
-        // in the meantime stay claimed (the push did its job late).
+        // transport error must not permanently swallow the digest. The failed
+        // ledger row above feeds the attempt gate, so the retry is backed off
+        // ~hourly rather than firing at every sweep. Rows read in the
+        // meantime stay claimed (the push did its job late).
         try {
           await db
             .update(notifications)
