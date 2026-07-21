@@ -18,7 +18,8 @@ export interface EmailBounceEvent {
   diagnostic: string | null
   // SES MessageId of the bounced send — matches
   // email_deliveries.provider_message_id when the send came from our ledgered
-  // paths (digest/notification/widget mail; auth mail has no ledger row).
+  // paths (digest/support_reply/support_confirmation/widget_resolution mail;
+  // auth mail has no ledger row).
   providerMessageId: string | null
 }
 
