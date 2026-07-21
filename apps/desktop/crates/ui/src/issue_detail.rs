@@ -205,19 +205,30 @@ pub struct IssueDetailView {
 
 impl IssueDetailView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let title_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Issue title"));
+        // Auto-grow so a long title soft-wraps across rows instead of
+        // clipping at the right edge (EXP-230). Titles stay one LOGICAL
+        // line: `submit_on_enter` turns plain Enter into a commit instead
+        // of a newline, the render-side capture swallows Shift+Enter, and
+        // `save_title` collapses pasted newlines.
+        let title_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Issue title")
+                .auto_grow(1, 5)
+                .submit_on_enter(true)
+        });
         let start_coding = cx.new(StartCodingControl::new);
         let properties = cx.new(|cx| PropertiesPanel::new(window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
 
         let mut subscriptions = Vec::new();
-        // Title saves on blur when changed (web `handleTitleBlur`).
+        // Title saves on blur when changed (web `handleTitleBlur`); Enter
+        // commits too — in the auto-grow input it emits PressEnter instead
+        // of inserting a newline.
         subscriptions.push(cx.subscribe_in(
             &title_input,
             window,
             |this, _, event: &InputEvent, _window, cx| {
-                if matches!(event, InputEvent::Blur) {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.save_title(cx);
                 }
             },
@@ -490,7 +501,15 @@ impl IssueDetailView {
         let Some(issue) = self.issue(cx) else {
             return;
         };
-        let trimmed = self.title_input.read(cx).value().trim().to_string();
+        // Pasted text can carry newlines (the input is auto-grow
+        // multi-line); a title is one logical line, so collapse them.
+        let trimmed = self
+            .title_input
+            .read(cx)
+            .value()
+            .replace(['\r', '\n'], " ")
+            .trim()
+            .to_string();
         if trimmed.is_empty() || trimmed == issue.title {
             return;
         }
@@ -970,6 +989,16 @@ impl IssueDetailView {
                     if let Some(editor) = this.editor.clone() {
                         cx.stop_propagation();
                         editor.focus(window, cx);
+                    }
+                },
+            ))
+            // Shift+Enter would insert a newline in the auto-grow input
+            // (`submit_on_enter` only intercepts plain Enter) — swallow it
+            // so no keyboard path can put a newline in a title (EXP-230).
+            .capture_action(cx.listener(
+                |_, action: &input::Enter, _window, cx: &mut gpui::Context<Self>| {
+                    if action.shift {
+                        cx.stop_propagation();
                     }
                 },
             ))
