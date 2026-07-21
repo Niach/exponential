@@ -328,7 +328,19 @@ export const issues = pgTable(
     index(`idx_issues_board_status`).on(table.boardId, table.status),
     index(`idx_issues_team`).on(table.teamId),
     index(`idx_issues_assignee`).on(table.assigneeId),
+    index(`idx_issues_creator`).on(table.creatorId),
     index(`idx_issues_due_date`).on(table.dueDate),
+    // PR→issue resolution is exact-pr_url match (batch PRs link many issues to
+    // one URL): the webhook, merge/close batch-sibling lookups, and the
+    // self-hosted poller all filter on it. Partial — most issues have no PR.
+    index(`idx_issues_pr_url`)
+      .on(table.prUrl)
+      .where(sql`pr_url IS NOT NULL`),
+    // The duplicate_of_id SET NULL RI trigger fires on every issue delete;
+    // without this it seq-scans issues per deleted row inside the cascade.
+    index(`idx_issues_duplicate_of`)
+      .on(table.duplicateOfId)
+      .where(sql`duplicate_of_id IS NOT NULL`),
     // Backstop under generate_issue_number()'s counter allocator (see
     // issue_number_counters below): any residual allocation race fails loudly
     // instead of committing two issues with the same identifier.
@@ -535,6 +547,11 @@ export const attachments = pgTable(
     index(`idx_attachments_issue`).on(table.issueId),
     index(`idx_attachments_team`).on(table.teamId),
     index(`idx_attachments_board`).on(table.boardId),
+    // The comment_id SET NULL RI trigger fires on every comment delete.
+    // Partial — most attachments aren't comment-embedded.
+    index(`idx_attachments_comment`)
+      .on(table.commentId)
+      .where(sql`comment_id IS NOT NULL`),
   ]
 )
 
@@ -553,7 +570,12 @@ export const fcmTokens = pgTable(
     platform: varchar({ length: 20 }).notNull(),
     ...timestamps,
   },
-  (table) => [unique().on(table.token, table.userId)]
+  (table) => [
+    unique().on(table.token, table.userId),
+    // Per-recipient push lookups (fcm.ts, push-tokens router) filter by user;
+    // the (token, user_id) unique can't serve them.
+    index(`idx_fcm_tokens_user`).on(table.userId),
+  ]
 )
 
 // GitHub App installations (server-only, not synced). Mirrored from the setup
@@ -701,6 +723,10 @@ export const notifications = pgTable(
   (table) => [
     index(`idx_notifications_user_unread`).on(table.userId, table.readAt),
     index(`idx_notifications_board`).on(table.boardId),
+    // notifications is the largest table (one row per recipient per event) and
+    // its issue_id FK cascade fires per deleted issue — without this every
+    // issue delete (and issues.move's board_id rewrite) seq-scans the table.
+    index(`idx_notifications_issue`).on(table.issueId),
     // The hourly digest sweep's scan: unread, never-emailed rows by age.
     index(`idx_notifications_digest_pending`)
       .on(table.createdAt)
@@ -750,6 +776,10 @@ export const issueSubscribers = pgTable(
     uniqueIndex(`uniq_issue_subscribers_email`)
       .on(table.issueId, table.email)
       .where(sql`email IS NOT NULL`),
+    // Plain (non-partial) on issue_id: the RI cascade's unconditional
+    // `DELETE … WHERE issue_id = $1` can't use the partial uniques above (no
+    // predicate implication), nor can issues.move's board_id rewrite.
+    index(`idx_issue_subscribers_issue`).on(table.issueId),
     index(`idx_issue_subscribers_user`).on(table.userId),
     index(`idx_issue_subscribers_team`).on(table.teamId),
     index(`idx_issue_subscribers_board`).on(table.boardId),
