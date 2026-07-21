@@ -19,8 +19,12 @@
 //!   MEMBER-ONLY like `user_message`.
 //!
 //! Everything published passes through [`Redactor`] first: exact-match masking
-//! of the launcher-created secrets (the JIT GitHub installation token embedded
-//! in the worktree remote, the `expu_` personal key in `.exp-mcp.json`) plus
+//! of the launcher-created secrets — the JIT GitHub installation token from
+//! the clone's shared `.git/exp-git-credentials` credential file (EXP-73;
+//! pre-migration clones may still embed it in the origin URL, kept as a
+//! fallback source), the `expu_` personal key from `.exp-mcp.json` (claude)
+//! or handed in via [`EmitterConfig::extra_secrets`] by the wiring (codex/pi
+//! keep it env-only, so no worktree file can recover it — REV2-17) — plus
 //! gitleaks-style patterns. Tool results are never read; injected system
 //! content (`isMeta`, task notifications, `<system-reminder>` blocks) is never
 //! published.
@@ -81,6 +85,11 @@ const MIN_SECRET_LEN: usize = 8;
 /// The worktree MCP config file (mirrors `coding::MCP_JSON_FILE`; `steer` must
 /// not depend on `coding`, so the name is duplicated here).
 const MCP_JSON_FILE: &str = ".exp-mcp.json";
+
+/// The credential file in the clone's shared git dir holding the CURRENT
+/// installation token (mirrors `coding::git_credentials::credential_file` —
+/// same no-`coding`-dependency rule as [`MCP_JSON_FILE`]).
+const GIT_CREDENTIALS_FILE: &str = "exp-git-credentials";
 
 /// The plan-picker resolution narration (EXP-150/EXP-174). Viewer clients
 /// match this EXACT text to retire a pending plan-approval card — the
@@ -166,11 +175,18 @@ impl Redactor {
 }
 
 /// Gather the session's exact secrets from the worktree (best-effort): the JIT
-/// installation token embedded in the git remote URL, and the `expu_` personal
-/// key written into `.exp-mcp.json`. Both are launcher-created and long-lived only
-/// for the session; masking them is belt-and-braces on top of the patterns.
+/// installation token from the clone's shared credential file (EXP-73 —
+/// `origin` stays bare, so the pre-EXP-73 remote-URL extraction survives only
+/// as a migration fallback), and the `expu_` personal key written into
+/// `.exp-mcp.json` (claude sessions only — codex/pi keep the key env-only,
+/// which is what [`EmitterConfig::extra_secrets`] exists for). All are
+/// launcher-created and long-lived only for the session; masking them is
+/// belt-and-braces on top of the patterns.
 pub fn secrets_from_worktree(worktree: &Path) -> Vec<String> {
     let mut out = Vec::new();
+    if let Some(token) = credential_file_token(worktree) {
+        out.push(token);
+    }
     if let Some(token) = git_remote_token(worktree) {
         out.push(token);
     }
@@ -180,8 +196,44 @@ pub fn secrets_from_worktree(worktree: &Path) -> Vec<String> {
     out
 }
 
+/// Extract the installation token from the clone's shared credential file
+/// (`.git/exp-git-credentials`, git-credential protocol form
+/// `username=x-access-token\npassword=<token>\n` — written by
+/// `coding::git_credentials`). The shared git dir is resolved through the
+/// worktree (`git rev-parse --git-common-dir`), so linked worktrees find the
+/// clone's file; the output is relative for a non-linked checkout (`.git`)
+/// and absolute for a linked worktree — both are handled.
+fn credential_file_token(worktree: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(worktree)
+        .args(["rev-parse", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let common = String::from_utf8_lossy(&output.stdout);
+    let common = common.trim();
+    if common.is_empty() {
+        return None;
+    }
+    let common_dir = if Path::new(common).is_relative() {
+        worktree.join(common)
+    } else {
+        PathBuf::from(common)
+    };
+    let raw = std::fs::read_to_string(common_dir.join(GIT_CREDENTIALS_FILE)).ok()?;
+    let token = raw
+        .lines()
+        .find_map(|line| line.strip_prefix("password="))?
+        .trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 /// Extract the installation token from `git remote get-url origin`
-/// (`https://x-access-token:<token>@github.com/<full>.git`).
+/// (`https://x-access-token:<token>@github.com/<full>.git`) — the pre-EXP-73
+/// scheme; only a not-yet-healed clone still matches.
 fn git_remote_token(worktree: &Path) -> Option<String> {
     let output = Command::new("git")
         .arg("-C")
@@ -777,6 +829,12 @@ fn git_diff(worktree: &Path, cached: bool) -> String {
 pub struct EmitterConfig {
     pub worktree: PathBuf,
     pub term: Option<TermHandle>,
+    /// REV2-17: exact secrets the wiring already holds at spawn time that no
+    /// worktree file can recover — the `expu_` personal key for codex/pi
+    /// sessions, where it rides only the spawn env (`EXP_MCP_TOKEN`), never
+    /// disk. Merged into the [`Redactor`]'s exact-match set on top of
+    /// [`secrets_from_worktree`].
+    pub extra_secrets: Vec<String>,
     /// EXP-214: fired (on the emitter thread) whenever the combined
     /// "agent is parked on a picker" flag flips — `true` while a
     /// plan-approval or AskUserQuestion picker is pending on the grid,
@@ -799,7 +857,9 @@ pub fn spawn_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<
 }
 
 fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<AtomicBool>) {
-    let redactor = Redactor::new(secrets_from_worktree(&config.worktree));
+    let mut exact_secrets = secrets_from_worktree(&config.worktree);
+    exact_secrets.extend(config.extra_secrets.iter().cloned());
+    let redactor = Redactor::new(exact_secrets);
 
     // Announce the session (the viewer shows this immediately, before any
     // transcript line lands).
@@ -1032,6 +1092,106 @@ mod tests {
         assert!(!out.contains(token), "install token leaked: {out}");
         assert!(!out.contains(key), "expu key leaked: {out}");
         assert!(out.contains(REDACTED));
+    }
+
+    /// A real git clone with a linked worktree and an EXP-73 credential file
+    /// in the shared `.git` — the production shape `secrets_from_worktree`
+    /// must recover the installation token from (the origin stays BARE, so
+    /// the old remote-URL extraction finds nothing).
+    #[test]
+    fn secrets_from_worktree_read_the_exp73_credential_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-activity-creds-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |cwd: &Path, args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        let clone = dir.join("clone");
+        std::fs::create_dir_all(&clone).unwrap();
+        git(&clone, &["init", "--quiet", "-b", "main"]);
+        std::fs::write(clone.join("README.md"), "seed\n").unwrap();
+        git(&clone, &["add", "."]);
+        git(&clone, &["commit", "--quiet", "-m", "seed"]);
+        git(
+            &clone,
+            &["remote", "add", "origin", "https://github.com/acme/web.git"],
+        );
+        let token = "ghs_FAKEcredfileTOKEN1234567890";
+        std::fs::write(
+            clone.join(".git").join(GIT_CREDENTIALS_FILE),
+            format!("username=x-access-token\npassword={token}\n"),
+        )
+        .unwrap();
+        let worktree = dir.join("wt");
+        git(
+            &clone,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                "exp/EXP-1",
+                worktree.to_str().unwrap(),
+            ],
+        );
+
+        // The linked worktree resolves the shared git dir (absolute
+        // --git-common-dir), the clone root resolves the relative `.git`.
+        for tree in [&worktree, &clone] {
+            let secrets = secrets_from_worktree(tree);
+            assert!(
+                secrets.contains(&token.to_string()),
+                "token not recovered from {}: {secrets:?}",
+                tree.display()
+            );
+        }
+
+        // A pre-migration clone (token still embedded in origin, no
+        // credential file) keeps working via the fallback extraction.
+        std::fs::remove_file(clone.join(".git").join(GIT_CREDENTIALS_FILE)).unwrap();
+        let legacy = "ghs_FAKElegacyremoteTOKEN567890";
+        git(
+            &clone,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("https://x-access-token:{legacy}@github.com/acme/web.git"),
+            ],
+        );
+        assert!(secrets_from_worktree(&worktree).contains(&legacy.to_string()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn secrets_from_worktree_outside_a_repo_is_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-activity-norepo-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(secrets_from_worktree(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

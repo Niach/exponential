@@ -630,9 +630,27 @@ pub fn attach_publisher(
     // "Needs input". Fire-and-forget from the emitter thread (blocking
     // HTTP is fine there); a swept/ended row reports `updated: false`.
     let needs_input_session = session_id.to_string();
+    // REV2-17: the `expu_` personal key from the account's secret store —
+    // codex/pi sessions carry it only in the spawn env (never a worktree
+    // file), so the redactor's exact-match layer needs it handed in here.
+    // The store always holds the current key: the launcher's
+    // `ensure_personal_key` reads-or-mints it there before any spawn.
+    let extra_secrets: Vec<String> = cx
+        .try_global::<AuthContext>()
+        .map(|auth| auth.data_dir.clone())
+        .zip(queries::active_account(cx))
+        .and_then(|(data_dir, account)| {
+            api::token_store::TokenStore::new(data_dir).get(
+                &account.id,
+                api::token_store::SecretKind::PersonalApiKey,
+            )
+        })
+        .into_iter()
+        .collect();
     spawn_activity_emitter(
         EmitterConfig {
             worktree,
+            extra_secrets,
             // The live grid: the emitter watches it for the plan-approval
             // picker, which the transcript can't show while PENDING (EXP-150).
             term: Some(term),
