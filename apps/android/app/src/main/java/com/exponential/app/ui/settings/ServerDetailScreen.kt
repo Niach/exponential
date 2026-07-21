@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UsersApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
@@ -67,6 +68,7 @@ class ServerDetailViewModel @Inject constructor(
     private val syncManager: SyncManager,
     private val usersApi: UsersApi,
     private val pushTokenManager: PushTokenManager,
+    private val authApi: AuthApi,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
 
@@ -111,16 +113,21 @@ class ServerDetailViewModel @Inject constructor(
 
     fun signOut(accountId: String) {
         teardownScope.launch {
+            // Capture URL + token BEFORE removeAccount drops the row.
+            val account = auth.accounts.value.firstOrNull { it.id == accountId }
+            val instanceUrl = account?.instanceUrl
+            val token = account?.token
             // Awaited before removeAccount drops the credentials the
             // unregister request authenticates with.
             pushTokenManager.unregisterToken(accountId)
+            // Revoke the server session AFTER the unregister (which needs it
+            // live) and BEFORE the token drops locally (REV2-15).
+            if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             // Keep the server URL around so the user can hit Reauthenticate
             // without re-typing it — `setInstanceUrl` re-adds the entry with
             // a fresh `token == null` row.
-            val instanceUrl = auth.accounts.value.firstOrNull { it.id == accountId }?.instanceUrl
-                ?: accounts.value.firstOrNull { it.id == accountId }?.instanceUrl
             if (instanceUrl != null) auth.setInstanceUrl(instanceUrl)
         }
     }
@@ -131,7 +138,14 @@ class ServerDetailViewModel @Inject constructor(
 
     fun remove(accountId: String) {
         teardownScope.launch {
+            // Capture URL + token BEFORE removeAccount drops the row.
+            val account = auth.accounts.value.firstOrNull { it.id == accountId }
+            val instanceUrl = account?.instanceUrl
+            val token = account?.token
             pushTokenManager.unregisterToken(accountId)
+            // Revoke the server session AFTER the unregister (which needs it
+            // live) and BEFORE the token drops locally (REV2-15).
+            if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)

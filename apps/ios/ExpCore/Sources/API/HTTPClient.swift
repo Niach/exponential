@@ -107,10 +107,13 @@ public final class HTTPClient: Sendable {
     // during login, before the token is persisted to the account store. Sends
     // the instance's own Origin like postUnauthenticated, since Better Auth's
     // CSRF check 403s cross-origin POSTs that carry no Origin header.
-    public func post(_ url: URL, body: Data, bearerToken: String?) async throws -> (Data, HTTPURLResponse) {
+    public func post(_ url: URL, body: Data, bearerToken: String?, timeout: TimeInterval? = nil) async throws -> (Data, HTTPURLResponse) {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.httpBody = body
+        if let timeout {
+            req.timeoutInterval = timeout
+        }
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let bearerToken {
             req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
