@@ -53,10 +53,17 @@ export function AppStoreLogo({ size = 20 }: { size?: number }) {
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden
     >
-      <path d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm-1.35 4.6-.6 1.04-.6-1.04a.5.5 0 0 0-.87.5l.83 1.44-2.02 3.5H5.6a.5.5 0 0 0 0 1h7.02l-.58-1H8.37l3.15-5.44.58 1 .58-1 .3.52.58-1-.31-.52a.5.5 0 0 0-.86 0zm4.32 5.9-.58-1-.58 1 1.6 2.77h-1.53l.58 1h1.53l.42.72a.5.5 0 1 0 .87-.5l-.42-.72h.87a.5.5 0 0 0 0-1h-1.45l-1.3-2.27zM7.6 15.17l-.4.7a.5.5 0 0 0 .86.5l.98-1.7h-1.15l-.29.5z" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 16l1.1-2m1.4-2.5l2.5-4.5" />
+      <path d="M7 14h5m2.9 0h2.1" />
+      <path d="M16 16l-2.5-4.5m-1.5-2.7l-1-1.8" />
     </svg>
   )
 }
