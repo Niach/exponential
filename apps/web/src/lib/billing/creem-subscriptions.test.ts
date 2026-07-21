@@ -121,13 +121,13 @@ describe(`assertSubscriptionMutable`, () => {
 })
 
 describe(`SUBSCRIPTION_UPDATE_BEHAVIOR`, () => {
-  // Creem's proration math is broken as of 2026-07-07 (increases charge
-  // new+old instead of the delta — see the constant's comment). proration-none
-  // is the only behavior that never overcharges; flip only after Creem
-  // confirms a fix AND a test-mode seat increase charges exactly the prorated
-  // delta.
-  it(`stays proration-none until Creem fixes increase proration`, () => {
-    expect(SUBSCRIPTION_UPDATE_BEHAVIOR).toBe(`proration-none`)
+  // Creem's proration was broken 2026-07-07..07-09 (increases overcharged,
+  // decreases regressed to charging) so we pinned proration-none. Re-verified
+  // fixed in test mode 2026-07-21 (increase charged the exact prorated delta,
+  // decrease refunded it — see the constant's comment), so we charge the delta
+  // immediately. Revert to proration-none if Creem regresses.
+  it(`charges the prorated delta immediately`, () => {
+    expect(SUBSCRIPTION_UPDATE_BEHAVIOR).toBe(`proration-charge-immediately`)
   })
 })
 

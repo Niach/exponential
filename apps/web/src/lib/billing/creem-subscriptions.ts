@@ -10,19 +10,18 @@ import { isCloudInstance } from "@/lib/bootstrap-cloud"
 // checkout creates a second subscription, so the customer pays the full new
 // price on top of what they already paid (the original double-billing bug).
 //
-// Update behavior: Creem's proration is measurably broken as of 2026-07-07
-// (test mode, verified by direct API calls): on a unit INCREASE or a product
-// upgrade, `proration-charge-immediately` AND `proration-charge` both charge
-// `new config + old config` immediately instead of the `new − old` delta —
-// e.g. adding a second $60/seat/yr seat on day one charged $180, and a
-// $120/yr → $240/yr product upgrade charged $359.99. (Decreases refund the
-// correct delta, so the bug is increase-only.) Until Creem fixes that math we
-// use `proration-none` everywhere: the change applies immediately, and the
-// next renewal invoice bills the new configuration. That knowingly gives away
-// the remainder of the current period on upgrades — acceptable versus
-// overcharging customers 3×. When Creem confirms a fix, flip this constant to
-// `proration-charge-immediately`.
-export const SUBSCRIPTION_UPDATE_BEHAVIOR = `proration-none` as const
+// Update behavior: Creem's proration was measurably broken 2026-07-07..07-09
+// (test mode, direct API calls): a unit INCREASE or product upgrade charged
+// `new config + old config` (later ~7× the delta) instead of `new − old`, and
+// by 07-09 the DECREASE path had regressed to charging instead of refunding.
+// We pinned `proration-none` while that was true. Re-verified 2026-07-21 on the
+// reference sub (`sub_6SozDXpVcqEKSm7BkibgOR`, Pro yearly $60/seat/yr, ~14.6d
+// into the period): both paths are now correct — an increase 2→3 charged
+// exactly the prorated delta ($57.60) and a decrease 3→2 refunded it in full.
+// Both flip gates met, so we run `proration-charge-immediately`: seat/plan
+// changes charge (or refund) the prorated delta at the moment of change. If
+// Creem regresses again, revert to `proration-none` (never overcharges).
+export const SUBSCRIPTION_UPDATE_BEHAVIOR = `proration-charge-immediately` as const
 
 // Statuses that count as "this team is subscribed" — mirrors the plan
 // resolution in lib/billing.ts.
