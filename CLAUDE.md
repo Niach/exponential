@@ -191,7 +191,7 @@ apps/web/src/
 
 ### Tables
 
-`teams`, `boards` (repo optional — `repository_id` nullable, FK restrict), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `github_installation_links` (team ↔ installation claims), `team_members`, `team_invites`, `fcm_tokens`, `push_subscriptions`, `notifications`, `issue_subscribers`, `issue_events`, `support_threads`/`support_messages` (standalone helpdesk tickets — server-only), `user_notification_prefs`, `email_deliveries`, `email_bounces` (per-address SES bounce/complaint feedback — server-only, admin console), `widget_configs`, `widget_submissions`, `mcp_grants` + Better Auth tables (users, sessions, accounts, verifications, apikeys, oauth_applications/access_tokens/consents)
+`teams`, `boards` (repo optional — `repository_id` nullable, FK restrict), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `github_installation_links` (team ↔ installation claims), `team_members`, `team_invites`, `fcm_tokens`, `notifications`, `issue_subscribers`, `issue_events`, `support_threads`/`support_messages` (standalone helpdesk tickets — server-only), `user_notification_prefs`, `email_deliveries`, `email_bounces` (per-address SES bounce/complaint feedback — server-only, admin console), `widget_configs`, `widget_submissions`, `mcp_grants` + Better Auth tables (users, sessions, accounts, verifications, apikeys, oauth_applications/access_tokens/consents)
 
 ### Key Issue Fields
 
