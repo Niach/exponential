@@ -62,6 +62,10 @@ const pricingProduct: Record<string, unknown> = {
   "@type": `Product`,
   name: `${SITE_NAME} — plans`,
   description: `Per-seat pricing for Exponential cloud. Free for individuals; local AI agents on every tier.`,
+  /* Google's merchant-listing validation REQUIRES image on Product — 16:9 and
+     1:1 variants per its aspect-ratio recommendations (GSC flags the page
+     invalid without it). */
+  image: [`${SITE_ORIGIN}/og/og-pricing.png`, `${SITE_ORIGIN}/icon-512.png`],
   brand: { "@type": `Brand`, name: SITE_NAME },
   offers: CLOUD_PLANS.filter((plan) => plan.priceNumber !== undefined).map(
     (plan) => ({
