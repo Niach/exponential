@@ -18,6 +18,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     completedAt: null,
     createdAt: new Date(`2026-03-06T10:00:00.000Z`),
     creatorId: `user-1`,
+    source: `user`,
     description: `Description`,
     dueDate: null,
     dueTime: null,
