@@ -8,7 +8,10 @@ export const pushTokensRouter = router({
     .input(
       z.object({
         token: z.string().min(1),
-        platform: z.enum([`android`, `ios`, `web`]),
+        // Only the native apps register push tokens — web push is
+        // intentionally unimplemented (no service-worker push handler, no
+        // PushManager subscription anywhere), so there is no `web` arm.
+        platform: z.enum([`android`, `ios`]),
       })
     )
     .mutation(async ({ ctx, input }) => {
