@@ -1,18 +1,53 @@
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
+
+/// Resolves an AppRoute.agentSession's synced coding_sessions row and hosts
+/// AgentSessionView as a pushed navigation destination (EXP-221) — pushed,
+/// not a fullScreenCover, so the screen gets the native back button and
+/// interactive swipe-back like every other page.
+struct AgentSessionRouteView: View {
+    let sessionId: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var session: CodingSessionEntity?
+
+    var body: some View {
+        Group {
+            if let session {
+                AgentSessionView(accountId: accountId, session: session)
+            } else {
+                ZStack {
+                    AppBackground()
+                    ProgressView().tint(.white)
+                }
+            }
+        }
+        .onAppear {
+            guard session == nil,
+                  let pool = try? deps.db.pool(forAccountId: accountId)
+            else { return }
+            session = try? pool.read { db in
+                try CodingSessionEntity.filter(Column("id") == sessionId).fetchOne(db)
+            }
+        }
+    }
+}
 
 /// The "Agent session" screen (EXP-32) — a chat-style view of a live coding
 /// session over the relay's scrubbed activity channel. NO terminal rendering:
 /// narration bubbles + compact tool rows, a pinned "Latest changes" diff chip
 /// above the input bar, and message-shaped steering (steal-claim + text + \r).
 /// Identical UX to the Android AgentSessionScreen (glass design system).
+/// Pushed onto the NavigationStack (EXP-221) — status lives in the native
+/// nav bar; back is the system chevron + swipe gesture.
 struct AgentSessionView: View {
     let accountId: String
     let session: CodingSessionEntity
 
     @Environment(AppDependencies.self) private var deps
-    @Environment(\.dismiss) private var dismiss
     @State private var model: AgentSessionModel?
     @State private var inputText = ""
     @State private var showDiffSheet = false
@@ -32,7 +67,6 @@ struct AgentSessionView: View {
             AppBackground()
 
             VStack(spacing: 0) {
-                header
                 if let model {
                     feedArea(model)
                     banners(model)
@@ -42,8 +76,39 @@ struct AgentSessionView: View {
                 }
             }
         }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    StatusDot(
+                        phase: model?.phase ?? .connecting,
+                        awaiting: model?.awaitingInput ?? false
+                    )
+                    Text(headerTitle)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                }
+            }
+            if case .closed = model?.phase {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        model?.connect()
+                    } label: {
+                        Label("Reconnect", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                }
+            }
+        }
         .onAppear {
-            if model == nil {
+            if let model {
+                // Popped back to (something was pushed on top, whose
+                // onDisappear shut the socket down) — revive.
+                model.resume()
+            } else {
                 let m = AgentSessionModel(
                     accountId: accountId,
                     session: session,
@@ -67,51 +132,6 @@ struct AgentSessionView: View {
     }
 
     // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            // Leading back button, Android AgentSessionScreen parity (EXP-212)
-            // — replaces the former trailing X.
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(8)
-            }
-            .glassButton()
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            HStack(spacing: 6) {
-                StatusDot(
-                    phase: model?.phase ?? .connecting,
-                    awaiting: model?.awaitingInput ?? false
-                )
-                Text(headerTitle)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-            }
-            Spacer()
-            if case .closed = model?.phase {
-                Button {
-                    model?.connect()
-                } label: {
-                    Label("Reconnect", systemImage: "arrow.clockwise")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                }
-                .glassButton()
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-    }
 
     private var headerTitle: String {
         let label = (model?.session ?? session).deviceLabel

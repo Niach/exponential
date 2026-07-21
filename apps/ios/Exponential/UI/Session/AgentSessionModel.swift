@@ -266,6 +266,17 @@ final class AgentSessionModel {
         Task { await dial() }
     }
 
+    /// Revive after a shutdown() (EXP-221): as a pushed destination the view
+    /// stays in the navigation stack while e.g. a deep link covers it —
+    /// onDisappear tears the socket down, so popping back must re-arm the
+    /// session observation and redial (the relay replays the full activity
+    /// log on join, rebuilding the feed).
+    func resume() {
+        guard stopped else { return }
+        startObservingSession()
+        connect()
+    }
+
     /// Tear everything down (view dismissed): best-effort claim release, then
     /// close. Closing the socket also releases the claim relay-side.
     func shutdown() {
