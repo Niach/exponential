@@ -17,8 +17,21 @@ jobs:
       - name: Fail if the committed Rust files drifted
         run: git diff --exit-code -- apps/desktop/crates/domain/src/contract.generated.rs apps/desktop/crates/theme/src/tokens.generated.rs
 
+  # Gate 2 (EXP-222): everything statically linked into the shipped binary must
+  # carry an allowed license (deny.toml). Zed's GPL-3.0 ztracing/zlog are patched
+  # out to clean-room shims in apps/desktop/Cargo.toml — this keeps a copyleft
+  # dependency from ever sneaking back in.
+  license-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: apps/desktop/Cargo.toml
+          command: check licenses
+
   build:
-    needs: codegen-drift
+    needs: [codegen-drift, license-audit]
     strategy:
       fail-fast: false
       matrix:

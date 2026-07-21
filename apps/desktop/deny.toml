@@ -1,0 +1,51 @@
+# cargo-deny config (EXP-222) — license audit of everything statically linked into
+# the shipped desktop binary, run in CI (build-desktop.yml) so a copyleft dependency
+# can never sneak back in (zed's GPL-3.0 ztracing/zlog did, patched out in the
+# workspace Cargo.toml). Only the `licenses` check is configured; run it with
+#   cargo deny --manifest-path apps/desktop/Cargo.toml check licenses
+
+[graph]
+# Audit every feature combination (the staging channel is a cargo feature) and all
+# release target triples — the three OSes pull different platform dependency sets.
+all-features = true
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+[licenses]
+# Permissive licenses, plus MPL-2.0 — the one weak-copyleft exception: MPL's
+# copyleft is FILE-scoped (unmodified third-party crates satisfy it by their source
+# being public) and it imposes no terms on the larger work, so it is compatible with
+# distributing the binary under ESTL-1.0. Any strong copyleft (GPL/LGPL/AGPL) or
+# unknown license fails the check: the ESTL-1.0 headcount cap is a GPL-incompatible
+# "additional restriction". Extend this list deliberately.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",   # webpki-roots (Mozilla CA bundle data)
+    "ISC",
+    "MIT-0",
+    "MPL-2.0",               # cbindgen, dwrote, option-ext — see above
+    "Unicode-3.0",
+    "Unicode-DFS-2016",      # finl_unicode
+    "Zlib",
+    "bzip2-1.0.6",           # libbz2-rs-sys (BSD-style bzip2 license)
+    "0BSD",
+]
+# Our own workspace crates (LicenseRef-ESTL-1.0, publish = false) are what we ship,
+# not third-party code — skip them instead of teaching SPDX our license id.
+private = { ignore = true }
+
+# tree-sitter-graphql omits the `license` manifest field but ships a plain MIT
+# LICENSE file (verified by reading it in the crate package).
+[[licenses.clarify]]
+crate = "tree-sitter-graphql"
+expression = "MIT"
+license-files = []

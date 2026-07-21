@@ -3,6 +3,7 @@ name = "theme"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 [dependencies]
 # The only two screen-facing deps this crate is allowed (masterplan-v3 §3.1):

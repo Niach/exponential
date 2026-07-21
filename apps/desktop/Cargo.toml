@@ -79,6 +79,19 @@ sha2 = "0.10"
 # transitively (portable-pty, gpui) at this exact major.
 libc = "0.2"
 
+# EXP-222: zed's `ztracing`/`ztracing_macro` (and `zlog`, reachable only through
+# ztracing) are GPL-3.0-or-later — statically linking them into the shipped binary
+# is incompatible with the ESTL-1.0 headcount cap (a GPL-3.0 §5 "additional
+# restriction"). The rest of the pinned zed/gpui-component stack is Apache-2.0 or
+# permissive. These clean-room no-op shims replace the whole consumed API surface
+# (only `sum_tree`'s `#[instrument]` in practice — the workspace never sets
+# `--cfg ztracing`, so upstream is inert no-ops in our builds anyway). Do NOT fix
+# by bumping the gpui rev instead: ztracing is GPL on zed main too. Guarded by
+# `cargo deny check licenses` (deny.toml) in build-desktop.yml.
+[patch."https://github.com/zed-industries/zed"]
+ztracing = { path = "crates/ztracing" }
+ztracing_macro = { path = "crates/ztracing_macro" }
+
 # Debuginfo is the bulk of a debug tree on this dependency set (EXP-76: ~8GB
 # per fresh build, most of it dep debuginfo plus the ~7k .o files macOS's
 # split-debuginfo=unpacked keeps around as its containers). Workspace crates

@@ -3,6 +3,7 @@ name = "api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 [features]
 # Staging/dev channel: moves the app data dir aside (`exponential-staging` /
