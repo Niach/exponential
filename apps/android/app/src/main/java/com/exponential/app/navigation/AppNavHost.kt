@@ -10,7 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -279,11 +281,22 @@ private fun AuthenticatedNav(
         )
 
     // The Support tab exists only while the flag is on — if it flips off
-    // (team switch, feature disabled) while the Support inbox is up, land
-    // back on Issues instead of stranding a tab-less screen.
-    LaunchedEffect(helpdeskEnabled, currentRoute) {
-        if (!helpdeskEnabled && currentRoute == "support-inbox") {
-            navController.popBackStack("home", inclusive = false)
+    // (team switch, feature disabled) while the Support surface is up, drop
+    // it from the stack instead of stranding a tab-less screen. Pop ONLY on
+    // a true→false TRANSITION of the flag (iOS AppNavigator's `.onChange`
+    // parity, REV2-2): an inbox Support-group tap selects the group's team
+    // right before navigating here, but helpdeskEnabled recomputes through a
+    // fresh Room flow that can never emit synchronously — a guard re-run on
+    // the route change alone would read the PREVIOUS team's stale false and
+    // bounce the tap straight back to Issues.
+    var hadHelpdesk by remember { mutableStateOf(helpdeskEnabled) }
+    LaunchedEffect(helpdeskEnabled) {
+        val flippedOff = hadHelpdesk && !helpdeskEnabled
+        hadHelpdesk = helpdeskEnabled
+        if (flippedOff) {
+            // No-op when Support isn't on the back stack; also pops any
+            // support thread pushed above the inbox.
+            navController.popBackStack("support-inbox", inclusive = true)
         }
     }
     // The single add-issue affordance: the FAB shows while a board is in
