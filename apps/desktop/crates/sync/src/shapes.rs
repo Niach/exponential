@@ -1,4 +1,4 @@
-//! The 15 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 14 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -187,16 +187,15 @@ pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "users",
         path: "/api/shapes/users",
-        // Full rows incl. email (co-member-scoped, §5.9). Billing fields
-        // (creem_customer_id, had_trial, onboarding_completed_at) are
-        // web-only and not modeled — the allowlist drops them.
+        // The server proxy pins the 6-column contract list — everything else
+        // (email_verified, is_admin, billing/onboarding fields) is web- or
+        // server-only and NEVER syncs; isAdmin comes from the session
+        // (api::accounts), never this shape.
         columns: &[
             "id",
             "name",
             "email",
-            "email_verified",
             "image",
-            "is_admin",
             "created_at",
             "updated_at",
         ],
