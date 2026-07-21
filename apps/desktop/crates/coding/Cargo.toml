@@ -3,6 +3,7 @@ name = "coding"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 [dependencies]
 # §3.1 dependency direction: coding ──▶ api, terminal (never ui, never steer —

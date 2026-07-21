@@ -3,6 +3,7 @@ name = "terminal"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 
 [dependencies]
 # §6.1: the emulator is UPSTREAM alacritty_terminal (Apache-2.0) — Term/Grid/

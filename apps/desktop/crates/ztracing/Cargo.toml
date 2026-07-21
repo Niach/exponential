@@ -1,0 +1,17 @@
+# Clean-room no-op stand-in for Zed's `ztracing` (GPL-3.0-or-later), substituted
+# via the `[patch."https://github.com/zed-industries/zed"]` section in the workspace
+# Cargo.toml (EXP-222). Patching ztracing out also drops `zlog` (ztracing was its
+# only reverse dependency). Version pinned to the upstream crate's so the patch
+# stays a valid candidate for the git dependency it replaces.
+[package]
+name = "ztracing"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Already in the tree transitively (MIT) — re-exported for API parity with the
+# upstream crate's `pub use tracing::{Level, field}`.
+tracing = "0.1"
+ztracing_macro = { path = "../ztracing_macro" }
