@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
   // Each db.select() call consumes the next result set, in call order.
   selectQueue: [] as unknown[][],
   executeRows: [] as Array<{ id: string; user_id: string }>,
-  sendToUser: vi.fn(async () => undefined),
+  sendToUsers: vi.fn(async () => undefined),
 }))
 
 vi.mock(`@/db/connection`, () => {
@@ -37,7 +37,7 @@ vi.mock(`@/db/connection`, () => {
 })
 
 vi.mock(`@/lib/integrations/fcm`, () => ({
-  sendToUser: h.sendToUser,
+  sendToUsers: h.sendToUsers,
 }))
 
 vi.mock(`@/lib/email`, () => ({
@@ -68,7 +68,7 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
   beforeEach(() => {
     h.selectQueue.length = 0
     h.executeRows.length = 0
-    h.sendToUser.mockClear()
+    h.sendToUsers.mockClear()
     mockedDb.select.mockClear()
     mockedDb.execute.mockClear()
   })
@@ -89,12 +89,13 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
 
     fireAndForgetNewIssueNotify({ issueId: issueMeta.id })
 
-    await vi.waitFor(() => expect(h.sendToUser).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
 
     // The notification insert ran once (rows for u1+u2 came back from it).
     expect(mockedDb.execute).toHaveBeenCalledTimes(1)
 
-    const payload = {
+    // ONE batched push call covering both delivered recipients (REV2-3).
+    expect(h.sendToUsers).toHaveBeenCalledWith([`u1`, `u2`], {
       title: `New feedback: EXP-7`,
       body: `Login button unresponsive`,
       data: {
@@ -102,9 +103,7 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
         issueId: issueMeta.id,
         identifier: `EXP-7`,
       },
-    }
-    expect(h.sendToUser).toHaveBeenCalledWith(`u1`, payload)
-    expect(h.sendToUser).toHaveBeenCalledWith(`u2`, payload)
+    })
   })
 
   it(`does nothing when the team has no deliverable members`, async () => {
@@ -122,7 +121,7 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     await vi.waitFor(() => expect(mockedDb.select).toHaveBeenCalledTimes(3))
     await Promise.resolve()
     expect(mockedDb.execute).not.toHaveBeenCalled()
-    expect(h.sendToUser).not.toHaveBeenCalled()
+    expect(h.sendToUsers).not.toHaveBeenCalled()
   })
 
   it(`does nothing when the issue is gone`, async () => {
@@ -133,14 +132,14 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     await vi.waitFor(() => expect(mockedDb.select).toHaveBeenCalledTimes(1))
     await Promise.resolve()
     expect(mockedDb.execute).not.toHaveBeenCalled()
-    expect(h.sendToUser).not.toHaveBeenCalled()
+    expect(h.sendToUsers).not.toHaveBeenCalled()
   })
 })
 
 describe(`fireAndForgetAssignmentNotify self-filter (EXP-50 guarantee)`, () => {
   beforeEach(() => {
     h.selectQueue.length = 0
-    h.sendToUser.mockClear()
+    h.sendToUsers.mockClear()
     mockedDb.select.mockClear()
     mockedDb.execute.mockClear()
   })
@@ -157,6 +156,6 @@ describe(`fireAndForgetAssignmentNotify self-filter (EXP-50 guarantee)`, () => {
     await Promise.resolve()
     expect(mockedDb.select).not.toHaveBeenCalled()
     expect(mockedDb.execute).not.toHaveBeenCalled()
-    expect(h.sendToUser).not.toHaveBeenCalled()
+    expect(h.sendToUsers).not.toHaveBeenCalled()
   })
 })

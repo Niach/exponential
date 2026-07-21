@@ -12,7 +12,7 @@ import {
   teamMembers,
   teams,
 } from "@/db/schema"
-import { sendToUser } from "@/lib/integrations/fcm"
+import { sendToUsers } from "@/lib/integrations/fcm"
 import { emailEnabled, sendReporterResolutionEmail } from "@/lib/email"
 import {
   isResolutionStatus,
@@ -177,23 +177,23 @@ async function deliver(args: {
   }))
   if (delivered.length === 0) return
 
-  // Push only — email waits for the digest sweep. Per-recipient push failures
-  // never throw out of deliver().
-  await Promise.all(
-    delivered.map((d) =>
-      sendToUser(d.userId, {
-        title: args.title,
-        body: args.body ?? args.issue.title,
-        data: {
-          type: args.pushType,
-          issueId: args.issue.id,
-          identifier: args.issue.identifier,
-        },
-      }).catch((err) => {
-        console.error(`[notify] push to ${d.userId} failed:`, err)
-      })
-    )
-  )
+  // Push only — email waits for the digest sweep. sendToUsers batches the
+  // token lookup into one query and caps + times out the relay POSTs (REV2-3);
+  // push failures never throw out of deliver().
+  await sendToUsers(
+    delivered.map((d) => d.userId),
+    {
+      title: args.title,
+      body: args.body ?? args.issue.title,
+      data: {
+        type: args.pushType,
+        issueId: args.issue.id,
+        identifier: args.issue.identifier,
+      },
+    }
+  ).catch((err) => {
+    console.error(`[notify] push fan-out failed:`, err)
+  })
 }
 
 /**
@@ -506,17 +506,16 @@ async function deliverToTeam(args: {
   }))
   if (delivered.length === 0) return
 
-  await Promise.all(
-    delivered.map((d) =>
-      sendToUser(d.userId, {
-        title: args.title,
-        body: args.body ?? args.title,
-        data: { type: args.type, ...args.pushData },
-      }).catch((err) => {
-        console.error(`[notify] push to ${d.userId} failed:`, err)
-      })
-    )
-  )
+  await sendToUsers(
+    delivered.map((d) => d.userId),
+    {
+      title: args.title,
+      body: args.body ?? args.title,
+      data: { type: args.type, ...args.pushData },
+    }
+  ).catch((err) => {
+    console.error(`[notify] push fan-out failed:`, err)
+  })
 }
 
 /**

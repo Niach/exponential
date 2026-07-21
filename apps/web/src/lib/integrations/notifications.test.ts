@@ -33,7 +33,7 @@ vi.mock(`@/db/connection`, () => ({
 // Importing the module under test must touch neither FCM nor the email
 // transport.
 vi.mock(`@/lib/integrations/fcm`, () => ({
-  sendToUser: vi.fn(async () => {}),
+  sendToUsers: vi.fn(async () => {}),
 }))
 vi.mock(`@/lib/email`, () => ({
   emailEnabled: false,

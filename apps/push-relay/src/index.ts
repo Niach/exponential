@@ -171,6 +171,38 @@ const DEAD_CODES = new Set([
   `messaging/mismatched-credential`,
 ])
 
+// ── FCM deadline ──────────────────────────────────────────────────────────────
+
+// firebase-admin exposes no per-call timeout/abort, so slow FCM would hold
+// every /send response — and the web app's fetch-pool slot behind it — open
+// indefinitely. The web app aborts its POST after 10s (REV2-3); answering 504
+// just under that keeps the failure visible to the caller instead of an abort.
+// The orphaned multicast keeps settling in the background (its sends may still
+// deliver); only that batch's invalid-token pruning is lost, which the next
+// successful send or the web app's stale-token sweep recovers.
+const FCM_DEADLINE_MS = 8_000
+
+class DeadlineError extends Error {}
+
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new DeadlineError(`deadline of ${ms}ms exceeded`)),
+      ms
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
+}
+
 // ── Hono app ──────────────────────────────────────────────────────────────────
 
 const app = new Hono()
@@ -229,26 +261,35 @@ app.post(`/send`, async (c) => {
 
   let response
   try {
-    response = await messaging.sendEachForMulticast({
-      tokens,
-      notification: { title: notification.title, body: notification.body },
-      data,
-      android: {
-        priority: `high`,
-        notification: { channelId: `issues_default` },
-      },
-      apns: {
-        headers: { "apns-priority": `10` },
-        payload: {
-          aps: {
-            alert: { title: notification.title, body: notification.body },
-            sound: `default`,
-            contentAvailable: true,
+    response = await withDeadline(
+      messaging.sendEachForMulticast({
+        tokens,
+        notification: { title: notification.title, body: notification.body },
+        data,
+        android: {
+          priority: `high`,
+          notification: { channelId: `issues_default` },
+        },
+        apns: {
+          headers: { "apns-priority": `10` },
+          payload: {
+            aps: {
+              alert: { title: notification.title, body: notification.body },
+              sound: `default`,
+              contentAvailable: true,
+            },
           },
         },
-      },
-    })
+      }),
+      FCM_DEADLINE_MS
+    )
   } catch (err) {
+    if (err instanceof DeadlineError) {
+      console.error(
+        `[push-relay] FCM multicast exceeded ${FCM_DEADLINE_MS}ms deadline (${tokens.length} tokens)`
+      )
+      return c.json({ error: `FCM timeout` }, 504)
+    }
     console.error(`[push-relay] FCM multicast failed:`, err)
     return c.json({ error: `FCM error` }, 500)
   }
