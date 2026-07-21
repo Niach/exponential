@@ -110,16 +110,12 @@ class IssueDetailViewModel @Inject constructor(
             else db.teamMemberDao().observeByTeam(board.teamId)
         }
 
-    // EXP-50: the team's lone HUMAN member (agent users excluded) when it
-    // has exactly one — else null. A solo team hides the assignee row in
-    // the detail editor (mirrors CreateIssueScreen).
-    val soloMemberId: StateFlow<String?> = combine(
-        membersForTeam,
-        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
-    ) { members, users ->
-        val agentIds = users.filter { it.isAgent }.map { it.id }.toSet()
-        members.map { it.userId }.filter { it !in agentIds }.singleOrNull()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // EXP-50: the team's lone member when it has exactly one — else null.
+    // A solo team hides the assignee row in the detail editor (mirrors
+    // CreateIssueScreen).
+    val soloMemberId: StateFlow<String?> = membersForTeam
+        .map { members -> members.map { it.userId }.singleOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamForBoard,

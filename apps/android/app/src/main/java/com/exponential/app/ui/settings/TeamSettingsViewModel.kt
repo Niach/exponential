@@ -185,13 +185,10 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = values[11] as String?
         TeamSettingsState(
             team = team,
-            // Synthetic agent users (widget reporters etc.) are team
-            // members server-side but never shown in the roster — iOS hides them
-            // too. Rows whose user hasn't synced yet (user == null) still render
+            // Rows whose user hasn't synced yet (user == null) still render
             // (userDisplayName degrades to a "Member <id>" placeholder).
             members = members
-                .map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) }
-                .filter { it.user?.isAgent != true },
+                .map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) },
             labels = labels,
             boards = boards,
             repos = repos,

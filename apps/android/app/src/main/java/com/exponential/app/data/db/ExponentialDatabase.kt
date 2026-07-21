@@ -96,9 +96,15 @@ import androidx.room.RoomDatabase
     //      flag while the agent waits on a plan-approval / question picker.
     //      Additive column on the existing coding-sessions shape; destructive
     //      fallback wipes + resyncs.
+    // v25: users.is_agent dropped (the synced users shape is now 6 columns);
+    //      issues.creator_id went nullable and issues gained source
+    //      ('user'|'widget') so widget-filed issues (null creator) decode +
+    //      persist. Removing is_agent is decode-safe (ignoreUnknownKeys) and the
+    //      dropped column / nullable creator_id / new source column all come back
+    //      correctly on the destructive wipe + resync.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 24,
+    version = 25,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

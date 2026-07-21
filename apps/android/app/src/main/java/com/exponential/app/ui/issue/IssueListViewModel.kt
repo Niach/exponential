@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -141,17 +142,13 @@ class IssueListViewModel @Inject constructor(
             else db.teamMemberDao().observeByTeam(board.teamId)
         }
 
-    // EXP-50: the target team's lone HUMAN member (agent users excluded)
-    // when it has exactly one — else null. A solo team hides the assignee
-    // picker and defaults new issues to that member (the server default-assigns
-    // anyway; the UI just stops offering a one-option choice).
-    val soloMemberId: StateFlow<String?> = combine(
-        membersForTeam,
-        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
-    ) { members, users ->
-        val agentIds = users.filter { it.isAgent }.map { it.id }.toSet()
-        members.map { it.userId }.filter { it !in agentIds }.singleOrNull()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // EXP-50: the target team's lone member when it has exactly one — else
+    // null. A solo team hides the assignee picker and defaults new issues to
+    // that member (the server default-assigns anyway; the UI just stops
+    // offering a one-option choice).
+    val soloMemberId: StateFlow<String?> = membersForTeam
+        .map { members -> members.map { it.userId }.singleOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamForBoard,

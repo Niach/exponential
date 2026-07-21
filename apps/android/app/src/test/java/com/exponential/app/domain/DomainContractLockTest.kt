@@ -50,4 +50,15 @@ class DomainContractLockTest {
             issuePriorityOrder.map { it.wire },
         )
     }
+
+    @Test
+    fun issueSourceWireValuesMatchGeneratedContract() {
+        assertEquals(
+            listOf("user", "widget"),
+            DomainContract.issueSourceValues,
+        )
+        // The per-value constants stay in lockstep with the values list.
+        assertEquals("user", DomainContract.issueSourceUser)
+        assertEquals("widget", DomainContract.issueSourceWidget)
+    }
 }

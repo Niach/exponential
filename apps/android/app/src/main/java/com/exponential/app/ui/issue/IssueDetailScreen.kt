@@ -426,7 +426,6 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(16.dp))
             val mentionMembers = remember(state.users) {
                 state.users
-                    .filter { !it.isAgent }
                     .map { MentionMember(it.name ?: it.email, it.email) }
             }
             MarkdownEditor(
@@ -545,8 +544,7 @@ fun IssueDetailScreen(
     }
 
     if (assigneeMenuOpen && isModerator) {
-        // Only real people are assignable; the widget helpdesk bot (isAgent) is excluded.
-        val people = state.users.filter { !it.isAgent }
+        val people = state.users
         val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
             listOf<com.exponential.app.data.db.UserEntity?>(null) + people
         IssuePickerSheet(
