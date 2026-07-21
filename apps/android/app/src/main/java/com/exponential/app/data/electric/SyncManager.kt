@@ -82,10 +82,9 @@ class SyncManager @Inject constructor(
         stats.clearAccount(accountId)
     }
 
-    /// **Transitional**: signs out whichever account is currently the
-    /// most-recently-used one. Existing UI callers (Settings "Sign out",
-    /// HomeScreen avatar menu) still go through this. Replaced once the auth
-    /// UI is reworked per-server in Phase C.
+    /// Sign out the ACTIVE account. Used by AppViewModel's active-account
+    /// paths (clearInstance / signOut); ServerDetailScreen manages arbitrary
+    /// accounts and calls the explicit `signOut(accountId)` overload instead.
     suspend fun signOut() {
         auth.activeAccountId.value?.let { signOut(it) }
     }

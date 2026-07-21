@@ -142,7 +142,7 @@ class IssueDetailViewModel @Inject constructor(
         syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
-    // Canonical web URL for the share sheet: {base}/w/{ws}/boards/{proj}/issues/{id}.
+    // Canonical web URL for the share sheet: {base}/t/{team}/boards/{board}/issues/{identifier}.
     // Null until issue + board + team + instance URL are all resolved.
     val shareUrl: StateFlow<String?> = combine(
         issueFlow,
