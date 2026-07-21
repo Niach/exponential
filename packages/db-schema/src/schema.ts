@@ -848,8 +848,10 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   ...timestamps,
 })
 
-// Email audit + idempotency ledger (SERVER-ONLY). One delivery per
-// notification row; also home for external widget-reporter mail (null userId).
+// Email audit ledger (SERVER-ONLY). One row per outbound app email — hourly
+// digests, helpdesk support mail, and external widget-reporter mail (null
+// userId). Per-notification email idempotency does NOT live here: it is the
+// notifications.emailed_at claim the digest sweep stamps before sending.
 export const emailDeliveries = pgTable(
   `email_deliveries`,
   {
@@ -857,14 +859,18 @@ export const emailDeliveries = pgTable(
     // Nullable: external widget reporters have no users row.
     userId: text(`user_id`).references(() => users.id, { onDelete: `cascade` }),
     toEmail: varchar(`to_email`, { length: 320 }).notNull(),
-    // Idempotency key: one delivery per notification row.
+    // Legacy: the pre-digest per-event pipeline wrote one delivery per
+    // notification row. No current path sets it (a digest email covers many
+    // notifications; the support/widget paths have none) — kept for old
+    // rows' audit trail.
     notificationId: uuid(`notification_id`).references(() => notifications.id, {
       onDelete: `set null`,
     }),
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `set null`,
     }),
-    // notification|digest|widget_resolution — documented varchar.
+    // digest|support_reply|support_confirmation|widget_resolution —
+    // documented varchar (legacy rows: notification).
     kind: varchar({ length: 32 }).notNull(),
     // queued|sent|failed|bounced|complained — documented varchar (the last
     // two are stamped post-send by the SES feedback webhook).
@@ -878,6 +884,8 @@ export const emailDeliveries = pgTable(
   (table) => [
     index(`idx_email_deliveries_user`).on(table.userId),
     index(`idx_email_deliveries_issue`).on(table.issueId),
+    // Legacy pre-digest idempotency guard — inert on new rows (Postgres
+    // treats NULLs as distinct, and notification_id is now always NULL).
     unique(`uniq_email_delivery_notification`).on(table.notificationId),
   ]
 )
