@@ -225,7 +225,7 @@ function writeLlmsTxt(): void {
   const lines: string[] = [
     `# ${SITE_NAME}`,
     ``,
-    `> An open-source issue tracker with a built-in coding IDE. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests. Native apps for web, iOS, Android, macOS and Linux — free cloud tier or self-hosted.`,
+    `> A source-available issue tracker with a built-in coding IDE. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests. Native apps for web, iOS, Android, macOS and Linux. Free cloud tier, or self-host it for free while your company has fewer than 10 people.`,
     ``,
     `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential.`,
   ]

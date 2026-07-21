@@ -36,7 +36,10 @@ export const linearComparison: CompareRow[] = [
   },
   {
     label: `Self-hosting`,
-    exponential: { value: `Free & full-featured`, good: true },
+    exponential: {
+      value: `Full-featured — free under 10 people`,
+      good: true,
+    },
     linear: { value: `Not available` },
   },
   {

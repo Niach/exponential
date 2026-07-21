@@ -1,93 +1,262 @@
-Elastic License 2.0 (ELv2)
+Exponential Small Team License 1.0 (ESTL-1.0)
 
-URL: https://www.elastic.co/licensing/elastic-license
+Copyright 2026 Dennis Strähhuber. All rights reserved except as granted below.
+
+Licensor: Dennis Strähhuber, sole proprietor, Germany.
+Commercial licensing: dennis@straehhuber.com
+
+---
+
+## Summary
+
+*This summary is not part of the license. It grants nothing, and it is not a
+promise. It is here so you can tell in ten seconds whether you owe money. If it
+disagrees with the terms below, the terms below win.*
+
+- The source is public, and you can read it, change it, and run it. This is a
+  **source-available** license, not an open source license.
+- If your company has **fewer than 10 people** — employees and contractors,
+  counted across every affiliate — you may use, change, and self-host the
+  software for free, in production, including commercially.
+- **10 or more people means you need a paid commercial license.** Email
+  dennis@straehhuber.com.
+- **Anyone, at any size,** may use the software for free for evaluation,
+  development, testing, and non-commercial research or education.
+- **Nobody may resell the software to others as a hosted or managed service**,
+  however small they are.
+
+---
+
+## Versions These Terms Cover
+
+These terms apply to versions of the software released on or after 21 July 2026
+(2026-07-21), and to every copy of any such version.
+
+Versions of the software released before 21 July 2026 were made available under
+the Elastic License 2.0 and remain available under it. These terms do not apply
+to those versions. Nothing in these terms revokes, reduces, conditions, or
+otherwise changes any right that anyone has already received for those earlier
+versions. The change of license is prospective only.
 
 ## Acceptance
 
-By using the software, you agree to all of the terms and conditions below.
+In order to get any license under these terms, you must agree to them as both
+strict obligations and conditions to all your licenses.
 
 ## Copyright License
 
-The licensor grants you a non-exclusive, royalty-free, worldwide,
-non-sublicensable, non-transferable license to use, copy, distribute, make
-available, and prepare derivative works of the software, in each case subject to
-the limitations and conditions below.
+The licensor grants you a copyright license for the software to do everything
+you might do with the software that would otherwise infringe the licensor's
+copyright in it, for any permitted purpose. However, you may only distribute the
+software according to Distribution License, and make changes or new works based
+on the software according to Changes and New Works License. Every license
+granted by these terms is subject to Limitations.
+
+## Distribution License
+
+The licensor grants you an additional copyright license to distribute copies of
+the software. Your license to distribute covers distributing the software with
+changes and new works permitted by Changes and New Works License.
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to make changes and new
+works based on the software for any permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that covers patent
+claims the licensor can license, or becomes able to license, that you would
+infringe by using the software. This patent license is subject to Limitations,
+and it ends as described in Patent Defense.
+
+## Fair Use
+
+You may have "fair use", "fair dealing", or similar rights for the software
+under the law that applies to you. These terms do not limit them.
+
+## Permitted Purposes
+
+There are exactly two permitted purposes: Small Team Use and Non-Production Use.
+Use that is not for a permitted purpose is not licensed under these terms and
+needs a separate commercial license from the licensor.
+
+## Small Team Use
+
+Use of the software for the benefit of your company is use for a permitted
+purpose if your company has fewer than 10 total individuals working as employees
+and independent contractors. Ten or more, and this permitted purpose does not
+cover you.
+
+Count as follows.
+
+1. **Count the whole company.** Your company includes every organization that
+   has control over, is under the control of, or is under common control with
+   the organization you work for. Count all of them together as one.
+2. **Count people, not roles or hours.** Count each individual once, whether
+   they work full-time or part-time, and whether or not they ever touch the
+   software.
+3. **Count at the time you use.** Apply the test at the time of the use in
+   question.
+4. **Count the individuals your company engages directly.** Individuals who work
+   for an unaffiliated organization that your company engages at arm's length as
+   a vendor — an outside law, accounting, or agency firm, for example — do not
+   count, unless your company also engages them directly as employees or
+   independent contractors.
+5. **Substance, not form.** You may not split entities, restructure, or route
+   people through intermediaries in order to appear to be under the limit. If
+   the practical effect of an arrangement is that 10 or more individuals work
+   for one business, the limit is not met.
+
+If you do not use the software for the benefit of any company — you use it only
+for yourself, for example — the size limit does not restrict you. If you are a
+sole proprietor, count yourself.
+
+If your company reaches 10 or more individuals, you have 30 days from the day it
+does to obtain a commercial license or to stop using the software for anything
+this permitted purpose no longer covers. Non-Production Use stays available to
+you either way. This 30-day window is separate from the notice-and-cure period
+in Violations.
+
+This size limit does not expire. It does not lapse, relax, or convert into any
+other license after any period of time.
+
+## Non-Production Use
+
+Non-production use of the software is a permitted purpose for anyone, whatever
+the size of your company. This is deliberate: you should be able to try the
+software, build against it, and study it before you owe anything.
+
+Non-production use means:
+
+- evaluating the software;
+- developing, building, and testing the software, or software that works with
+  it;
+- non-commercial research or education.
+
+Use is production use — and so needs Small Team Use or a commercial license —
+when the software is relied on to carry on the actual work of a company or of
+its customers, rather than to evaluate, develop, test, research, or teach.
+
+Non-production use is still subject to Limitations.
+
+## Commercial License
+
+If your company has 10 or more individuals, or you want to do something these
+terms do not permit — making the software available to others as a hosted or
+managed service, for example — you need a separate written commercial license
+from the licensor.
+
+Contact dennis@straehhuber.com.
+
+Nothing in these terms obliges the licensor to grant one, or to grant one on any
+particular terms.
 
 ## Limitations
 
-You may not provide the software to third parties as a hosted or managed
-service, where the service provides users with access to any substantial set of
-the features or functionality of the software.
+These limitations apply to every license granted by these terms, for every
+permitted purpose, at every company size, and whether or not you charge anyone.
+Neither Small Team Use nor Non-Production Use overrides them. Doing any of the
+following is not licensed.
 
-You may not move, change, disable, or circumvent the license key functionality
-in the software, and you may not remove or obscure any functionality in the
-software that is protected by the license key.
+**No hosted or managed service.** You may not make the software available to
+third parties as a hosted or managed service when that service gives its users
+access to any substantial set of the software's features or functionality. This
+limitation is not about how big you are: it binds a company under the size limit
+exactly as it binds a company over it, and it applies whether or not you charge
+for the service.
 
-You may not alter, remove, or obscure any licensing, copyright, or other notices
-of the licensor in the software. Any use of the licensor's trademarks is subject
-to applicable law.
+For clarity: running the software for your own company — for its employees and
+contractors, and for the work your company does for its own customers — is not
+making it available as a hosted or managed service. Offering the software's
+functionality to users outside your company, as a product or a service, hosted
+by you or on your behalf, is.
 
-## Patents
+**No defeating license enforcement.** You may not move, change, disable, or
+circumvent any license key, license check, entitlement check, or other
+license-enforcement functionality in the software, and you may not remove,
+disable, or obscure any functionality that such a mechanism protects. This
+applies to license-enforcement functionality in the software as you receive it
+and to any such functionality in later versions. The licensor is under no
+obligation to include any license-enforcement functionality, and does not waive
+this limitation by leaving it out.
 
-The licensor grants you a license, under any patent claims the licensor can
-license, or becomes able to license, to make, have made, use, sell, offer for
-sale, import and have imported the software, in each case subject to the
-limitations and conditions in this license. This license does not cover any
-patent claims that you cause to be infringed by modifications or additions to the
-software. If you or your company make any written claim that the software
-infringes or contributes to infringement of any patent, your patent license for
-the software granted under these terms ends immediately. If your company makes
-such a claim, your patent license ends immediately for work on behalf of your
-company.
+**No stripping notices.** You may not alter, remove, or obscure any licensing,
+copyright, authorship, or other notice of the licensor in the software, in its
+user interface, or in its documentation.
 
 ## Notices
 
 You must ensure that anyone who gets a copy of any part of the software from you
-also gets a copy of these terms.
+also gets a copy of these terms, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided with the software.
+For example:
 
-If you modify the software, you must include in any modified copies of the
-software prominent notices stating that you have modified the software.
+> Required Notice: Copyright Dennis Strähhuber (https://exponential.at)
+
+If you distribute a changed version of the software, you must include in it
+prominent notices stating that you changed it.
+
+## Trademarks
+
+These terms grant you no license to any trademark, service mark, trade name,
+logo, or similar right of the licensor, including "Exponential". You may use the
+licensor's marks to state truthfully what the software is and where it came
+from. You may not use them in any way that suggests the licensor endorses,
+sponsors, supplies, or maintains your changed version or your service.
 
 ## No Other Rights
 
-These terms do not imply any licenses other than those expressly granted in
-these terms.
+These terms do not allow you to sublicense or transfer any of your licenses to
+anyone else, or prevent the licensor from granting licenses to anyone else.
+These terms do not imply any other licenses.
 
-## Termination
+## Patent Defense
 
-If you use the software in violation of these terms, such use is not licensed,
-and your licenses will automatically terminate. If the licensor provides you
-with a notice of your violation, and you cease all violation of this license no
-later than 30 days after you receive that notice, your licenses will be
-reinstated retroactively. However, if you violate these terms after such
-reinstatement, any additional violation of these terms will cause your licenses
-to terminate automatically and permanently.
+If you make any written claim that the software infringes or contributes to
+infringement of any patent, your patent license for the software granted under
+these terms ends immediately. If your company makes such a claim, your patent
+license ends immediately for work on behalf of your company.
 
-## No Liability
+## Violations
 
-*As far as the law allows, the software comes as is, without any warranty or
-condition, and the licensor will not be liable to you for any damages arising
-out of these terms or the use or nature of the software, under any kind of
-legal claim.*
+The first time you are notified in writing that you have violated any of these
+terms, or done anything with the software not covered by your licenses, your
+licenses can nonetheless continue if you come into full compliance with these
+terms, and take practical steps to correct past violations, within 32 days of
+receiving notice. Otherwise, all your licenses end immediately.
+
+## No Warranty and No Liability
+
+***As far as the law allows, the software comes as is, without any warranty or
+condition of any kind, express or implied, and the licensor will not be liable
+to you for any damages arising out of these terms or the use or nature of the
+software, under any kind of legal claim.***
 
 ## Definitions
 
-The **licensor** is the entity offering these terms, and the **software** is the
-software the licensor makes available under these terms, including any portion
-of it.
+The **licensor** is Dennis Strähhuber, sole proprietor, Germany, who offers
+these terms.
 
-**you** refers to the individual or entity agreeing to these terms.
+The **software** is Exponential, the software the licensor makes available under
+these terms, including any portion of it, in source or object form.
 
-**your company** is any legal entity, sole proprietorship, or other kind of
+**You** refers to the individual or entity agreeing to these terms.
+
+**Your company** is any legal entity, sole proprietorship, or other kind of
 organization that you work for, plus all organizations that have control over,
 are under the control of, or are under common control with that organization.
-**control** means ownership of substantially all the assets of an entity, or the
+**Control** means ownership of substantially all the assets of an entity, or the
 power to direct its management and policies by vote, contract, or otherwise.
 Control can be direct or indirect.
 
-**your licenses** are all the licenses granted to you for the software under
+**Your licenses** are all the licenses granted to you for the software under
 these terms.
 
-**use** means anything you do with the software requiring one of your licenses.
+**Use** means anything you do with the software requiring one of your licenses.
 
-**trademark** means trademarks, service marks, and similar rights.
+**Permitted purpose** means Small Team Use or Non-Production Use, in each case
+subject to Limitations.
+
+**Trademark** means trademarks, service marks, trade names, logos, and similar
+rights.

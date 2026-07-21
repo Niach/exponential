@@ -119,7 +119,13 @@ export function SiteFooter() {
               </span>
             ))}
             <span className="foot-legal">
-              &copy; 2026 &middot; Elastic License 2.0
+              &copy; 2026 &middot;{` `}
+              <a
+                href={`${LINKS.github.repo}/blob/master/LICENSE`}
+                style={{ color: `inherit` }}
+              >
+                Exponential Small Team License 1.0
+              </a>
             </span>
           </span>
         </div>

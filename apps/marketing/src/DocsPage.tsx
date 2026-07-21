@@ -61,8 +61,8 @@ export function DocsPage() {
               desktop app, and it&apos;s the same product either way you run
               it: the free cloud at{` `}
               <a href={LINKS.app.login}>app.exponential.at</a> or{` `}
-              <a href="/docs/self-host/">self-hosted</a> on your own server
-              with no limits.
+              <a href="/docs/self-host/">self-hosted</a> on your own server,
+              free while your company is under 10 people.
             </p>
 
             <div className="docs-embed">
@@ -125,9 +125,12 @@ export function DocsPage() {
           <DocsSection id="community" num="04" label="Community & help">
             <h2>Community &amp; help</h2>
             <p>
-              Exponential is developed in the open at{` `}
+              The source is public at{` `}
               <a href={LINKS.github.repo}>github.com/Niach/exponential</a> —
-              issues, code, and release notes all live there.
+              code, issues, and release notes all live there. Exponential is
+              source-available, not open source: see{` `}
+              <a href="/docs/self-host/#licensing">Licensing</a> for what you
+              may do with it.
             </p>
             <p>
               Found a bug or want a feature? Hit the feedback button in the

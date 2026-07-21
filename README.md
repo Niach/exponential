@@ -3,7 +3,7 @@
 **Issue tracking that ships code.** A real-time issue tracker with a built-in coding IDE — feedback in, pull requests out. Native on web, macOS, Windows, Linux, iOS, and Android.
 
 - **Cloud**: [app.exponential.at](https://app.exponential.at) — free for individuals
-- **Self-host**: one `docker compose`, every feature, free for individuals and small businesses ([docs](https://exponential.at/docs/self-host/))
+- **Self-host**: one `docker compose`, every feature, free for companies under 10 people ([docs](https://exponential.at/docs/self-host/))
 - **Download the desktop IDE**: [exponential.at/download](https://exponential.at/download/)
 
 ## What it does
@@ -92,4 +92,6 @@ First call opens a browser login; every tool call after runs as your user.
 
 ## License
 
-[Elastic License 2.0](./LICENSE) — source-available; use, modify, and self-host freely. You may not offer it as a managed service to third parties.
+[Exponential Small Team License 1.0](./LICENSE) — source-available, not open source. Read it, change it, and self-host it in production for free while your company, affiliates included, has **fewer than 10 people** (employees plus independent contractors). 10 or more needs a commercial license — dennis@straehhuber.com. Evaluation, development, testing, and non-commercial research stay free at any size. Nobody may offer it to third parties as a hosted or managed service, whatever their size.
+
+Versions released before 2026-07-21 remain available under the [Elastic License 2.0](https://www.elastic.co/licensing/elastic-license) — the relicense applies going forward only.

@@ -203,8 +203,11 @@ export function GettingStartedDocsPage() {
                 <a href="/docs/feedback/">helpdesk</a>, Business is unlimited.
               </li>
               <li>
-                <strong>Self-hosting is free and unlimited</strong> — set{` `}
-                <code>SELF_HOSTED=true</code> and billing disappears entirely.
+                <strong>Self-hosting is free under 10 people</strong> — set
+                {` `}
+                <code>SELF_HOSTED=true</code> and every plan limit disappears,
+                billing included. Companies with 10 or more people need a{` `}
+                <a href="/docs/self-host/#licensing">commercial license</a>.
               </li>
             </ul>
           </DocsSection>

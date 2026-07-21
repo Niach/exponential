@@ -99,8 +99,10 @@ export const CLOUD_PLANS: CloudPlan[] = [
 
 export type SelfHostPlan = CloudPlan & { selfHost?: boolean }
 
-/* Run-it-yourself tiers — self-host is free & unlimited; Enterprise is
-   contact-sales. A different offer from the cloud grid, so its bullets
+/* Run-it-yourself tiers — self-host is free under the Exponential Small
+   Team License 1.0 while you are under 10 people; at 10 or more a
+   commercial license is required, which is what Enterprise sells (still
+   contact-sales). A different offer from the cloud grid, so its bullets
    stay independent. */
 export const SELF_HOST_PLANS: SelfHostPlan[] = [
   {
@@ -108,13 +110,13 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     name: `Self-hosted`,
     amount: `Free`,
     cadence: `your hardware`,
-    tagline: `Free for everyone, at any team size.`,
+    tagline: `Free for individuals and small businesses — under 10 people.`,
     selfHost: true,
     features: [
       `Every feature unlocked`,
       `Unlimited seats & storage`,
       `One docker compose`,
-      `Source-available (ELv2)`,
+      `Source-available (ESTL-1.0)`,
     ],
     cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
   },
@@ -123,9 +125,10 @@ export const SELF_HOST_PLANS: SelfHostPlan[] = [
     name: `Enterprise`,
     amount: `Custom`,
     cadence: `self-hosted, supported`,
-    tagline: `Optional paid support for larger in-house rollouts.`,
+    tagline: `For teams of 10 or more running it in-house.`,
     enterprise: true,
     features: [
+      `Commercial self-host license`,
       `Everything in self-hosted`,
       `Prioritized support`,
       `Deployment & upgrade help`,

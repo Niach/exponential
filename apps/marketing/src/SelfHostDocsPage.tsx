@@ -16,6 +16,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `push`, num: `03`, label: `Push notifications` },
   { id: `environment`, num: `04`, label: `Environment variables` },
   { id: `updating`, num: `05`, label: `Updating` },
+  { id: `licensing`, num: `06`, label: `Licensing` },
 ]
 
 export function SelfHostDocsPage() {
@@ -28,8 +29,8 @@ export function SelfHostDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Self-host</h1>
             <p>
-              Docker Compose on your own server. No SaaS dependencies, no
-              limits.
+              Docker Compose on your own server. No SaaS dependencies, every
+              feature unlocked. Free while your company is under 10 people.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href="#installation">
@@ -52,7 +53,9 @@ export function SelfHostDocsPage() {
               Electric (real-time sync), Garage (S3-compatible attachment
               storage), and Caddy (reverse proxy). Set{` `}
               <code>SELF_HOSTED=true</code> and every plan limit disappears —
-              billing is disabled entirely.
+              seats, storage, widgets — and billing is disabled entirely.
+              Licensing is a separate question: free under 10 people, see{` `}
+              <a href="#licensing">Licensing</a>.
             </p>
 
             <DocsCallout kind="tip" title="Just want to use Exponential?">
@@ -475,6 +478,66 @@ docker rm -f exponential-web
               Always apply migrations before restarting the containers — the app
               may fail to start otherwise.
             </DocsCallout>
+          </DocsSection>
+
+          {/* ── 06 Licensing ── */}
+          <DocsSection id="licensing" num="06" label="Licensing">
+            <h2>Licensing</h2>
+            <p>
+              Exponential is <strong>source-available</strong>, not open source.
+              The source is public, you can read it and modify it, and the only
+              condition on running it is the size of your company.
+            </p>
+
+            <h3>Under 10 people — free</h3>
+            <p>
+              If your company and its affiliates have fewer than 10 total
+              individuals working as employees and independent contractors, you
+              may self-host Exponential for free, in production, for as long as
+              you like. The threshold is permanent — it doesn&apos;t expire and
+              it doesn&apos;t convert into anything else.
+            </p>
+
+            <h3>10 or more — commercial license</h3>
+            <p>
+              Once you count 10 or more, you need a commercial license. Email
+              {` `}
+              <a href="mailto:dennis@straehhuber.com">
+                dennis@straehhuber.com
+              </a>
+              {` `}
+              and we&apos;ll sort it out.
+            </p>
+
+            <h3>Non-production is free at any size</h3>
+            <p>
+              Evaluating, developing against, and testing Exponential is free no
+              matter how big you are. Clone it, run it locally, point it at your
+              stack — the cap only applies to production use.
+            </p>
+
+            <DocsCallout kind="warn" title="What you may not do">
+              Offer Exponential to third parties as a hosted or managed service.
+              Running an instance for your own company is the point; reselling
+              it as a service to other people is not.
+            </DocsCallout>
+
+            <p>
+              The full terms are the{` `}
+              <a href={`${LINKS.github.repo}/blob/master/LICENSE`}>
+                Exponential Small Team License 1.0
+              </a>
+              {` `}
+              (ESTL-1.0) — that text is the authority, this section is just a
+              plain-language summary. Versions released before 2026-07-21 were
+              made available under the Elastic License 2.0 and remain available
+              under it; the license change applies going forward only.
+            </p>
+            <p>
+              Nothing in the software enforces any of this: no seat check, no
+              phone home, no nag screen. It&apos;s a contract, on the honor
+              system.
+            </p>
           </DocsSection>
         </DocsLayout>
       </main>

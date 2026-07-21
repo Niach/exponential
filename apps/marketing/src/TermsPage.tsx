@@ -23,7 +23,7 @@ export function TermsPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · issue tracker · last updated 2026-07-07
+            Exponential · issue tracker · last updated 2026-07-21
           </p>
 
           <p style={prose}>
@@ -35,17 +35,27 @@ export function TermsPage() {
 
           <h2 style={h2Style}>License</h2>
           <p style={prose}>
-            Exponential is released under the Elastic License 2.0 (ELv2). The
-            full license text and source are at{` `}
+            Exponential is source-available under the Exponential Small Team
+            License 1.0 (ESTL-1.0). The full license text and source are at{` `}
             <a
               href="https://github.com/Niach/exponential"
               style={linkStyle}
             >
               github.com/Niach/exponential
             </a>
-            . You are free to use, modify, and redistribute the software
-            subject to the terms of that license. You may not offer the
-            software as a hosted service to third parties.
+            . You may use, modify, and redistribute the software subject to the
+            terms of that license. Use in production is free while your company
+            and its affiliates have fewer than 10 total individuals working as
+            employees and independent contractors; at 10 or more you need a
+            commercial license. Evaluation, development, and testing are free at
+            any size. Nobody may offer the software to third parties as a hosted
+            or managed service.
+          </p>
+          <p style={prose}>
+            Versions of Exponential released before 2026-07-21 were made
+            available under the Elastic License 2.0 and remain available under
+            it. The license change is prospective only and takes nothing away
+            from those earlier versions.
           </p>
 
           <h2 style={h2Style}>No warranty</h2>
@@ -78,12 +88,19 @@ export function TermsPage() {
 
           <h2 style={h2Style}>Self-hosted operation</h2>
           <p style={prose}>
-            You are free to self-host Exponential on your own infrastructure
-            for internal use without restriction. As operator of a self-hosted
-            instance, you are responsible for its availability, security,
-            backups, lawful use, and for any data stored within it. The author
-            has no access to self-hosted data and provides no support
-            obligations.
+            You may self-host Exponential on your own infrastructure, subject
+            to the license above. Running it for your own company is free while
+            that company and its affiliates have fewer than 10 total individuals
+            working as employees and independent contractors; at 10 or more you
+            need a commercial license (
+            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
+              dennis@straehhuber.com
+            </a>
+            ). You may not offer a self-hosted instance to third parties as a
+            hosted or managed service. As operator of a self-hosted instance,
+            you are responsible for its availability, security, backups, lawful
+            use, and for any data stored within it. The author has no access to
+            self-hosted data and provides no support obligations.
           </p>
 
           <h2 style={h2Style}>Third-party integrations</h2>

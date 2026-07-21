@@ -19,7 +19,7 @@ export function HomePricing() {
           </motion.span>
           <h2 className={`section-title`}>Free for individuals.</h2>
           <p className={`section-sub`}>
-            Upgrade when your team does. Self-hosting is free.
+            Upgrade when your team does. Self-hosting is free under 10 people.
           </p>
         </motion.div>
 

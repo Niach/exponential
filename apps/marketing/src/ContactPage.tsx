@@ -32,11 +32,27 @@ export function ContactPage() {
               fontSize: 15,
               lineHeight: 1.7,
               color: `var(--fg-muted)`,
-              margin: `0 0 28px`,
+              margin: `0 0 16px`,
             }}
           >
             Tell us about your team and how you plan to run Exponential —
             we&apos;ll get back to you within a business day.
+          </p>
+
+          <p
+            style={{
+              fontSize: 15,
+              lineHeight: 1.7,
+              color: `var(--fg-muted)`,
+              margin: `0 0 28px`,
+            }}
+          >
+            Self-hosting is free while your company and its affiliates have
+            fewer than 10 total individuals working as employees and
+            independent contractors. At 10 or more you need a{` `}
+            <strong>commercial self-host license</strong> — this form is how
+            you get one. Enterprise cloud, prioritized support, and deployment
+            help start here too.
           </p>
 
           <ContactForm />

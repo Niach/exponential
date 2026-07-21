@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Remotion promo/demo videos for Exponential (recreated app UI + brand scenes)",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN ../../LICENSE",
   "dependencies": {
     "@remotion/cli": "4.0.484",
     "@remotion/google-fonts": "4.0.484",

@@ -10,10 +10,10 @@
 A solo devtool founder in 2026 wins on **founder-led X content + ONE coordinated 48-hour launch window** (Show HN + Product Hunt + directories firing together to trigger GitHub Trending) — **not** on ads, and **not** on a big-bang launch in week 1.
 
 **Positioning line, use it everywhere:**
-> *The issue tracker that closes its own issues. Free self-hosted, cloud from $0.*
+> *The issue tracker that closes its own issues. Free to self-host under 10 people, cloud from $0.*
 
 Two audiences, two wedges:
-1. **Self-hosters** — `docker compose up` free tier → r/selfhosted, awesome-selfhosted, selfh.st.
+1. **Self-hosters** — `docker compose up`, free under 10 people → r/selfhosted, awesome-selfhosted, selfh.st.
 2. **AI-coding devs** — the killer demo: an issue that opens *its own PR* via an embedded Claude Code session → Show HN, X, YouTube.
 
 **The hero asset the entire plan depends on** (produce it in week 1, everything consumes it):
@@ -23,12 +23,20 @@ Two audiences, two wedges:
 
 ## 1. License reality — READ THIS BEFORE POSTING ANYWHERE
 
-Exponential is **Elastic License 2.0 (ELv2)** — *source-available*, **not open source / not FOSS**. This changes how you market:
+Since **2026-07-21** Exponential is under the **Exponential Small Team License 1.0 (ESTL-1.0)** — *source-available*, **not open source / not FOSS**. Versions released before that date stay available under the Elastic License 2.0; the change is prospective only. Learn the four sentences and never improvise:
 
-- Say **"free & self-hostable"** or **"source-available"**. **Never say "open source."** HN and r/opensource will eviscerate a mislabeled license, and it torches trust.
-- Write a short **"Why ELv2, honestly"** explainer page before the launch window — it preempts the #1 HN objection.
-- **r/selfhosted:** the F/LOSS exemption to the 10% self-promo rule *likely does not cover you* because of ELv2. Plan to satisfy **both** the ~3-month account-age gate **and** the 10% participation rule. → **Start participating today** (see W1).
-- **awesome-selfhosted:** requires first release > 4 months ago. `v0.1.0` was tagged 2026-03-10, so you clear the age gate ~**July 10**. But its FOSS requirement makes ELv2 acceptance uncertain — submit via **awesome-selfhosted-data** with the **non-free license marker** and expect pushback. Ask the maintainers *before* burning a PR.
+1. The source is public. You can read it, modify it, and run it.
+2. Self-hosting in production is **free while your company and its affiliates have fewer than 10 total people** (employees + contractors). 10 or more → commercial licence, dennis@straehhuber.com.
+3. Evaluating, developing and testing is free at **any** size.
+4. Nobody may resell Exponential as a hosted or managed service.
+
+This changes how you market:
+
+- Say **"free & self-hostable under 10 people"** or **"source-available"**. **Never say "open source."** HN and r/opensource will eviscerate a mislabeled license, and it torches trust.
+- Write a short **"Why this license, honestly"** explainer page before the launch window — it preempts the #1 HN objection, and under a bespoke headcount cap it is *more* load-bearing than a stock license would be. Cover, in this order: (a) one solo developer, no VC, the cloud is the business; (b) the cap is a **headcount** test — not seats in the product, not revenue, so nobody has to open their books; (c) it is **permanent** — say so out loud, because the obvious question is "does it convert to open source in 4 years?" and the honest answer is no, that was considered and rejected; (d) enforcement is **honor system** — no license server, no seat check, no phone-home, no nag banner; (e) what you can still do: read it, fork it, patch it, run it in production for free under 10 people; (f) what you can't: resell it as a service. Own the trade-off instead of burying it — "this is not open source, here's why I picked that" reads far better than a euphemism, and the number is generous enough to defend.
+- **Naming discipline:** the license is *Exponential Small Team License 1.0*, or *ESTL-1.0* on second reference. Do not call it "our ELv2", "a BUSL variant", or anything with another vendor's brand in it. Referring to ELv2 factually — "releases before July 2026 remain under the Elastic License 2.0" — is correct and expected.
+- **r/selfhosted:** the F/LOSS exemption to the 10% self-promo rule *does not cover you* — the license is non-free by any definition the sub uses. Plan to satisfy **both** the ~3-month account-age gate **and** the 10% participation rule. → **Start participating today** (see W1).
+- **awesome-selfhosted:** requires first release > 4 months ago. `v0.1.0` was tagged 2026-03-10, so you clear the age gate ~**July 10**. But its FOSS requirement makes acceptance unlikely — submit via **awesome-selfhosted-data** with the **non-free license marker** and expect pushback. Ask the maintainers *before* burning a PR.
 - r/opensource is **OUT**. r/SideProject, r/webdev showoff threads, r/homelab are **IN**.
 
 ---
@@ -46,8 +54,8 @@ Option A matches how PH/HN/Trending actually reward founders in 2026 (existing a
 ## 3. THE 3 HIGHEST-LEVERAGE ACTIONS THIS WEEK
 
 1. **Record the hero clip** (spec in §0). This is the gate for everything.
-2. **Start the Reddit clock TODAY.** From your aged account, begin genuine daily participation in **r/selfhosted + r/homelab** (answer questions, **zero promo**). The promo post lands ~week 12. Because of ELv2, do not rely on the F/LOSS exemption — you need both gates cleared, so the clock has to start now.
-3. **Book uneed.best** (~$29.99 to pick a date ~10 days out; DR-75 dofollow backlink on the paid tier — cheap, worth it) **and** start daily posting on **@exponential_dan** with the hero clip pinned. Also open the **awesome-selfhosted-data** question with maintainers (age gate clears ~July 10; flag ELv2 as non-free).
+2. **Start the Reddit clock TODAY.** From your aged account, begin genuine daily participation in **r/selfhosted + r/homelab** (answer questions, **zero promo**). The promo post lands ~week 12. The F/LOSS exemption is not available to you — you need both gates cleared, so the clock has to start now.
+3. **Book uneed.best** (~$29.99 to pick a date ~10 days out; DR-75 dofollow backlink on the paid tier — cheap, worth it) **and** start daily posting on **@exponential_dan** with the hero clip pinned. Also open the **awesome-selfhosted-data** question with maintainers (age gate clears ~July 10; flag ESTL-1.0 as non-free).
 
 ---
 
@@ -84,7 +92,7 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 **P4 — Self-hosting & ownership** (1×/week, feeds the Reddit-ready reputation)
 - "docker compose up and you own your issue tracker. Postgres, Electric, S3-compatible storage, done. [terminal clip]"
 - "Your issue tracker knows everything about your product's weaknesses. Maybe don't rent it? Self-host guide: [link]"
-- "Free tier = your hardware, unlimited everything. Cloud = we do the ops. Both first-class — here's how (and why ELv2, honestly) 🧵"
+- "Under 10 people? Self-host it free — your hardware, every feature unlocked. Cloud = we do the ops. Both first-class — here's how (and why that license, honestly) 🧵"
 
 **P5 — Memes & hot takes on AI-coding workflows** (1-2×/week — YES, memes fit; keep them about the *workflow*, never punching at users)
 - Drake meme: "Copy-pasting the ticket into Claude" ❌ / "The ticket IS the Claude session" ✅
@@ -98,10 +106,10 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 ## 6. Week-by-week 90-day calendar
 
 - **W1 (now):** Hero clip recorded (+ 3-min cut). Reddit participation starts. uneed date booked. Analytics/UTM discipline set up (per-channel UTMs + a `/go/*` redirect scheme; PostHog or Plausible on marketing + app). Pin hero clip on both X accounts. Polish the two conversion paths: `exponential.at` → cloud signup, and README quickstart → `docker compose` in < 10 min (**test on a clean VM**).
-- **W2:** uneed.best launch day (reply to every comment). Blog #1 = the P3 markdown-parity deep-dive, cross-post to dev.to. Submit low-effort directories: AlternativeTo (position as Linear + Marker.io alternative), OpenAlternative/opensourcealternative.to (disclose ELv2), selfh.st content tip, console.dev free listing. Start YouTube: hero Short + 3-min version.
-- **W3:** First BIP numbers thread (uneed results, signups — honesty > vanity). awesome-selfhosted-data PR (age gate cleared; ELv2 flagged non-free; if rejected, that's itself a P2 post). 2 more Shorts.
+- **W2:** uneed.best launch day (reply to every comment). Blog #1 = the P3 markdown-parity deep-dive, cross-post to dev.to. Submit low-effort directories: AlternativeTo (position as Linear + Marker.io alternative), OpenAlternative/opensourcealternative.to (disclose ESTL-1.0 up front), selfh.st content tip, console.dev free listing. Start YouTube: hero Short + 3-min version.
+- **W3:** First BIP numbers thread (uneed results, signups — honesty > vanity). awesome-selfhosted-data PR (age gate cleared; ESTL-1.0 flagged non-free; if rejected, that's itself a P2 post). 2 more Shorts.
 - **W4:** Blog #2 (gpui/Rust desktop — strongest HN-bait). Newsletter outreach list (see `jackbridger/developer-newsletters`): pitch console.dev, Self-Hosted podcast/newsletter, smaller AI-coding newsletters (free editorial pitches only; skip TLDR — paid $2k+).
-- **W5:** Launch-window prep sprint: Show HN draft, first-comment technical writeup (architecture, ElectricSQL, why ELv2), PH assets (gallery, 3-min video — no hunter needed in 2026 meta), FAQ. **Load-test the signup path**; verify `/api/health`, onboarding, and the feedback widget survive a spike.
+- **W5:** Launch-window prep sprint: Show HN draft, first-comment technical writeup (architecture, ElectricSQL, why ESTL-1.0 and why the cap is permanent), PH assets (gallery, 3-min video — no hunter needed in 2026 meta), FAQ. **Load-test the signup path**; verify `/api/health`, onboarding, and the feedback widget survive a spike.
 - **W6:** Dry run — post blog #3 (ElectricSQL) as a *regular* HN link (not Show HN) to calibrate. Line up 10-15 friendly devs who *genuinely use it* for launch-day questions (authentic only — HN bans coordinated voting AND AI-written comments; never share direct links to the HN post).
 - **W7 — THE 48-HOUR LAUNCH WINDOW (Tue-Wed, 9-11am ET):**
   - **Day 1:** Show HN + simultaneous X thread on _dan (hero clip + story) + _app release thread + posts in relevant Discords (Tuist, ElectricSQL, TanStack, gpui/Zed — you're a real member of all four) + dev.to announcement. **Danny lives in HN comments for 8 hours.**
@@ -111,7 +119,7 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 - **W9:** Resume cadence (most launches flat-line here — 1 substantial piece/week holds baseline growth). Blog #4: steer-relay / remote-steering architecture. First **widget-wedge** campaign: "Add a feedback widget in 5 min, reports become tracked issues" clip + docs page targeting marker.io searchers.
 - **W10:** Mobile-store angle when approvals land ("the only issue tracker with native apps on every platform + a Rust desktop IDE"). Shorts push (3× native-app demos).
 - **W11:** Guest content: 1 podcast pitch (Self-Hosted, devtools-founder pods) + 1 guest post. Monthly changelog on _app, QT'd with commentary on _dan.
-- **W12:** **r/selfhosted promo post** (account now ~90 days old with real history): lead with self-hosting, disclose ELv2 in-body, answer every comment for 24h. Cross-post r/SideProject + r/webdev.
+- **W12:** **r/selfhosted promo post** (account now ~90 days old with real history): lead with self-hosting, disclose ESTL-1.0 and the 10-person cap in-body, answer every comment for 24h. Cross-post r/SideProject + r/webdev.
 - **W13:** 90-day retro thread (the full numbers). Decide the ads experiment on data. Plan days 91-180: **SEO comparison pages** (Exponential vs Linear / vs Jira / vs Marker.io — the compounding channel).
 
 ---
@@ -146,7 +154,7 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 - [ ] Hero clip done (W1)
 - [ ] Onboarding survives a stranger with no help (test W5)
 - [ ] Show HN first-comment writeup drafted (W5)
-- [ ] "Why ELv2" explainer page live (preempts the #1 HN objection)
+- [ ] "Why this license" explainer page live (permanent 10-person cap, honor system — preempts the #1 HN objection)
 - [ ] Signup path load-tested (W5)
 - [ ] 10-15 authentic supporters briefed (W6)
 - [ ] Reddit promo does **NOT** happen in this window — that's the W12 second spike
@@ -159,7 +167,7 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 |---|---|---|
 | uneed.best | W1 book / W2 launch | Free queue or ~$29.99 pick-your-date + DR-75 dofollow backlink. Worth the $30. |
 | AlternativeTo | W2 | Position as Linear + Marker.io alternative |
-| OpenAlternative / opensourcealternative.to | W2 | Disclose ELv2; accept possible rejection |
+| OpenAlternative / opensourcealternative.to | W2 | Disclose ESTL-1.0; accept probable rejection |
 | console.dev | W2 | Free listing submission |
 | selfh.st | W2 | Content tip |
 | dev.to | W2, W4, W7 | Cross-post every blog |
@@ -168,5 +176,5 @@ Founder accounts outperform brand accounts on X in 2025-26 (brand reach is throt
 | Newsletters | W4 pitch | `jackbridger/developer-newsletters` catalog; free editorial only |
 | **Show HN** | **W7 Day 1** | Tue-Thu 9am-12pm ET, plain technical title, founder in comments 6-8h |
 | **Product Hunt** | **W7 Day 2** | Saturated (500+/day) — only works inside the multi-channel window |
-| r/selfhosted | W12 | Account-age + participation gates; lead self-hosting, disclose ELv2 |
+| r/selfhosted | W12 | Account-age + participation gates; lead self-hosting, disclose ESTL-1.0 |
 | X ads | W9-13 optional | Only on a proven clip, ≤$300, kill at >$10/signup |

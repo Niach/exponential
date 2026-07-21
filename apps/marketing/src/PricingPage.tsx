@@ -52,8 +52,8 @@ export function PricingPage() {
             <span className="section-eyebrow">Run it yourself</span>
             <h2 className="section-title">Self-host it, free.</h2>
             <p className="section-sub">
-              Every feature, no caps, on your own hardware under the Elastic
-              License 2.0.
+              Every feature unlocked, on your own hardware. Free under the
+              Exponential Small Team License while you&apos;re under 10 people.
             </p>
             <SelfHostCards />
           </motion.div>

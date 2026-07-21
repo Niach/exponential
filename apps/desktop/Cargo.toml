@@ -5,7 +5,12 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 version = "0.8.17"
-license = "Apache-2.0"
+# Source-available, NOT Apache-2.0 and NOT open source: the whole repo is under the
+# Exponential Small Team License 1.0 (verbatim text in the repo-root LICENSE). There
+# is no SPDX id for it, so this is an SPDX `LicenseRef-` document reference. Do NOT
+# switch this to `license-file` — the two keys are mutually exclusive, and every crate
+# inherits this one via `license.workspace = true`.
+license = "LicenseRef-ESTL-1.0"
 
 [workspace.dependencies]
 # gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7,
