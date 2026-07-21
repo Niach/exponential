@@ -57,6 +57,13 @@ const DIGEST_MIN_GAP_MS: Record<DigestCadence, number> = {
   off: 50 * 60 * 1000,
   daily: 22 * 60 * 60 * 1000,
 }
+// Minimum gap after a FAILED send attempt. The success-based cadence gate
+// above never sees failed sends (no sent_at), so without this a failing
+// transport — e.g. SES still sandboxed (EXP-114) — would retry at every
+// sweep tick (~10min) forever (EXP-227). Failures back off to at most ONE
+// retry per day regardless of the user's cadence: a broken transport is an
+// ops problem, and hammering it burns send reputation for nothing.
+export const DIGEST_FAILED_RETRY_GAP_MS = DIGEST_MIN_GAP_MS.daily
 
 // Only an explicit `off` opts into the hourly cadence — a missing row or an
 // unrecognised value resolves to the `daily` default.
@@ -77,6 +84,21 @@ export function isDigestDue(
     now.getTime() - lastDigestSentAt.getTime() >=
     DIGEST_MIN_GAP_MS[digestCadence(prefs)]
   )
+}
+
+// Failure-backoff gate: is a digest attempt allowed now, given the user's
+// last successful send and last FAILED attempt? A failure with no success
+// since defers the user a full day; once a send succeeds again, only the
+// success-based cadence gate governs.
+export function isDigestRetryDue(
+  lastSentAt: Date | null | undefined,
+  lastFailedAt: Date | null | undefined,
+  now: Date
+): boolean {
+  if (!lastFailedAt) return true
+  // Recovered: a send succeeded after the failure — no backoff needed.
+  if (lastSentAt && lastSentAt.getTime() > lastFailedAt.getTime()) return true
+  return now.getTime() - lastFailedAt.getTime() >= DIGEST_FAILED_RETRY_GAP_MS
 }
 
 // The minimal row shape the planner needs. The DB runner passes richer rows
@@ -105,10 +127,15 @@ export interface DigestPlan<T extends DigestCandidate> {
 export function planEmailDigest<T extends DigestCandidate>(args: {
   candidates: T[]
   prefsByUser: ReadonlyMap<string, EmailPrefsLike | null>
+  // Last SUCCESSFUL digest per user — drives the hourly/daily cadence gate.
   lastDigestByUser: ReadonlyMap<string, Date | null>
+  // Last FAILED digest attempt per user — drives the daily failure backoff
+  // so a broken transport can't retry at every sweep (EXP-227).
+  lastFailedByUser: ReadonlyMap<string, Date | null>
   now: Date
 }): DigestPlan<T> {
-  const { candidates, prefsByUser, lastDigestByUser, now } = args
+  const { candidates, prefsByUser, lastDigestByUser, lastFailedByUser, now } =
+    args
 
   const byUser = new Map<string, T[]>()
   for (const candidate of candidates) {
@@ -135,6 +162,16 @@ export function planEmailDigest<T extends DigestCandidate>(args: {
     if (allowed.length === 0) continue
     // Cadence gate: not due yet → leave the rows unclaimed for a later sweep.
     if (!isDigestDue(prefs, lastDigestByUser.get(userId), now)) continue
+    // Failure backoff: an unrecovered failed attempt defers this user a full
+    // day — at most one retry per day, never one per sweep tick.
+    if (
+      !isDigestRetryDue(
+        lastDigestByUser.get(userId),
+        lastFailedByUser.get(userId),
+        now
+      )
+    )
+      continue
     allowed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     batches.push({ userId, items: allowed })
   }

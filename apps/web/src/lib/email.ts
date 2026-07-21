@@ -68,6 +68,26 @@ async function getSmtpTransporter() {
   return smtpTransporter
 }
 
+// Add an address to the SES ACCOUNT-LEVEL suppression list — SES then drops
+// sends to it before they ever reach the recipient's mail server, protecting
+// sender reputation (EXP-227). Admin-console action; throws when SES isn't
+// the configured transport.
+export async function suppressSesDestination(
+  email: string,
+  reason: `BOUNCE` | `COMPLAINT`
+): Promise<void> {
+  if (!process.env.AWS_SES_REGION) {
+    throw new Error(`SES is not configured (AWS_SES_REGION unset)`)
+  }
+  const { PutSuppressedDestinationCommand } = await import(
+    `@aws-sdk/client-sesv2`
+  )
+  const client = await getSesClient()
+  await client.send(
+    new PutSuppressedDestinationCommand({ EmailAddress: email, Reason: reason })
+  )
+}
+
 export async function sendEmail(args: {
   to: string
   subject: string

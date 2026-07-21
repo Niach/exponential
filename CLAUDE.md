@@ -191,7 +191,7 @@ apps/web/src/
 
 ### Tables
 
-`teams`, `boards` (repo optional — `repository_id` nullable, FK restrict), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `github_installation_links` (team ↔ installation claims), `team_members`, `team_invites`, `fcm_tokens`, `push_subscriptions`, `notifications`, `issue_subscribers`, `issue_events`, `support_threads`/`support_messages` (standalone helpdesk tickets — server-only), `user_notification_prefs`, `email_deliveries`, `widget_configs`, `widget_submissions`, `mcp_grants` + Better Auth tables (users, sessions, accounts, verifications, apikeys, oauth_applications/access_tokens/consents)
+`teams`, `boards` (repo optional — `repository_id` nullable, FK restrict), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `github_installation_links` (team ↔ installation claims), `team_members`, `team_invites`, `fcm_tokens`, `push_subscriptions`, `notifications`, `issue_subscribers`, `issue_events`, `support_threads`/`support_messages` (standalone helpdesk tickets — server-only), `user_notification_prefs`, `email_deliveries`, `email_bounces` (per-address SES bounce/complaint feedback — server-only, admin console), `widget_configs`, `widget_submissions`, `mcp_grants` + Better Auth tables (users, sessions, accounts, verifications, apikeys, oauth_applications/access_tokens/consents)
 
 ### Key Issue Fields
 
@@ -311,6 +311,7 @@ GITHUB_APP_PRIVATE_KEY        # GitHub App PEM private key, base64-encoded (base
 GITHUB_APP_CLIENT_ID          # GitHub App OAuth client ID — team "Connect GitHub" claim flow (transient user token, never stored)
 GITHUB_APP_CLIENT_SECRET      # GitHub App OAuth client secret (unset ⇒ connect falls back to the install-page round-trip)
 GITHUB_WEBHOOK_SECRET         # GitHub App webhook HMAC secret (cloud PR-merge detection; App webhook → ${BETTER_AUTH_URL}/api/webhooks/github)
+SES_WEBHOOK_SECRET            # Shared secret for the SES bounce/complaint SNS webhook (SNS HTTPS subscription → ${BETTER_AUTH_URL}/api/webhooks/ses?secret=…; unset = bounce tracking off)
 GITHUB_POLLING                # 'true' to run the outbound merge cron (self-hosted behind NAT, unreachable by webhook); decoupled from SELF_HOSTED
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 APPLE_CLIENT_ID               # Sign in with Apple *Services ID* (App Store guideline 4.8 — required alongside Google login on iOS)

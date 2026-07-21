@@ -38,6 +38,7 @@ import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
+import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
@@ -61,6 +62,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
+import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
@@ -234,6 +236,11 @@ const ApiWidgetConfigRoute = ApiWidgetConfigRouteImport.update({
   path: '/api/widget/config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksSesRoute = ApiWebhooksSesRouteImport.update({
+  id: '/api/webhooks/ses',
+  path: '/api/webhooks/ses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
   id: '/api/webhooks/github',
   path: '/api/webhooks/github',
@@ -349,6 +356,11 @@ const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
 const AuthenticatedAdminTeamsRoute = AuthenticatedAdminTeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
 const AuthenticatedAccountNotificationsRoute =
@@ -513,6 +525,7 @@ export interface FileRoutesByFullPath {
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
@@ -536,6 +549,7 @@ export interface FileRoutesByFullPath {
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
@@ -587,6 +601,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
@@ -610,6 +625,7 @@ export interface FileRoutesByTo {
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
@@ -666,6 +682,7 @@ export interface FileRoutesById {
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
+  '/_authenticated/admin/email': typeof AuthenticatedAdminEmailRoute
   '/_authenticated/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
@@ -689,6 +706,7 @@ export interface FileRoutesById {
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
@@ -745,6 +763,7 @@ export interface FileRouteTypes {
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/account/notifications'
+    | '/admin/email'
     | '/admin/teams'
     | '/admin/users'
     | '/api/attachments/$attachmentId'
@@ -768,6 +787,7 @@ export interface FileRouteTypes {
     | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin/'
@@ -819,6 +839,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/account/notifications'
+    | '/admin/email'
     | '/admin/teams'
     | '/admin/users'
     | '/api/attachments/$attachmentId'
@@ -842,6 +863,7 @@ export interface FileRouteTypes {
     | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/admin'
@@ -897,6 +919,7 @@ export interface FileRouteTypes {
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/_authenticated/account/notifications'
+    | '/_authenticated/admin/email'
     | '/_authenticated/admin/teams'
     | '/_authenticated/admin/users'
     | '/api/attachments/$attachmentId'
@@ -920,6 +943,7 @@ export interface FileRouteTypes {
     | '/api/support/thread'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
     | '/_authenticated/admin/'
@@ -993,6 +1017,7 @@ export interface RootRouteChildren {
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
+  ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
@@ -1205,6 +1230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWidgetConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/ses': {
+      id: '/api/webhooks/ses'
+      path: '/api/webhooks/ses'
+      fullPath: '/api/webhooks/ses'
+      preLoaderRoute: typeof ApiWebhooksSesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/github': {
       id: '/api/webhooks/github'
       path: '/api/webhooks/github'
@@ -1364,6 +1396,13 @@ declare module '@tanstack/react-router' {
       path: '/teams'
       fullPath: '/admin/teams'
       preLoaderRoute: typeof AuthenticatedAdminTeamsRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/email': {
+      id: '/_authenticated/admin/email'
+      path: '/email'
+      fullPath: '/admin/email'
+      preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
     '/_authenticated/account/notifications': {
@@ -1538,6 +1577,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminEmailRoute: typeof AuthenticatedAdminEmailRoute
   AuthenticatedAdminTeamsRoute: typeof AuthenticatedAdminTeamsRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
@@ -1547,6 +1587,7 @@ interface AuthenticatedAdminRouteRouteChildren {
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
   {
+    AuthenticatedAdminEmailRoute: AuthenticatedAdminEmailRoute,
     AuthenticatedAdminTeamsRoute: AuthenticatedAdminTeamsRoute,
     AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
     AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
@@ -1688,6 +1729,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSupportThreadRoute: ApiSupportThreadRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
+  ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,

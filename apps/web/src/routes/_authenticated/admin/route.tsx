@@ -1,5 +1,12 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
-import { ArrowLeft, LayoutDashboard, Shield, Users, Building2 } from "lucide-react"
+import {
+  ArrowLeft,
+  LayoutDashboard,
+  MailWarning,
+  Shield,
+  Users,
+  Building2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -56,6 +63,15 @@ function AdminLayout() {
             >
               <Building2 className="h-4 w-4" />
               Teams
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link
+              to="/admin/email"
+              activeProps={{ className: `bg-accent` }}
+            >
+              <MailWarning className="h-4 w-4" />
+              Email
             </Link>
           </Button>
         </nav>

@@ -10,9 +10,11 @@ import {
   boards,
   issues,
   issueEvents,
+  emailBounces,
   emailDeliveries,
   creem_subscriptions,
 } from "@/db/schema"
+import { suppressSesDestination } from "@/lib/email"
 import {
   getTeamPlan,
   getTeamUsage,
@@ -742,6 +744,67 @@ export const adminRouter = router({
       teamsByDay: wsCreatedRows,
     }
   }),
+
+  // Bounce/complaint feedback per address (fed by /api/webhooks/ses) — the
+  // worklist for suppressing bad addresses before they damage sender
+  // reputation (EXP-227).
+  listEmailBounces: adminProcedure.query(async ({ ctx }) => {
+    return await ctx.db
+      .select({
+        id: emailBounces.id,
+        email: emailBounces.email,
+        kind: emailBounces.kind,
+        bounceType: emailBounces.bounceType,
+        bounceSubType: emailBounces.bounceSubType,
+        diagnostic: emailBounces.diagnostic,
+        eventCount: emailBounces.eventCount,
+        lastEventAt: emailBounces.lastEventAt,
+        suppressedAt: emailBounces.suppressedAt,
+      })
+      .from(emailBounces)
+      .orderBy(desc(emailBounces.lastEventAt))
+      .limit(200)
+  }),
+
+  // Put a bounced/complaining address on the SES account-level suppression
+  // list. SES then blocks sends to it at the source — the reputation-safe
+  // terminal state for a hard-bouncing address.
+  suppressEmailBounce: adminProcedure
+    .input(z.object({ bounceId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          id: emailBounces.id,
+          email: emailBounces.email,
+          kind: emailBounces.kind,
+          suppressedAt: emailBounces.suppressedAt,
+        })
+        .from(emailBounces)
+        .where(eq(emailBounces.id, input.bounceId))
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Bounce not found` })
+      }
+      if (row.suppressedAt) return { ok: true }
+
+      try {
+        await suppressSesDestination(
+          row.email,
+          row.kind === `complaint` ? `COMPLAINT` : `BOUNCE`
+        )
+      } catch (err) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: err instanceof Error ? err.message : `SES suppression failed`,
+        })
+      }
+
+      await ctx.db
+        .update(emailBounces)
+        .set({ suppressedAt: new Date(), updatedAt: new Date() })
+        .where(eq(emailBounces.id, row.id))
+      return { ok: true }
+    }),
 
   deleteTeam: adminProcedure
     .input(z.object({ teamId: z.string().uuid() }))

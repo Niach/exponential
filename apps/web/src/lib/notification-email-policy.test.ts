@@ -5,6 +5,7 @@ import {
   defaultEmailPrefs,
   emailTypeAllowed,
   isDigestDue,
+  isDigestRetryDue,
   isResolutionStatus,
   planEmailDigest,
   shouldSendReporterResolution,
@@ -89,12 +90,14 @@ function plan(
   opts?: {
     prefsByUser?: Map<string, EmailPrefsLike | null>
     lastDigestByUser?: Map<string, Date | null>
+    lastFailedByUser?: Map<string, Date | null>
   }
 ) {
   return planEmailDigest({
     candidates,
     prefsByUser: opts?.prefsByUser ?? new Map(),
     lastDigestByUser: opts?.lastDigestByUser ?? new Map(),
+    lastFailedByUser: opts?.lastFailedByUser ?? new Map(),
     now: NOW,
   })
 }
@@ -123,6 +126,30 @@ describe(`isDigestDue`, () => {
     expect(isDigestDue(defaultEmailPrefs(), minutesAgo(60 * 5), NOW)).toBe(false)
     expect(isDigestDue(null, minutesAgo(60 * 5), NOW)).toBe(false)
     expect(isDigestDue(null, minutesAgo(60 * 23), NOW)).toBe(true)
+  })
+})
+
+describe(`isDigestRetryDue`, () => {
+  it(`is due with no prior failure`, () => {
+    expect(isDigestRetryDue(null, null, NOW)).toBe(true)
+    expect(isDigestRetryDue(minutesAgo(60), undefined, NOW)).toBe(true)
+  })
+
+  it(`backs a failed attempt off a full day, not one sweep tick (EXP-227)`, () => {
+    expect(isDigestRetryDue(null, minutesAgo(10), NOW)).toBe(false)
+    expect(isDigestRetryDue(null, minutesAgo(60), NOW)).toBe(false)
+    expect(isDigestRetryDue(null, minutesAgo(60 * 12), NOW)).toBe(false)
+    expect(isDigestRetryDue(null, minutesAgo(60 * 23), NOW)).toBe(true)
+  })
+
+  it(`a success AFTER the failure clears the backoff (transport recovered)`, () => {
+    expect(isDigestRetryDue(minutesAgo(30), minutesAgo(60), NOW)).toBe(true)
+  })
+
+  it(`a success BEFORE the failure does not clear the backoff`, () => {
+    expect(isDigestRetryDue(minutesAgo(60 * 5), minutesAgo(30), NOW)).toBe(
+      false
+    )
   })
 })
 
@@ -229,6 +256,49 @@ describe(`planEmailDigest`, () => {
     // Deferred entirely — the next sweep reconsiders it once the user is due.
     expect(result.batches).toHaveLength(0)
     expect(result.claimOnly).toHaveLength(0)
+  })
+
+  it(`failure backoff defers (does NOT claim) after a failed attempt`, () => {
+    // A failed send leaves lastDigestByUser empty (no sent_at) but records a
+    // failed attempt — the user must NOT retry at the next sweep tick, or
+    // even the next hour: at most one retry per day (EXP-227).
+    const deferred = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      { lastFailedByUser: new Map([[`u1`, minutesAgo(10)]]) }
+    )
+    expect(deferred.batches).toHaveLength(0)
+    expect(deferred.claimOnly).toHaveLength(0)
+
+    const stillDeferred = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      { lastFailedByUser: new Map([[`u1`, minutesAgo(60 * 12)]]) }
+    )
+    expect(stillDeferred.batches).toHaveLength(0)
+  })
+
+  it(`retries a day after a failed attempt`, () => {
+    const result = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      { lastFailedByUser: new Map([[`u1`, minutesAgo(60 * 23)]]) }
+    )
+    expect(result.batches).toHaveLength(1)
+  })
+
+  it(`a stale failure with a success since does not defer`, () => {
+    // Transport recovered: failed 5h ago, then a digest went out 30min ago —
+    // only the success cadence gate governs (here: hourly, due at 55min).
+    const prefs = new Map<string, EmailPrefsLike | null>([
+      [`u1`, { ...defaultEmailPrefs(), digest: `off` }],
+    ])
+    const result = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      {
+        prefsByUser: prefs,
+        lastDigestByUser: new Map([[`u1`, minutesAgo(55)]]),
+        lastFailedByUser: new Map([[`u1`, minutesAgo(60 * 5)]]),
+      }
+    )
+    expect(result.batches).toHaveLength(1)
   })
 
   it(`daily cadence bundles a day of unread rows into one email once due`, () => {
