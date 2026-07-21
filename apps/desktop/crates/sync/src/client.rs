@@ -10,13 +10,20 @@
 //!   `Cache-Control: no-store` on every request as an explicit belt to the
 //!   proxy's `cache-control: private, no-store` suspender. (A URL-keyed cache
 //!   is what poisoned macOS `URLCache` with cross-auth empty snapshots.)
-//! * **401 → hard Unauthorized, NEVER anonymous-degrade** (§5.6b). A rejected
-//!   bearer is terminal for the whole account pipeline: the first thread to
-//!   see it flips the shared stop flag (all 15 siblings exit at their next
-//!   loop boundary), invokes the `on_unauthorized` callback (the app shell
-//!   wires `AuthStore::handle_unauthorized` — it deletes the stored token),
-//!   and emits [`ShapeDelta::Unauthorized`] exactly ONCE per account. No
-//!   anonymous retry, no polling with the dead token.
+//! * **401 → hard Unauthorized, NEVER anonymous-degrade** (§5.6b), but only
+//!   after the EXP-229 grace window: a prod deploy can answer a long-poll
+//!   with a transient 401 (auth layer restarting), and instantly deleting the
+//!   token on it logged users out mid-deploy. A thread that sees a 401 keeps
+//!   retrying with the normal backoff until *uninterrupted consecutive* 401s
+//!   have spanned [`UNAUTHORIZED_GRACE`] — any success or non-401 error
+//!   resets the window, so a deploy's mixed 401/502/conn-refused stream can
+//!   never accumulate into a logout. Once the grace is exceeded the rejection
+//!   is terminal for the whole account pipeline: the first thread to reach it
+//!   flips the shared stop flag (all 15 siblings exit at their next loop
+//!   boundary), invokes the `on_unauthorized` callback (the app shell wires
+//!   `AuthStore::handle_unauthorized` — it deletes the stored token), and
+//!   emits [`ShapeDelta::Unauthorized`] exactly ONCE per account. No
+//!   anonymous retry, ever.
 //! * **409 / inline `must-refetch` → atomic refetch** (§5.6c). Mark the
 //!   cursor (`offset=-1`, replacement handle when Electric sent one) WITHOUT
 //!   touching table rows; the next poll re-snapshots and the batch gets a
@@ -70,6 +77,13 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Error backoff base / cap (§5.3).
 pub const BACKOFF_BASE: Duration = Duration::from_millis(500);
 pub const BACKOFF_CAP: Duration = Duration::from_secs(30);
+/// EXP-229: how long *uninterrupted consecutive* 401s must persist before the
+/// pipeline treats the token as dead (token deleted, login screen). A prod
+/// deploy can bounce a long-poll off a restarting auth layer as a transient
+/// 401; with the 500ms→30s backoff, 60s of nothing-but-401s is ~7 consecutive
+/// rejections — far beyond any deploy blip, while a genuinely revoked session
+/// still lands on the login screen within a minute.
+pub const UNAUTHORIZED_GRACE: Duration = Duration::from_secs(60);
 /// Pause after a 409/pending-refetch or a non-live no-progress poll (iOS
 /// `pollOnce` "shouldPause" parity).
 pub const REFETCH_PAUSE: Duration = Duration::from_millis(500);
@@ -293,6 +307,11 @@ pub struct ShapeClientConfig {
     /// required" state (EXP-104). Optional so headless tests can assert the
     /// loop teardown alone.
     pub on_upgrade_required: Option<UpgradeRequiredFn>,
+    /// EXP-229: uninterrupted consecutive 401s must span this window before
+    /// the pipeline tears down (production: [`UNAUTHORIZED_GRACE`]).
+    /// `Duration::ZERO` restores the legacy first-401-is-terminal behavior
+    /// (tests).
+    pub unauthorized_grace: Duration,
 }
 
 /// One shape's blocking long-poll engine. [`ShapeClient::run`] is the thread
@@ -306,14 +325,17 @@ impl ShapeClient {
         Self { cfg }
     }
 
-    /// The §5.3 poll loop — runs until `stop` flips or a hard 401 tears the
-    /// account pipeline down. Cooperative cancellation: the flag is checked
-    /// before every request and between every sleep slice; an in-flight live
-    /// read can linger up to [`LIVE_READ_TIMEOUT`], but its result is
-    /// discarded (checked again before apply) and the thread exits at the
-    /// next boundary.
+    /// The §5.3 poll loop — runs until `stop` flips or a hard 401 (past the
+    /// EXP-229 grace window) tears the account pipeline down. Cooperative
+    /// cancellation: the flag is checked before every request and between
+    /// every sleep slice; an in-flight live read can linger up to
+    /// [`LIVE_READ_TIMEOUT`], but its result is discarded (checked again
+    /// before apply) and the thread exits at the next boundary.
     pub fn run(&self, stop: &Arc<AtomicBool>) {
         let mut backoff = BACKOFF_BASE;
+        // EXP-229: start of the current uninterrupted 401 streak — `None`
+        // while the last outcome was anything but a 401.
+        let mut unauthorized_since: Option<Instant> = None;
         // Transient `electric-cursor` echo (§5.2) — per-loop memory, never
         // persisted.
         let mut cursor: Option<String> = None;
@@ -328,6 +350,7 @@ impl ShapeClient {
             match self.poll_once(&token, &mut cursor, stop) {
                 Ok(outcome) => {
                     backoff = BACKOFF_BASE; // reset on success (§5.3)
+                    unauthorized_since = None;
                     if outcome.pause {
                         sleep_with_stop(stop, REFETCH_PAUSE);
                     } else if outcome.idle_live {
@@ -342,9 +365,25 @@ impl ShapeClient {
                     }
                 }
                 Err(ShapeError::Unauthorized) => {
-                    // §5.6b: terminal for the whole account pipeline.
-                    self.report_unauthorized(stop);
-                    return;
+                    // EXP-229: retry within the grace window — a deploy can
+                    // 401 transiently and instant teardown deleted the token.
+                    // `>=` with `get_or_insert_with` makes `Duration::ZERO`
+                    // fire on the very first 401 (the legacy semantics the
+                    // teardown tests pin).
+                    let since = *unauthorized_since.get_or_insert_with(Instant::now);
+                    if since.elapsed() >= self.cfg.unauthorized_grace {
+                        // §5.6b: terminal for the whole account pipeline.
+                        self.report_unauthorized(stop);
+                        return;
+                    }
+                    log::warn!(
+                        "[sync {}::{}] 401 within grace ({:?} elapsed) — retrying",
+                        self.cfg.account_id,
+                        self.cfg.spec.name,
+                        since.elapsed()
+                    );
+                    sleep_with_stop(stop, backoff);
+                    backoff = (backoff * 2).min(BACKOFF_CAP);
                 }
                 Err(ShapeError::UpgradeRequired) => {
                     // EXP-104: terminal like the 401 path — stop polling — but
@@ -359,6 +398,7 @@ impl ShapeClient {
                         self.cfg.account_id,
                         self.cfg.spec.name
                     );
+                    unauthorized_since = None; // a non-401 outcome breaks the streak
                     sleep_with_stop(stop, backoff);
                     backoff = (backoff * 2).min(BACKOFF_CAP); // cap 30s (§5.3)
                 }

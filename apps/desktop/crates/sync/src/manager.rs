@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use crate::client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeTransport, TokenFn, UnauthorizedFn,
-    UpgradeRequiredFn, UreqTransport,
+    UpgradeRequiredFn, UreqTransport, UNAUTHORIZED_GRACE,
 };
 use crate::shapes::SHAPES;
 use crate::store::{ShapeStore, StoreError};
@@ -75,6 +75,7 @@ pub struct SyncManager {
     transport: Arc<dyn ShapeTransport>,
     on_unauthorized: Option<UnauthorizedFn>,
     on_upgrade_required: Option<UpgradeRequiredFn>,
+    unauthorized_grace: Duration,
     deltas_tx: flume::Sender<ShapeDelta>,
     deltas_rx: flume::Receiver<ShapeDelta>,
     pipelines: Mutex<HashMap<String, AccountPipeline>>,
@@ -94,6 +95,7 @@ impl SyncManager {
             transport,
             on_unauthorized: None,
             on_upgrade_required: None,
+            unauthorized_grace: UNAUTHORIZED_GRACE,
             deltas_tx,
             deltas_rx,
             pipelines: Mutex::new(HashMap::new()),
@@ -114,6 +116,15 @@ impl SyncManager {
     /// before the first `start_account`.
     pub fn on_upgrade_required(mut self, hook: UpgradeRequiredFn) -> Self {
         self.on_upgrade_required = Some(hook);
+        self
+    }
+
+    /// Override the EXP-229 401 grace window (production default
+    /// [`UNAUTHORIZED_GRACE`]). `Duration::ZERO` = first 401 is terminal —
+    /// the teardown tests pin the legacy semantics through this.
+    /// Builder-style; call before the first `start_account`.
+    pub fn unauthorized_grace(mut self, grace: Duration) -> Self {
+        self.unauthorized_grace = grace;
         self
     }
 
@@ -163,6 +174,7 @@ impl SyncManager {
                 on_unauthorized: self.on_unauthorized.clone(),
                 upgrade_required_reported: Arc::clone(&upgrade_required_reported),
                 on_upgrade_required: self.on_upgrade_required.clone(),
+                unauthorized_grace: self.unauthorized_grace,
             });
             let thread_stop = Arc::clone(&stop);
             // Named per shape; truncated to 15 bytes so Linux's

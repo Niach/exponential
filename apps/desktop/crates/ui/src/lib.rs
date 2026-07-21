@@ -60,6 +60,7 @@ mod screens;
 mod scroll_pane;
 mod search_sheet;
 mod session;
+mod session_registry;
 mod settings;
 mod sidebar;
 mod source_control;
