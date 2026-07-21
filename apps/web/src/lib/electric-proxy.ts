@@ -37,16 +37,89 @@ export function prepareElectricUrl(requestUrl: string): URL {
 }
 
 /**
+ * REV2-5: bound on concurrently-proxied INITIAL SNAPSHOT requests
+ * (`offset=-1`). Snapshot responses are the expensive path — they carry a
+ * shape's full data and are buffered wholly in Bun memory below — and they
+ * herd: every client cold start (or shape-identity rotation) fires one per
+ * shape. Excess snapshot requests queue FIFO instead of buffering
+ * concurrently, so a herd degrades to added latency, not unbounded heap.
+ * Live long-polls (offset != -1) are never gated: their bodies are tiny and
+ * they'd hold slots for the whole poll window.
+ */
+const SNAPSHOT_PROXY_CONCURRENCY = 8
+
+let activeSnapshotProxies = 0
+const snapshotWaiters: Array<() => void> = []
+
+function releaseSnapshotSlot(): void {
+  const next = snapshotWaiters.shift()
+  // Hand the slot to the next waiter (the active count transfers); only
+  // decrement when nobody is queued.
+  if (next) next()
+  else activeSnapshotProxies--
+}
+
+/**
+ * Resolves true once a snapshot slot is held, false if the caller aborted
+ * while queued (the caller must NOT release in that case — it never held a
+ * slot).
+ */
+function acquireSnapshotSlot(signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false)
+  if (activeSnapshotProxies < SNAPSHOT_PROXY_CONCURRENCY) {
+    activeSnapshotProxies++
+    return Promise.resolve(true)
+  }
+  return new Promise<boolean>((resolve) => {
+    const waiter = () => {
+      signal?.removeEventListener(`abort`, onAbort)
+      resolve(true)
+    }
+    const onAbort = () => {
+      const index = snapshotWaiters.indexOf(waiter)
+      if (index !== -1) snapshotWaiters.splice(index, 1)
+      resolve(false)
+    }
+    snapshotWaiters.push(waiter)
+    signal?.addEventListener(`abort`, onAbort, { once: true })
+  })
+}
+
+/**
  * Proxies a request to Electric SQL and returns the response.
  *
  * Buffers the upstream body fully before responding so the Bun server can
  * send a properly-framed HTTP/1.1 response with a known content-length —
  * streaming `response.body` directly produced chunked-encoding tails that
- * Traefik logged as `EOF` → 502. Forwarding the inbound AbortSignal cancels
- * the upstream when the browser hangs up (very common: the Electric client
- * cancels long-polls every time a shape handle is invalidated).
+ * Traefik logged as `EOF` → 502. Because of that buffering, initial-snapshot
+ * requests pass through the semaphore above. Forwarding the inbound
+ * AbortSignal cancels the upstream when the browser hangs up (very common:
+ * the Electric client cancels long-polls every time a shape handle is
+ * invalidated).
  */
 export async function proxyElectricRequest(
+  originUrl: URL,
+  signal?: AbortSignal
+): Promise<Response> {
+  const isSnapshot = originUrl.searchParams.get(`offset`) === `-1`
+  if (isSnapshot) {
+    const acquired = await acquireSnapshotSlot(signal)
+    if (!acquired) {
+      // Client hung up while queued — nothing to send back.
+      return new Response(null, {
+        status: 499,
+        statusText: `Client Closed Request`,
+      })
+    }
+  }
+  try {
+    return await proxyElectricRequestInner(originUrl, signal)
+  } finally {
+    if (isSnapshot) releaseSnapshotSlot()
+  }
+}
+
+async function proxyElectricRequestInner(
   originUrl: URL,
   signal?: AbortSignal
 ): Promise<Response> {

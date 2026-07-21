@@ -51,13 +51,6 @@ export async function getReadableTeamIds(
   return []
 }
 
-export async function getReadableBoardIds(
-  userId: string | null
-): Promise<string[]> {
-  if (userId) return getUserBoardIds(userId)
-  return []
-}
-
 // Resolves the user ids whose full `users` rows the caller may sync via the
 // users shape (and read via users.listByTeamIds). The users table carries
 // EMAILS and NAMES, so this is deliberately tighter than team
@@ -91,28 +84,6 @@ export async function getUserTeamIds(userId: string): Promise<string[]> {
     .where(eq(teamMembers.userId, userId))
 
   return rows.map((row) => row.teamId)
-}
-
-export async function getUserBoardIds(userId: string): Promise<string[]> {
-  const teamIds = await getUserTeamIds(userId)
-
-  if (teamIds.length === 0) {
-    return []
-  }
-
-  const db = await getDb()
-  const rows = await db
-    .select({ id: boards.id })
-    .from(boards)
-    // Trashed boards drop out of the authed issues shape scope.
-    .where(
-      and(
-        inArray(boards.teamId, teamIds),
-        isNull(boards.deletedAt)
-      )
-    )
-
-  return rows.map((row) => row.id)
 }
 
 export async function getTeamMember(userId: string, teamId: string) {

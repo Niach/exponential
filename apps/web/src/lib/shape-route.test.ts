@@ -3,12 +3,14 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 import { Route as boardsRoute } from "@/routes/api/shapes/boards"
 import { Route as usersRoute } from "@/routes/api/shapes/users"
 import { Route as teamInvitesRoute } from "@/routes/api/shapes/team-invites"
+import { Route as issuesRoute } from "@/routes/api/shapes/issues"
 import { Route as commentsRoute } from "@/routes/api/shapes/comments"
 import { Route as issueEventsRoute } from "@/routes/api/shapes/issue-events"
 import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
+import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 
 const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   () => ({
@@ -23,7 +25,6 @@ const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
 // DB-touching scope resolvers.
 const membership = vi.hoisted(() => ({
   getUserTeamIds: vi.fn(),
-  getUserBoardIds: vi.fn(),
   getReadableUserIdsInTeams: vi.fn(),
 }))
 
@@ -42,7 +43,6 @@ vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   return {
     ...actual,
     getUserTeamIds: membership.getUserTeamIds,
-    getUserBoardIds: membership.getUserBoardIds,
     getReadableUserIdsInTeams: membership.getReadableUserIdsInTeams,
   }
 })
@@ -321,35 +321,38 @@ describe(`shape column + trash contracts`, () => {
   })
 })
 
-describe(`trash-aware child shapes`, () => {
+describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   beforeEach(() => {
     resolveSession.mockReset()
     prepareElectricUrl.mockReset()
     proxyElectricRequest.mockReset()
     membership.getUserTeamIds.mockReset()
-    membership.getUserBoardIds.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // The five issue-child shapes with a NOT NULL board_id all scope members
-  // by board (never team) so a trashed board's children drop out of
-  // sync. buildWhereClause sorts the id list, so the SQL is byte-stable.
+  // All board-scoped shapes scope members by TEAM (stable across board
+  // create/trash/restore) with the static board_deleted_at trash predicate —
+  // a board-id list here would rotate the shape identity on every board
+  // create/trash in ANY of the user's teams and force full cross-team
+  // resyncs. buildWhereClause sorts the id list, so the SQL is byte-stable.
   const childRoutes = [
+    [`issues`, issuesRoute],
     [`comments`, commentsRoute],
     [`issue-events`, issueEventsRoute],
     [`issue-labels`, issueLabelsRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`attachments`, attachmentsRoute],
+    [`coding-sessions`, codingSessionsRoute],
   ] as const
 
   it.each(childRoutes)(
-    `%s member branch is board-scoped and byte-stable`,
+    `%s member branch is team-scoped, trash-aware, and byte-stable`,
     async (_name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue({ user: { id: `user-1` } })
       prepareElectricUrl.mockReturnValue(originUrl)
       // Unsorted on purpose — the emitted clause must come out sorted.
-      membership.getUserBoardIds.mockResolvedValue([`p-2`, `p-1`])
+      membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
 
       await shapeHandler(route)({
         request: new Request(`https://example.com/api/shapes/x`, {
@@ -358,18 +361,77 @@ describe(`trash-aware child shapes`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `"board_id" IN ('p-1','p-2')`
+        `("team_id" IN ('w-1','w-2')) AND ("board_deleted_at" IS NULL)`
       )
-      // Members must no longer resolve through the team-id path.
+    }
+  )
+
+  it.each(childRoutes)(
+    `%s anonymous clause stays byte-identical to the sentinel composite`,
+    async (_name, route) => {
+      const originUrl = new URL(`https://electric.example/v1/shape`)
+      resolveSession.mockResolvedValue(null)
+      prepareElectricUrl.mockReturnValue(originUrl)
+
+      await shapeHandler(route)({
+        request: new Request(`https://example.com/api/shapes/x`),
+      })
+
+      expect(originUrl.searchParams.get(`where`)).toBe(
+        `("team_id" = '00000000-0000-0000-0000-000000000000') AND ("board_deleted_at" IS NULL)`
+      )
       expect(membership.getUserTeamIds).not.toHaveBeenCalled()
     }
   )
+
+  it.each(childRoutes)(
+    `%s pins a columns allowlist that excludes board_deleted_at`,
+    async (_name, route) => {
+      const originUrl = new URL(`https://electric.example/v1/shape`)
+      resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+      prepareElectricUrl.mockReturnValue(originUrl)
+      membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+      // A client attempting to widen the allowlist to the server-only trash
+      // mirror must be overridden — native schemas don't carry the column.
+      await shapeHandler(route)({
+        request: new Request(
+          `https://example.com/api/shapes/x?columns=board_deleted_at`,
+          { headers: { authorization: `Bearer t` } }
+        ),
+      })
+
+      const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+      expect(columns.length).toBeGreaterThan(0)
+      expect(columns).not.toContain(`board_deleted_at`)
+    }
+  )
+
+  it(`issues excludes the server-only team_id scoping column`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+    await shapeHandler(issuesRoute)({
+      request: new Request(`https://example.com/api/shapes/issues`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    // Native issue schemas have no team_id — it must never reach the wire.
+    expect(columns).not.toContain(`team_id`)
+    expect(columns).toContain(`id`)
+    expect(columns).toContain(`board_id`)
+    expect(columns).toContain(`identifier`)
+  })
 
   it(`issue-subscribers keeps the email-excluding columns pin on the member path`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserBoardIds.mockResolvedValue([`p-1`])
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
 
     // A client attempting to widen the allowlist to `email` must be overridden.
     await shapeHandler(issueSubscribersRoute)({
@@ -382,62 +444,32 @@ describe(`trash-aware child shapes`, () => {
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).not.toContain(`email`)
     expect(columns).toContain(`team_id`)
-    expect(originUrl.searchParams.get(`where`)).toBe(`"board_id" IN ('p-1')`)
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("team_id" IN ('w-1')) AND ("board_deleted_at" IS NULL)`
+    )
   })
 
-  it(`coding-sessions member composite keeps batch (null-board) rows`, async () => {
+  it(`notifications member clause is fully static per user`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
-    membership.getUserBoardIds.mockResolvedValue([`p-1`])
 
-    await shapeHandler(codingSessionsRoute)({
-      request: new Request(`https://example.com/api/shapes/coding-sessions`, {
+    await shapeHandler(notificationsRoute)({
+      request: new Request(`https://example.com/api/shapes/notifications`, {
         headers: { authorization: `Bearer t` },
       }),
     })
 
-    // Byte-stable composite is the contract — sorted lists, fixed literal,
-    // fixed parenthesization.
+    // No membership id lists at all — this shape's identity never rotates.
+    // Trash-awareness rides the static board_deleted_at predicate; issue-less
+    // rows (NULL board_deleted_at) always match.
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("team_id" IN ('w-1','w-2')) AND (("board_id" IS NULL) OR ("board_id" IN ('p-1')))`
-    )
-  })
-
-  it(`coding-sessions member with zero non-trashed boards still syncs batch rows`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-1`])
-    membership.getUserBoardIds.mockResolvedValue([])
-
-    await shapeHandler(codingSessionsRoute)({
-      request: new Request(`https://example.com/api/shapes/coding-sessions`, {
-        headers: { authorization: `Bearer t` },
-      }),
-    })
-
-    // The board sentinel matches nothing, but batch rows (board_id NULL)
-    // still sync via the OR.
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `("team_id" IN ('w-1')) AND (("board_id" IS NULL) OR ("board_id" = '00000000-0000-0000-0000-000000000000'))`
-    )
-  })
-
-  it(`coding-sessions anonymous clause stays byte-identical to the sentinel`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue(null)
-    prepareElectricUrl.mockReturnValue(originUrl)
-
-    await shapeHandler(codingSessionsRoute)({
-      request: new Request(`https://example.com/api/shapes/coding-sessions`),
-    })
-
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"team_id" = '00000000-0000-0000-0000-000000000000'`
+      `("user_id" = 'user-1') AND ("board_deleted_at" IS NULL)`
     )
     expect(membership.getUserTeamIds).not.toHaveBeenCalled()
-    expect(membership.getUserBoardIds).not.toHaveBeenCalled()
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).not.toContain(`board_id`)
+    expect(columns).not.toContain(`board_deleted_at`)
+    expect(columns).not.toContain(`emailed_at`)
   })
 })

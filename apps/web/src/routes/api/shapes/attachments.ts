@@ -1,25 +1,43 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
-  buildWhereClause,
-  getUserBoardIds,
+  buildTeamScopedChildWhere,
+  getUserTeamIds,
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
+
+// Server-pinned column allowlist — excludes the REV2-5 `board_deleted_at`
+// trash mirror (server-only; the where clause filters on it).
+const ATTACHMENT_COLUMNS = [
+  `id`,
+  `team_id`,
+  `issue_id`,
+  `board_id`,
+  `comment_id`,
+  `uploader_id`,
+  `filename`,
+  `content_type`,
+  `size_bytes`,
+  `storage_key`,
+  `url`,
+  `width`,
+  `height`,
+  `created_at`,
+  `updated_at`,
+]
 
 export const Route = createFileRoute(`/api/shapes/attachments`)({
   server: {
     handlers: {
       GET: createShapeRouteHandler({
         table: `attachments`,
+        columns: ATTACHMENT_COLUMNS,
         getWhere: async (userId) => {
-          if (userId) {
-            // Members: board-scoped so a trashed board's attachments drop
-            // out of sync for the 48h trash window along with the board
-            // itself (board_id is trigger-denormalized and never null here).
-            const boardIds = await getUserBoardIds(userId)
-            return buildWhereClause(`board_id`, boardIds)
-          }
-          // Anonymous callers sync nothing (impossible-match sentinel).
-          return buildWhereClause(`board_id`, [])
+          // Members: team-scoped + trash-aware (REV2-5) — a trashed board's
+          // attachments still drop out of sync for the 48h trash window via
+          // the static board_deleted_at predicate. Anonymous:
+          // impossible-match sentinel.
+          const teamIds = userId ? await getUserTeamIds(userId) : []
+          return buildTeamScopedChildWhere(teamIds)
         },
       }),
     },

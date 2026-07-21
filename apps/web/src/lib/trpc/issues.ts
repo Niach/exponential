@@ -234,6 +234,9 @@ export const issuesRouter = router({
           .insert(issues)
           .values({
             boardId: input.boardId,
+            // populate_issue_board_context overwrites with board-derived
+            // truth; passed to satisfy the NOT NULL insert contract.
+            teamId: board.teamId,
             title: input.title,
             status: input.status ?? `backlog`,
             priority: input.priority ?? `none`,
@@ -601,9 +604,10 @@ export const issuesRouter = router({
   // target's current max, then upsert the monotonic issue_number_counters row
   // — the ON CONFLICT row lock serializes concurrent allocations and the
   // GREATEST clamp heals a stale/missing counter row). The denormalized child
-  // board_id columns (their populate triggers are also INSERT-only) are
-  // re-pointed in the same transaction so member + anonymous shape scoping
-  // stays truthful. PR/branch linkage (pr_url/pr_number/branch) survives
+  // board_id columns are re-pointed in the same transaction so shape scoping
+  // stays truthful — the populate triggers fire on UPDATE OF board_id too
+  // (REV2-5) and re-derive board_id + board_deleted_at from the already-moved
+  // issue row. PR/branch linkage (pr_url/pr_number/branch) survives
   // untouched; labels are team-scoped, so they survive too.
   move: authedProcedure
     .input(
@@ -713,8 +717,10 @@ export const issuesRouter = router({
         }
 
         // Re-point the trigger-denormalized board_id on every issue-child
-        // table (the populate triggers are INSERT-only). team_id is
-        // unchanged — moves never cross teams.
+        // table. The populate triggers fire on these UPDATE OF board_id
+        // statements and overwrite with issue-derived truth (board_id +
+        // board_deleted_at — the target board is live, guarded above).
+        // team_id is unchanged — moves never cross teams.
         await tx
           .update(comments)
           .set({ boardId: input.boardId })

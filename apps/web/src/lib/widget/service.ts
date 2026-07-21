@@ -361,6 +361,9 @@ export async function createWidgetSubmission(args: {
         .values({
           id: issueId,
           boardId,
+          // populate_issue_board_context overwrites with board-derived
+          // truth; passed to satisfy the NOT NULL insert contract.
+          teamId: config.teamId,
           title: fields.data.title,
           status: `backlog`,
           priority: `none`,
