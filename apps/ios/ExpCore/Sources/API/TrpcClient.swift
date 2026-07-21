@@ -119,11 +119,16 @@ public enum TrpcError: Error, LocalizedError, Sendable {
     case invalidUrl
     case httpError(Int, String)
 
+    // The described message must stay user-presentable: many surfaces render
+    // `localizedDescription` directly (EXP-219), so `.httpError` shows the
+    // server's tRPC `message` (plan-cap copy neutralized) — never the raw
+    // response body, which stays in the associated value for debugging.
     public var errorDescription: String? {
         switch self {
         case .noInstanceUrl: "No instance URL configured"
         case .invalidUrl: "Invalid URL"
-        case let .httpError(code, message): "tRPC HTTP \(code): \(message)"
+        case let .httpError(code, body):
+            TrpcErrorBody.userMessage(fromBody: body) ?? "Request failed (HTTP \(code))"
         }
     }
 }

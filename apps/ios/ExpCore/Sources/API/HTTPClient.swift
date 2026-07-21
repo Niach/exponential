@@ -141,10 +141,13 @@ public enum HTTPError: Error, LocalizedError, Sendable {
     case invalidResponse
     case httpError(Int, String)
 
+    // Rendered directly on the login screen (auth-config fetch failures), so
+    // the description carries only the status — never the raw response body,
+    // which stays in the associated value for debugging (EXP-219).
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: "Invalid server response"
-        case let .httpError(code, message): "HTTP \(code): \(message)"
+        case let .httpError(code, _): "Request failed (HTTP \(code))"
         }
     }
 }
