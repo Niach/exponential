@@ -24,6 +24,7 @@
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  codingSessions,
   comments,
   issueEvents,
   issueLabels,
@@ -33,6 +34,8 @@ import {
   notifications,
   boards,
   repositories,
+  supportMessages,
+  supportThreads,
   users,
   teamMembers,
   teams,
@@ -143,9 +146,11 @@ async function main() {
   const jonas = mates[`demo-jonas`]
   const sofia = mates[`demo-sofia`]
 
+  // helpdeskEnabled unlocks the Support tab on every client — the support
+  // inbox screenshot needs it.
   const [ws] = await db
     .insert(teams)
-    .values({ name: `Acme`, slug: TEAM_SLUG })
+    .values({ name: `Acme`, slug: TEAM_SLUG, helpdeskEnabled: true })
     .returning()
 
   await db.insert(teamMembers).values([
@@ -219,7 +224,7 @@ async function main() {
   const seedIssues: Array<{
     title: string
     description?: string
-    status: `backlog` | `todo` | `in_progress` | `done`
+    status: `backlog` | `todo` | `in_progress` | `in_review` | `done`
     priority: `none` | `urgent` | `high` | `medium` | `low`
     assigneeId?: string
     creatorId: string
@@ -227,7 +232,7 @@ async function main() {
     labels?: string[]
     createdDaysAgo: number
     completedDaysAgo?: number
-    pr?: boolean
+    pr?: `open` | `merged`
   }> = [
     {
       title: `Ship onboarding flow v2`,
@@ -249,7 +254,7 @@ async function main() {
       labels: [`Bug`],
       createdDaysAgo: 6,
       completedDaysAgo: 1,
-      pr: true,
+      pr: `merged`,
     },
     {
       title: `Dark mode contrast pass across settings`,
@@ -350,6 +355,19 @@ async function main() {
       labels: [`Design`],
       createdDaysAgo: 10,
     },
+    // In review with an OPEN pull request — the agents screenshot shows this
+    // session parked in review, and the issue detail renders a live PR card.
+    {
+      title: `Group board issues by assignee`,
+      description: `Add an assignee grouping mode next to the status grouping. Remember the last choice per board.`,
+      status: `in_review`,
+      priority: `medium`,
+      assigneeId: demoId,
+      creatorId: jonas,
+      labels: [`Feature`],
+      createdDaysAgo: 2,
+      pr: `open`,
+    },
   ]
 
   const inserted: Array<typeof issues.$inferSelect> = []
@@ -373,11 +391,11 @@ async function main() {
             : daysAgo(spec.completedDaysAgo),
         ...(spec.pr
           ? {
-              prUrl: `https://github.com/acme/mobile-app/pull/42`,
-              prNumber: 42,
-              prState: `merged` as const,
-              branch: `exp/APP-2`,
-              prMergedAt: daysAgo(1),
+              prUrl: `https://github.com/acme/mobile-app/pull/${40 + i}`,
+              prNumber: 40 + i,
+              prState: spec.pr,
+              branch: `exp/APP-${i + 1}`,
+              prMergedAt: spec.pr === `merged` ? daysAgo(1) : undefined,
             }
           : {}),
       })
@@ -515,13 +533,172 @@ async function main() {
     },
   ])
 
+  // Live coding sessions for the agents screenshot. The clients hide rows
+  // whose updated_at heartbeat is older than the contract staleHours window,
+  // so both get a fresh heartbeat; board_id/team_id denormalize by trigger.
+  const reviewIssue = inserted[13]
+  await db.insert(codingSessions).values([
+    {
+      issueId: showcase.id,
+      teamId: ws.id,
+      userId: demoId,
+      deviceLabel: `Alex's MacBook Pro`,
+      status: `running`,
+      startedAt: hoursAgo(1),
+    },
+    {
+      issueId: inserted[3].id,
+      teamId: ws.id,
+      userId: mira,
+      deviceLabel: `Mira's Mac mini`,
+      status: `running`,
+      startedAt: new Date(now - 20 * 60_000),
+    },
+    {
+      issueId: reviewIssue.id,
+      teamId: ws.id,
+      userId: demoId,
+      deviceLabel: `Alex's MacBook Pro`,
+      status: `in_review`,
+      startedAt: hoursAgo(3),
+    },
+  ])
+
+  // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
+  // no Electric shape involved). A trailing inbound message marks the
+  // thread unread; explicit updatedAt controls the list order.
+  const seedThreads: Array<{
+    title: string
+    reporterName: string
+    reporterEmail: string
+    messages: Array<{
+      direction: `inbound` | `outbound`
+      authorUserId?: string
+      body: string
+      hoursAgo: number
+    }>
+  }> = [
+    {
+      title: `Can't sign in on the iPad app`,
+      reporterName: `Emma Fischer`,
+      reporterEmail: `emma@lumenlabs.io`,
+      messages: [
+        {
+          direction: `inbound`,
+          body: `After the last update the sign-in button just spins forever on my iPad. Works fine on my phone.`,
+          hoursAgo: 26,
+        },
+        {
+          direction: `outbound`,
+          authorUserId: sofia,
+          body: `Thanks for the report! We found a token refresh bug on iPadOS and just shipped a fix — could you update to 2.4.1 and try again?`,
+          hoursAgo: 20,
+        },
+        {
+          direction: `inbound`,
+          body: `That fixed it — thank you for the quick turnaround!`,
+          hoursAgo: 1,
+        },
+      ],
+    },
+    {
+      title: `How do I export my issues?`,
+      reporterName: `Liam O'Connor`,
+      reporterEmail: `liam@brightpath.app`,
+      messages: [
+        {
+          direction: `inbound`,
+          body: `We're migrating our workflow docs and I'd love to pull everything out as CSV. Is that possible?`,
+          hoursAgo: 8,
+        },
+      ],
+    },
+    {
+      title: `Weekly summary email for the whole team`,
+      reporterName: `Priya Nair`,
+      reporterEmail: `priya@northwind.dev`,
+      messages: [
+        {
+          direction: `inbound`,
+          body: `A Monday-morning digest of what shipped last week would be amazing for our standups.`,
+          hoursAgo: 49,
+        },
+        {
+          direction: `outbound`,
+          authorUserId: demoId,
+          body: `Love this idea — I've filed it on our roadmap and linked this ticket so you'll hear back when it ships.`,
+          hoursAgo: 44,
+        },
+      ],
+    },
+    {
+      title: `Screenshot upload stuck at 99%`,
+      reporterName: `Tom Berger`,
+      reporterEmail: `tom@fieldworks.co`,
+      messages: [
+        {
+          direction: `inbound`,
+          body: `Attaching a screenshot from the feedback widget hangs at 99% on our office network. Smaller images go through fine.`,
+          hoursAgo: 4,
+        },
+      ],
+    },
+    {
+      title: `Does the widget support German?`,
+      reporterName: `Anna Keller`,
+      reporterEmail: `anna@studiokeller.de`,
+      messages: [
+        {
+          direction: `inbound`,
+          body: `Our customers write in German — can the feedback form labels be localized?`,
+          hoursAgo: 30,
+        },
+        {
+          direction: `outbound`,
+          authorUserId: sofia,
+          body: `Yes! You can override every label in the embed config — I've sent over a snippet with German defaults.`,
+          hoursAgo: 27,
+        },
+      ],
+    },
+  ]
+  for (const spec of seedThreads) {
+    const last = spec.messages[spec.messages.length - 1]
+    const [thread] = await db
+      .insert(supportThreads)
+      .values({
+        teamId: ws.id,
+        title: spec.title,
+        status: `open`,
+        reporterName: spec.reporterName,
+        reporterEmail: spec.reporterEmail,
+        createdAt: hoursAgo(spec.messages[0].hoursAgo),
+        updatedAt: hoursAgo(last.hoursAgo),
+      })
+      .returning()
+    await db.insert(supportMessages).values(
+      spec.messages.map((m) => ({
+        threadId: thread.id,
+        direction: m.direction,
+        visibility: `public` as const,
+        authorUserId: m.authorUserId,
+        body: m.body,
+        createdAt: hoursAgo(m.hoursAgo),
+        updatedAt: hoursAgo(m.hoursAgo),
+      }))
+    )
+  }
+
   console.log(`
 Seeded screenshot demo data:
-  team   ${ws.name} (/${ws.slug})
-  board     ${board.name} (APP), ${inserted.length} issues
+  team        ${ws.name} (/${ws.slug})
+  board       ${board.name} (APP), ${inserted.length} issues
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${3} comments)
   inbox       5 notifications (3 unread)
+  agents      3 coding sessions (2 running + 1 in review)
+  support     ${seedThreads.length} helpdesk threads
+
 `)
   process.exit(0)
 }

@@ -1,1 +1,1 @@
-issue tracker,bug,feedback,kanban,project,tasks,developer,git,pull request,agile,scrum,team
+issue tracker,bug,feedback,kanban,board,tasks,developer,git,pull request,ai agent,scrum,team

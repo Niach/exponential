@@ -74,6 +74,7 @@ struct SearchView: View {
                 .foregroundStyle(.white)
                 .focused($searchFocused)
                 .submitLabel(.search)
+                .accessibilityIdentifier("search-field")
             if !query.isEmpty {
                 Button {
                     query = ""

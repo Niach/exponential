@@ -125,7 +125,10 @@ platform :android do
       skip_upload_apk: true,
       skip_upload_metadata: false,
       skip_upload_images: true,
-      skip_upload_screenshots: true,
+      # Screenshots are version-controlled (metadata/android/en-US/images/
+      # phoneScreenshots, refreshed by the `screenshots` lane) — push them so
+      # the listing tracks the repo (EXP-220).
+      skip_upload_screenshots: false,
     )
   end
 end

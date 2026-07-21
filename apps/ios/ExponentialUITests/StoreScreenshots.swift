@@ -4,11 +4,12 @@ import XCTest
 ///
 /// Drives the real app against a seeded local backend: sign in on the
 /// InstanceView/LoginView flow, wait for Electric to sync the demo team,
-/// then capture the five store shots (board, issue detail, comments, board
-/// switcher, inbox). Run via `fastlane screenshots`
-/// (apps/ios) with the seeded dev server running (`apps/web/scripts/
-/// seed-screenshots.ts` — demo@exponential.at / screenshots-demo, team
-/// "Acme", board "Mobile App", showcase issue APP-5).
+/// then capture the store shots (board, issue detail, comments, board
+/// switcher, inbox, agents, support inbox, search, create issue). Run via
+/// `fastlane screenshots` (apps/ios) with the seeded dev server running
+/// (`apps/web/scripts/seed-screenshots.ts` — demo@exponential.at /
+/// screenshots-demo, team "Acme", board "Mobile App", showcase issue APP-5,
+/// live coding sessions, helpdesk threads).
 ///
 /// The instance URL defaults to http://localhost:5173 and can be overridden
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
@@ -127,6 +128,71 @@ final class StoreScreenshots: XCTestCase {
         )
         settle(2)
         snapshot("05_inbox")
+
+        // ── 06: agents (live coding sessions) ───────────────────────────────
+        // The seed inserts a running session on APP-5 and an in-review session
+        // with an open PR, both with a fresh heartbeat (the clients hide
+        // sessions past the staleness window).
+        let agentsTab = app.buttons["tab-agents"]
+        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
+        agentsTab.tap()
+        let sessionRow = app.descendants(matching: .any)
+            .matching(identifier: "agent-session-row").firstMatch
+        XCTAssertTrue(
+            sessionRow.waitForExistence(timeout: 60),
+            "Agents tab never showed the seeded coding sessions"
+        )
+        settle(2)
+        snapshot("06_agents")
+
+        // ── 07: support inbox (helpdesk threads) ────────────────────────────
+        // The tab only exists because the seed flips the team's
+        // helpdesk_enabled on; threads come from tRPC polling, not Electric.
+        let supportTab = app.buttons["tab-support"]
+        XCTAssertTrue(
+            supportTab.waitForExistence(timeout: 15),
+            "Support tab missing — did the seed enable the team helpdesk?"
+        )
+        supportTab.tap()
+        let threadRow = app.descendants(matching: .any)
+            .matching(identifier: "support-thread-row").firstMatch
+        XCTAssertTrue(
+            threadRow.waitForExistence(timeout: 30),
+            "Support inbox never showed the seeded threads"
+        )
+        settle(2)
+        snapshot("07_support")
+
+        // ── 08: search ──────────────────────────────────────────────────────
+        app.buttons["tab-search"].tap()
+        let searchField = app.textFields["search-field"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field missing")
+        focus(searchField)
+        searchField.typeText("issue")
+        XCTAssertTrue(
+            app.staticTexts["Offline queue for issue edits"]
+                .waitForExistence(timeout: 30),
+            "Search results never appeared"
+        )
+        settle(2)
+        snapshot("08_search")
+
+        // ── 09: create issue ────────────────────────────────────────────────
+        app.buttons["tab-issues"].tap()
+        XCTAssertTrue(
+            showcaseRowTitle.waitForExistence(timeout: 15),
+            "Board did not come back before the compose capture"
+        )
+        let composeButton = app.buttons["compose-button"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 10), "Compose button missing")
+        composeButton.tap()
+        let titleField = app.textFields["issue-title-field"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Create-issue sheet did not open")
+        focus(titleField)
+        titleField.typeText("Weekly summary email digest")
+        settle(2)
+        snapshot("09_new-issue")
+        app.buttons["Cancel"].tap()
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()

@@ -1,1 +1,1 @@
-Real-time issue tracker that closes the loop from feedback to shipped.
+The development platform for teams and agents — feedback in, pull requests out.

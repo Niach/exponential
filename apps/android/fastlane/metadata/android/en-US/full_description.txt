@@ -1,11 +1,11 @@
-Make your app exponential.
+Make yourself go exponential.
 
-Exponential is a real-time issue tracker that closes the loop — from the moment a user reports a problem to the moment the fix ships and that user hears back.
+Exponential is the development platform for teams and agents — a real-time issue tracker where the loop runs from user feedback all the way to a shipped pull request.
 
-The loop:
-• A visitor hits your feedback widget and files a report — with a screenshot, annotations, and page context attached automatically.
+Feedback in, pull requests out:
+• A visitor hits your feedback widget and files a report — screenshot, annotations, and page context attached automatically.
 • The report lands as an issue on your board, in real time, on every device.
-• Claude picks it up in the desktop IDE, writes the fix on its own branch, and opens a pull request.
+• Pick an issue and hit Start coding — even from your phone. A coding agent works on a real branch in your desktop IDE and opens the pull request when it's done.
 • You review and merge — and the original reporter gets an email that their issue is resolved.
 
 One report, all the way to shipped.
@@ -13,12 +13,13 @@ One report, all the way to shipped.
 Native everywhere. The Android app syncs live with the web, desktop, and iOS clients over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
 
 Built for the way you actually work:
-• Fast, keyboard-friendly issue tracking with statuses, priorities, labels, due dates, and recurring issues.
-• Projects backed one-to-one by a Git repository.
+• Fast issue tracking with statuses, priorities, labels, and due dates.
+• Boards you can back with a GitHub repository to code on.
 • Rich Markdown descriptions and comments with @mentions, task lists, and inline images.
+• Watch coding sessions live in the Agents tab and steer them from anywhere.
+• A shared Support inbox — helpdesk tickets from your users land next to your issues, and replies go out by email.
 • Push notifications for mentions, assignments, and PR activity.
-• Steer a coding session running on your desktop straight from your phone.
 
-Free to use on the hosted cloud. The source is public, and companies with fewer than 10 people can self-host the whole stack for free — larger ones need a commercial license.
+Free for individuals on the hosted cloud, and free to self-host for companies with fewer than 10 people — larger ones need a commercial license.
 
-Make your app exponential.
+Make yourself go exponential.

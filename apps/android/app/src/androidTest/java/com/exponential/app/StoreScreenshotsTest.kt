@@ -33,9 +33,10 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Drives the REAL app UI end-to-end against a locally seeded backend
  * (apps/web/scripts/seed-screenshots.ts): instance picker → password login →
- * board → issue detail → comments → create issue → search → inbox. The backend
- * must be reachable from the emulator (default http://10.0.2.2:5173, override
- * via the `instanceUrl` instrumentation argument / SCREENGRAB_INSTANCE_URL).
+ * board → issue detail → comments → create issue → search → inbox → agents →
+ * support inbox. The backend must be reachable from the emulator (default
+ * http://10.0.2.2:5173, override via the `instanceUrl` instrumentation
+ * argument / SCREENGRAB_INSTANCE_URL).
  *
  * Synchronization notes:
  * - `waitUntil` polls semantics without requiring Compose idleness, so infinite
@@ -160,8 +161,8 @@ class StoreScreenshotsTest {
         // hadn't landed yet.
         composeRule.onNode(hasContentDescription("Search")).performClick()
         waitFor(hasSetTextAction(), NAV_TIMEOUT)
-        composeRule.onNode(hasSetTextAction()).performTextInput("push")
-        waitFor(hasText("Push notificatio", substring = true), SYNC_TIMEOUT)
+        composeRule.onNode(hasSetTextAction()).performTextInput("issue")
+        waitFor(hasText("Offline queue for issue edits", substring = true), SYNC_TIMEOUT)
         Espresso.closeSoftKeyboard()
         settle()
         Screengrab.screenshot("5_search")
@@ -174,6 +175,21 @@ class StoreScreenshotsTest {
         waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         settle()
         Screengrab.screenshot("6_inbox")
+
+        // --- Agents tab: the seed inserts a running session on APP-5 and an
+        // in-review session with an open PR, both with a fresh heartbeat (the
+        // liveness guard hides sessions past the staleness window).
+        composeRule.onNode(hasContentDescription("Agents")).performClick()
+        waitFor(hasTestTag("agent-session-row"), SYNC_TIMEOUT)
+        settle()
+        Screengrab.screenshot("7_agents")
+
+        // --- Support inbox: the tab only exists because the seed flips the
+        // team's helpdesk_enabled on; threads come from tRPC polling.
+        composeRule.onNode(hasContentDescription("Support")).performClick()
+        waitFor(hasTestTag("support-thread-row"), SYNC_TIMEOUT)
+        settle()
+        Screengrab.screenshot("8_support")
     }
 
     /** Poll (without requiring Compose idleness) until [matcher] matches a node. */
