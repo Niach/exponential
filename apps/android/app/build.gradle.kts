@@ -22,7 +22,7 @@ val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "com.exponential.app"
-    compileSdk = 35
+    compileSdk = 36
 
     testOptions {
         // JVM unit tests exercise classes that log via android.util.Log
@@ -34,7 +34,7 @@ android {
     defaultConfig {
         applicationId = "at.exponential"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 56
         versionName = "0.13.19"
 
