@@ -195,5 +195,5 @@ export const COPY = {
 // ── The Shipped end-card + platform lineup (S9, EXP-200) ─────────────────────
 export const ENDING_COPY = {
   title: "Shipped.",
-  sub: "The loop closes.",
+  sub: "Go exponential.",
 } as const

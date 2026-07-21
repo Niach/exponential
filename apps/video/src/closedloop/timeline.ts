@@ -1,11 +1,12 @@
 // closedloop/timeline.ts — scene boundaries, chapter markers (consumed by the
 // marketing player UI), camera keyframes, whip-pan blur, dock-height clock,
 // terminal feed schedule, cursor choreographies and the caption windows.
-// Every frame value is COMPOSITION-GLOBAL. The story runs 940 frames @ 30fps
-// (~31s): after the merge it closes on the full-frame Shipped card + platform
-// lineup (EXP-200 — replaced the reply-email beat), whose content fades to the
-// bare canvas before STORY_FRAMES; the END_HOLD tail rests on that canvas so
-// the Player loop breathes before wrapping back to the f0 storefront.
+// Every frame value is COMPOSITION-GLOBAL. The story runs 1030 frames @ 30fps
+// (~34s): after the merge it closes on the full-frame Shipped card + platform
+// lineup (EXP-200 — replaced the reply-email beat; EXP-217 added the brand
+// header + web mock and a longer hold), whose content fades to the bare canvas
+// before STORY_FRAMES; the END_HOLD tail rests on that canvas so the Player
+// loop breathes before wrapping back to the f0 storefront.
 
 import { interpolate, spring } from "remotion";
 import { CHAPTER_INFO } from "./chapters";
@@ -23,7 +24,7 @@ export const FPS = 30;
 // The authored story — the ending overlay's content has fully faded to the
 // bare canvas by here (EXP-200 retired the old f779==f0 seamless-loop anchor;
 // the wrap is now canvas-rest → hard restart on the f0 storefront).
-export const STORY_FRAMES = 940;
+export const STORY_FRAMES = 1030;
 // Rest on the bare canvas before the loop wraps (EXP-176: "loops too fast").
 export const END_HOLD = 20;
 export const DURATION_IN_FRAMES = STORY_FRAMES + END_HOLD;
@@ -82,9 +83,10 @@ export const CAMERA_KEYS: CamKey[] = [
   // S4 — fly to the detail header + properties
   { f: 356, s: 1.75, x: 915, y: 325 },
   { f: 408, s: 1.75, x: 915, y: 325 },
-  // S5 — dialog centered (bottom clears the caption band)
-  { f: 420, s: 1.8, x: 784, y: 500 },
-  { f: 500, s: 1.8, x: 784, y: 500 },
+  // S5 — dialog centered (EXP-217: the rebuilt 500px-tall dialog needs the
+  // slightly wider 1.7 shot so its bottom still clears the caption band)
+  { f: 420, s: 1.7, x: 784, y: 500 },
+  { f: 500, s: 1.7, x: 784, y: 500 },
   // S6 — tilt down onto the dock (window bottom pinned; y keeps the terminal
   // status line above the screen-space caption band — this shot has no
   // headroom for the EXP-176 tighten, so it keeps the EXP-155 framing)
@@ -204,7 +206,8 @@ export const MERGE_BEATS = {
 // ── Shipped card + platform lineup (S9, EXP-200) ─────────────────────────────
 // The overlay's backdrop goes opaque over the merge shot, the logo strokes
 // draw, the headline lands, then the card crossfades into the platform lineup
-// (MacBook IDE + phone + store icon rows), which holds and fades to the bare
+// (brand header + web app in a browser + MacBook IDE + phone with their icon
+// rows — all three clients, EXP-217), which holds long and fades to the bare
 // canvas before STORY_FRAMES.
 export const ENDING = {
   backdropIn: SCENE.shipped, // 735 — opaque by +8
@@ -214,11 +217,13 @@ export const ENDING = {
   subAt: 754,
   cardOutFrom: SCENE.platforms - 6, // 794
   cardOutTo: SCENE.platforms + 6, // 806
-  macAt: SCENE.platforms + 4, // 804
-  phoneAt: SCENE.platforms + 12,
-  iconsAt: SCENE.platforms + 22,
-  fadeOutFrom: 916,
-  fadeOutTo: 936,
+  brandAt: SCENE.platforms + 2, // 802 — Exponential logo + wordmark header
+  webAt: SCENE.platforms + 6, // the web app in a browser window
+  macAt: SCENE.platforms + 12,
+  phoneAt: SCENE.platforms + 18,
+  iconsAt: SCENE.platforms + 26,
+  fadeOutFrom: 1006,
+  fadeOutTo: 1026,
 } as const;
 
 // ── Cursor choreographies (window-local) ──────────────────────────────────────

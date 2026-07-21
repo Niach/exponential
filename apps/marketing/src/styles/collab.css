@@ -26,23 +26,28 @@
   padding: 2px 8px;
 }
 
-/* ── Stage layout ── */
+/* ── Stage layout — a vertical flow: widget scene → connector → the FULL
+      web app recreation at shell width (EXP-217) ── */
 
 .co-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) auto minmax(0, 6fr);
-  gap: 20px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
   margin-top: 8px;
 }
 
 .co-widgetcol,
-.co-inboxcol {
+.co-webuicol {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
   min-width: 0;
+  width: 100%;
+}
+
+.co-webuicol > .web-scale {
   width: 100%;
 }
 
@@ -350,20 +355,21 @@
   font-weight: 600;
 }
 
-/* ── Connector ── */
+/* ── Connector (vertical — the stage flows top-down everywhere now) ── */
 
 .co-conn {
   position: relative;
   align-self: center;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 10px 0;
+  padding: 4px 0;
 }
 
 .co-conn-line {
-  width: 26px;
-  height: 1px;
+  width: 1px;
+  height: 18px;
   background: var(--border);
 }
 
@@ -373,31 +379,30 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--fg-dim);
-  white-space: nowrap;
-  max-width: 120px;
+  max-width: 200px;
   white-space: normal;
   text-align: center;
 }
 
 .co-conn-dot {
   position: absolute;
-  top: 50%;
-  left: 0;
+  top: 0;
+  left: 50%;
   width: 7px;
   height: 7px;
-  margin-top: -3.5px;
+  margin-left: -3.5px;
   border-radius: 999px;
   background: var(--accent);
   opacity: 0;
 }
 
 .co-stage.is-handoff:not(.is-static) .co-conn-dot {
-  animation: co-dot-x 0.7s ease-in forwards;
+  animation: co-dot-y 0.7s ease-in forwards;
 }
 
-@keyframes co-dot-x {
+@keyframes co-dot-y {
   0% {
-    left: 0;
+    top: 0;
     opacity: 0;
   }
   15% {
@@ -407,98 +412,9 @@
     opacity: 1;
   }
   100% {
-    left: calc(100% - 7px);
+    top: calc(100% - 7px);
     opacity: 0;
   }
-}
-
-/* ── The Support-inbox card (webui/ classes do the real styling) ── */
-
-.co-card {
-  width: 100%;
-  max-width: 480px;
-  /* Reserves the FULLY-OPEN composite height (thread rows + conversation +
-     composer) so the looping scene never grows the card in flow — content
-     below the stage must not shift as beats mount/reset (EXP-176 is
-     literally about the page not jumping). Measured at desktop card width;
-     the ≤480px block raises it for narrower, taller wrapping. */
-  min-height: 660px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: var(--bg);
-  /* The .web-root typography context the webui atoms assume. */
-  --ide-mono: var(--font-code);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 1.45;
-  letter-spacing: 0;
-  text-align: left;
-  color: var(--fg);
-}
-
-.co-card *,
-.co-card *::before,
-.co-card *::after {
-  box-sizing: border-box;
-}
-
-.co-card button {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  cursor: default;
-  text-align: left;
-}
-
-.co-card svg {
-  flex: none;
-}
-
-.co-threads {
-  flex: none;
-}
-
-.co-rowwrap {
-  overflow: hidden;
-}
-
-.co-rowwrap .web-sup-row {
-  display: block;
-  width: 100%;
-}
-
-.co-convo {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.co-msgs {
-  flex: none;
-  overflow: visible;
-}
-
-.co-bubblewrap {
-  display: flex;
-  flex-direction: column;
-}
-
-.co-composer {
-  display: block;
-  color: var(--fg-dim);
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* ── Cross-platform row ── */
@@ -522,53 +438,8 @@
 /* ── Responsive ── */
 
 @media (max-width: 960px) {
-  /* NO justify-items center here — shrink-to-fit sizing would let the
-     nowrap thread-preview text blow the card past the viewport; stretched
-     items keep the card at column width and the children center inside. */
-  .co-stage {
-    grid-template-columns: 1fr;
-  }
-
   .co-page {
     min-height: 460px;
-  }
-
-  .co-conn {
-    flex-direction: column;
-    padding: 4px 0;
-  }
-
-  .co-conn-line {
-    width: 1px;
-    height: 18px;
-  }
-
-  .co-conn-dot {
-    top: 0;
-    left: 50%;
-    margin-top: 0;
-    margin-left: -3.5px;
-  }
-
-  .co-stage.is-handoff:not(.is-static) .co-conn-dot {
-    animation: co-dot-y 0.7s ease-in forwards;
-  }
-
-  @keyframes co-dot-y {
-    0% {
-      top: 0;
-      opacity: 0;
-    }
-    15% {
-      opacity: 1;
-    }
-    85% {
-      opacity: 1;
-    }
-    100% {
-      top: calc(100% - 7px);
-      opacity: 0;
-    }
   }
 }
 
@@ -582,11 +453,6 @@
     right: 10px;
     bottom: 10px;
     left: 10px;
-  }
-
-  /* Narrower card → more bubble wrapping → taller open composite. */
-  .co-card {
-    min-height: 700px;
   }
 }
 

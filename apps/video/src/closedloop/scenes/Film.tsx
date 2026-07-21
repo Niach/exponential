@@ -330,7 +330,14 @@ const AppShell: React.FC<{ frame: number; dockH: number }> = ({
             ),
           }}
         >
-          <CenterEmptyState frame={frame} bottom={WIN.dockStrip} />
+          {/* Centered on the S3 camera crop's visible pane region (s1.9 @
+              507/331 → pane x 304–1012, y 96–615), not the full pane —
+              pane-centering landed it half off-frame (EXP-217). */}
+          <CenterEmptyState
+            frame={frame}
+            bottom={WIN.dockStrip}
+            contentCenter={{ x: 658, y: 352 }}
+          />
         </div>
       ) : null}
 

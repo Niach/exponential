@@ -12,7 +12,8 @@ import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
 import { MobileStartCodingSheet } from "../mobile/StartCodingSheet"
 
-/* Beat script (~13.5s loop). Beat 0 is the SSR resting state. */
+/* Beat script (~15.5s loop). Beat 0 is the SSR resting state — held long
+   so the phone's Start-coding sheet actually registers (EXP-217). */
 const B = {
   dialog: 0,
   armed: 1,
@@ -21,7 +22,7 @@ const B = {
   steer: 4,
   hold: 5,
 } as const
-const BEATS = [2400, 1000, 700, 3800, 3200, 2400]
+const BEATS = [4400, 1000, 700, 3800, 3200, 2400]
 
 /* The agent→phone infographic — stylized devices (plain CSS shapes, not
    product UI); every text label is fixed-px HTML so it stays readable at
