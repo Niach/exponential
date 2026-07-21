@@ -99,8 +99,7 @@ impl MembersPane {
         }
     }
 
-    /// Web: members joined with users, agent users filtered out
-    /// (`!userMap.get(member.userId)?.isAgent`).
+    /// Web: members joined with users.
     fn member_rows(&self, team_id: &str, cx: &App) -> Vec<MemberRow> {
         let collections = Store::global(cx).collections();
         let users = collections.users.read(cx);
@@ -112,12 +111,6 @@ impl MembersPane {
             .map(|member| MemberRow {
                 member: member.clone(),
                 user: users.get(&member.user_id).cloned(),
-            })
-            .filter(|row| {
-                row.user
-                    .as_ref()
-                    .map(|user| user.is_agent != Some(true))
-                    .unwrap_or(true)
             })
             .collect();
         rows.sort_by(|a, b| {

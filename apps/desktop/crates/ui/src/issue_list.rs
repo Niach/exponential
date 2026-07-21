@@ -1278,7 +1278,7 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
         .users
         .read(cx)
         .iter()
-        .filter(|user| member_ids.contains(&user.id) && user.is_agent != Some(true))
+        .filter(|user| member_ids.contains(&user.id))
         .cloned()
         .collect();
     users.sort_by_key(|user| {
