@@ -53,7 +53,7 @@ final class SyncApplyTests: XCTestCase {
             try IssueEntity(
                 id: id, boardId: "p1", number: 1, identifier: "EXP-1", title: title,
                 description: nil, status: "todo", priority: "none", assigneeId: nil,
-                creatorId: "u1", dueDate: nil, dueTime: nil, endTime: nil, sortOrder: 1.0,
+                creatorId: "u1", source: nil, dueDate: nil, dueTime: nil, endTime: nil, sortOrder: 1.0,
                 completedAt: nil, archivedAt: nil, duplicateOfId: nil, prUrl: nil,
                 prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
                 createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"

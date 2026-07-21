@@ -234,7 +234,10 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("status", .text).notNull().defaults(to: "backlog")
                 t.column("priority", .text).notNull().defaults(to: "none")
                 t.column("assignee_id", .text)
-                t.column("creator_id", .text).notNull()
+                // Nullable: a widget-sourced issue has no human creator.
+                t.column("creator_id", .text)
+                // Issue origin ('user' | 'widget').
+                t.column("source", .text)
                 t.column("due_date", .text)
                 t.column("due_time", .text)
                 t.column("end_time", .text)
@@ -277,8 +280,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("name", .text)
                 t.column("email", .text).notNull()
                 t.column("image", .text)
-                // Widget helpdesk bot marker — excluded from mention/assignee lists.
-                t.column("is_agent", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -497,6 +498,98 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v5 (users.is_agent removal): the users shape dropped `is_agent` (the
+        // synced users shape is now 6 columns). Drop the now-dead column from
+        // the local cache. Guarded on presence so fresh installs (which never
+        // create it above) and re-runs are both no-ops. SQLite 3.35+ (shipped
+        // on every supported iOS) supports ALTER TABLE ... DROP COLUMN, which
+        // GRDB's `t.drop(column:)` emits.
+        migrator.registerMigration("v5_drop_user_is_agent") { db in
+            guard try db.tableExists("users") else { return }
+            let existing = Set(try db.columns(in: "users").map(\.name))
+            if existing.contains("is_agent") {
+                try db.alter(table: "users") { t in
+                    t.drop(column: "is_agent")
+                }
+            }
+        }
+
+        // v6 (issues.creator_id nullable + issues.source): a widget-sourced
+        // issue has a NULL creator, which the old NOT NULL constraint would
+        // reject, and issues now carry a `source` origin column. SQLite can't
+        // relax a NOT NULL via ALTER, so rebuild the table (create nullable +
+        // source, copy rows, drop, rename), then force a full re-snapshot so
+        // already-synced rows re-arrive with `source`.
+        migrator.registerMigration("v6_issue_source_nullable_creator") { db in
+            guard try db.tableExists("issues") else { return }
+            let cols = try db.columns(in: "issues")
+            let creatorNotNull = cols.first { $0.name == "creator_id" }?.isNotNull ?? false
+            let hasSource = cols.contains { $0.name == "source" }
+            // Already converged (fresh installs get the v1 create shape).
+            if !creatorNotNull && hasSource { return }
+
+            try db.create(table: "issues_new") { t in
+                t.primaryKey("id", .text)
+                t.column("board_id", .text).notNull().indexed()
+                t.column("number", .integer).notNull().defaults(to: 0)
+                t.column("identifier", .text).notNull().defaults(to: "")
+                t.column("title", .text).notNull()
+                t.column("description", .text)
+                t.column("status", .text).notNull().defaults(to: "backlog")
+                t.column("priority", .text).notNull().defaults(to: "none")
+                t.column("assignee_id", .text)
+                // Nullable: a widget-sourced issue has no human creator.
+                t.column("creator_id", .text)
+                // Issue origin ('user' | 'widget').
+                t.column("source", .text)
+                t.column("due_date", .text)
+                t.column("due_time", .text)
+                t.column("end_time", .text)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                t.column("completed_at", .text)
+                t.column("archived_at", .text)
+                t.column("duplicate_of_id", .text)
+                t.column("pr_url", .text)
+                t.column("pr_number", .integer)
+                t.column("pr_state", .text)
+                t.column("branch", .text)
+                t.column("pr_merged_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            // Copy the shared columns (source is new → left NULL).
+            try db.execute(sql: """
+                INSERT INTO "issues_new" (
+                    "id", "board_id", "number", "identifier", "title", "description",
+                    "status", "priority", "assignee_id", "creator_id", "due_date",
+                    "due_time", "end_time", "sort_order", "completed_at", "archived_at",
+                    "duplicate_of_id", "pr_url", "pr_number", "pr_state", "branch",
+                    "pr_merged_at", "created_at", "updated_at"
+                )
+                SELECT
+                    "id", "board_id", "number", "identifier", "title", "description",
+                    "status", "priority", "assignee_id", "creator_id", "due_date",
+                    "due_time", "end_time", "sort_order", "completed_at", "archived_at",
+                    "duplicate_of_id", "pr_url", "pr_number", "pr_state", "branch",
+                    "pr_merged_at", "created_at", "updated_at"
+                FROM "issues"
+                """)
+
+            try db.drop(table: "issues")
+            try db.rename(table: "issues_new", to: "issues")
+
+            // Force a re-snapshot so already-synced rows re-arrive with the
+            // `source` column (mirrors the v2/v3/v4 refetch write).
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'issues'
                     """)
             }
         }

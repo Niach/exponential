@@ -220,6 +220,9 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let priority: String
     public let assigneeId: String?
     public let creatorId: String?
+    // Issue origin ('user' | 'widget'). Tolerant/nullable — a pre-rotation
+    // snapshot or an older row may omit it.
+    public let source: String?
     public let dueDate: String?
     public let dueTime: String?
     public let endTime: String?
@@ -251,6 +254,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         priority: String,
         assigneeId: String?,
         creatorId: String?,
+        source: String?,
         dueDate: String?,
         dueTime: String?,
         endTime: String?,
@@ -276,6 +280,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.priority = priority
         self.assigneeId = assigneeId
         self.creatorId = creatorId
+        self.source = source
         self.dueDate = dueDate
         self.dueTime = dueTime
         self.endTime = endTime
@@ -293,7 +298,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, description, status, priority, number, identifier, branch
+        case id, title, description, status, priority, number, identifier, branch, source
         case boardId = "board_id"
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
@@ -327,6 +332,7 @@ extension IssueEntity: Codable {
         priority = try container.decode(String.self, forKey: .priority)
         assigneeId = try container.decodeIfPresent(String.self, forKey: .assigneeId)
         creatorId = try container.decodeIfPresent(String.self, forKey: .creatorId)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
         dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
         dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
         endTime = try container.decodeIfPresent(String.self, forKey: .endTime)
@@ -541,7 +547,6 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
     public let name: String?
     public let email: String
     public let image: String?
-    public let isAgent: Bool
     public let createdAt: String
     public let updatedAt: String
 
@@ -550,7 +555,6 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         name: String?,
         email: String,
         image: String?,
-        isAgent: Bool = false,
         createdAt: String,
         updatedAt: String
     ) {
@@ -558,30 +562,22 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         self.name = name
         self.email = email
         self.image = image
-        self.isAgent = isAgent
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, email, image
-        case isAgent = "is_agent"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 
-    // is_agent comes off the Electric wire as a JSON string ("true"/"t"/"1"
-    // etc.), a native bool from tRPC/fixtures, or may be absent on an older row —
-    // decode it permissively through the type-aware wire helper (absent → the
-    // false default). Without the string form, a wire "true" silently defaulted
-    // to false and iOS never saw an agent user from a full-row message.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         email = try c.decode(String.self, forKey: .email)
         image = try c.decodeIfPresent(String.self, forKey: .image)
-        isAgent = c.decodeWireBool(forKey: .isAgent, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

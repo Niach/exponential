@@ -29,7 +29,7 @@ final class IssueDetailViewModel {
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
-        users.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+        users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
     var editingTitle: String = ""
     /// Single source of truth for the description editor (blocks + pending images).
@@ -199,8 +199,8 @@ final class IssueDetailViewModel {
             Task {
                 for try await users in userObs.values(in: pool) {
                     self.users = users
-                    // is_agent flips / member user rows arriving can change the
-                    // human-member count, which gates the assignee row (EXP-50).
+                    // Member user rows arriving can change the member count,
+                    // which gates the assignee row (EXP-50).
                     if let issue = self.issue {
                         self.refreshPermissions(for: issue)
                     }

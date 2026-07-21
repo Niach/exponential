@@ -66,7 +66,7 @@ struct CreateIssueSheet: View {
                             baseURL: instanceBaseURL,
                             accountId: accountId,
                             httpClient: deps.httpClient,
-                            mentionMembers: users.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+                            mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
                         )
 
                         // Metadata row
