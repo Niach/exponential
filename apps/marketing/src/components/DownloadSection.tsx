@@ -61,6 +61,25 @@ export function AppStoreLogo({ size = 20 }: { size?: number }) {
   )
 }
 
+export function GlobeLogo({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3.2 12h17.6" />
+      <path d="M12 3a13.4 13.4 0 0 1 0 18 13.4 13.4 0 0 1 0-18Z" />
+    </svg>
+  )
+}
+
 export function AndroidLogo({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -135,6 +154,16 @@ export const PLATFORMS: Platform[] = [
 export function DownloadIconRow() {
   return (
     <div className="dl-iconrow">
+      {/* The web app leads the row (EXP-217) — no download, straight to the
+          merged login/signup page. */}
+      <a
+        className={`dl-iconbtn`}
+        href={LINKS.app.login}
+        title={`Open the web app`}
+      >
+        <GlobeLogo size={16} />
+        <span>Web</span>
+      </a>
       {PLATFORMS.map((p) => {
         const Logo = p.logo
         // Desktop links go straight to the asset; mobile routes to /download/.

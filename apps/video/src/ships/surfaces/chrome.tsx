@@ -604,31 +604,60 @@ export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({ count = 
 export type CenterEmptyStateProps = {
   frame: number
   bottom?: number // window-local inset from the window's bottom edge (default: collapsed dock strip)
+  // WINDOW-LOCAL point to center the icon+text block on. A zoomed-in camera
+  // crops the pane, so pane-centering can land the block half off-frame
+  // (EXP-217) — callers pass the visible region's center instead.
+  contentCenter?: { x: number; y: number }
 }
 
-export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({ bottom = WIN.dockStrip }) => (
-  <div
-    style={{
-      position: "absolute",
-      left: WIN.rail + WIN.sidebar,
-      right: 0,
-      top: WIN.topBar + 29,
-      bottom,
-      backgroundColor: C.bg,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: UI_FONT,
-    }}
-  >
-    <span style={{ color: C.dim, display: "flex" }}>
-      <InboxIcon size={24} />
-    </span>
-    <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: C.text }}>Nothing open</div>
-    <div style={{ marginTop: 4, fontSize: 12, color: C.muted }}>Pick an issue from the sidebar — it opens as a tab here.</div>
-  </div>
-)
+export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({ bottom = WIN.dockStrip, contentCenter }) => {
+  const content = (
+    <>
+      <span style={{ color: C.dim, display: "flex" }}>
+        <InboxIcon size={24} />
+      </span>
+      <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: C.text }}>Nothing open</div>
+      <div style={{ marginTop: 4, fontSize: 12, color: C.muted }}>Pick an issue from the sidebar — it opens as a tab here.</div>
+    </>
+  )
+  const paneLeft = WIN.rail + WIN.sidebar
+  const paneTop = WIN.topBar + 29
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: paneLeft,
+        right: 0,
+        top: paneTop,
+        bottom,
+        backgroundColor: C.bg,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: contentCenter ? "flex-start" : "center",
+        fontFamily: UI_FONT,
+      }}
+    >
+      {contentCenter ? (
+        <div
+          style={{
+            position: "absolute",
+            left: contentCenter.x - paneLeft,
+            top: contentCenter.y - paneTop,
+            translate: "-50% -50%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          {content}
+        </div>
+      ) : (
+        content
+      )}
+    </div>
+  )
+}
 
 // ── Cursor anchors (window-local approximations for the top bar's right cluster;
 //    text is auto-laid-out, so treat these as ±4px) ───────────────────────────
