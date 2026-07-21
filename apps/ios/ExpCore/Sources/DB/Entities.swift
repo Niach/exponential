@@ -109,7 +109,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let color: String?
     public let sortOrder: Double?
     public let archivedAt: String?
-    public let githubRepo: String?
     // v4: the repo backing this board (server-only `repositories` registry
     // row). Synced ride-along on the boards shape — the uuid resolves to a
     // fullName/defaultBranch via the repositories tRPC API (cached per
@@ -123,9 +122,6 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
     // the boards shape; clients hide the destructive affordances for it.
     public let isProtected: Bool
-    // Display-only mirror of the preview run targets + feedback routing target
-    // (jsonb in Postgres). Stored as the raw JSON text; never executed.
-    public let previewConfig: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -138,11 +134,9 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         color: String?,
         sortOrder: Double?,
         archivedAt: String?,
-        githubRepo: String?,
         repositoryId: String?,
         icon: String? = nil,
         isProtected: Bool = false,
-        previewConfig: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -154,11 +148,9 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.color = color
         self.sortOrder = sortOrder
         self.archivedAt = archivedAt
-        self.githubRepo = githubRepo
         self.repositoryId = repositoryId
         self.icon = icon
         self.isProtected = isProtected
-        self.previewConfig = previewConfig
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -168,10 +160,8 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case teamId = "team_id"
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
-        case githubRepo = "github_repo"
         case repositoryId = "repository_id"
         case isProtected = "is_protected"
-        case previewConfig = "preview_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -195,11 +185,9 @@ extension BoardEntity: Codable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         archivedAt = try c.decodeIfPresent(String.self, forKey: .archivedAt)
-        githubRepo = try c.decodeIfPresent(String.self, forKey: .githubRepo)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         isProtected = c.decodeWireBool(forKey: .isProtected, default: false)
-        previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
@@ -318,8 +306,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     }
 }
 
-// Custom Codable for IssueEntity to handle JSONB description field
-// Electric delivers JSONB as raw JSON elements — could be object, string, or null
+// Custom Codable: number / sort_order / pr_number come off the Electric wire as
+// JSON strings (Postgres text) but as native scalars from tRPC/fixtures — decode
+// them through the type-aware wire helpers. `description` is plain GFM markdown
+// text (was jsonb `{ text }`) and decodes as an ordinary optional string.
 extension IssueEntity: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -328,6 +318,7 @@ extension IssueEntity: Codable {
         number = try container.decodeWireInt(forKey: .number)
         identifier = try container.decodeIfPresent(String.self, forKey: .identifier)
         title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
         status = try container.decode(String.self, forKey: .status)
         priority = try container.decode(String.self, forKey: .priority)
         assigneeId = try container.decodeIfPresent(String.self, forKey: .assigneeId)
@@ -347,21 +338,6 @@ extension IssueEntity: Codable {
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
-
-        // Handle JSONB description: could be a JSON object, string, or null
-        if container.contains(.description) {
-            if let stringValue = try? container.decode(String.self, forKey: .description) {
-                description = stringValue
-            } else if let _ = try? container.decodeNil(forKey: .description) {
-                description = nil
-            } else {
-                // Decode as raw JSON and stringify
-                let rawJSON = try container.decode(AnyCodableValue.self, forKey: .description)
-                description = rawJSON.jsonString
-            }
-        } else {
-            description = nil
-        }
     }
 }
 
@@ -695,8 +671,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let issueId: String
     public let teamId: String
     public let authorId: String
-    // JSON body — Electric delivers as object (e.g. {"text": "..."}). Stored
-    // as the stringified JSON; UI decodes lazily via getCommentBodyText().
+    // Plain GFM markdown (was jsonb `{ text }`) — stored and rendered verbatim.
     public let body: String?
     public let kind: String
     public let editedAt: String?
@@ -738,6 +713,9 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     }
 }
 
+// Custom Codable: a pre-rotation snapshot may omit `kind`, so it decodes
+// permissively with the schema default. `body` is plain GFM markdown text
+// (was jsonb `{ text }`) and decodes as an ordinary optional string.
 extension CommentEntity: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -745,24 +723,11 @@ extension CommentEntity: Codable {
         issueId = try container.decode(String.self, forKey: .issueId)
         teamId = try container.decode(String.self, forKey: .teamId)
         authorId = try container.decode(String.self, forKey: .authorId)
+        body = try container.decodeIfPresent(String.self, forKey: .body)
         kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? "regular"
         editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
-
-        // Handle JSONB body: object, string, or null
-        if container.contains(.body) {
-            if let stringValue = try? container.decode(String.self, forKey: .body) {
-                body = stringValue
-            } else if let _ = try? container.decodeNil(forKey: .body) {
-                body = nil
-            } else {
-                let rawJSON = try container.decode(AnyCodableValue.self, forKey: .body)
-                body = rawJSON.jsonString
-            }
-        } else {
-            body = nil
-        }
     }
 }
 
@@ -869,7 +834,8 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     // issue-anchored rows (their team resolves through the issue).
     public let teamId: String?
     // notification_type: issue_assigned|issue_comment|issue_status_changed|
-    //                    issue_mention|pr_opened|pr_merged|support_reply
+    //                    issue_mention|issue_created|pr_opened|pr_merged|
+    //                    support_reply
     public let type: String
     public let title: String
     public let body: String?
@@ -1061,26 +1027,18 @@ extension IssueEventEntity: Codable {
     }
 }
 
+// `issues.description` / `comments.body` are plain GFM markdown text — return
+// them verbatim (mirrors the web helper in packages/db-schema/src/domain.ts;
+// never parse: a body that happens to be a bare JSON object is legit content).
 public func getIssueDescriptionText(_ description: String?) -> String {
-    guard let description, let data = description.data(using: .utf8) else { return "" }
-    if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let text = dict["text"] as? String {
-        return text
-    }
-    return description
+    description ?? ""
 }
 
 public func getCommentBodyText(_ body: String?) -> String {
-    guard let body, let data = body.data(using: .utf8) else { return "" }
-    if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let text = dict["text"] as? String {
-        return text
-    }
-    // Fallback: if body was stored as a bare string
-    return body
+    body ?? ""
 }
 
-// MARK: - AnyCodableValue (for JSONB handling)
+// MARK: - AnyCodableValue (for issue_events.payload JSONB handling)
 
 public struct AnyCodableValue: Codable, Sendable {
     public let jsonString: String
