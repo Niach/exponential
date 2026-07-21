@@ -601,7 +601,14 @@ class EditorModel {
 
         val results = coroutineScope {
             drafts.map { d ->
-                async { d to runCatching { uploader(pendingImages[d.url]!!) }.getOrNull() }
+                async {
+                    d to runCatching { uploader(pendingImages[d.url]!!) }
+                        // Keep the reason so the Failed badge can explain WHY
+                        // (e.g. the neutral storage-full message) instead of a
+                        // bare retry state.
+                        .onFailure { error -> uploadErrors[d.id] = error.message ?: "Upload failed" }
+                        .getOrNull()
+                }
             }.awaitAll()
         }
 
@@ -611,6 +618,7 @@ class EditorModel {
                 setImageUrl(row.id, realUrl)
                 pendingImages.remove(row.url)
                 uploadStates[row.id] = ImageUploadState.Idle
+                uploadErrors.remove(row.id)
             } else {
                 uploadStates[row.id] = ImageUploadState.Failed
                 allOk = false

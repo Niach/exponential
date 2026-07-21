@@ -56,9 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +64,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.userDisplayName
@@ -89,7 +86,6 @@ private sealed interface SettingsConfirm {
     // isSelf distinguishes "Leave team" from "Remove member".
     data class RemoveMember(val row: MemberRow, val isSelf: Boolean) : SettingsConfirm
     data class ChangeRole(val row: MemberRow, val newRole: String) : SettingsConfirm
-    data class RevokeInvite(val invite: TeamInviteEntity) : SettingsConfirm
 }
 
 private data class ConfirmCopy(
@@ -152,11 +148,6 @@ private fun SettingsConfirmDialog(
                 )
             }
         }
-        is SettingsConfirm.RevokeInvite -> ConfirmCopy(
-            title = "Revoke invite?",
-            message = "The invite link stops working immediately.",
-            button = "Revoke",
-        )
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -169,7 +160,6 @@ private fun SettingsConfirmDialog(
                     is SettingsConfirm.DeleteLabel -> viewModel.deleteLabel(confirm.label.id)
                     is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
                     is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
-                    is SettingsConfirm.RevokeInvite -> viewModel.revokeInvite(confirm.invite.id)
                 }
                 onDismiss()
             }) {
@@ -228,7 +218,8 @@ fun TeamSettingsScreen(
         containerColor = Color.Transparent,
     ) { padding ->
         // One scrolling sectioned screen (iOS TeamSettingsView parity):
-        // Boards → Repositories → Members → Invite Members → Labels → Danger.
+        // Boards → Repositories → Members → Labels → Danger. Inviting members
+        // is a web-only flow (EXP-216) — the app never offers it.
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -240,7 +231,6 @@ fun TeamSettingsScreen(
             BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             RepositoriesSection(state, viewModel, isOwner)
             MembersSection(state, isOwner, onConfirm = { confirm = it })
-            if (isOwner) InviteSection(state, viewModel, onConfirm = { confirm = it })
             LabelsSection(state, viewModel, onConfirm = { confirm = it })
             DangerZone(state, viewModel, isOwner)
         }
@@ -699,109 +689,6 @@ private fun MembersSection(
                                     )
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Owner-only invite management (iOS TeamMembersSection.inviteSection): an
-// optional email field (EXP-188 — the server mails the invite link when set),
-// a generate/send button, the freshly-minted link with copy, then the
-// pending-invite list with revoke.
-@Composable
-private fun InviteSection(
-    state: TeamSettingsState,
-    viewModel: TeamSettingsViewModel,
-    onConfirm: (SettingsConfirm) -> Unit,
-) {
-    val clipboard = LocalClipboardManager.current
-    var inviteEmail by remember { mutableStateOf("") }
-    // Invite links are https deep links into the web invite page; a null
-    // instance URL disables Copy rather than minting a broken link.
-    val inviteBase = state.instanceUrl?.trimEnd('/')
-    val createdLink = state.createdInviteToken?.let { t -> inviteBase?.let { "$it/invite/$t" } }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Invite members")
-        Text(
-            "Send an invite by email, or generate a link to share yourself.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        OutlinedTextField(
-            value = inviteEmail,
-            onValueChange = { inviteEmail = it },
-            singleLine = true,
-            label = { Text("Email (optional)") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedButton(
-            onClick = {
-                viewModel.createInvite(email = inviteEmail.takeIf { it.isNotBlank() })
-                inviteEmail = ""
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (inviteEmail.isBlank()) "Generate invite link" else "Send invite")
-        }
-        if (state.createdInviteToken != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    createdLink ?: state.createdInviteToken,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = { createdLink?.let { clipboard.setText(AnnotatedString(it)) } },
-                    enabled = createdLink != null,
-                ) { Text("Copy") }
-            }
-        }
-
-        if (state.invites.isNotEmpty()) {
-            SectionHeader("Pending")
-            Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-                // No copy-link here: the bearer token is no longer synced
-                // (server columns allowlist — REV-4/14). The link's one-time
-                // surface is the freshly-minted create response above, matching
-                // iOS's inviteSection (role + expiry + revoke only).
-                state.invites.forEachIndexed { i, invite ->
-                    if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            // Emailed invites lead with the invited address
-                            // (EXP-188); link-only ones keep the role as the
-                            // primary line.
-                            Text(
-                                invite.email ?: invite.role,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                listOfNotNull(
-                                    invite.role.takeIf { invite.email != null },
-                                    "expires ${invite.expiresAt.substringBefore('T')}",
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        }
-                        IconButton(onClick = { onConfirm(SettingsConfirm.RevokeInvite(invite)) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Revoke invite")
                         }
                     }
                 }

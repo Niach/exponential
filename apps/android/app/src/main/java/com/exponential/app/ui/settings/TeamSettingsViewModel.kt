@@ -12,7 +12,6 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamMembersApi
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.auth.AuthRepository
@@ -22,7 +21,6 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
-import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -46,7 +44,6 @@ data class MemberRow(val member: TeamMemberEntity, val user: UserEntity?)
 data class TeamSettingsState(
     val team: TeamEntity? = null,
     val members: List<MemberRow> = emptyList(),
-    val invites: List<TeamInviteEntity> = emptyList(),
     val labels: List<LabelEntity> = emptyList(),
     val boards: List<BoardEntity> = emptyList(),
     // Server-only repositories registry, loaded over tRPC (never synced).
@@ -57,7 +54,6 @@ data class TeamSettingsState(
     val github: GithubReposResult? = null,
     val currentUserId: String? = null,
     val transient: String? = null,
-    val createdInviteToken: String? = null,
     val instanceUrl: String? = null,
     val teamDeleted: Boolean = false,
 ) {
@@ -75,7 +71,6 @@ class TeamSettingsViewModel @Inject constructor(
     private val selection: TeamSelection,
     private val holder: DatabaseHolder,
     private val membersApi: TeamMembersApi,
-    private val invitesApi: TeamInvitesApi,
     private val labelsApi: LabelsApi,
     private val teamsApi: TeamsApi,
     private val repositoriesApi: RepositoriesApi,
@@ -97,9 +92,6 @@ class TeamSettingsViewModel @Inject constructor(
     private val membersFlow = dbAndSelected.flatMapLatest { (db, id) ->
         if (db == null || id == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(id)
     }
-    private val invitesFlow = dbAndSelected.flatMapLatest { (db, id) ->
-        if (db == null || id == null) flowOf(emptyList()) else db.teamInviteDao().observeByTeam(id)
-    }
     private val labelsFlow = dbAndSelected.flatMapLatest { (db, id) ->
         if (db == null || id == null) flowOf(emptyList()) else db.labelDao().observeByTeam(id)
     }
@@ -108,7 +100,6 @@ class TeamSettingsViewModel @Inject constructor(
     }
 
     private val _transient = MutableStateFlow<String?>(null)
-    private val _createdInviteToken = MutableStateFlow<String?>(null)
     private val _teamDeleted = MutableStateFlow(false)
     private val _repos = MutableStateFlow<List<TeamRepo>>(emptyList())
     private val _github = MutableStateFlow<GithubReposResult?>(null)
@@ -159,7 +150,6 @@ class TeamSettingsViewModel @Inject constructor(
         listOf(
             teamFlow,
             membersFlow,
-            invitesFlow,
             labelsFlow,
             boardsFlow,
             _repos,
@@ -168,7 +158,6 @@ class TeamSettingsViewModel @Inject constructor(
             auth.userId,
             auth.instanceUrl,
             _transient,
-            _createdInviteToken,
             _teamDeleted,
         )
     ) { values ->
@@ -177,21 +166,18 @@ class TeamSettingsViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val members = values[1] as List<TeamMemberEntity>
         @Suppress("UNCHECKED_CAST")
-        val invites = values[2] as List<TeamInviteEntity>
+        val labels = values[2] as List<LabelEntity>
         @Suppress("UNCHECKED_CAST")
-        val labels = values[3] as List<LabelEntity>
+        val boards = values[3] as List<BoardEntity>
         @Suppress("UNCHECKED_CAST")
-        val boards = values[4] as List<BoardEntity>
+        val repos = values[4] as List<TeamRepo>
+        val github = values[5] as GithubReposResult?
         @Suppress("UNCHECKED_CAST")
-        val repos = values[5] as List<TeamRepo>
-        val github = values[6] as GithubReposResult?
-        @Suppress("UNCHECKED_CAST")
-        val users = values[7] as List<UserEntity>
-        val currentUserId = values[8] as String?
-        val instance = values[9] as String?
-        val transient = values[10] as String?
-        val invite = values[11] as String?
-        val deleted = values[12] as Boolean
+        val users = values[6] as List<UserEntity>
+        val currentUserId = values[7] as String?
+        val instance = values[8] as String?
+        val transient = values[9] as String?
+        val deleted = values[10] as Boolean
         TeamSettingsState(
             team = team,
             // Synthetic agent users (widget reporters etc.) are team
@@ -201,14 +187,12 @@ class TeamSettingsViewModel @Inject constructor(
             members = members
                 .map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) }
                 .filter { it.user?.isAgent != true },
-            invites = invites,
             labels = labels,
             boards = boards,
             repos = repos,
             github = github,
             currentUserId = currentUserId,
             transient = transient,
-            createdInviteToken = invite,
             instanceUrl = instance,
             teamDeleted = deleted,
         )
@@ -224,37 +208,6 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.remove(accountId, memberId) }
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the member") }
-    }
-
-    fun createInvite(role: String = DomainContract.teamRoleMember, email: String? = null) = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
-        val trimmedEmail = email?.trim()?.takeIf { it.isNotEmpty() }
-        runCatching { invitesApi.create(accountId, teamId, role, email = trimmedEmail) }
-            .onSuccess { result ->
-                _createdInviteToken.value = result.token
-                // Delivery feedback (EXP-188 invite-by-email): the invite row is
-                // created either way; a failed/unconfigured send falls back to
-                // sharing the link by hand.
-                if (trimmedEmail != null) {
-                    _transient.value = if (result.emailDelivered == true) {
-                        "Invite sent to $trimmedEmail"
-                    } else {
-                        "Couldn't email $trimmedEmail — share the invite link instead"
-                    }
-                }
-            }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't create the invite") }
-    }
-
-    fun revokeInvite(id: String) = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        runCatching { invitesApi.revoke(accountId, id) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't revoke the invite") }
-    }
-
-    fun consumeCreatedInvite() {
-        _createdInviteToken.value = null
     }
 
     fun deleteLabel(labelId: String) = viewModelScope.launch {
