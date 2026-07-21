@@ -92,6 +92,12 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
 private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
 private struct RepoTeamIdInput: Encodable { let teamId: String }
+private struct AddRepoInput: Encodable {
+    let teamId: String
+    let fullName: String
+    let defaultBranch: String
+    let `private`: Bool
+}
 
 public final class RepositoriesApi: Sendable {
     private let trpc: TrpcClient
@@ -131,6 +137,29 @@ public final class RepositoriesApi: Sendable {
             accountId: accountId,
             path: "repositories.list",
             input: RepoTeamIdInput(teamId: teamId)
+        )
+    }
+
+    /// Owner-only (server-enforced): register a repo reachable through one of
+    /// the team's linked GitHub accounts (`repositories.add`, web parity —
+    /// repositories-section.tsx). The `{repository}` response is discarded;
+    /// callers re-fetch the registry list.
+    public func add(
+        accountId: String,
+        teamId: String,
+        fullName: String,
+        defaultBranch: String,
+        isPrivate: Bool
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.add",
+            input: AddRepoInput(
+                teamId: teamId,
+                fullName: fullName,
+                defaultBranch: defaultBranch,
+                private: isPrivate
+            )
         )
     }
 

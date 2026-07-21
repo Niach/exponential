@@ -103,9 +103,19 @@ function GithubClaim() {
     }
   }, [ticket])
 
+  // Everything the user authorized is already linked to this team (a retry
+  // after a successful connect — EXP-225): the picker would render only
+  // disabled rows and a dead "Connect 0 accounts" button. Treat it as done —
+  // the OAuth callback already re-captured repo grants before landing here,
+  // so there is nothing left to do but hand the user back.
+  const allLinked =
+    !!preview &&
+    preview.installations.length > 0 &&
+    preview.installations.every((i) => i.alreadyLinked)
+
   // Success: hand the user back the same way installed.tsx does.
   useEffect(() => {
-    if (!done) return
+    if (!done && !allLinked) return
     if (preview?.mobile) {
       window.location.href = MOBILE_DEEP_LINK
       return
@@ -120,7 +130,7 @@ function GithubClaim() {
       }
     }, 600)
     return () => clearTimeout(timer)
-  }, [done, isPopup, preview?.mobile])
+  }, [done, allLinked, isPopup, preview?.mobile])
 
   const errorCopy = error
     ? (ERROR_COPY[error] ?? ERROR_COPY.exchange)
@@ -164,19 +174,26 @@ function GithubClaim() {
               </Button>
             </CardContent>
           </>
-        ) : done ? (
+        ) : done || allLinked ? (
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
                 <Check className="h-6 w-6" strokeWidth={2.5} />
               </div>
-              <CardTitle className="text-xl">GitHub connected</CardTitle>
+              <CardTitle className="text-xl">
+                {done ? `GitHub connected` : `Already connected`}
+              </CardTitle>
               <CardDescription>
+                {!done
+                  ? `These GitHub accounts are already connected to this team. `
+                  : ``}
                 {preview?.mobile
                   ? `Exponential is opening. You can close this tab and return to the app.`
                   : isPopup
                     ? `Returning you to Exponential — you can close this tab if it stays open.`
-                    : `The selected GitHub accounts are now connected. Continue to pick a repository.`}
+                    : done
+                      ? `The selected GitHub accounts are now connected. Continue to pick a repository.`
+                      : `Continue to pick a repository.`}
               </CardDescription>
             </CardHeader>
             <CardContent>

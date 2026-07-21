@@ -56,6 +56,9 @@ data class TeamSettingsState(
     val transient: String? = null,
     val instanceUrl: String? = null,
     val teamDeleted: Boolean = false,
+    // Active account id — the repo picker sheet (GithubRepoPickerSheet) takes
+    // it as a parameter (EXP-225).
+    val accountId: String? = null,
 ) {
     // Owner-gated controls key off this (hidden for non-owners — web parity).
     val isOwner: Boolean
@@ -159,6 +162,7 @@ class TeamSettingsViewModel @Inject constructor(
             auth.instanceUrl,
             _transient,
             _teamDeleted,
+            auth.activeAccountId,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -178,6 +182,7 @@ class TeamSettingsViewModel @Inject constructor(
         val instance = values[8] as String?
         val transient = values[9] as String?
         val deleted = values[10] as Boolean
+        val accountId = values[11] as String?
         TeamSettingsState(
             team = team,
             // Synthetic agent users (widget reporters etc.) are team
@@ -195,6 +200,7 @@ class TeamSettingsViewModel @Inject constructor(
             transient = transient,
             instanceUrl = instance,
             teamDeleted = deleted,
+            accountId = accountId,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamSettingsState())
 
@@ -269,6 +275,16 @@ class TeamSettingsViewModel @Inject constructor(
         runCatching { repositoriesApi.list(accountId, teamId) }
             .onSuccess { _repos.value = it }
             .onFailure { _transient.value = it.message }
+    }
+
+    // Owner-only: register a repo picked from the linked GitHub accounts in the
+    // registry (repositories.add — web parity, EXP-225), then re-fetch.
+    fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = selection.selectedId.value ?: return@launch
+        runCatching { repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't add the repository") }
+        refreshRepos()
     }
 
     // Remove a repo from the registry. Blocked server-side (CONFLICT) while any

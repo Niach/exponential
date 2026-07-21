@@ -24,11 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -69,6 +72,7 @@ import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.onboarding.CreateBoardSheet
+import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
@@ -363,6 +367,7 @@ private fun RepositoriesSection(
     isOwner: Boolean,
 ) {
     val context = LocalContext.current
+    var showAddRepo by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Repositories")
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
@@ -385,6 +390,51 @@ private fun RepositoriesSection(
                 )
             }
         }
+        // The GitHub accounts linked to THIS team (EXP-225, web parity:
+        // repositories-section.tsx's installation chips). Visible to every
+        // member — without it a successful connect looked like a no-op, since
+        // the registry stays empty until a repo is added. A warning glyph marks
+        // an installation whose grants were never captured (needsReauth).
+        val installations = state.github?.installations.orEmpty()
+        if (installations.isNotEmpty()) {
+            Text(
+                "Connected GitHub accounts",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                installations.forEach { inst ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.glassButton().padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(
+                            if (inst.accountType == "Organization") Icons.Filled.Business else Icons.Filled.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                        Text(
+                            inst.accountLogin ?: "Installation ${inst.installationId}",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                        )
+                        if (inst.needsReauth) {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription = "Needs reconnect",
+                                modifier = Modifier.size(14.dp),
+                                tint = Color(0xFFEAB308),
+                            )
+                        }
+                    }
+                }
+            }
+        }
         if (isOwner) {
             val github = state.github
             if (github != null && github.configured) {
@@ -397,6 +447,20 @@ private fun RepositoriesSection(
                 // existed, or OAuth revoked) flags `needsReauth` — same button,
                 // extra notice.
                 val connectUrl = github.connectUrl ?: github.installUrl
+                // Register a repo from the linked accounts into the registry
+                // (EXP-225 — the native counterpart of web's "Connect
+                // repository" dialog; repositories.add is owner-only
+                // server-side). Only offered once an account is linked.
+                if (github.installations.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = { showAddRepo = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add repository")
+                    }
+                }
                 if (github.installations.any { it.needsReauth }) {
                     Text(
                         "GitHub needs to be reconnected to load this team's repositories.",
@@ -456,6 +520,22 @@ private fun RepositoriesSection(
                 }
             }
         }
+    }
+
+    // Same picker sheet as board creation (RepositorySelector); here the pick
+    // lands in the registry directly via repositories.add. The sheet calls
+    // onPick then dismisses itself on selection.
+    val accountId = state.accountId
+    val teamId = state.team?.id
+    if (showAddRepo && accountId != null && teamId != null) {
+        GithubRepoPickerSheet(
+            accountId = accountId,
+            teamId = teamId,
+            onPick = { repo ->
+                viewModel.addRepository(repo.fullName, repo.defaultBranch, repo.isPrivate)
+            },
+            onDismiss = { showAddRepo = false },
+        )
     }
 }
 
