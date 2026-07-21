@@ -4,6 +4,7 @@ import { issueSubscribers, teamMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { isUserAdmin } from "@/lib/admin"
 
 // v7: the self-service `join` procedure is gone with public teams —
@@ -129,6 +130,9 @@ export const teamMembersRouter = router({
             )
           )
       })
+      // Post-commit (never inside the tx — a concurrent shape renewal would
+      // repopulate the cache with pre-commit membership).
+      invalidateMembershipCaches()
 
       return { ok: true }
     }),

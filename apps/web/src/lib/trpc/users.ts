@@ -4,6 +4,8 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { apikeys, users } from "@/db/auth-schema"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInTeams } from "@/lib/team-membership"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
   captureAppleTokens,
@@ -117,6 +119,9 @@ export const usersRouter = router({
             eq(apikeys.referenceId, ctx.session.user.id)
           )
         )
+      // The revoked key must stop resolving in-process immediately (REV2-7 —
+      // resolveSession caches token-credential sessions for 30s).
+      invalidateSessionCache()
       return { ok: true }
     }),
 
@@ -187,6 +192,10 @@ export const usersRouter = router({
         }
         await tx.delete(users).where(eq(users.id, userId))
       })
+      // Post-commit: the users-row cascade dropped memberships (and possibly
+      // whole solo teams), and the dead user's tokens must stop resolving.
+      invalidateMembershipCaches()
+      invalidateSessionCache()
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the account half-deleted.

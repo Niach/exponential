@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { assertCanInviteMember } from "@/lib/billing"
 import { isUserAdmin } from "@/lib/admin"
 import { sendTeamInviteEmail } from "@/lib/email"
@@ -112,7 +113,7 @@ export const teamInvitesRouter = router({
         await assertCanInviteMember(precheck.teamId)
       }
 
-      return await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const [invite] = await tx
           .select()
           .from(teamInvites)
@@ -209,6 +210,12 @@ export const teamInvitesRouter = router({
 
         return { team, alreadyMember: false, txId }
       })
+      // Post-commit (never inside the tx — a concurrent shape renewal would
+      // repopulate the cache with pre-commit membership).
+      if (!result.alreadyMember) {
+        invalidateMembershipCaches()
+      }
+      return result
     }),
 
   list: authedProcedure

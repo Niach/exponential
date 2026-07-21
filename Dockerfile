@@ -36,6 +36,15 @@ COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.
 COPY --from=builder /app/packages packages
 RUN bun install --frozen-lockfile
 RUN touch apps/web/.env
+# REV2-6: Bun caps simultaneous outbound fetch() at 256 per process. Every
+# Electric shape long-poll is proxied through one fetch() held open ~20-60s
+# (apps/web/src/lib/electric-proxy.ts), and each fully-synced client holds 14
+# of them — the default saturates at ~18 clients and then stalls ALL other
+# outbound fetches (GitHub App tokens, push relay, Creem, steer relay).
+# 65336 is Bun's documented maximum; it is a cap, not a preallocation. See the
+# header comment in apps/web/src/server-bun.ts and
+# packages/electric-protocol/README.md ("Infra knobs").
+ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336
 EXPOSE 3000
 # start-period covers the migrate step before the server begins listening.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

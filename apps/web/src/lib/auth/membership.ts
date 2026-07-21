@@ -9,6 +9,10 @@ import {
 } from "@/db/schema"
 import type { TeamMember } from "@/db/schema"
 import type { TeamRole } from "@/lib/domain"
+import {
+  readableUserIdsCache,
+  userTeamIdsCache,
+} from "@/lib/auth/membership-cache"
 
 export type TeamMemberRecord = Pick<
   TeamMember,
@@ -62,6 +66,14 @@ export async function getReadableUserIdsInTeams(
   userId: string | null
 ): Promise<string[]> {
   if (!userId) return []
+  // REV2-7: cached ~10s (see membership-cache.ts) — every users-shape
+  // long-poll renewal re-runs these two queries otherwise.
+  return readableUserIdsCache.get(userId, () =>
+    queryReadableUserIdsInTeams(userId)
+  )
+}
+
+async function queryReadableUserIdsInTeams(userId: string): Promise<string[]> {
   const db = await getDb()
   const membershipRows = await db
     .select({ teamId: teamMembers.teamId })
@@ -77,6 +89,12 @@ export async function getReadableUserIdsInTeams(
 }
 
 export async function getUserTeamIds(userId: string): Promise<string[]> {
+  // REV2-7: cached ~10s (see membership-cache.ts) — 12 of the 14 shape
+  // long-poll renewals per client per cycle resolve this same list.
+  return userTeamIdsCache.get(userId, () => queryUserTeamIds(userId))
+}
+
+async function queryUserTeamIds(userId: string): Promise<string[]> {
   const db = await getDb()
   const rows = await db
     .select({ teamId: teamMembers.teamId })

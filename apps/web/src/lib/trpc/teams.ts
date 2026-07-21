@@ -9,6 +9,7 @@ import {
 import { attachments, teams, teamMembers } from "@/db/schema"
 import { and, asc, eq, ne } from "drizzle-orm"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { randomBytes } from "crypto"
 import { getFeedbackTeamId } from "@/lib/bootstrap-cloud"
 import {
@@ -110,7 +111,7 @@ export const teamsRouter = router({
       const userId = ctx.session.user.id
       await assertCanCreateTeam(userId)
 
-      return await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const slug = await uniqueSlug(tx, input.name)
 
         const txId = await generateTxId(tx)
@@ -131,6 +132,10 @@ export const teamsRouter = router({
 
         return { team, txId }
       })
+      // Post-commit (never inside the tx — a concurrent shape renewal would
+      // repopulate the cache with pre-commit membership).
+      invalidateMembershipCaches()
+      return result
     }),
 
   // Teams are always private — there are no visibility flags here.
@@ -204,6 +209,8 @@ export const teamsRouter = router({
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         return { ok: true, txId }
       })
+      // Post-commit: the cascade dropped every member's teamMembers row.
+      invalidateMembershipCaches()
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the team half-deleted.

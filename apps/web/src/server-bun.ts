@@ -14,6 +14,18 @@
 // typed `Omit<Bun.Serve.Options, "fetch">` and is forwarded directly
 // into Bun.serve, so this is the framework-supported extension point —
 // no patching of generated bundles, no runtime monkey-patching.
+//
+// A second Bun knob lives OUTSIDE this file (REV2-6): Bun also caps
+// simultaneous OUTBOUND fetch() calls at 256 per process
+// (BUN_CONFIG_MAX_HTTP_REQUESTS). The Electric shape proxy
+// (lib/electric-proxy.ts) holds one outbound fetch open ~20-60s per live
+// long-poll and every synced client runs 14 of them, so the default
+// saturates at ~18 clients — and once saturated, EVERY other outbound
+// fetch (GitHub App tokens, push relay, Creem, steer relay) queues behind
+// the long-polls. The var is read by the Bun runtime at process start, so
+// it cannot be set here; the web Dockerfile bakes
+// ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336 (Bun's max), and the boot check
+// below warns when the compiled server runs without it.
 
 // @ts-expect-error — virtual module resolved by Nitro at build time.
 import "#nitro-internal-pollyfills"
@@ -64,6 +76,23 @@ startCodingSessionSweepScheduler()
 // staleness window — the server-side backstop for sign-outs whose best-effort
 // unregister never landed and for old client builds that never unregister.
 startFcmTokenSweepScheduler()
+
+// REV2-6 warn-only boot check — see the header comment. Bun read
+// BUN_CONFIG_MAX_HTTP_REQUESTS before this code ran, so a bad value can only
+// be reported, not repaired. 4096 (~290 synced clients) is the "clearly
+// intentional" floor: the official image (65336) and any sane manual override
+// stay silent. The `!(x >= 4096)` form catches unset/NaN/low in one condition.
+const outboundFetchCap = Number(process.env.BUN_CONFIG_MAX_HTTP_REQUESTS)
+if (!(outboundFetchCap >= 4096)) {
+  console.warn(
+    `[server-bun] BUN_CONFIG_MAX_HTTP_REQUESTS=` +
+      `${process.env.BUN_CONFIG_MAX_HTTP_REQUESTS ?? `<unset — Bun defaults to 256>`}. ` +
+      `Each synced client holds 14 concurrent Electric long-poll fetches through ` +
+      `this process; ~18 clients saturate Bun's 256 default and stall ALL other ` +
+      `outbound fetches. Export BUN_CONFIG_MAX_HTTP_REQUESTS=65336 in the process ` +
+      `environment before starting bun (the official Docker image already does).`
+  )
+}
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000
