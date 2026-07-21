@@ -1,0 +1,1 @@
+Members: cleaner per-row action menus, avatars for teammates, and name-less accounts now show their email instead of a blank.

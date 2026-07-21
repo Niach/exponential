@@ -1,2 +1,4 @@
-• Error messages are now clear and readable instead of raw server responses
-• Back out of a live agent session with a swipe or the back button — it reconnects cleanly when you return
+• Sign in with Apple now runs natively, so your name is captured on first sign-in
+• Teammate avatars and cleaner per-member action menus in team settings
+• Accounts without a name now show their email instead of a blank
+• Repositories settings tidied into a single GitHub card
