@@ -12,6 +12,7 @@ import {
 } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { generateWidgetKey } from "@/lib/widget/key"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
@@ -534,5 +535,10 @@ export async function maybePromoteNewUser(
       .insert(teamMembers)
       .values({ teamId: feedbackTeamId, userId, role: `owner` })
       .onConflictDoNothing()
+    // This runs post-boot (from afterEmailVerification) for possibly-warm
+    // accounts, so the membership cache may hold the pre-insert set.
+    // (addAdminsAsPublicTeamOwners above needs no invalidation — it runs
+    // once at boot, before any traffic could populate the cache.)
+    invalidateMembershipCaches()
   }
 }

@@ -56,7 +56,13 @@ vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: (...args: unknown[]) => assertTeamMember(...args),
 }))
 
+// REV2-7: remove must clear the shape-scope membership caches post-commit.
+vi.mock(`@/lib/auth/membership-cache`, () => ({
+  invalidateMembershipCaches: vi.fn(),
+}))
+
 import { teamMembersRouter } from "@/lib/trpc/team-members"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { issueSubscribers, teamMembers } from "@/db/schema"
 
 const MEMBER_ID = `22222222-2222-4222-8222-222222222222`
@@ -73,6 +79,7 @@ beforeEach(() => {
   selectQueue.length = 0
   deletes.length = 0
   assertTeamMember.mockClear()
+  vi.mocked(invalidateMembershipCaches).mockClear()
 })
 
 describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
@@ -87,6 +94,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes).toHaveLength(2)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
+    // REV2-7: membership caches cleared post-commit.
+    expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
   })
 
   it(`self-leave: same cleanup, without requiring owner rights`, async () => {
@@ -115,5 +124,7 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
       callerFor(`user-a`).remove({ memberId: MEMBER_ID })
     ).rejects.toThrow(TRPCError)
     expect(deletes).toHaveLength(0)
+    // REV2-7: no membership change → no cache invalidation.
+    expect(invalidateMembershipCaches).not.toHaveBeenCalled()
   })
 })

@@ -24,6 +24,8 @@ import {
   type PlanTier,
 } from "@/lib/billing"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { getFeedbackTeamId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import {
@@ -186,6 +188,10 @@ export const adminRouter = router({
         }
         await tx.delete(users).where(eq(users.id, input.userId))
       })
+      // Post-commit: the users-row cascade dropped memberships (and possibly
+      // whole solo teams), and the dead user's tokens must stop resolving.
+      invalidateMembershipCaches()
+      invalidateSessionCache()
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the user half-deleted.
@@ -827,6 +833,8 @@ export const adminRouter = router({
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         return { ok: true, txId }
       })
+      // Post-commit: the cascade dropped every member's teamMembers row.
+      invalidateMembershipCaches()
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the team half-deleted.
