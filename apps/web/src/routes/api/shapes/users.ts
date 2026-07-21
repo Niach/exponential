@@ -16,17 +16,9 @@ export const Route = createFileRoute(`/api/shapes/users`)({
         // native schemas don't have them, and a partial update touching one
         // used to abort the batch before the offset saved and crash-loop the
         // sync engine. isAdmin comes from the session, never this shape.
-        columns: [
-          `id`,
-          `name`,
-          `email`,
-          `image`,
-          `created_at`,
-          `updated_at`,
-        ],
+        columns: [`id`, `name`, `email`, `image`, `created_at`, `updated_at`],
         // The users shape syncs FULL rows (including email), so its scope is
-        // membership-only: co-members of teams the caller has joined.
-        // Public-team viewers who aren't members get no user rows —
+        // membership-only: co-members of teams the caller has joined —
         // see getReadableUserIdsInTeams for the rationale.
         getWhere: async (userId) => {
           const sharedUserIds = await getReadableUserIdsInTeams(userId)

@@ -66,11 +66,7 @@ export const notificationTypeEnum = pgEnum(
   notificationTypeValues
 )
 
-export const teamMemberRoleEnum = pgEnum(
-  `team_member_role`,
-  teamRoleValues
-)
-
+export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 
@@ -155,7 +151,9 @@ export const creem_subscriptions = pgTable(`creem_subscriptions`, {
     onDelete: `set null`,
   }),
   seats: integer(`seats`).default(1).notNull(),
-  status: text(`status`).$defaultFn(() => `pending`).notNull(),
+  status: text(`status`)
+    .$defaultFn(() => `pending`)
+    .notNull(),
   periodStart: timestamp(`period_start`),
   periodEnd: timestamp(`period_end`),
   cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
@@ -367,8 +365,8 @@ export const issueLabels = pgTable(
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
     // Denormalized from issue→board by populate_issue_child_board_id so
-    // anonymous feedback-board shape filters stay board-scoped (Electric
-    // where clauses are single-table).
+    // member shape filters stay board-scoped and trash-aware (via
+    // getUserBoardIds; Electric where clauses are single-table).
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
@@ -392,7 +390,7 @@ export const comments = pgTable(
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
     // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters.
+    // board-scoped, trash-aware member shape filters (getUserBoardIds).
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
@@ -412,7 +410,8 @@ export const comments = pgTable(
 )
 
 // The live "coding now" record — one row per interactive desktop coding
-// session (one terminal tab + one `claude` child). SYNCED as an Electric shape
+// session (one terminal tab + one agent CLI child — claude/codex/pi,
+// EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Two session subjects: issue-scoped
@@ -433,9 +432,9 @@ export const codingSessions = pgTable(
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
     // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters. Nullable: a
-    // batch-scoped session spans boards (never anonymous-visible — the
-    // anonymous board_id clause can't match NULL).
+    // board-scoped, trash-aware member shape filters (getUserBoardIds).
+    // Nullable: a batch-scoped session spans boards — the member shape's
+    // `board_id IS NULL` arm keeps those rows syncing.
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
@@ -477,8 +476,8 @@ export const attachments = pgTable(
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
     // Denormalized from issue→board (populate_issue_child_board_id) for
-    // board-scoped anonymous feedback-board shape filters + the public
-    // attachment-bytes read path.
+    // board-scoped, trash-aware member shape filters (getUserBoardIds).
+    // Attachment byte reads are member-only too (EXP-180).
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
@@ -1120,18 +1119,12 @@ export const createTeamSchema = createInsertSchema(teams).omit({
   updatedAt: true,
 })
 
-export const selectTeamMemberSchema = createSelectSchema(
-  teamMembers,
-  {
-    role: teamRoleSchema,
-  }
-)
-export const selectTeamInviteSchema = createSelectSchema(
-  teamInvites,
-  {
-    role: teamRoleSchema,
-  }
-)
+export const selectTeamMemberSchema = createSelectSchema(teamMembers, {
+  role: teamRoleSchema,
+})
+export const selectTeamInviteSchema = createSelectSchema(teamInvites, {
+  role: teamRoleSchema,
+})
 export const selectBoardSchema = createSelectSchema(boards)
 export const createBoardSchema = createInsertSchema(boards).omit({
   id: true,
@@ -1178,9 +1171,12 @@ export const selectAttachmentSchema = createSelectSchema(attachments)
 
 export const selectNotificationSchema = createSelectSchema(notifications)
 
-export const selectIssueSubscriberSchema = createSelectSchema(issueSubscribers, {
-  source: subscriberSourceSchema,
-})
+export const selectIssueSubscriberSchema = createSelectSchema(
+  issueSubscribers,
+  {
+    source: subscriberSourceSchema,
+  }
+)
 
 export const selectIssueEventSchema = createSelectSchema(issueEvents, {
   type: issueEventTypeSchema,

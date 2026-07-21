@@ -71,9 +71,7 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 // Extract `owner/repo` from a GitHub PR URL
 // (https://github.com/owner/repo/pull/123). Returns null if it doesn't match.
 function repoFromPrUrl(prUrl: string): string | null {
-  const match = prUrl.match(
-    /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
-  )
+  const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
   return match ? match[1] : null
 }
 
@@ -208,11 +206,7 @@ export const issuesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const board = await getBoardTeamId(input.boardId)
-      await resolveTeamAccess(
-        ctx.session.user.id,
-        board.teamId,
-        `create_issue`
-      )
+      await resolveTeamAccess(ctx.session.user.id, board.teamId, `create_issue`)
 
       // The assignee is INPUT, not the actor — validate it against the
       // issue's team or any member could push-notify arbitrary users.
@@ -375,10 +369,7 @@ export const issuesRouter = router({
       // issue's team or any member could push-notify arbitrary users.
       // null (unassign) and undefined (untouched) both skip the check.
       if (updates.assigneeId != null) {
-        await assertAssigneeInTeam(
-          updates.assigneeId,
-          issueContext.teamId
-        )
+        await assertAssigneeInTeam(updates.assigneeId, issueContext.teamId)
       }
 
       const deletedStorageKeys: string[] = []
@@ -431,10 +422,7 @@ export const issuesRouter = router({
               .innerJoin(boards, eq(boards.id, issues.boardId))
               .where(eq(issues.id, updates.duplicateOfId))
               .limit(1)
-            if (
-              !canonical ||
-              canonical.teamId !== issueContext.teamId
-            ) {
+            if (!canonical || canonical.teamId !== issueContext.teamId) {
               throw new TRPCError({
                 code: `BAD_REQUEST`,
                 message: `Canonical issue must be in the same team`,
@@ -577,7 +565,9 @@ export const issuesRouter = router({
       // mention ping when both happen in the same update.
       const mentionNotifyIds =
         previousAssigneeId !== issue.assigneeId
-          ? newlyMentionedUserIds.filter((userId) => userId !== issue.assigneeId)
+          ? newlyMentionedUserIds.filter(
+              (userId) => userId !== issue.assigneeId
+            )
           : newlyMentionedUserIds
       if (mentionNotifyIds.length > 0) {
         fireAndForgetIssueMentionNotify({
@@ -959,8 +949,8 @@ export const issuesRouter = router({
   mergePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
-      // Member-gated issue write (v7: every member is invited/trusted — the
-      // old public-team moderator clamp is gone with self-service joins).
+      // Member-gated issue write (EXP-180: membership is invite-only and
+      // every member is trusted — no extra role clamp).
       const { teamId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
@@ -1028,10 +1018,7 @@ export const issuesRouter = router({
       // GitHub connection must not keep authorizing PR writes through an old
       // prUrl.
       if (
-        !(await isInstallationLinkedToTeam(
-          teamId,
-          resolved.installationId
-        ))
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -1169,10 +1156,7 @@ export const issuesRouter = router({
       // GitHub connection must not keep authorizing PR writes through an old
       // prUrl.
       if (
-        !(await isInstallationLinkedToTeam(
-          teamId,
-          resolved.installationId
-        ))
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -1256,10 +1240,7 @@ export const issuesRouter = router({
       const resolved = await resolveRepoInstallationTokenInfo(repo)
       if (
         resolved &&
-        !(await isInstallationLinkedToTeam(
-          teamId,
-          resolved.installationId
-        ))
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
       ) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
