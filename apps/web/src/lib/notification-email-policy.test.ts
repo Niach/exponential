@@ -6,6 +6,7 @@ import {
   emailTypeAllowed,
   isDigestDue,
   isDigestRetryDue,
+  isDigestSendable,
   isResolutionStatus,
   planEmailDigest,
   shouldSendReporterResolution,
@@ -101,6 +102,32 @@ function plan(
     now: NOW,
   })
 }
+
+describe(`isDigestSendable`, () => {
+  const sendable = {
+    email: `member@example.com`,
+    emailVerified: true,
+    isMember: true,
+  }
+
+  it(`allows a verified member address`, () => {
+    expect(isDigestSendable(sendable)).toBe(true)
+  })
+
+  it(`blocks an addressless recipient`, () => {
+    expect(isDigestSendable({ ...sendable, email: null })).toBe(false)
+    expect(isDigestSendable({ ...sendable, email: `` })).toBe(false)
+  })
+
+  it(`blocks an unverified address`, () => {
+    expect(isDigestSendable({ ...sendable, emailVerified: false })).toBe(false)
+  })
+
+  it(`blocks a recipient who lost team access (REV2-14: ex-members must not
+      be digested content the shape hides from them)`, () => {
+    expect(isDigestSendable({ ...sendable, isMember: false })).toBe(false)
+  })
+})
 
 describe(`isDigestDue`, () => {
   it(`is due with no prior digest, whatever the cadence`, () => {
