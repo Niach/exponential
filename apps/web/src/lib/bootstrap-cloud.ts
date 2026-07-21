@@ -110,9 +110,7 @@ export function getFeedbackTeamId(): Promise<string | null> {
 // widget config targets it and collapseLegacyFeedbackBoard folds the legacy
 // board into it — all of which must work on already-bootstrapped DBs where
 // the board was never seeded. Idempotent; returns the board id.
-async function ensureDogfoodBoard(
-  publicTeamId: string
-): Promise<string> {
+async function ensureDogfoodBoard(publicTeamId: string): Promise<string> {
   const [existing] = await db
     .select({
       id: boards.id,
@@ -120,10 +118,7 @@ async function ensureDogfoodBoard(
     })
     .from(boards)
     .where(
-      and(
-        eq(boards.teamId, publicTeamId),
-        eq(boards.slug, DOGFOOD_BOARD_SLUG)
-      )
+      and(eq(boards.teamId, publicTeamId), eq(boards.slug, DOGFOOD_BOARD_SLUG))
     )
     .limit(1)
   if (existing) {
@@ -159,9 +154,7 @@ async function ensureDogfoodBoard(
 // Upsert the dogfood repositories row and return its id. Runs on the internal
 // bootstrap path only — no GitHub App validation, `installation_id` left null
 // (self-heal fills it). Idempotent via the (team_id, full_name) unique.
-async function ensurePublicRepository(
-  publicTeamId: string
-): Promise<string> {
+async function ensurePublicRepository(publicTeamId: string): Promise<string> {
   const [inserted] = await db
     .insert(repositories)
     .values({
@@ -203,11 +196,8 @@ async function ensurePublicRepository(
 // link-gate. Idempotent; a GitHub outage or unconfigured App just logs and
 // retries next boot.
 async function ensurePublicRepositoryInstallation(publicTeamId: string) {
-  const {
-    githubAppConfigured,
-    getInstallation,
-    installationIdForRepo,
-  } = await import(`@/lib/integrations/github-app`)
+  const { githubAppConfigured, getInstallation, installationIdForRepo } =
+    await import(`@/lib/integrations/github-app`)
   if (!githubAppConfigured()) return
   try {
     const installationId = await installationIdForRepo(PUBLIC_REPO_FULL_NAME)
@@ -271,12 +261,7 @@ async function ensureFeedbackTeamComp(publicTeamId: string) {
   await db
     .update(teams)
     .set({ compTier: `business` })
-    .where(
-      and(
-        eq(teams.id, publicTeamId),
-        sql`${teams.compTier} IS NULL`
-      )
-    )
+    .where(and(eq(teams.id, publicTeamId), sql`${teams.compTier} IS NULL`))
 }
 
 // The dogfood team always offers support: force the team helpdesk
@@ -287,12 +272,7 @@ async function ensureTeamHelpdesk(publicTeamId: string) {
   await db
     .update(teams)
     .set({ helpdeskEnabled: true })
-    .where(
-      and(
-        eq(teams.id, publicTeamId),
-        eq(teams.helpdeskEnabled, false)
-      )
-    )
+    .where(and(eq(teams.id, publicTeamId), eq(teams.helpdeskEnabled, false)))
 }
 
 // EXP-180 retired the dedicated Support board (tickets are standalone
@@ -376,10 +356,7 @@ async function ensureFeedbackWidgetConfig(publicTeamId: string) {
     .select({ id: boards.id })
     .from(boards)
     .where(
-      and(
-        eq(boards.teamId, publicTeamId),
-        eq(boards.slug, DOGFOOD_BOARD_SLUG)
-      )
+      and(eq(boards.teamId, publicTeamId), eq(boards.slug, DOGFOOD_BOARD_SLUG))
     )
     .limit(1)
   if (!board) return
@@ -410,10 +387,7 @@ async function collapseLegacyFeedbackBoard(publicTeamId: string) {
     .where(
       and(
         eq(boards.teamId, publicTeamId),
-        inArray(boards.slug, [
-          LEGACY_FEEDBACK_BOARD_SLUG,
-          DOGFOOD_BOARD_SLUG,
-        ])
+        inArray(boards.slug, [LEGACY_FEEDBACK_BOARD_SLUG, DOGFOOD_BOARD_SLUG])
       )
     )
   const legacy = rows.find((r) => r.slug === LEGACY_FEEDBACK_BOARD_SLUG)
@@ -483,9 +457,7 @@ async function promoteInitialAdmins() {
 // index. Apply them on every boot — every statement is idempotent
 // (CREATE OR REPLACE / CREATE … IF NOT EXISTS).
 async function applyCustomSql() {
-  for (const [name, content] of [
-    [`0001_triggers.sql`, triggersSql],
-  ] as const) {
+  for (const [name, content] of [[`0001_triggers.sql`, triggersSql]] as const) {
     if (!content) continue
     try {
       await db.execute(sql.raw(content))
@@ -563,9 +535,4 @@ export async function maybePromoteNewUser(
       .values({ teamId: feedbackTeamId, userId, role: `owner` })
       .onConflictDoNothing()
   }
-}
-
-// Useful for tests / admin tools.
-export async function listInitialAdminEmails() {
-  return parseAdminEmails()
 }
