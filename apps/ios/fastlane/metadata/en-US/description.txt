@@ -13,8 +13,8 @@ One report, all the way to shipped.
 Native everywhere. The iOS app syncs live with your web and desktop clients over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
 
 Built for the way you actually work:
-• Fast issue tracking with statuses, priorities, labels, due dates, and recurring issues.
-• Projects backed one-to-one by a Git repository.
+• Fast issue tracking with statuses, priorities, labels, and due dates.
+• Boards you can back with a GitHub repository to code on.
 • Rich Markdown descriptions and comments with @mentions, task lists, and inline images.
 • Push notifications for mentions, assignments, and PR activity.
 • Steer a coding session running on your desktop straight from your phone.

@@ -1,3 +1,12 @@
-No demo credentials are required. On the first screen, tap the "Exponential Cloud" option, then "Continue with Apple" (or "Continue with Google") — signing in with any Apple ID automatically creates an account and a personal workspace, ready to use.
+No demo credentials are required — sign-up is self-serve with Sign in with Apple, and any Apple ID works.
 
-The instance URL field on the same screen exists because Exponential is open source and can be self-hosted; the cloud option is the default consumer path.
+Walkthrough:
+1. On the first screen, tap "Continue with Apple" (or "Continue with Google"). That creates the account automatically; there is no password step. The instance URL field on that screen exists because Exponential is open source and can be self-hosted — the cloud is the default and needs no input.
+2. You land on "Set up your team". Type any name (e.g. "Test Team") and tap "Create team"; you become its owner. The "Join a team" box beside it is for people who received an invite link and is not needed here.
+3. Next, "Create your first board" — enter a name (e.g. "Inbox") and continue. Connecting a GitHub repository is optional; skip it.
+4. You are now in the app. Create an issue with "+", open it to set status, priority, labels, and due date, and add comments.
+
+Notes:
+- Teammates are invited from the web app, not from iOS.
+- There are no purchases, subscriptions, or paid features in the iOS app; billing exists only on the web.
+- Coding sessions on the Agents tab are started from our desktop app and are not needed to evaluate the iOS app.

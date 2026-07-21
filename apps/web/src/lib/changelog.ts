@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-invites-from-the-web`,
+    date: `2026-07-21`,
+    title: `Invites now live on the web`,
+    summary: `Team invites are created here on the web — invite links still open and join right inside the mobile apps.`,
+    body: `- **Invite from the web** — the iOS and Android apps no longer create invites. Invite teammates under Settings → Members, and the link you share still opens and joins directly in the app.
+- **Clearer storage errors on mobile** — when a team is out of attachment storage, image uploads now say so and offer a retry instead of retrying forever.
+- **Privacy policy refresh** — it now covers Sign in with Apple, the legal bases and your rights under the GDPR, international transfers, and the 48-hour board trash.`,
+  },
+  {
     id: `2026-07-agents-need-you`,
     date: `2026-07-21`,
     title: `See when an agent needs you`,
