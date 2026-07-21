@@ -3,8 +3,49 @@ on:
   push:
     tags: ["desktop-v*"]
   workflow_dispatch:
+    inputs:
+      channels:
+        description: Which channels to build (test builds — tag pushes always build both)
+        type: choice
+        default: both
+        options:
+          - both
+          - production
+          - staging
 
 jobs:
+  # Compute the build matrix. Tag pushes (and the default dispatch) build BOTH
+  # channels; a `workflow_dispatch` with channels=production/staging builds only
+  # that channel — so testing a prod build no longer waits on the staging legs.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - id: gen
+        shell: bash
+        run: |
+          channels="${{ github.event.inputs.channels || 'both' }}"
+          # Two channels (production → app.exponential.at, staging →
+          # next.exponential.at) × three OSes. Staging builds pass `--features
+          # staging` and carry a distinct app id so both can coexist. NB: the
+          # Linux runner's glibc (ubuntu-22.04 → 2.35) is the AppImage's
+          # compatibility floor (forward-compatible only).
+          all='[
+            {"os":"macos-14","target":"aarch64-apple-darwin","channel":"production"},
+            {"os":"macos-14","target":"aarch64-apple-darwin","channel":"staging"},
+            {"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","channel":"production"},
+            {"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","channel":"staging"},
+            {"os":"windows-latest","target":"x86_64-pc-windows-msvc","channel":"production"},
+            {"os":"windows-latest","target":"x86_64-pc-windows-msvc","channel":"staging"}
+          ]'
+          if [ "$channels" = "both" ]; then
+            include="$(echo "$all" | jq -c .)"
+          else
+            include="$(echo "$all" | jq -c --arg c "$channels" '[.[] | select(.channel==$c)]')"
+          fi
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
   # Gate 1: the committed Rust generated files must match contract.json / tokens.json.
   codegen-drift:
     runs-on: ubuntu-latest
@@ -31,36 +72,12 @@ jobs:
           command: check licenses
 
   build:
-    needs: [codegen-drift, license-audit]
+    needs: [codegen-drift, license-audit, setup]
     strategy:
       fail-fast: false
-      matrix:
-        # Two channels (production → app.exponential.at, staging →
-        # next.exponential.at) × two OSes. Staging builds pass `--features
-        # staging` and carry a distinct app id so both can coexist.
-        include:
-          - os: macos-14 # arm64
-            target: aarch64-apple-darwin
-            channel: production
-          - os: macos-14
-            target: aarch64-apple-darwin
-            channel: staging
-          # NB: the runner's glibc is the AppImage's compatibility floor
-          # (glibc is forward-compatible only). ubuntu-22.04 → glibc 2.35,
-          # covering current mainstream distros. For older targets, run this
-          # job in an `ubuntu:20.04` container instead.
-          - os: ubuntu-22.04 # x86_64
-            target: x86_64-unknown-linux-gnu
-            channel: production
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            channel: staging
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            channel: production
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            channel: staging
+      # Built by the `setup` job — one leg per (OS × selected channel). See the
+      # matrix comment there.
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     # Windows is the newest, least-proven target — don't let it block a
     # macOS/Linux release. Remove once a few releases have shipped green.
