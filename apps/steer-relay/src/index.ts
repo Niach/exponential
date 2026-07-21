@@ -31,9 +31,19 @@ if (!RELAY_SECRET) {
 
 export const hub = new Hub()
 
-// ── Per-IP rate limiting (connects + admin calls; mirrors push-relay) ─────────
+// ── Per-IP rate limiting (WS upgrades; ticket-valid and failed-auth split) ────
 
-const RATE_LIMIT_MAX = 120
+// Two buckets per IP, mirroring push-relay's failed-auth-only philosophy:
+// failed-auth upgrades (missing/invalid ticket, unknown role) get a small
+// brute-force budget, while ticket-VALID upgrades count against a separate,
+// much larger one — so a garbage flood can never starve legitimate viewers,
+// and several teammates behind one NAT egress can't 429 each other, but a
+// leaked-ticket replay flood still hits a ceiling. Without TRUST_PROXY every
+// request keys to the shared `unknown` fallback, which makes the split
+// load-bearing: one hostile client would otherwise drain the single global
+// bucket for every user of the instance.
+const RATE_LIMIT_FAILED_MAX = 120
+const RATE_LIMIT_VALID_MAX = 1_200
 const RATE_LIMIT_WINDOW_MS = 60_000
 
 interface RateBucket {
@@ -43,21 +53,21 @@ interface RateBucket {
 
 const rateBuckets = new Map<string, RateBucket>()
 
-function rateLimitHit(ip: string): boolean {
+function rateLimitHit(key: string, max: number): boolean {
   const now = Date.now()
-  const bucket = rateBuckets.get(ip)
+  const bucket = rateBuckets.get(key)
   if (!bucket || bucket.resetAt <= now) {
-    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
     return true
   }
   bucket.count += 1
-  return bucket.count <= RATE_LIMIT_MAX
+  return bucket.count <= max
 }
 
 setInterval(() => {
   const now = Date.now()
-  for (const [ip, bucket] of rateBuckets) {
-    if (bucket.resetAt <= now) rateBuckets.delete(ip)
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) rateBuckets.delete(key)
   }
 }, RATE_LIMIT_WINDOW_MS).unref?.()
 
@@ -253,22 +263,32 @@ export default {
       if (!RELAY_SECRET) {
         return new Response(`Relay not configured`, { status: 503 })
       }
-      if (!rateLimitHit(clientIp(req.headers))) {
-        return new Response(`Rate limit exceeded`, { status: 429 })
-      }
+      // Ticket verification runs BEFORE any rate accounting: HS256 verify is
+      // cheap, and which bucket a connect belongs to depends on the verdict —
+      // counting unauthenticated garbage against the same budget as valid
+      // tickets would let one hostile client 429 every legitimate user.
       const ticket = url.searchParams.get(`ticket`)
       const verdict = ticket
         ? verifySteerTicket(ticket, RELAY_SECRET)
         : ({ ok: false, reason: `malformed` } as const)
       if (!verdict.ok) {
+        if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
+          return new Response(`Rate limit exceeded`, { status: 429 })
+        }
         return new Response(`Unauthorized: ${verdict.reason}`, { status: 401 })
       }
       // Role allowlist: signature-valid tickets can still carry roles this
       // relay no longer serves (EXP-90 removed the anonymous `public_viewer`
       // audience) — a stale instance that still mints one gets 401, never a
-      // socket.
+      // socket. Counts as failed auth: it never gets a socket either.
       if (![`control`, `publisher`, `viewer`].includes(verdict.claims.role)) {
+        if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
+          return new Response(`Rate limit exceeded`, { status: 429 })
+        }
         return new Response(`Unauthorized: unknown_role`, { status: 401 })
+      }
+      if (!rateLimitHit(`valid:${clientIp(req.headers)}`, RATE_LIMIT_VALID_MAX)) {
+        return new Response(`Rate limit exceeded`, { status: 429 })
       }
       const ok = server.upgrade(req, { data: { claims: verdict.claims } })
       return ok
