@@ -5,6 +5,7 @@ pub const ISSUE_STATUS_VALUES: &[&str] = &["backlog", "todo", "in_progress", "in
 pub const ISSUE_STATUS_DISPLAY_ORDER: &[&str] = &["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"];
 pub const ISSUE_PRIORITY_VALUES: &[&str] = &["none", "urgent", "high", "medium", "low"];
 pub const ISSUE_PRIORITY_DISPLAY_ORDER: &[&str] = &["urgent", "high", "medium", "low", "none"];
+pub const ISSUE_SOURCE_VALUES: &[&str] = &["user", "widget"];
 pub const TEAM_ROLE_VALUES: &[&str] = &["owner", "member"];
 pub const BOARD_ICON_VALUES: &[&str] = &["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"];
 pub const COMMENT_KIND_VALUES: &[&str] = &["regular"];
@@ -23,6 +24,8 @@ pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "hi
 
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
 
+pub const ISSUE_SOURCE_USER: &str = "user";
+pub const ISSUE_SOURCE_WIDGET: &str = "widget";
 pub const TEAM_ROLE_OWNER: &str = "owner";
 pub const TEAM_ROLE_MEMBER: &str = "member";
 pub const COMMENT_KIND_REGULAR: &str = "regular";

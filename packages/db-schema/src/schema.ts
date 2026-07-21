@@ -30,6 +30,8 @@ import {
   issueEventTypeValues,
   issuePrioritySchema,
   issuePriorityValues,
+  issueSourceSchema,
+  issueSourceValues,
   issueStatusSchema,
   issueStatusValues,
   type NotificationType,
@@ -56,6 +58,8 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory({
 export const issueStatusEnum = pgEnum(`issue_status`, issueStatusValues)
 
 export const issuePriorityEnum = pgEnum(`issue_priority`, issuePriorityValues)
+
+export const issueSourceEnum = pgEnum(`issue_source`, issueSourceValues)
 
 export const notificationTypeEnum = pgEnum(
   `notification_type`,
@@ -270,9 +274,18 @@ export const issues = pgTable(
     assigneeId: text(`assignee_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
-    creatorId: text(`creator_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
+    // NULLABLE: widget-filed feedback issues have no user creator (EXP: the
+    // synthetic per-widget bot user was removed). `set null` (not cascade):
+    // deleting a user now leaves their authored issues in place with a null
+    // creator instead of erasing them.
+    creatorId: text(`creator_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // Where the issue came from: `user` (a signed-in member filed it — the
+    // default) or `widget` (filed anonymously through the embeddable feedback
+    // widget; pairs with a null creator_id). Clients key the "Feedback widget"
+    // origin off this.
+    source: issueSourceEnum().notNull().default(`user`),
     dueDate: date(`due_date`),
     dueTime: time(`due_time`),
     endTime: time(`end_time`),
@@ -472,9 +485,12 @@ export const attachments = pgTable(
     commentId: uuid(`comment_id`).references(() => comments.id, {
       onDelete: `set null`,
     }),
-    uploaderId: text(`uploader_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
+    // NULLABLE: widget screenshot attachments have no user uploader (the
+    // synthetic per-widget bot user was removed). Still `cascade` for real
+    // uploaders — deleting a user reclaims the attachments they uploaded.
+    uploaderId: text(`uploader_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
     filename: varchar({ length: 500 }).notNull(),
     contentType: varchar(`content_type`, { length: 255 }).notNull(),
     sizeBytes: bigint(`size_bytes`, { mode: `number` }).notNull(),
@@ -921,14 +937,6 @@ export const widgetConfigs = pgTable(
     // Appearance/behavior overrides served to the widget loader:
     // { buttonLabel?, accentColor?, position?, emailRequired? }.
     formConfig: jsonb(`form_config`).$type<Record<string, unknown>>(),
-    // Synthetic bot user (users.isAgent) that owns issues created through this
-    // widget — the ONE system user the v2 cuts preserve (unrelated to the
-    // deleted desktop-agent identity). `restrict` because issues.creator_id
-    // cascades on user delete — deleting this user would silently delete every
-    // issue the widget ever created. Config deletion keeps the user around.
-    widgetUserId: text(`widget_user_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `restrict` }),
     createdByUserId: text(`created_by_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
@@ -1135,6 +1143,7 @@ export const selectIssueSchema = createSelectSchema(issues, {
   description: issueDescriptionSchema.nullable(),
   priority: issuePrioritySchema,
   status: issueStatusSchema,
+  source: issueSourceSchema,
   prState: prStateSchema.nullable(),
 })
 export const createIssueSchema = createInsertSchema(issues).omit({

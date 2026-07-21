@@ -8,6 +8,7 @@ public enum DomainContract {
     public static let issueStatusDisplayOrder: [String] = ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
+    public static let issueSourceValues: [String] = ["user", "widget"]
     public static let teamRoleValues: [String] = ["owner", "member"]
     public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle"]
     public static let commentKindValues: [String] = ["regular"]
@@ -26,6 +27,8 @@ public enum DomainContract {
 
     public static let codingSessionStaleMs: Int = 7200000
 
+    public static let issueSourceUser: String = "user"
+    public static let issueSourceWidget: String = "widget"
     public static let teamRoleOwner: String = "owner"
     public static let teamRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"

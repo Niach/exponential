@@ -9,6 +9,9 @@
     "values": ["none", "urgent", "high", "medium", "low"],
     "displayOrder": ["urgent", "high", "medium", "low", "none"]
   },
+  "issueSource": {
+    "values": ["user", "widget"]
+  },
   "teamRole": {
     "values": ["owner", "member"]
   },
