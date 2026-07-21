@@ -78,8 +78,10 @@ class AuthApi @Inject constructor(
                 setBody(SignInRequest(email = email, password = password))
             }
             if (!response.status.isSuccess()) {
-                val body = response.bodyAsText()
-                return SignInResult.Failure("HTTP ${response.status.value}: $body")
+                // Rendered verbatim on the login screen — show Better Auth's
+                // `message` field, never the raw response body (EXP-219).
+                val message = authErrorMessage(response.bodyAsText())
+                return SignInResult.Failure(message ?: "Sign-in failed (HTTP ${response.status.value})")
             }
 
             // Better Auth's email sign-in returns either { token, user } when bearer
@@ -115,6 +117,15 @@ class AuthApi @Inject constructor(
             SignInResult.Failure(e.message ?: "Network error")
         }
     }
+
+    /**
+     * Extract the user-presentable `message` from a Better Auth error body
+     * (`{"code": "...", "message": "Invalid email or password"}`).
+     */
+    private fun authErrorMessage(body: String): String? = runCatching {
+        (json.parseToJsonElement(body) as? JsonObject)
+            ?.get("message")?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     // Redeem an oauth-return PKCE code for the session token (REV-13):
     // POST /api/mobile-oauth-exchange with the code from the deep link and the

@@ -85,8 +85,10 @@ public final class AuthApi: Sendable {
             let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
 
             guard (200...299).contains(response.statusCode) else {
-                let text = String(data: data, encoding: .utf8) ?? ""
-                return .failure(message: "HTTP \(response.statusCode): \(text)")
+                // Rendered verbatim on the login screen — show Better Auth's
+                // `message` field, never the raw response body (EXP-219).
+                return .failure(message: Self.authErrorMessage(from: data)
+                    ?? "Sign-in failed (HTTP \(response.statusCode))")
             }
 
             let parsed = try JSONDecoder().decode(SignInResponseBody.self, from: data)
@@ -109,6 +111,14 @@ public final class AuthApi: Sendable {
         } catch {
             return .failure(message: error.localizedDescription)
         }
+    }
+
+    /// Extract the user-presentable `message` from a Better Auth error body
+    /// (`{"code": "...", "message": "Invalid email or password"}`).
+    private static func authErrorMessage(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = root["message"] as? String, !message.isEmpty else { return nil }
+        return message
     }
 
     public func fetchAuthConfig(instanceUrl: String) async throws -> AuthConfig {

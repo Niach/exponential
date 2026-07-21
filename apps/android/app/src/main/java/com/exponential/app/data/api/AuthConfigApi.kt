@@ -31,8 +31,9 @@ class AuthConfigApi @Inject constructor(
         return try {
             val response = client.get(url)
             if (!response.status.isSuccess()) {
-                val body = runCatching { response.bodyAsText() }.getOrNull().orEmpty().take(200)
-                return Result.failure(IllegalStateException("HTTP ${response.status.value} from $url${if (body.isNotEmpty()) ": $body" else ""}"))
+                // Rendered on the login screen — keep the status + url for
+                // diagnosing a wrong instance URL, never the raw body (EXP-219).
+                return Result.failure(IllegalStateException("HTTP ${response.status.value} from $url"))
             }
             // Decode from text (like TrpcClient) instead of the typed
             // response.body(): some servers/proxies drop the Content-Type
@@ -43,7 +44,10 @@ class AuthConfigApi @Inject constructor(
             try {
                 Result.success(json.decodeFromString<AuthConfig>(text))
             } catch (e: Exception) {
-                Result.failure(IllegalStateException("Decode failed (${e::class.simpleName}: ${e.message ?: "no message"}); body=${text.take(200)}"))
+                // Exception class only — the raw body must not reach the login
+                // screen (EXP-219), and kotlinx decoding exceptions embed an
+                // input snippet in their message, so that stays out too.
+                Result.failure(IllegalStateException("Decode failed (${e::class.simpleName})"))
             }
         } catch (e: Exception) {
             // Surface the concrete exception class — Ktor often throws with a null/empty message

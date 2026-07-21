@@ -1,9 +1,11 @@
 import Foundation
 
 // Digs a clean, user-facing message (and the tRPC error code) out of a failed
-// tRPC call so surfaces can show the server's message instead of the raw
-// "tRPC HTTP 412: {json}" and can distinguish plan-cap failures — the native
-// analogue of web's isPlanLimitError / err.message.
+// tRPC call so surfaces can show the server's message instead of a raw
+// response body and can distinguish plan-cap failures — the native
+// analogue of web's isPlanLimitError / err.message. Since EXP-219 the same
+// extraction also backs `TrpcError.errorDescription`, so a raw body can never
+// reach the screen through plain `localizedDescription` either.
 
 /// Prefix every plan-limit throw in the server's lib/billing.ts uses, alongside
 /// the `PRECONDITION_FAILED` tRPC code. Kept in sync with the web
@@ -15,12 +17,13 @@ public let planLimitMessagePrefix = "Your plan allows"
 /// iOS app (App Store 3.1.1 — EXP-216).
 public let planLimitNeutralMessage = "This team has reached its plan limit."
 
-private struct TrpcErrorBody {
+struct TrpcErrorBody {
     let message: String
     let code: String?
 
-    /// Parse the tRPC error envelope, tolerating both the non-batched
-    /// `{ "error": {...} }` form and the batched `[ { "error": {...} } ]` form.
+    /// Parse the tRPC error envelope, tolerating the non-batched
+    /// `{ "error": {...} }` form, the batched `[ { "error": {...} } ]` form,
+    /// and a nested `{ "error": { "json": {...} } }` payload.
     static func parse(_ body: String) -> TrpcErrorBody? {
         guard let data = body.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
@@ -33,9 +36,18 @@ private struct TrpcErrorBody {
             errorObj = nil
         }
         guard let error = errorObj else { return nil }
-        let message = (error["message"] as? String) ?? ""
-        let code = (error["data"] as? [String: Any])?["code"] as? String
+        let payload = (error["json"] as? [String: Any]) ?? error
+        let message = (payload["message"] as? String) ?? ""
+        let code = (payload["data"] as? [String: Any])?["code"] as? String
         return TrpcErrorBody(message: message, code: code)
+    }
+
+    /// The server's user-presentable `message` (plan-cap copy swapped for the
+    /// neutral text), or nil when the body carries no extractable message —
+    /// the structural sanitizer behind `TrpcError.errorDescription` (EXP-219).
+    static func userMessage(fromBody body: String) -> String? {
+        guard let parsed = parse(body), !parsed.message.isEmpty else { return nil }
+        return parsed.isPlanLimit ? planLimitNeutralMessage : parsed.message
     }
 
     /// Plan-cap detection (`PRECONDITION_FAILED` + the "Your plan allows"

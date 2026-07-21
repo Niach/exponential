@@ -65,6 +65,37 @@ final class TrpcErrorInfoTests: XCTestCase {
         XCTAssertEqual(error.trpcUserMessage, error.localizedDescription)
     }
 
+    // EXP-219: `localizedDescription` is sanitized at the source, so the many
+    // surfaces that render it directly can never show a raw response body.
+
+    func testLocalizedDescriptionShowsServerMessage() {
+        let error = TrpcError.httpError(404, envelope(message: "Board not found", code: "NOT_FOUND"))
+        XCTAssertEqual(error.localizedDescription, "Board not found")
+    }
+
+    func testLocalizedDescriptionNeutralizesPlanLimitCopy() {
+        let body = envelope(
+            message: "Your plan allows up to 1 seat. Add seats or upgrade to invite more teammates.",
+            code: "PRECONDITION_FAILED"
+        )
+        let error = TrpcError.httpError(412, body)
+        XCTAssertEqual(error.localizedDescription, planLimitNeutralMessage)
+        XCTAssertFalse(error.localizedDescription.localizedCaseInsensitiveContains("upgrade"))
+    }
+
+    func testLocalizedDescriptionNeverEchoesUnparsableBody() {
+        let error = TrpcError.httpError(502, "<html>bad gateway</html>")
+        XCTAssertEqual(error.localizedDescription, "Request failed (HTTP 502)")
+    }
+
+    func testNestedJsonEnvelopeIsParsed() {
+        let error = TrpcError.httpError(
+            412, "{\"error\": {\"json\": {\"message\": \"No repository linked to this board\"}}}"
+        )
+        XCTAssertEqual(error.localizedDescription, "No repository linked to this board")
+        XCTAssertEqual(error.trpcUserMessage, "No repository linked to this board")
+    }
+
     func testNonTrpcErrorFallsBackToLocalizedDescription() {
         let error = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "boom"])
         XCTAssertFalse(error.isPlanLimitError)

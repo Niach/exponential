@@ -159,8 +159,6 @@ struct ShareComposeView: View {
                 try await submitter.submit(payload: submitted, accountId: board.accountId, boardId: boardId)
                 onComplete()
             } catch {
-                // trpcUserMessage, not localizedDescription: the raw tRPC body
-                // carries plan-cap purchase language (EXP-216).
                 self.error = error.trpcUserMessage
                 submitting = false
             }

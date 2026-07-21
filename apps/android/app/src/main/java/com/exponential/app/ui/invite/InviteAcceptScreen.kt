@@ -63,8 +63,6 @@ class InviteAcceptViewModel @Inject constructor(
             _state.value = _state.value.copy(loading = true, error = null)
             runCatching { invitesApi.getByToken(accountId, token) }
                 .onSuccess { _state.value = _state.value.copy(loading = false, preview = it) }
-                // trpcErrorMessage, not it.message: the raw exception embeds
-                // the whole tRPC body (incl. seat-cap billing copy — EXP-216).
                 .onFailure {
                     _state.value = _state.value.copy(
                         loading = false,
