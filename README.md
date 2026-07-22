@@ -43,9 +43,11 @@ packages/
 git clone https://github.com/Niach/exponential
 cd exponential
 cp .env.example .env             # set BETTER_AUTH_SECRET + GitHub App creds
+ln -s ../../.env apps/web/.env   # the web app reads env from apps/web/
 cp Caddyfile.example Caddyfile   # gitignored — compose bind-mounts it
 openssl rand -hex 32 > infra/garage/secrets/rpc_secret
 openssl rand -base64 32 > infra/garage/secrets/admin_token
+chmod 600 infra/garage/secrets/rpc_secret infra/garage/secrets/admin_token  # garage refuses world-readable secrets
 docker compose up -d             # postgres, electric, garage, caddy
 bun install && bun migrate
 docker exec -i exponential-postgres-1 \
