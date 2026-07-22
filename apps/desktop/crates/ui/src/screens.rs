@@ -13,13 +13,14 @@
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, Styled,
-    Subscription, Window,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
+    menu::{ContextMenuExt as _, PopupMenuItem},
     skeleton::Skeleton,
     tab::{Tab, TabBar},
     v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, Size,
@@ -244,6 +245,46 @@ impl ScreensPanel {
         cx.notify();
     }
 
+    /// Close every tab except `ix` (EXP-235 context menu). The kept tab
+    /// becomes active — the active tab may be among the closed ones.
+    fn close_other_tabs(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if ix >= self.tabs.len() || self.tabs.len() <= 1 {
+            return;
+        }
+        let keep = self.tabs[ix].clone();
+        // Same EXP-68 flush as `close_tab`: a closing issue tab may hold a
+        // pending description edit.
+        if self
+            .tabs
+            .iter()
+            .any(|tab| *tab != keep && matches!(tab, Screen::IssueDetail { .. }))
+        {
+            self.issue_detail
+                .update(cx, |detail, cx| detail.flush_description(cx));
+        }
+        self.tabs.retain(|tab| *tab == keep);
+        set_screen(window, cx, Some(keep));
+        cx.notify();
+    }
+
+    /// Close every tab (EXP-235 context menu) and clear the center.
+    fn close_all_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if self
+            .tabs
+            .iter()
+            .any(|tab| matches!(tab, Screen::IssueDetail { .. }))
+        {
+            self.issue_detail
+                .update(cx, |detail, cx| detail.flush_description(cx));
+        }
+        self.tabs.clear();
+        set_screen(window, cx, None);
+        cx.notify();
+    }
+
     /// Undock the tab at `ix` into its own native window (EXP-65): open (or
     /// focus) the undocked window, then close the tab here — the screen now
     /// lives in that window until reattached.
@@ -256,6 +297,8 @@ impl ScreensPanel {
     }
 
     fn render_tab_bar(&self, active_ix: usize, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let panel = cx.entity().downgrade();
+        let tab_count = self.tabs.len();
         TabBar::new("center-tabs")
             .with_size(Size::Small)
             .selected_index(active_ix)
@@ -266,7 +309,61 @@ impl ScreensPanel {
                 }
             }))
             .children(self.tabs.iter().enumerate().map(|(ix, screen)| {
-                Tab::new().group(TAB_GROUP).label(screen_title(screen, cx)).suffix(
+                Tab::new()
+                    .group(TAB_GROUP)
+                    .label(screen_title(screen, cx))
+                    // Middle-click closes (EXP-235). `on_aux_click` so the
+                    // TabBar-level `on_click` keeps owning primary clicks.
+                    .on_aux_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        if event.is_middle_click() {
+                            cx.stop_propagation();
+                            this.close_tab(ix, window, cx);
+                        }
+                    }))
+                    // Right-click context menu (EXP-235). TabBar children must
+                    // BE `Tab`s, so the ContextMenu wrapper can't wrap the tab
+                    // itself — an absolute overlay rides the unused `prefix`
+                    // slot instead (a direct child of the tab's relative base,
+                    // so `inset_0` spans the whole tab). Its only listener is
+                    // the right-mouse one; other clicks fall through.
+                    .prefix(
+                        div()
+                            .id(("center-tab-context", ix))
+                            .absolute()
+                            .inset_0()
+                            .context_menu({
+                                let panel = panel.clone();
+                                move |menu, _window, _cx| {
+                                    let close = panel.clone();
+                                    let close_others = panel.clone();
+                                    let close_all = panel.clone();
+                                    menu.item(PopupMenuItem::new("Close").on_click(
+                                        move |_, window, cx| {
+                                            let _ = close.update(cx, |this, cx| {
+                                                this.close_tab(ix, window, cx);
+                                            });
+                                        },
+                                    ))
+                                    .item(
+                                        PopupMenuItem::new("Close others")
+                                            .disabled(tab_count <= 1)
+                                            .on_click(move |_, window, cx| {
+                                                let _ = close_others.update(cx, |this, cx| {
+                                                    this.close_other_tabs(ix, window, cx);
+                                                });
+                                            }),
+                                    )
+                                    .item(PopupMenuItem::new("Close all").on_click(
+                                        move |_, window, cx| {
+                                            let _ = close_all.update(cx, |this, cx| {
+                                                this.close_all_tabs(window, cx);
+                                            });
+                                        },
+                                    ))
+                                }
+                            }),
+                    )
+                    .suffix(
                     h_flex()
                         .pr_1()
                         .gap_0p5()
