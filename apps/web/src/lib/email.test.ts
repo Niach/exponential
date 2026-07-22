@@ -34,7 +34,13 @@ vi.mock(`@aws-sdk/client-sesv2`, () => {
       this.input = input
     }
   }
-  return { SESv2Client, SendEmailCommand }
+  class PutSuppressedDestinationCommand {
+    input: unknown
+    constructor(input: unknown) {
+      this.input = input
+    }
+  }
+  return { SESv2Client, SendEmailCommand, PutSuppressedDestinationCommand }
 })
 
 // The mocked SendEmailCommand's captured input.

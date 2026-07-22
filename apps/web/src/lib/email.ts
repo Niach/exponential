@@ -1,8 +1,7 @@
 // Transactional email — the SINGLE sender for the whole app. Two transports:
 //
 //   1. Amazon SES (cloud): AWS_SES_REGION set → SESv2 SendEmail via the AWS
-//      SDK (lazy-imported so the module graph stays light when SES is
-//      unused). Credentials resolve through the standard AWS chain —
+//      SDK. Credentials resolve through the standard AWS chain —
 //      AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env pair in practice.
 //   2. SMTP (self-host): SMTP_HOST set → nodemailer (lazy-imported so the
 //      module graph stays light when SMTP is unused).
@@ -18,7 +17,16 @@
 // suppression check. Nothing client-reachable may import it — the Postgres
 // driver in the browser bundle black-screens the app (v0.18.10 outage).
 
-import type { SESv2Client } from "@aws-sdk/client-sesv2"
+// Static named imports on purpose: a dynamic import() of this package makes
+// rollup emit its full module namespace, whose frozen `$Command: Command`
+// entry references a smithy binding treeshaking already dropped —
+// ReferenceError at import, every SES send dead. Named imports never build
+// that namespace. (nodemailer stays lazy; it doesn't have the problem.)
+import {
+  PutSuppressedDestinationCommand,
+  SendEmailCommand,
+  SESv2Client,
+} from "@aws-sdk/client-sesv2"
 import type { Transporter } from "nodemailer"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -68,14 +76,12 @@ function fromAddress(): string {
   return process.env.EMAIL_FROM ?? `Exponential <noreply@exponential.at>`
 }
 
-// Lazy SESv2 client singleton (cloud path). The runtime import stays dynamic
-// so the AWS SDK is only loaded when SES is configured.
+// SESv2 client singleton (cloud path).
 let sesClient: SESv2Client | null = null
 
-async function getSesClient() {
+function getSesClient() {
   if (sesClient) return sesClient
-  const { SESv2Client: Client } = await import(`@aws-sdk/client-sesv2`)
-  sesClient = new Client({ region: process.env.AWS_SES_REGION })
+  sesClient = new SESv2Client({ region: process.env.AWS_SES_REGION })
   return sesClient
 }
 
@@ -115,10 +121,7 @@ export async function suppressSesDestination(
   if (!process.env.AWS_SES_REGION) {
     throw new Error(`SES is not configured (AWS_SES_REGION unset)`)
   }
-  const { PutSuppressedDestinationCommand } = await import(
-    `@aws-sdk/client-sesv2`
-  )
-  const client = await getSesClient()
+  const client = getSesClient()
   await client.send(
     new PutSuppressedDestinationCommand({ EmailAddress: email, Reason: reason })
   )
@@ -153,8 +156,7 @@ export async function sendEmail(args: {
   const replyTo = args.replyTo ?? process.env.EMAIL_REPLY_TO ?? undefined
 
   if (process.env.AWS_SES_REGION) {
-    const { SendEmailCommand } = await import(`@aws-sdk/client-sesv2`)
-    const client = await getSesClient()
+    const client = getSesClient()
     const out = await client.send(
       new SendEmailCommand({
         FromEmailAddress: fromAddress(),

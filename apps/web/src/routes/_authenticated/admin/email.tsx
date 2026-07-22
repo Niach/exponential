@@ -26,11 +26,11 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
 
 // Bounced/complaining recipient addresses reported by SES (via the SNS
 // feedback webhook). Complaints and Permanent bounces are refused
-// automatically at send time (sendEmail's suppression check) — the
-// "Auto-blocked" badge mirrors exactly that predicate. The button is the
-// manual escalation on top: push the address onto the SES ACCOUNT-LEVEL
-// suppression list (e.g. a Transient-bouncing address you want blocked
-// anyway).
+// automatically at send time (sendEmail's suppression check — the
+// "Auto-blocked" badge mirrors exactly that predicate) AND auto-added to the
+// SES account-level suppression list by the webhook. The button covers only
+// what automation deliberately leaves alone: Transient (soft) bounces an
+// operator wants blocked anyway.
 function AdminEmail() {
   const router = useRouter()
   const { bounces } = Route.useLoaderData()
@@ -56,9 +56,9 @@ function AdminEmail() {
         <h1 className="text-2xl font-bold">Email health</h1>
         <p className="text-sm text-muted-foreground">
           Addresses that bounced or complained, reported by SES. Hard bounces
-          and complaints are blocked automatically at send time; suppressing
-          additionally puts the address on the SES account-level suppression
-          list.
+          and complaints are blocked automatically — at send time and via the
+          SES account-level suppression list. The button suppresses a soft
+          (Transient) bounce manually.
         </p>
       </div>
 
@@ -130,15 +130,20 @@ function AdminEmail() {
                     Suppressed in SES
                   </Badge>
                 ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() => handleSuppress(row)}
-                  >
-                    <ShieldBan className="h-4 w-4" />
-                    Suppress in SES
-                  </Button>
+                  // Auto-blocked rows need no operator action (send-time
+                  // check + webhook auto-suppression); the button covers only
+                  // soft bounces.
+                  !isAutoBlocked(row) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy !== null}
+                      onClick={() => handleSuppress(row)}
+                    >
+                      <ShieldBan className="h-4 w-4" />
+                      Suppress in SES
+                    </Button>
+                  )
                 )}
               </div>
             </div>

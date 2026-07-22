@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { emailBounces, emailDeliveries, users } from "@/db/schema"
+import { suppressSesDestination } from "@/lib/email"
 import { updateEmailPrefs } from "@/lib/notification-prefs"
 import {
   isTrustedSnsUrl,
@@ -33,7 +34,7 @@ async function recordEmailBounceEvents(
   now: Date = new Date()
 ): Promise<void> {
   for (const event of events) {
-    await db
+    const [row] = await db
       .insert(emailBounces)
       .values({
         email: event.email,
@@ -56,6 +57,38 @@ async function recordEmailBounceEvents(
           updatedAt: now,
         },
       })
+      .returning({
+        id: emailBounces.id,
+        suppressedAt: emailBounces.suppressedAt,
+      })
+    // Hard bounces and complaints go straight onto the SES ACCOUNT-LEVEL
+    // suppression list — no operator needed (the admin button remains only
+    // for Transient bounces). Mailbox-simulator addresses are skipped so
+    // tests never pollute the real list; a failed call just leaves the row
+    // for send-time suppression (which blocks these addresses regardless)
+    // and a manual retry.
+    const autoBlocked =
+      event.kind === `complaint` || event.bounceType === `Permanent`
+    if (
+      autoBlocked &&
+      row &&
+      !row.suppressedAt &&
+      process.env.AWS_SES_REGION &&
+      !event.email.endsWith(`@simulator.amazonses.com`)
+    ) {
+      try {
+        await suppressSesDestination(
+          event.email,
+          event.kind === `complaint` ? `COMPLAINT` : `BOUNCE`
+        )
+        await db
+          .update(emailBounces)
+          .set({ suppressedAt: now, updatedAt: now })
+          .where(eq(emailBounces.id, row.id))
+      } catch (err) {
+        console.error(`[ses-webhook] auto-suppress in SES failed:`, err)
+      }
+    }
     if (event.providerMessageId) {
       await db
         .update(emailDeliveries)
