@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import type { CodingSession, Issue } from "@/db/schema"
@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { useIsMobile } from "@/hooks/use-mobile"
+import {
+  clampAgentDockHeight,
+  readAgentDockHeight,
+  writeAgentDockHeight,
+} from "@/lib/agent-dock-height"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of every
 // running session in the team, with at most one expanded live viewer. It's
@@ -52,6 +57,48 @@ export function AgentDock({
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
+
+  // Drag-to-resize (EXP-234) — the panel height persists per device, like the
+  // IDE terminal dock. `max-h-[85vh]` on the panel keeps an oversized saved
+  // value usable on a smaller window without rewriting it.
+  const [panelHeight, setPanelHeight] = useState(readAgentDockHeight)
+  const [resizing, setResizing] = useState(false)
+  const resizeRef = useRef<{
+    startY: number
+    startHeight: number
+    latestHeight: number | null
+  } | null>(null)
+
+  const beginPanelResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    resizeRef.current = {
+      startY: event.clientY,
+      startHeight: panelHeight,
+      latestHeight: null,
+    }
+    setResizing(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const movePanelResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = resizeRef.current
+    if (!drag) return
+    event.preventDefault()
+    const next = clampAgentDockHeight(
+      drag.startHeight + (drag.startY - event.clientY),
+      window.innerHeight
+    )
+    drag.latestHeight = next
+    setPanelHeight(next)
+  }
+
+  const endPanelResize = () => {
+    const drag = resizeRef.current
+    if (!drag) return
+    resizeRef.current = null
+    setResizing(false)
+    if (drag.latestHeight !== null) writeAgentDockHeight(drag.latestHeight)
+  }
 
   // Query the expanded session by id in ANY status, so a session that flips to
   // `ended` while expanded stays visible until the user collapses it.
@@ -147,7 +194,31 @@ export function AgentDock({
       )}
     >
       {expandedRow && (
-        <div className={fullscreen ? `min-h-0 flex-1` : `h-96`}>
+        <div
+          className={
+            fullscreen ? `min-h-0 flex-1` : `relative max-h-[85vh] min-h-40`
+          }
+          style={fullscreen ? undefined : { height: panelHeight }}
+        >
+          {!fullscreen && (
+            <div
+              className="group absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize agent panel"
+              onPointerDown={beginPanelResize}
+              onPointerMove={movePanelResize}
+              onPointerUp={endPanelResize}
+              onPointerCancel={endPanelResize}
+            >
+              <div
+                className={cn(
+                  `absolute inset-x-0 top-[3px] h-0.5 transition-colors group-hover:bg-primary/50`,
+                  resizing && `bg-primary/70`
+                )}
+              />
+            </div>
+          )}
           <AgentSessionView
             key={expandedRow.session.id}
             session={expandedRow.session}
