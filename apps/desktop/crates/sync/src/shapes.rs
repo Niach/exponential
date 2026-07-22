@@ -329,7 +329,10 @@ pub const SHAPES: [ShapeSpec; 14] = [
         name: "coding_sessions",
         path: "/api/shapes/coding-sessions",
         // `issue_id` is nullable — batch-scoped (multi-issue) sessions carry
-        // only `team_id`.
+        // only `team_id`. `needs_input` (EXP-214) is the attention flag the
+        // desktop itself writes while the agent is parked on a picker —
+        // heal_missing_columns ALTERs it onto existing store tables and
+        // stamps a refetch so old rows get real values, not NULLs.
         columns: &[
             "id",
             "issue_id",
@@ -337,6 +340,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "user_id",
             "device_label",
             "status",
+            "needs_input",
             "started_at",
             "ended_at",
             "created_at",
@@ -401,6 +405,14 @@ mod tests {
         // exist and must never be requested.
         assert!(!spec.columns.contains(&"recurrence_interval"));
         assert!(!spec.columns.contains(&"recurrence_unit"));
+    }
+
+    #[test]
+    fn coding_sessions_syncs_the_needs_input_flag() {
+        // EXP-214/REV2-9: the amber "Needs input" badge reads this column —
+        // dropping it from the allowlist silently kills the badge on desktop.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"needs_input"));
     }
 
     #[test]
