@@ -96,23 +96,34 @@ GOOGLE_LOGIN_ENABLED=true
             <p>
               <code>Caddyfile</code> is gitignored but the compose file
               bind-mounts it, so copy the example first — it ships the long-poll
-              timeouts Electric needs. <code>storage:init</code> prints the S3
+              timeouts Electric needs. Garage needs its two secret files
+              generated before the stack starts (the compose file mounts{` `}
+              <code>infra/garage/secrets</code> read-only, and Garage refuses to
+              start without them — or with world-readable ones, hence the{` `}
+              <code>chmod 600</code>). <code>storage:init</code> prints the S3
               keys you&apos;ll need in the next step.
             </p>
             <DocsCode language="shell">{`
 bun install
 cp Caddyfile.example Caddyfile
+openssl rand -hex 32 > infra/garage/secrets/rpc_secret
+openssl rand -base64 32 > infra/garage/secrets/admin_token
+chmod 600 infra/garage/secrets/rpc_secret infra/garage/secrets/admin_token
 bun run backend:up
 bun run storage:init
 `}</DocsCode>
 
             <h3>4. Configure</h3>
             <p>
-              Copy the example env file and fill in the database URL, a session
-              secret, and the S3 keys from the previous step.
+              Copy the example env file to the repo root and fill in a session
+              secret and the S3 keys from the previous step. The web app (dev
+              server, migrations) reads env from <code>apps/web/</code>, so link
+              the root <code>.env</code> there — the root file stays the single
+              source of truth.
             </p>
             <DocsCode language="shell">{`
 cp apps/web/.env.example .env
+ln -s ../../.env apps/web/.env
 # generate a 32-character session secret
 openssl rand -hex 32
 `}</DocsCode>
