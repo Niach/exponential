@@ -43,6 +43,7 @@ import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/git
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
+import { Route as ApiSupportPollRouteImport } from './routes/api/support/poll'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
@@ -259,6 +260,11 @@ const ApiSupportThreadRoute = ApiSupportThreadRouteImport.update({
 const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
   id: '/api/support/reply',
   path: '/api/support/reply',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportPollRoute = ApiSupportPollRouteImport.update({
+  id: '/api/support/poll',
+  path: '/api/support/poll',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
@@ -545,6 +551,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -621,6 +628,7 @@ export interface FileRoutesByTo {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -702,6 +710,7 @@ export interface FileRoutesById {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -783,6 +792,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -859,6 +869,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -939,6 +950,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -1013,6 +1025,7 @@ export interface RootRouteChildren {
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
+  ApiSupportPollRoute: typeof ApiSupportPollRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
@@ -1263,6 +1276,13 @@ declare module '@tanstack/react-router' {
       path: '/api/support/reply'
       fullPath: '/api/support/reply'
       preLoaderRoute: typeof ApiSupportReplyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/poll': {
+      id: '/api/support/poll'
+      path: '/api/support/poll'
+      fullPath: '/api/support/poll'
+      preLoaderRoute: typeof ApiSupportPollRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/users': {
@@ -1725,6 +1745,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
+  ApiSupportPollRoute: ApiSupportPollRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,

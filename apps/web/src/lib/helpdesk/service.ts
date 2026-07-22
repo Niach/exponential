@@ -158,6 +158,7 @@ export async function latestMessagesByThread(
 let readLimiter: TokenBucketLimiter | null = null
 let replyIpLimiter: TokenBucketLimiter | null = null
 let replyThreadLimiter: TokenBucketLimiter | null = null
+let pollLimiter: TokenBucketLimiter | null = null
 
 export function getSupportRateLimiters() {
   // Reads happen on every page load — generous. Replies are strict per IP
@@ -174,5 +175,12 @@ export function getSupportRateLimiters() {
     capacity: envInt(`SUPPORT_RATE_LIMIT_REPLY_THREAD_BURST`, 5),
     refillPerHour: envInt(`SUPPORT_RATE_LIMIT_REPLY_THREAD_HOURLY`, 30),
   })
-  return { readLimiter, replyIpLimiter, replyThreadLimiter }
+  // The live-chat poll runs every ~5s per visible tab (~720/h) — sized with
+  // 2× headroom for a second tab; per-IP only, since the HMAC token is
+  // verified before any DB work and the query is one cheap indexed read.
+  pollLimiter ??= new TokenBucketLimiter({
+    capacity: envInt(`SUPPORT_RATE_LIMIT_POLL_BURST`, 90),
+    refillPerHour: envInt(`SUPPORT_RATE_LIMIT_POLL_HOURLY`, 1440),
+  })
+  return { readLimiter, replyIpLimiter, replyThreadLimiter, pollLimiter }
 }

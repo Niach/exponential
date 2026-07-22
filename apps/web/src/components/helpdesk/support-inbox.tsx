@@ -17,6 +17,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { issueCollection, boardCollection } from "@/lib/collections"
 import { relativeTime } from "@/components/comment-rows/format"
+import { isReporterActivelyViewing } from "@/lib/helpdesk/presence"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { displayUserName } from "@/lib/user-display"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -586,10 +587,18 @@ function ThreadDetails({
         <p className="truncate text-xs text-muted-foreground">
           {thread.reporterEmail}
         </p>
-        {thread.lastReporterSeenAt && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Last seen {relativeTime(thread.lastReporterSeenAt)}
-          </p>
+        {/* "Viewing now" = the reporter's page is live-polling (their reply
+            emails are suppressed while it is). Trails reality by up to the
+            15s thread poll — the authoritative gate runs server-side at
+            send time. */}
+        {isReporterActivelyViewing(thread.lastReporterSeenAt) ? (
+          <p className="mt-1 text-xs text-emerald-500">Viewing now</p>
+        ) : (
+          thread.lastReporterSeenAt && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Last seen {relativeTime(thread.lastReporterSeenAt)}
+            </p>
+          )
         )}
       </section>
 
