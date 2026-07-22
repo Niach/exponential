@@ -66,6 +66,18 @@ async function importEmail(env: Record<string, string>) {
   return await import(`@/lib/email`)
 }
 
+// emailEnabled lives in its own client-safe module (lib/email-enabled.ts) —
+// lib/email.ts is server-only (static db import for suppression).
+async function importEmailEnabled(env: Record<string, string>) {
+  vi.resetModules()
+  vi.stubEnv(`AWS_SES_REGION`, ``)
+  vi.stubEnv(`SMTP_HOST`, ``)
+  for (const [key, value] of Object.entries(env)) {
+    vi.stubEnv(key, value)
+  }
+  return await import(`@/lib/email-enabled`)
+}
+
 beforeEach(() => {
   sesSendMock.mockReset()
   sesSendMock.mockResolvedValue({ MessageId: `msg_1` })
@@ -78,17 +90,17 @@ afterEach(() => {
 
 describe(`emailEnabled`, () => {
   it(`is false with neither AWS_SES_REGION nor SMTP_HOST`, async () => {
-    const email = await importEmail({})
+    const email = await importEmailEnabled({})
     expect(email.emailEnabled).toBe(false)
   })
 
   it(`is true with AWS_SES_REGION`, async () => {
-    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+    const email = await importEmailEnabled({ AWS_SES_REGION: `eu-central-1` })
     expect(email.emailEnabled).toBe(true)
   })
 
   it(`is true with SMTP_HOST (self-host)`, async () => {
-    const email = await importEmail({ SMTP_HOST: `mail.example.com` })
+    const email = await importEmailEnabled({ SMTP_HOST: `mail.example.com` })
     expect(email.emailEnabled).toBe(true)
   })
 })

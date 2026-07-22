@@ -20,10 +20,10 @@ import {
 } from "@/db/schema"
 import {
   deliveryStatus,
-  emailEnabled,
   sendNotificationDigestEmail,
   type DigestEmailItem,
 } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import { getEmailPrefsMap } from "@/lib/notification-prefs"
 import {
   DIGEST_MAX_AGE_MS,

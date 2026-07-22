@@ -11,7 +11,7 @@ import {
   teams,
 } from "@/db/schema"
 import { users } from "@/db/auth-schema"
-import { emailEnabled } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { generateWidgetKey } from "@/lib/widget/key"
 // Vite's ?raw suffix inlines file contents as a string at build time. We

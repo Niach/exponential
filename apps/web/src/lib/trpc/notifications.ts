@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { notifications } from "@/db/schema"
 import { notificationTypeValues } from "@/lib/domain"
-import { emailEnabled } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import { digestValues } from "@/lib/notification-email-policy"
 import {
   getOrCreateEmailPrefs,

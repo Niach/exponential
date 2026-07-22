@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start"
 import { parseOidcProviders } from "@/lib/oidc-providers"
-import { emailEnabled } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 
 export type AuthConfig = {
   passwordEnabled: boolean

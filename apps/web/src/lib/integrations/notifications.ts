@@ -13,11 +13,8 @@ import {
   teams,
 } from "@/db/schema"
 import { sendToUsers } from "@/lib/integrations/fcm"
-import {
-  deliveryStatus,
-  emailEnabled,
-  sendReporterResolutionEmail,
-} from "@/lib/email"
+import { deliveryStatus, sendReporterResolutionEmail } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import {
   isResolutionStatus,
   shouldSendReporterResolution,

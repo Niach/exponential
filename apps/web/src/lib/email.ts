@@ -9,8 +9,14 @@
 //
 // SES wins when both are configured. With neither, every send is a logged
 // no-op so auth + notification flows degrade gracefully instead of throwing;
-// `emailEnabled` lets the UI hide email-dependent affordances (forgot-password,
-// the email-notification prefs panel) on such instances.
+// `emailEnabled` (lib/email-enabled.ts — a SEPARATE module because it is
+// client-reachable while this one must never be) lets the UI hide
+// email-dependent affordances (forgot-password, the email-notification prefs
+// panel) on such instances.
+//
+// SERVER-ONLY: this module statically imports the db for the send-time
+// suppression check. Nothing client-reachable may import it — the Postgres
+// driver in the browser bundle black-screens the app (v0.18.10 outage).
 
 import type { SESv2Client } from "@aws-sdk/client-sesv2"
 import type { Transporter } from "nodemailer"
@@ -57,10 +63,6 @@ export async function isEmailSuppressed(email: string): Promise<boolean> {
   if (!row) return false
   return row.kind === `complaint` || row.bounceType === `Permanent`
 }
-
-export const emailEnabled = Boolean(
-  process.env.AWS_SES_REGION || process.env.SMTP_HOST
-)
 
 function fromAddress(): string {
   return process.env.EMAIL_FROM ?? `Exponential <noreply@exponential.at>`

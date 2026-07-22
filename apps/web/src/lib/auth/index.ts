@@ -11,11 +11,8 @@ import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 import { isPasswordSignupDisabled } from "@/lib/auth/config"
-import {
-  emailEnabled,
-  sendPasswordResetEmail,
-  sendVerificationEmail,
-} from "@/lib/email"
+import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import { isAdminUser } from "./app-user"
 import { mintAppleClientSecret } from "./apple"
 import {
