@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, RingBuffer, type RelaySocket } from "./hub"
-import { OUTPUT_OPCODE } from "./protocol"
+import { CLOSE_SESSION_ENDED, OUTPUT_OPCODE } from "./protocol"
 
 class FakeSocket implements RelaySocket {
   sent: (string | Uint8Array)[] = []
@@ -827,5 +827,54 @@ describe(`claim steal (EXP-32)`, () => {
     expect(member.lastFrame(`presence`)).toMatchObject({ steererId: null })
     hub.onMessage(member, JSON.stringify({ t: `input`, data: `x` }))
     expect(pub.lastFrame(`input`)).toBeUndefined()
+  })
+})
+
+// REV2-X regression: the desktop publisher keeps a live-but-quiet session
+// (plan mode / a parked agent) alive with protocol-level WebSocket pings.
+// Bun delivers those to the `ping` handler, NOT to `message`, so the idle
+// detector must be fed from hub.onPing — otherwise it closes the room after
+// 90s and the desktop kills the running agent (CLOSE_SESSION_ENDED = terminal).
+describe(`idle publisher detection (REV2-X)`, () => {
+  const IDLE_MS = 91_000
+
+  function idle(hub: Hub, sessionId: string, ms: number) {
+    // Backdate the room's last-activity to simulate `ms` of silence without
+    // waiting real time.
+    const room = (hub as unknown as { rooms: Map<string, { lastPublisherActivity: number }> }).rooms.get(sessionId)!
+    room.lastPublisherActivity = Date.now() - ms
+  }
+  function checkIdle(hub: Hub) {
+    ;(hub as unknown as { checkIdlePublishers: () => void }).checkIdlePublishers()
+  }
+
+  test(`a genuinely silent publisher (no pings) times out`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub, `sess-idle`)
+    idle(hub, `sess-idle`, IDLE_MS)
+    checkIdle(hub)
+    expect(pub.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    hub.destroy()
+  })
+
+  test(`onPing refreshes activity so a live-but-quiet publisher survives`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub, `sess-ping`)
+    idle(hub, `sess-ping`, IDLE_MS)
+    // A protocol ping arrives via the dedicated handler (the whole point of
+    // the fix — this frame never reaches onMessage).
+    hub.onPing(pub)
+    checkIdle(hub)
+    expect(pub.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`onPing from a non-publisher socket is a no-op`, () => {
+    const hub = new Hub()
+    connectPublisher(hub, `sess-1`)
+    const viewer = connectViewer(hub)
+    // Must not throw and must not touch the room's publisher activity.
+    expect(() => hub.onPing(viewer)).not.toThrow()
+    hub.destroy()
   })
 })

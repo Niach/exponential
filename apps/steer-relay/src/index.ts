@@ -310,6 +310,13 @@ export default {
         typeof message === `string` ? message : new Uint8Array(message)
       )
     },
+    // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.
+    // The desktop publisher pings every 30s during idle/plan-mode; without
+    // this the idle detector would never see them and would close (and kill)
+    // a live-but-quiet session after 90s.
+    ping(ws: ServerWebSocket<WsData>) {
+      hub.onPing(adapt(ws))
+    },
     close(ws: ServerWebSocket<WsData>) {
       hub.onClose(adapt(ws))
     },

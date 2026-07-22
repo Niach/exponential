@@ -190,6 +190,24 @@ export class Hub {
     this.onControl(conn, msg)
   }
 
+  /** REV2-X: Bun delivers protocol-level ping frames to a dedicated `ping`
+   * handler, NOT to `message`, so an idle publisher's 30s keepalive pings
+   * never reach onMessage. Without this hook, lastPublisherActivity would
+   * stop refreshing during a live-but-quiet session (plan mode / a parked
+   * agent), and checkIdlePublishers would wrongly close the room after 90s —
+   * killing the running agent (publisher treats CLOSE_SESSION_ENDED as
+   * terminal). Bump activity here exactly as onMessage does for data frames. */
+  onPing(sock: RelaySocket) {
+    const conn = this.conns.get(sock)
+    if (!conn) return
+    if (conn.claims.role === `publisher` && conn.sessionId) {
+      const room = this.rooms.get(conn.sessionId)
+      if (room && room.publisher === conn) {
+        room.lastPublisherActivity = Date.now()
+      }
+    }
+  }
+
   onClose(sock: RelaySocket) {
     const conn = this.conns.get(sock)
     if (!conn) return
