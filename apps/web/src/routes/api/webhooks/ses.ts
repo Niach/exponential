@@ -2,7 +2,8 @@ import { timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { emailBounces, emailDeliveries } from "@/db/schema"
+import { emailBounces, emailDeliveries, users } from "@/db/schema"
+import { updateEmailPrefs } from "@/lib/notification-prefs"
 import {
   isTrustedSnsUrl,
   parseSesNotification,
@@ -64,6 +65,26 @@ async function recordEmailBounceEvents(
           updatedAt: now,
         })
         .where(eq(emailDeliveries.providerMessageId, event.providerMessageId))
+    }
+    // A spam complaint is a stronger signal than any preference: immediately
+    // disable ALL notification email for the complaining account, without
+    // waiting for an operator. Idempotent; the user can re-enable in account
+    // settings. (Address-level suppression in sendEmail additionally blocks
+    // every stream, so re-enabling only matters after the bounce row is
+    // cleared by an admin.)
+    if (event.kind === `complaint`) {
+      const matched = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(sql`lower(${users.email})`, event.email.trim().toLowerCase()))
+      for (const user of matched) {
+        await updateEmailPrefs(user.id, { emailEnabled: false })
+      }
+      if (matched.length > 0) {
+        console.log(
+          `[ses-webhook] complaint: disabled notification email for ${matched.length} account(s)`
+        )
+      }
     }
   }
 }

@@ -85,6 +85,8 @@ vi.mock(`@/lib/helpdesk/service`, () => ({
 }))
 vi.mock(`@/lib/email`, () => ({
   sendSupportConfirmationEmail: h.sendSupportConfirmationEmail,
+  deliveryStatus: (result: { delivered: boolean; suppressed?: boolean }) =>
+    result.delivered ? `sent` : result.suppressed ? `suppressed` : `failed`,
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   buildAttachmentStorageKey: vi.fn(() => `key`),

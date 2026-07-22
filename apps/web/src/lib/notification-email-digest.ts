@@ -19,6 +19,7 @@ import {
   teams,
 } from "@/db/schema"
 import {
+  deliveryStatus,
   emailEnabled,
   sendNotificationDigestEmail,
   type DigestEmailItem,
@@ -245,11 +246,15 @@ export async function runEmailDigestSweep(
           await db
             .update(emailDeliveries)
             .set({
-              status: result.delivered ? `sent` : `failed`,
+              status: deliveryStatus(result),
               provider: result.provider,
               providerMessageId: result.messageId,
               sentAt: result.delivered ? now : null,
-              error: result.delivered ? null : `no email transport configured`,
+              error: result.delivered
+                ? null
+                : result.suppressed
+                  ? `recipient suppressed (bounce/complaint on record)`
+                  : `no email transport configured`,
             })
             .where(eq(emailDeliveries.id, ledger.id))
           if (result.delivered) emailsSent += 1

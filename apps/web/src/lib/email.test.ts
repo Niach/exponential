@@ -4,7 +4,25 @@
 // SMTP server.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { sesSendMock } = vi.hoisted(() => ({ sesSendMock: vi.fn() }))
+const { sesSendMock, suppressionRows } = vi.hoisted(() => ({
+  sesSendMock: vi.fn(),
+  // Rows the mocked email_bounces lookup serves — empty = not suppressed.
+  suppressionRows: [] as Array<{ kind: string; bounceType: string | null }>,
+}))
+
+// sendEmail's send-time suppression check reads email_bounces through the
+// shared db — serve it from the in-memory row list, no Postgres.
+vi.mock(`@/db/connection`, () => {
+  function chain(): Promise<unknown[]> & Record<string, () => unknown> {
+    const p = Promise.resolve([...suppressionRows]) as Promise<unknown[]> &
+      Record<string, () => unknown>
+    for (const m of [`from`, `where`, `limit`]) {
+      p[m] = () => p
+    }
+    return p
+  }
+  return { db: { select: () => chain() } }
+})
 
 vi.mock(`@aws-sdk/client-sesv2`, () => {
   class SESv2Client {
@@ -51,6 +69,7 @@ async function importEmail(env: Record<string, string>) {
 beforeEach(() => {
   sesSendMock.mockReset()
   sesSendMock.mockResolvedValue({ MessageId: `msg_1` })
+  suppressionRows.length = 0
 })
 
 afterEach(() => {
@@ -137,6 +156,76 @@ describe(`sendEmail over the SES transport (mocked)`, () => {
     expect(input.Content.Simple.Headers ?? []).not.toContainEqual(
       expect.objectContaining({ Name: `Reply-To` })
     )
+  })
+
+  it(`falls back to the monitored EMAIL_REPLY_TO default when no per-send replyTo`, async () => {
+    const email = await importEmail({
+      AWS_SES_REGION: `eu-central-1`,
+      EMAIL_REPLY_TO: `support@example.com`,
+    })
+
+    await email.sendEmail({
+      to: `user@example.com`,
+      subject: `Hello`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+    })
+
+    expect(sesCallInput().ReplyToAddresses).toEqual([`support@example.com`])
+  })
+})
+
+describe(`send-time suppression (bounce/complaint on record)`, () => {
+  it(`refuses to send to a complained address and never reaches the transport`, async () => {
+    suppressionRows.push({ kind: `complaint`, bounceType: null })
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+    const stderrSpy = vi
+      .spyOn(process.stderr, `write`)
+      .mockImplementation(() => true)
+
+    const result = await email.sendEmail({
+      to: `complainer@example.com`,
+      subject: `Hello`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+    })
+
+    expect(result).toEqual({
+      delivered: false,
+      provider: null,
+      messageId: null,
+      suppressed: true,
+    })
+    expect(sesSendMock).not.toHaveBeenCalled()
+    expect(email.deliveryStatus(result)).toBe(`suppressed`)
+    stderrSpy.mockRestore()
+  })
+
+  it(`refuses a Permanent bounce but lets a Transient one through`, async () => {
+    suppressionRows.push({ kind: `bounce`, bounceType: `Permanent` })
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+    const stderrSpy = vi
+      .spyOn(process.stderr, `write`)
+      .mockImplementation(() => true)
+
+    const hard = await email.sendEmail({
+      to: `gone@example.com`,
+      subject: `Hello`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+    })
+    expect(hard.suppressed).toBe(true)
+
+    suppressionRows.length = 0
+    suppressionRows.push({ kind: `bounce`, bounceType: `Transient` })
+    const soft = await email.sendEmail({
+      to: `full-mailbox@example.com`,
+      subject: `Hello`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+    })
+    expect(soft.delivered).toBe(true)
+    stderrSpy.mockRestore()
   })
 })
 

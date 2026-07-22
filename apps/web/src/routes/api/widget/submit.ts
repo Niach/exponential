@@ -55,7 +55,8 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
     return jsonResponse(403, { error: `Widget is disabled` }, cors)
   }
 
-  const { perKeyLimiter, perIpLimiter } = getWidgetRateLimiters()
+  const { perKeyLimiter, perIpLimiter, perEmailLimiter } =
+    getWidgetRateLimiters()
   // Per-IP bucket first, short-circuiting: a request already throttled by its
   // own IP must not keep draining the shared per-key bucket — otherwise one
   // hostile IP 429s every legitimate reporter of that widget.
@@ -74,6 +75,22 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
       { error: `Too many submissions, try again later` },
       { ...cors, "Retry-After": String(keyLimit.retryAfterSeconds) }
     )
+  }
+  // Per-recipient-address bucket: a submission carrying an email can trigger
+  // outbound mail to that address, so one address can't be mail-bombed via
+  // repeated submits regardless of key/IP rotation.
+  const reporterEmail = formData.get(`email`)
+  if (typeof reporterEmail === `string` && reporterEmail.trim().length > 0) {
+    const emailLimit = perEmailLimiter.tryTake(
+      `email:${reporterEmail.trim().toLowerCase()}`
+    )
+    if (!emailLimit.ok) {
+      return jsonResponse(
+        429,
+        { error: `Too many submissions, try again later` },
+        { ...cors, "Retry-After": String(emailLimit.retryAfterSeconds) }
+      )
+    }
   }
 
   // Honeypot: the real widget never fills this hidden field. Pretend success
