@@ -13,7 +13,11 @@ import {
   teams,
 } from "@/db/schema"
 import { sendToUsers } from "@/lib/integrations/fcm"
-import { emailEnabled, sendReporterResolutionEmail } from "@/lib/email"
+import {
+  deliveryStatus,
+  emailEnabled,
+  sendReporterResolutionEmail,
+} from "@/lib/email"
 import {
   isResolutionStatus,
   shouldSendReporterResolution,
@@ -671,7 +675,7 @@ export function fireAndForgetReporterResolution(args: {
               toEmail: email,
               issueId,
               kind: `widget_resolution`,
-              status: result.delivered ? `sent` : `failed`,
+              status: deliveryStatus(result),
               provider: result.provider,
               providerMessageId: result.messageId,
               sentAt: result.delivered ? new Date() : null,

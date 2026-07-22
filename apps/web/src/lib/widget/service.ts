@@ -21,7 +21,7 @@ import {
   supportThreadUrl,
   supportTicketTitle,
 } from "@/lib/helpdesk/service"
-import { sendSupportConfirmationEmail } from "@/lib/email"
+import { deliveryStatus, sendSupportConfirmationEmail } from "@/lib/email"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -579,7 +579,7 @@ export async function createWidgetSupportSubmission(args: {
       toEmail: fields.data.email,
       issueId: null,
       kind: `support_confirmation`,
-      status: sendResult.delivered ? `sent` : `failed`,
+      status: deliveryStatus(sendResult),
       provider: sendResult.provider,
       providerMessageId: sendResult.messageId,
       sentAt: sendResult.delivered ? new Date() : null,

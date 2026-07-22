@@ -936,11 +936,13 @@ export const emailDeliveries = pgTable(
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `set null`,
     }),
-    // digest|support_reply|support_confirmation|widget_resolution —
-    // documented varchar (legacy rows: notification).
+    // digest|support_reply|support_confirmation|widget_resolution|team_invite
+    // — documented varchar (legacy rows: notification).
     kind: varchar({ length: 32 }).notNull(),
-    // queued|sent|failed|bounced|complained — documented varchar (the last
-    // two are stamped post-send by the SES feedback webhook).
+    // queued|sent|failed|suppressed|bounced|complained — documented varchar
+    // (suppressed = the send-time application-side suppression check refused
+    // the address; bounced/complained are stamped post-send by the SES
+    // feedback webhook).
     status: varchar({ length: 16 }).notNull().default(`queued`),
     provider: varchar({ length: 16 }), // ses|smtp (legacy rows: resend)
     providerMessageId: text(`provider_message_id`),

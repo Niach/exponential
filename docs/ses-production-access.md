@@ -103,6 +103,11 @@ re-sandboxed).
 
 ### P0 — ship before the appeal (every letter claim must be present-tense)
 
+**Status: all six items shipped (EXP-236).** Item 6 shipped as code (a monitored
+`EMAIL_REPLY_TO` default in `sendEmail`); the env half — `EMAIL_FROM` to
+`notifications@exponential.at` and/or `EMAIL_REPLY_TO` on the Coolify web apps —
+rides the P1 ops pass. Deploy the web app BEFORE sending the appeal.
+
 1. **Automatic send-time suppression check.** No send path consults `email_bounces` today —
    suppression is only SES-account-level plus the manual admin action. Add a guard in the
    shared sender (`apps/web/src/lib/email.ts` `sendEmail`) that skips any address with a

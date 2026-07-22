@@ -14,14 +14,48 @@
 
 import type { SESv2Client } from "@aws-sdk/client-sesv2"
 import type { Transporter } from "nodemailer"
+import { eq, sql } from "drizzle-orm"
+import { db } from "@/db/connection"
+import { emailBounces } from "@/db/schema"
 
 export type EmailProvider = `ses` | `smtp`
 
 export type EmailSendResult = {
-  // false only when no transport is configured (the logged no-op).
+  // false when no transport is configured (the logged no-op) or when the
+  // address is suppressed (see below).
   delivered: boolean
   provider: EmailProvider | null
   messageId: string | null
+  // true when the send was refused because the address has a hard bounce or
+  // complaint on record — the application-side suppression layer on top of
+  // the SES account-level suppression list. Covers both transports.
+  suppressed?: boolean
+}
+
+// Ledger status for an email_deliveries row from a send result.
+export function deliveryStatus(
+  result: EmailSendResult
+): `sent` | `suppressed` | `failed` {
+  if (result.delivered) return `sent`
+  return result.suppressed ? `suppressed` : `failed`
+}
+
+// Application-side suppression: an address with a recorded complaint or a
+// Permanent (hard) bounce is never mailed again by ANY stream — the single
+// enforcement point is sendEmail below. Soft (Transient) bounces don't
+// suppress; the SES account-level list stays as the second, provider-side
+// layer.
+export async function isEmailSuppressed(email: string): Promise<boolean> {
+  const [row] = await db
+    .select({
+      kind: emailBounces.kind,
+      bounceType: emailBounces.bounceType,
+    })
+    .from(emailBounces)
+    .where(eq(sql`lower(${emailBounces.email})`, email.trim().toLowerCase()))
+    .limit(1)
+  if (!row) return false
+  return row.kind === `complaint` || row.bounceType === `Permanent`
 }
 
 export const emailEnabled = Boolean(
@@ -98,6 +132,24 @@ export async function sendEmail(args: {
   replyTo?: string
   headers?: Record<string, string>
 }): Promise<EmailSendResult> {
+  if (await isEmailSuppressed(args.to)) {
+    // Deliberately quiet about the address itself — no PII in server logs.
+    process.stderr.write(
+      `[email] suppressed recipient — dropping "${args.subject}"\n`
+    )
+    return {
+      delivered: false,
+      provider: null,
+      messageId: null,
+      suppressed: true,
+    }
+  }
+
+  // A monitored default reply address (EMAIL_REPLY_TO) so mail from a
+  // noreply@ sender still offers a human path back — explicit per-send
+  // replyTo wins.
+  const replyTo = args.replyTo ?? process.env.EMAIL_REPLY_TO ?? undefined
+
   if (process.env.AWS_SES_REGION) {
     const { SendEmailCommand } = await import(`@aws-sdk/client-sesv2`)
     const client = await getSesClient()
@@ -105,7 +157,7 @@ export async function sendEmail(args: {
       new SendEmailCommand({
         FromEmailAddress: fromAddress(),
         Destination: { ToAddresses: [args.to] },
-        ReplyToAddresses: args.replyTo ? [args.replyTo] : undefined,
+        ReplyToAddresses: replyTo ? [replyTo] : undefined,
         Content: {
           Simple: {
             Subject: { Data: args.subject, Charset: `UTF-8` },
@@ -138,7 +190,7 @@ export async function sendEmail(args: {
       subject: args.subject,
       html: args.html,
       text: args.text,
-      replyTo: args.replyTo,
+      replyTo,
       headers: args.headers,
     })
     return {

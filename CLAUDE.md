@@ -292,7 +292,8 @@ AUTH_SIGNUP_ENABLED           # Public password sign-up ('true'/'false'; default
 AWS_SES_REGION                # Amazon SES region (e.g. eu-central-1) — enables password reset + email verification (unset = email flows off)
 AWS_ACCESS_KEY_ID             # AWS credentials for SES (IAM user with ses:SendEmail; standard AWS env chain)
 AWS_SECRET_ACCESS_KEY         # AWS secret key for SES
-EMAIL_FROM                    # Verified sender, e.g. "Exponential <noreply@exponential.at>" (domain verified in SES)
+EMAIL_FROM                    # Verified sender, e.g. "Exponential <notifications@exponential.at>" (domain verified in SES)
+EMAIL_REPLY_TO                # Monitored default Reply-To on every outbound email (per-send replyTo wins; unset = none)
 SMTP_HOST                     # SMTP alternative to SES for ALL outgoing mail (self-host; SES wins when both set)
 SMTP_PORT                     # SMTP port (default 587)
 SMTP_USER                     # SMTP auth user (optional)
@@ -345,6 +346,7 @@ CLIENT_LATEST_VERSION_IOS     # Informational latest iOS version
 CLIENT_LATEST_VERSION_DESKTOP # Informational latest desktop version
 WIDGET_RATE_LIMIT_PER_KEY_HOURLY # Widget submit limit per public key (default 60/h, burst 10 via WIDGET_RATE_LIMIT_KEY_BURST)
 WIDGET_RATE_LIMIT_PER_IP_HOURLY  # Widget submit limit per client IP (default 60/h, burst 5 via WIDGET_RATE_LIMIT_IP_BURST)
+WIDGET_RATE_LIMIT_PER_EMAIL_HOURLY # Widget submit limit per reporter address (default 6/h, burst 3 via WIDGET_RATE_LIMIT_EMAIL_BURST) — anti mail-bombing
 CONTACT_EMAIL_TO              # Recipient of POST /api/contact (marketing contact form; default danny@exponential.at; 503 when no email transport is configured)
 ```
 

@@ -16,7 +16,7 @@ import {
   getSoleHumanMemberId,
 } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
-import { sendSupportReplyEmail } from "@/lib/email"
+import { deliveryStatus, sendSupportReplyEmail } from "@/lib/email"
 import { mintSupportToken } from "@/lib/helpdesk/token"
 import {
   MAX_SUPPORT_MESSAGE_CHARS,
@@ -177,37 +177,48 @@ export const helpdeskRouter = router({
       // Email outside the transaction; a failed send never loses the message.
       // Every reply carries the thread's one stable link. The delivery ledger
       // row stores no thread URL — the token exists only inside the email.
-      try {
-        const result = await sendSupportReplyEmail({
-          to: thread.reporterEmail,
-          boardName: teamRow?.name ?? `the team`,
-          replyText: input.body,
-          threadUrl: supportThreadUrl(mintSupportToken(thread.id)),
-        })
-        const [delivery] = await ctx.db
-          .insert(emailDeliveries)
-          .values({
-            userId: null,
-            toEmail: thread.reporterEmail,
-            issueId: null,
-            kind: `support_reply`,
-            status: result.delivered ? `sent` : `failed`,
-            provider: result.provider,
-            providerMessageId: result.messageId,
-            sentAt: result.delivered ? new Date() : null,
+      //
+      // Engagement gate (de-facto confirmed opt-in): replies are only emailed
+      // once the reporter has opened their magic conversation link at least
+      // once (last_reporter_seen_at, stamped by the /support/$token page). An
+      // address whose owner never engages receives at most ONE email ever —
+      // the submit confirmation that carried the link. The reply itself still
+      // lands on the thread page either way.
+      let reporterEmailed = false
+      if (thread.lastReporterSeenAt) {
+        try {
+          const result = await sendSupportReplyEmail({
+            to: thread.reporterEmail,
+            boardName: teamRow?.name ?? `the team`,
+            replyText: input.body,
+            threadUrl: supportThreadUrl(mintSupportToken(thread.id)),
           })
-          .returning({ id: emailDeliveries.id })
-        if (delivery) {
-          await ctx.db
-            .update(supportMessages)
-            .set({ emailDeliveryId: delivery.id })
-            .where(eq(supportMessages.id, message.id))
+          reporterEmailed = result.delivered
+          const [delivery] = await ctx.db
+            .insert(emailDeliveries)
+            .values({
+              userId: null,
+              toEmail: thread.reporterEmail,
+              issueId: null,
+              kind: `support_reply`,
+              status: deliveryStatus(result),
+              provider: result.provider,
+              providerMessageId: result.messageId,
+              sentAt: result.delivered ? new Date() : null,
+            })
+            .returning({ id: emailDeliveries.id })
+          if (delivery) {
+            await ctx.db
+              .update(supportMessages)
+              .set({ emailDeliveryId: delivery.id })
+              .where(eq(supportMessages.id, message.id))
+          }
+        } catch (err) {
+          console.error(`[helpdesk] reply email failed:`, err)
         }
-      } catch (err) {
-        console.error(`[helpdesk] reply email failed:`, err)
       }
 
-      return { message }
+      return { message, reporterEmailed }
     }),
 
   // Internal note: member-only annotation. Never emailed, never visible on

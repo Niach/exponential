@@ -1,15 +1,50 @@
 import { z } from "zod"
 import { router, procedure, authedProcedure, generateTxId } from "@/lib/trpc"
-import { teamInvites, teamMembers, teams, users } from "@/db/schema"
-import { and, eq, isNull } from "drizzle-orm"
+import {
+  emailDeliveries,
+  teamInvites,
+  teamMembers,
+  teams,
+  users,
+} from "@/db/schema"
+import { and, count, eq, gt, isNull, sql } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
+import { db } from "@/db/connection"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { assertCanInviteMember } from "@/lib/billing"
 import { isUserAdmin } from "@/lib/admin"
-import { sendTeamInviteEmail } from "@/lib/email"
+import { deliveryStatus, sendTeamInviteEmail } from "@/lib/email"
 import { appBaseUrl } from "@/lib/notification-email-policy"
+
+// Platform-wide cap on invite EMAILS per recipient address (the invite row
+// itself is unaffected — the owner still gets the link to share by hand).
+// Closes the invite-bombing vector: without it, anyone with a team could
+// direct an unbounded email stream at a stranger's address.
+const INVITE_EMAILS_PER_ADDRESS_PER_WEEK = 3
+
+// Sent invite emails to this address across the whole platform in the last 7
+// days, from the delivery ledger (suppressed/failed/capped attempts don't
+// count against the recipient).
+async function countRecentInviteEmails(email: string): Promise<number> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const [row] = await db
+    .select({ value: count() })
+    .from(emailDeliveries)
+    .where(
+      and(
+        eq(emailDeliveries.kind, `team_invite`),
+        eq(emailDeliveries.status, `sent`),
+        eq(
+          sql`lower(${emailDeliveries.toEmail})`,
+          email.trim().toLowerCase()
+        ),
+        gt(emailDeliveries.createdAt, weekAgo)
+      )
+    )
+  return row?.value ?? 0
+}
 
 // Invites are member management, so mint/revoke match assertCanManageMembers
 // (team-members.ts): a team owner OR a global instance admin.
@@ -71,23 +106,53 @@ export const teamInvitesRouter = router({
       // Email delivery is best-effort AFTER the insert — a transport failure
       // must never roll back the invite (the owner still holds the link and
       // can share it by hand). null = no email requested; false = requested
-      // but not delivered (no transport / send error).
+      // but not delivered (no transport / send error / per-address cap).
+      // Every attempt is ledgered in email_deliveries (kind team_invite) so
+      // bounces trace per-message.
       let emailDelivered: boolean | null = null
       if (input.email) {
         try {
-          const [team] = await ctx.db
-            .select({ name: teams.name })
-            .from(teams)
-            .where(eq(teams.id, input.teamId))
-            .limit(1)
-          const result = await sendTeamInviteEmail({
-            to: input.email,
-            teamName: team?.name ?? `a team`,
-            inviterName:
-              ctx.session.user.name || ctx.session.user.email || `A teammate`,
-            inviteUrl: `${appBaseUrl()}/invite/${token}`,
-          })
-          emailDelivered = result.delivered
+          const capped =
+            (await countRecentInviteEmails(input.email)) >=
+            INVITE_EMAILS_PER_ADDRESS_PER_WEEK
+          if (capped) {
+            emailDelivered = false
+            await ctx.db.insert(emailDeliveries).values({
+              userId: null,
+              toEmail: input.email,
+              issueId: null,
+              kind: `team_invite`,
+              status: `suppressed`,
+              provider: null,
+              providerMessageId: null,
+              sentAt: null,
+              error: `per-address invite email cap reached`,
+            })
+          } else {
+            const [team] = await ctx.db
+              .select({ name: teams.name })
+              .from(teams)
+              .where(eq(teams.id, input.teamId))
+              .limit(1)
+            const result = await sendTeamInviteEmail({
+              to: input.email,
+              teamName: team?.name ?? `a team`,
+              inviterName:
+                ctx.session.user.name || ctx.session.user.email || `A teammate`,
+              inviteUrl: `${appBaseUrl()}/invite/${token}`,
+            })
+            emailDelivered = result.delivered
+            await ctx.db.insert(emailDeliveries).values({
+              userId: null,
+              toEmail: input.email,
+              issueId: null,
+              kind: `team_invite`,
+              status: deliveryStatus(result),
+              provider: result.provider,
+              providerMessageId: result.messageId,
+              sentAt: result.delivered ? new Date() : null,
+            })
+          }
         } catch (err) {
           // Log the invite id, not the recipient address — no PII in server logs.
           console.error(

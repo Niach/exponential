@@ -87,8 +87,25 @@ const fakeDb: FakeDb = {
 }
 
 // `@/lib/trpc` (imported by the router) pulls in the real connection module;
-// keep Postgres out of the test.
-vi.mock(`@/db/connection`, () => ({ db: {} }))
+// keep Postgres out of the test. The router ALSO reads the shared db directly
+// for the per-address invite-email cap — serve that count from a queue
+// (default 0 = under the cap).
+const inviteEmailCountQueue: number[] = []
+
+function connectionSelectChain(): Promise<unknown[]> &
+  Record<string, () => unknown> {
+  const p = Promise.resolve([
+    { value: inviteEmailCountQueue.shift() ?? 0 },
+  ]) as Promise<unknown[]> & Record<string, () => unknown>
+  for (const m of [`from`, `where`, `limit`]) {
+    p[m] = () => p
+  }
+  return p
+}
+
+vi.mock(`@/db/connection`, () => ({
+  db: { select: () => connectionSelectChain() },
+}))
 
 vi.mock(`@/lib/admin`, () => ({
   isUserAdmin: vi.fn(async () => false),
@@ -106,6 +123,8 @@ const sendTeamInviteEmail = vi.fn(async () => ({ delivered: true }))
 vi.mock(`@/lib/email`, () => ({
   sendTeamInviteEmail: (...args: unknown[]) =>
     sendTeamInviteEmail(...(args as [])),
+  deliveryStatus: (result: { delivered: boolean; suppressed?: boolean }) =>
+    result.delivered ? `sent` : result.suppressed ? `suppressed` : `failed`,
 }))
 
 vi.mock(`@/lib/notification-email-policy`, () => ({
@@ -113,7 +132,7 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 }))
 
 import { inviteListSelection, teamInvitesRouter } from "@/lib/trpc/team-invites"
-import { teamInvites, teamMembers, users } from "@/db/schema"
+import { emailDeliveries, teamInvites, teamMembers, users } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
 const INVITE_ID = `33333333-3333-4333-8333-333333333333`
@@ -133,6 +152,7 @@ beforeEach(() => {
   insertReturningQueue.length = 0
   updates.length = 0
   updateReturningQueue.length = 0
+  inviteEmailCountQueue.length = 0
   fakeDb.execute.mockClear()
   sendTeamInviteEmail.mockClear()
   sendTeamInviteEmail.mockResolvedValue({ delivered: true })
@@ -171,7 +191,9 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
       email: `new@example.com`,
     })
 
-    expect(inserts).toHaveLength(1)
+    // Two inserts: the invite row + the email_deliveries ledger row (every
+    // invite-email attempt is ledgered so bounces trace per-message).
+    expect(inserts).toHaveLength(2)
     expect(inserts[0]!.table).toBe(teamInvites)
     expect(inserts[0]!.values.email).toBe(`new@example.com`)
     expect(sendTeamInviteEmail).toHaveBeenCalledWith({
@@ -181,6 +203,35 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
       inviteUrl: `http://localhost:3000/invite/${result.token}`,
     })
     expect(result.emailDelivered).toBe(true)
+    expect(inserts[1]!.table).toBe(emailDeliveries)
+    expect(inserts[1]!.values).toMatchObject({
+      kind: `team_invite`,
+      status: `sent`,
+      toEmail: `new@example.com`,
+    })
+  })
+
+  it(`skips the email past the per-address weekly cap but still creates the invite`, async () => {
+    insertReturningQueue.push([
+      { id: INVITE_ID, teamId: WS, email: `new@example.com` },
+    ])
+    // 3 invite emails already sent to this address in the last 7 days.
+    inviteEmailCountQueue.push(3)
+
+    const result = await caller().create({
+      teamId: WS,
+      email: `new@example.com`,
+    })
+
+    expect(sendTeamInviteEmail).not.toHaveBeenCalled()
+    expect(result.emailDelivered).toBe(false)
+    expect(result.invite).toMatchObject({ id: INVITE_ID })
+    expect(inserts).toHaveLength(2)
+    expect(inserts[1]!.table).toBe(emailDeliveries)
+    expect(inserts[1]!.values).toMatchObject({
+      kind: `team_invite`,
+      status: `suppressed`,
+    })
   })
 
   it(`returns emailDelivered null and sends nothing without an email`, async () => {
