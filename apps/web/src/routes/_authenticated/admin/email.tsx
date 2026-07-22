@@ -10,6 +10,12 @@ type BounceRow = Awaited<
   ReturnType<typeof trpc.admin.listEmailBounces.query>
 >[number]
 
+// Mirror of sendEmail's send-time suppression predicate (isEmailSuppressed
+// in lib/email.ts): complaints and Permanent bounces never get another send.
+function isAutoBlocked(row: BounceRow): boolean {
+  return row.kind === `complaint` || row.bounceType === `Permanent`
+}
+
 export const Route = createFileRoute(`/_authenticated/admin/email`)({
   loader: async () => {
     const bounces = await trpc.admin.listEmailBounces.query()
@@ -19,9 +25,12 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
 })
 
 // Bounced/complaining recipient addresses reported by SES (via the SNS
-// feedback webhook), with a one-click path onto the SES account-level
-// suppression list — repeated sends to bad addresses damage sender
-// reputation (EXP-227).
+// feedback webhook). Complaints and Permanent bounces are refused
+// automatically at send time (sendEmail's suppression check) — the
+// "Auto-blocked" badge mirrors exactly that predicate. The button is the
+// manual escalation on top: push the address onto the SES ACCOUNT-LEVEL
+// suppression list (e.g. a Transient-bouncing address you want blocked
+// anyway).
 function AdminEmail() {
   const router = useRouter()
   const { bounces } = Route.useLoaderData()
@@ -46,9 +55,10 @@ function AdminEmail() {
       <div>
         <h1 className="text-2xl font-bold">Email health</h1>
         <p className="text-sm text-muted-foreground">
-          Addresses that bounced or complained, reported by SES. Suppress an
-          address to stop all future sends to it at the SES level and protect
-          sender reputation.
+          Addresses that bounced or complained, reported by SES. Hard bounces
+          and complaints are blocked automatically at send time; suppressing
+          additionally puts the address on the SES account-level suppression
+          list.
         </p>
       </div>
 
@@ -107,11 +117,17 @@ function AdminEmail() {
               >
                 {formatRelative(row.lastEventAt)}
               </div>
-              <div className="md:justify-self-end">
+              <div className="flex flex-col items-start gap-1 md:items-end md:justify-self-end">
+                {isAutoBlocked(row) && (
+                  <Badge variant="secondary" className="text-xs">
+                    <ShieldCheck className="h-3 w-3" />
+                    Auto-blocked
+                  </Badge>
+                )}
                 {row.suppressedAt ? (
                   <Badge variant="secondary" className="text-xs">
                     <ShieldCheck className="h-3 w-3" />
-                    Suppressed
+                    Suppressed in SES
                   </Badge>
                 ) : (
                   <Button
