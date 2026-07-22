@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-reliability-and-security`,
+    date: `2026-07-22`,
+    title: `Faster sync, tighter security, keyboard-driven search`,
+    summary: `A reliability, performance, and security pass across every client.`,
+    body: `- **Snappier real-time sync** — reworked how boards, issues, and notifications sync so large teams stay fast and connections recover cleanly under load.
+- **Keyboard-driven search** — global issue search (⌘F on the web) now supports arrow keys to move and Enter to open a result.
+- **Clearer billing errors** — checkout and billing-portal buttons now surface a message when a request fails instead of doing nothing.
+- **Security hardening** — signing out now fully ends your session on the server, and we closed a case where an image link could carry your session token to another site.
+- **Desktop IDE polish** — fixes to issue-title editing and description layout.`,
+  },
+  {
     id: `2026-07-feedback-widget-origin`,
     date: `2026-07-21`,
     title: `See what came from your feedback widget`,

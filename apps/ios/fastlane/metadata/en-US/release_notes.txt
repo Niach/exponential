@@ -1,3 +1,4 @@
-• Issues filed through the feedback widget now show a "Feedback widget" label on the issue
-• Feedback no longer creates hidden bot users behind the scenes
-• Widget feedback issues without a sender are handled cleanly everywhere
+• Faster, more reliable real-time sync — boards, issues, and notifications stay in sync smoothly even for large teams
+• Security hardening — signing out now fully ends your session on the server
+• Fixed a case where a markdown image link could carry your session to another site
+• Various stability and consistency fixes
