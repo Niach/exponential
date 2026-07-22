@@ -125,7 +125,7 @@ export function PrivacyPage() {
             <li style={listItem}>
               <strong>Amazon Web Services (Amazon SES)</strong> — transactional
               email (receives your email address and the message content, e.g.
-              notification, account-verification, and password-reset emails).
+              notification digests, team invitations, and support replies).
             </li>
             <li style={listItem}>
               <strong>Creem</strong> — subscription billing (merchant of record;
