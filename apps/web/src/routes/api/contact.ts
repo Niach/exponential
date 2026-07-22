@@ -165,7 +165,7 @@ async function handleContact(request: Request): Promise<Response> {
 
   try {
     const result = await sendEmail({
-      to: process.env.CONTACT_EMAIL_TO ?? `danny@exponential.at`,
+      to: process.env.CONTACT_EMAIL_TO ?? `support@exponential.at`,
       subject,
       html,
       text,

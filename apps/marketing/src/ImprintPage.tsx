@@ -40,8 +40,8 @@ export function ImprintPage() {
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
             Email:{` `}
-            <a href="mailto:danny@exponential.at" style={linkStyle}>
-              danny@exponential.at
+            <a href="mailto:support@exponential.at" style={linkStyle}>
+              support@exponential.at
             </a>
           </p>
 

@@ -178,8 +178,8 @@ export function PrivacyPage() {
             transfer ownership or remove those members first — we will not
             delete a shared team out from under the people still using it.
             Alternatively, email{` `}
-            <a href="mailto:danny@exponential.at" style={linkStyle}>
-              danny@exponential.at
+            <a href="mailto:support@exponential.at" style={linkStyle}>
+              support@exponential.at
             </a>
             {` `}from the address tied to your account; requests are honoured
             within 30 days. Revoking Google access is possible anytime at{` `}
@@ -235,8 +235,8 @@ export function PrivacyPage() {
             processing, and to receive it in a portable format. Much of this you
             can do yourself in the app — edit or delete your content, or delete
             your account outright (see section 5). For anything else, email{` `}
-            <a href="mailto:danny@exponential.at" style={linkStyle}>
-              danny@exponential.at
+            <a href="mailto:support@exponential.at" style={linkStyle}>
+              support@exponential.at
             </a>
             {` `}from the address tied to your account; requests are honoured
             within 30 days. You also have the right to lodge a complaint with a
@@ -279,8 +279,8 @@ export function PrivacyPage() {
               see the Imprint for the full postal address
             </a>
             ). Questions about this policy and all data-deletion requests:{` `}
-            <a href="mailto:danny@exponential.at" style={linkStyle}>
-              danny@exponential.at
+            <a href="mailto:support@exponential.at" style={linkStyle}>
+              support@exponential.at
             </a>
             .
           </p>
