@@ -717,7 +717,7 @@ async fn pump_connection(
                     return LoopEnd::Dropped;
                 }
                 None => return LoopEnd::Dropped,
-            }
+            },
             // 4) periodic ping to keep the connection alive and let the relay
             // detect dead publishers (REV2-X: plan mode can idle for minutes).
             _ = ping_interval.tick() => {

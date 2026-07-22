@@ -1320,8 +1320,13 @@ fn render_editor_preview(
     markdown: String,
     cx: &mut Context<MarkdownEditor>,
 ) -> gpui::AnyElement {
-    let mut view = MarkdownView::new("md-editor-preview-view", markdown)
-        .images(editor.images.clone());
+    // Per-entity id: the view id keys EXP-233's recorded content width, so
+    // two live previews must never share one.
+    let mut view = MarkdownView::new(
+        SharedString::from(format!("md-editor-preview-view-{}", cx.entity_id())),
+        markdown,
+    )
+    .images(editor.images.clone());
     if let Some(resolver) = editor.resolver.clone() {
         view = view.resolver(resolver);
     }
@@ -1489,8 +1494,18 @@ enum ClickTarget {
     Issue(String),
 }
 
+/// EXP-233: last painted content width per (window, view id), feeding
+/// [`MarkdownView`]'s fixed-width layout on the next frame.
+static VIEW_WIDTHS: std::sync::OnceLock<
+    std::sync::Mutex<HashMap<(gpui::WindowId, SharedString), f32>>,
+> = std::sync::OnceLock::new();
+
+fn view_widths() -> &'static std::sync::Mutex<HashMap<(gpui::WindowId, SharedString), f32>> {
+    VIEW_WIDTHS.get_or_init(Default::default)
+}
+
 impl gpui::RenderOnce for MarkdownView {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let blocks = Rc::new(markdown_to_blocks(&self.source));
         let mut children: Vec<gpui::AnyElement> = Vec::new();
 
@@ -1579,7 +1594,52 @@ impl gpui::RenderOnce for MarkdownView {
             }
         }
 
-        v_flex().w_full().gap_1p5().children(children)
+        // EXP-233: lay the blocks out at an explicitly KNOWN pixel width
+        // instead of leaving the wrap width to flex/fit-content resolution.
+        // The pinned gpui's text measurement is stateful (upstream zed
+        // #61107): when taffy probes the same wrapped text at two different
+        // widths in one pass — e.g. fit-content at the detail column's
+        // `max_w` cap vs the final flexed column — the painted lines can
+        // come from one probe while the box height comes from another, and
+        // long wrapped blocks draw their rows into the neighboring blocks.
+        // Fixing the content width to the width this view actually painted
+        // at makes every probe resolve the same wrap width by construction.
+        // The canvas overlay records the real column width each frame and
+        // schedules one refresh when it changes (first frame and resizes lag
+        // one frame, which is invisible in practice).
+        let content = v_flex().w_full().gap_1p5().children(children);
+        let key = (window.window_handle().window_id(), self.id.clone());
+        let known_width = view_widths()
+            .lock()
+            .ok()
+            .and_then(|widths| widths.get(&key).copied());
+        let sized = match known_width {
+            Some(width) => div().w(px(width)).max_w_full().child(content),
+            None => div().w_full().child(content),
+        };
+        div()
+            .w_full()
+            .relative()
+            .child(sized)
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        let width = f32::from(bounds.size.width);
+                        let Ok(mut widths) = view_widths().lock() else {
+                            return;
+                        };
+                        if widths.get(&key) != Some(&width) {
+                            widths.insert(key.clone(), width);
+                            window.refresh();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
     }
 }
 
