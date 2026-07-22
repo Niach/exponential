@@ -12,6 +12,13 @@ import { relativeTime } from "@/components/comment-rows/format"
 // never leaks the URL onward: server-bun.ts answers /support/* with
 // Referrer-Policy: no-referrer, and the meta tag below covers SPA-side
 // navigations in dev.
+//
+// The page is LIVE (EXP-237): while the tab is visible it polls
+// /api/support/poll every few seconds with a createdAt cursor, so member
+// replies appear without a reload — and each poll heartbeats
+// last_reporter_seen_at, which is what lets the server skip the "new reply"
+// email while the reporter is watching. Hiding the tab pauses the poll, the
+// heartbeat lapses, and emails resume.
 export const Route = createFileRoute(`/support/$token`)({
   ssr: false,
   head: () => ({
@@ -41,6 +48,9 @@ type LoadState =
   | { kind: `notFound` }
   | { kind: `error` }
   | { kind: `ready`; thread: ThreadData }
+
+const POLL_INTERVAL_MS = 5_000
+const POLL_MAX_BACKOFF_MS = 60_000
 
 function SupportConversationPage() {
   const { token } = Route.useParams()
@@ -72,13 +82,104 @@ function SupportConversationPage() {
     }
   }, [token])
 
+  const stateRef = useRef(state)
+  stateRef.current = state
+
   useEffect(() => {
     void load()
   }, [load])
 
+  // Live updates (EXP-237): a self-rescheduling timeout chain (not
+  // setInterval, so failures can back off) polling /api/support/poll with the
+  // newest createdAt as cursor. Hiding the tab clears the timer entirely —
+  // zero requests, and the server-side presence heartbeat lapses so reply
+  // emails resume. Poll failures never touch the UI; the page keeps its
+  // last-good transcript.
+  useEffect(() => {
+    if (state.kind !== `ready`) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let failures = 0
+
+    const schedule = (delay: number) => {
+      if (cancelled) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => void tick(), delay)
+    }
+
+    const tick = async () => {
+      if (cancelled || document.visibilityState !== `visible`) return
+      const current = stateRef.current
+      if (current.kind !== `ready`) return
+      const messages = current.thread.messages
+      const since = messages[messages.length - 1]?.createdAt
+      try {
+        const res = await fetch(`/api/support/poll`, {
+          method: `POST`,
+          headers: { "content-type": `application/json` },
+          body: JSON.stringify({ token, since }),
+        })
+        // Thread gone — stop polling for good.
+        if (res.status === 404) return
+        if (!res.ok) throw new Error(`poll failed`)
+        const data = (await res.json()) as {
+          closed: boolean
+          messages: ThreadMessage[]
+        }
+        failures = 0
+        if (!cancelled) {
+          setState((prev) => {
+            if (prev.kind !== `ready`) return prev
+            // The gte cursor overlaps by design — dedupe by id.
+            const seen = new Set(prev.thread.messages.map((m) => m.id))
+            const fresh = data.messages.filter((m) => !seen.has(m.id))
+            if (fresh.length === 0 && data.closed === prev.thread.closed) {
+              return prev
+            }
+            return {
+              kind: `ready`,
+              thread: {
+                ...prev.thread,
+                closed: data.closed,
+                messages: [...prev.thread.messages, ...fresh],
+              },
+            }
+          })
+        }
+        schedule(POLL_INTERVAL_MS)
+      } catch {
+        failures += 1
+        schedule(
+          Math.min(POLL_INTERVAL_MS * 2 ** failures, POLL_MAX_BACKOFF_MS)
+        )
+      }
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === `visible`) {
+        void tick()
+      } else if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+
+    document.addEventListener(`visibilitychange`, onVisibility)
+    schedule(POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      document.removeEventListener(`visibilitychange`, onVisibility)
+    }
+  }, [state.kind, token])
+
+  // Keyed on the message count (not the whole state) so the 5s poll doesn't
+  // yank the scroll position when nothing new arrived.
+  const messageCount =
+    state.kind === `ready` ? state.thread.messages.length : 0
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: `end` })
-  }, [state])
+  }, [state.kind, messageCount])
 
   const send = async () => {
     const body = draft.trim()

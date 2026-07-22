@@ -18,6 +18,7 @@ import {
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { deliveryStatus, sendSupportReplyEmail } from "@/lib/email"
 import { mintSupportToken } from "@/lib/helpdesk/token"
+import { isReporterActivelyViewing } from "@/lib/helpdesk/presence"
 import {
   MAX_SUPPORT_MESSAGE_CHARS,
   closeThreadInTx,
@@ -184,8 +185,20 @@ export const helpdeskRouter = router({
       // address whose owner never engages receives at most ONE email ever —
       // the submit confirmation that carried the link. The reply itself still
       // lands on the thread page either way.
+      //
+      // Presence gate (EXP-237): while the reporter's tab is live-polling the
+      // page (heartbeat within REPORTER_PRESENCE_WINDOW_MS), this reply
+      // appears in their browser within seconds — emailing it too would spam
+      // a rapid back-and-forth, so it is skipped. The moment the tab hides or
+      // closes the heartbeat lapses and emails resume. Worst case a reporter
+      // closes the tab in the seconds before a reply lands: one missed email
+      // for a conversation they were watching moments earlier, still
+      // reachable through the stable magic link in every prior email.
+      const reporterViewing = isReporterActivelyViewing(
+        thread.lastReporterSeenAt
+      )
       let reporterEmailed = false
-      if (thread.lastReporterSeenAt) {
+      if (thread.lastReporterSeenAt && !reporterViewing) {
         try {
           const result = await sendSupportReplyEmail({
             to: thread.reporterEmail,
@@ -218,7 +231,7 @@ export const helpdeskRouter = router({
         }
       }
 
-      return { message, reporterEmailed }
+      return { message, reporterEmailed, reporterViewing }
     }),
 
   // Internal note: member-only annotation. Never emailed, never visible on
