@@ -10,7 +10,7 @@ Feedback in, pull requests out:
 
 One report, all the way to shipped.
 
-Native everywhere. The iOS app syncs live with the web, desktop, and Android clients over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
+Native everywhere. The iOS app syncs live with the web and desktop apps over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
 
 Built for the way you actually work:
 • Fast issue tracking with statuses, priorities, labels, and due dates.
