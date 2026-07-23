@@ -32,6 +32,8 @@
     "@exp/domain-contract": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "@exp/widget": "workspace:*",
+    "@mcp-b/global": "^4.0.0",
+    "@mcp-b/react-webmcp": "^4.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/vite": "^4.0.6",
     "@tanstack/electric-db-collection": "0.3.3",

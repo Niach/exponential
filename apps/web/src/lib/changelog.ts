@@ -23,6 +23,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-webmcp-tools`,
+    date: `2026-07-23`,
+    title: `Browser AI agents can now work your boards`,
+    summary: `The web app speaks WebMCP: in-browser AI agents can read your boards, file and update issues, comment, and navigate for you.`,
+    body: `- **WebMCP support** — the web app now registers page tools via the emerging WebMCP browser standard, so AI agents running in your browser (Chrome's built-in agent, MCP browser extensions) can work with what's on screen.
+- **Read and act as you** — agents can look up your boards, list and search issues, read full issue threads, check your inbox, create and update issues, comment, manage labels and subscriptions, and jump to any view — always as your signed-in user, only in teams you're a member of.
+- **Nothing new is exposed** — tools reuse the exact same permissions and APIs as clicking the UI yourself.`,
+  },
+  {
     id: `2026-07-mobile-detail-live-support`,
     date: `2026-07-23`,
     title: `Redesigned issue view on mobile, live support chat`,
