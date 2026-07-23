@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -283,11 +283,7 @@ fun ChangesScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item(key = "__summary__") {
-                    ChangesSummaryHeader(
-                        issue = issue,
-                        files = loadedFiles,
-                        actionError = actionError,
-                    )
+                    ChangesSummaryHeader(issue = issue, files = loadedFiles)
                 }
                 when (val state = load) {
                     ChangesLoadState.Loading -> item(key = "__loading__") {
@@ -338,6 +334,7 @@ fun ChangesScreen(
                 isMember = permissions.isMember,
                 merging = merging,
                 closing = closing,
+                actionError = actionError,
                 onMerge = { mergeConfirmOpen = true },
                 onClosePr = { closeConfirmOpen = true },
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -395,13 +392,19 @@ fun ChangesScreen(
 // dismiss (icon), Merge (labeled, center), open on GitHub (icon). Merge and
 // dismiss show for members on an OPEN PR; the GitHub circle whenever a PR
 // exists. Renders nothing on the pushed-branch tier (no PR yet). No local
-// write: the Electric echo flips prState and the bar disappears with it.
+// write: the Electric echo flips prState and the bar disappears with it. A
+// failed merge/close captions the bar, right where the user just tapped.
+// No navigationBarsPadding here (unlike BottomNavBar, which lives outside a
+// Scaffold): the Scaffold content padding this bar sits inside already carries
+// the nav-bar inset, and applying it twice lifted the bar past the LazyColumn's
+// BottomBarInset clearance so the last file section slid underneath.
 @Composable
 private fun ChangesBottomBar(
     issue: IssueEntity?,
     isMember: Boolean,
     merging: Boolean,
     closing: Boolean,
+    actionError: String?,
     onMerge: () -> Unit,
     onClosePr: () -> Unit,
     modifier: Modifier = Modifier,
@@ -414,71 +417,85 @@ private fun ChangesBottomBar(
     if (!canReview && prUrl.isNullOrBlank()) return
     val busy = merging || closing
     val barStroke = Color.White.copy(alpha = 0.12f)
-    Row(
-        modifier = modifier
-            .navigationBarsPadding()
-            .padding(top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (canReview) {
-            ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
-                if (closing) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
+        if (actionError != null) {
+            Text(
+                actionError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .glassSection()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        Row(
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (canReview) {
+                ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
+                    if (closing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Close PR without merging",
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(BottomBarPillFill)
+                        .border(GlassTokens.Hairline, barStroke, RoundedCornerShape(percent = 50))
+                        .clickable(enabled = !busy, onClick = onMerge)
+                        .padding(horizontal = 28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (merging) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Filled.CallMerge,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Text(
+                        "Merge",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                    )
+                }
+            }
+            if (!prUrl.isNullOrBlank()) {
+                ChangesBarCircle(onClick = {
+                    runCatching {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(prUrl),
+                        )
+                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    }
+                }) {
                     Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Close PR without merging",
+                        Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open PR on GitHub",
                         modifier = Modifier.size(20.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                     )
                 }
-            }
-            Row(
-                modifier = Modifier
-                    .height(52.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(BottomBarPillFill)
-                    .border(GlassTokens.Hairline, barStroke, RoundedCornerShape(percent = 50))
-                    .clickable(enabled = !busy, onClick = onMerge)
-                    .padding(horizontal = 28.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (merging) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        Icons.AutoMirrored.Filled.CallMerge,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = Color.White,
-                    )
-                }
-                Text(
-                    "Merge",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                )
-            }
-        }
-        if (!prUrl.isNullOrBlank()) {
-            ChangesBarCircle(onClick = {
-                runCatching {
-                    val intent = android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse(prUrl),
-                    )
-                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                }
-            }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.OpenInNew,
-                    contentDescription = "Open PR on GitHub",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
             }
         }
     }
@@ -508,10 +525,9 @@ private fun ChangesSummaryHeader(
     issue: IssueEntity?,
     // Null while the diff fetch is still loading/failed — the file totals hide,
     // but the branch/PR-state (which come from the synced issue, not the fetch)
-    // always render. The review actions live in the floating bottom bar
-    // (EXP-248).
+    // always render. The review actions — and their failures — live in the
+    // floating bottom bar (EXP-248).
     files: List<PullFile>?,
-    actionError: String?,
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Column(modifier = Modifier.fillMaxWidth().glassSection().padding(12.dp)) {
@@ -561,15 +577,6 @@ private fun ChangesSummaryHeader(
                 )
             }
             Spacer(Modifier.weight(1f))
-        }
-
-        if (actionError != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                actionError,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
         }
     }
 }

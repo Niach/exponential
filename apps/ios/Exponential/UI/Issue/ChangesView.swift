@@ -148,7 +148,7 @@ final class ChangesViewModel {
     }
 
     /// Close the PR WITHOUT merging (EXP-100 — the drop path). The prState flip
-    /// arrives through Electric sync; failures caption the header.
+    /// arrives through Electric sync; failures caption the floating action bar.
     func closePr() {
         guard !closing else { return }
         closing = true
@@ -335,11 +335,6 @@ struct ChangesView: View {
                 }
                 Spacer()
             }
-            if let actionError = vm.actionError {
-                Text(actionError)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -352,7 +347,8 @@ struct ChangesView: View {
     /// tab bar / issue-detail bar chrome — dismiss (icon), Merge (labeled,
     /// center), open on GitHub (icon). Merge/dismiss show for members on an
     /// open PR; the GitHub circle whenever a PR exists. Hidden entirely when
-    /// there is no PR to act on (pushed-branch tier).
+    /// there is no PR to act on (pushed-branch tier). A failed merge/close
+    /// captions the bar, right where the user just tapped.
     @ViewBuilder
     private func changesBottomBar(_ vm: ChangesViewModel) -> some View {
         let issue = vm.issue
@@ -361,63 +357,79 @@ struct ChangesView: View {
             && (issue?.prUrl?.isEmpty == false)
         let prURL = issue?.prUrl.flatMap { URL(string: $0) }
         if canReview || prURL != nil {
-            HStack(spacing: 12) {
-                if canReview {
-                    Button {
-                        closeConfirm = true
-                    } label: {
-                        barCircle {
-                            if vm.closing {
-                                ProgressView().controlSize(.small).tint(.white)
-                            } else {
-                                Image(systemName: "xmark")
+            VStack(spacing: 8) {
+                // A merge/close failure captions the bar that produced it —
+                // the summary header at the top of the scroll is off-screen
+                // once the actions moved down here (EXP-248 follow-up).
+                if let actionError = vm.actionError {
+                    Text(actionError)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .glassSection()
+                        .padding(.horizontal, 16)
+                }
+
+                HStack(spacing: 12) {
+                    if canReview {
+                        Button {
+                            closeConfirm = true
+                        } label: {
+                            barCircle {
+                                if vm.closing {
+                                    ProgressView().controlSize(.small).tint(.white)
+                                } else {
+                                    Image(systemName: "xmark")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.merging || vm.closing)
+                        .accessibilityLabel("Close PR without merging")
+
+                        Button {
+                            mergeConfirm = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                if vm.merging {
+                                    ProgressView().controlSize(.small).tint(.white)
+                                } else {
+                                    Image(systemName: "arrow.triangle.merge")
+                                        .font(.body.weight(.medium))
+                                }
+                                Text("Merge")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 28)
+                            .frame(height: 52)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(
+                                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.merging || vm.closing)
+                        .accessibilityLabel("Merge pull request")
+                    }
+
+                    if let prURL {
+                        Link(destination: prURL) {
+                            barCircle {
+                                Image(systemName: "arrow.up.right.square")
                                     .font(.body.weight(.medium))
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open PR on GitHub")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(vm.merging || vm.closing)
-                    .accessibilityLabel("Close PR without merging")
-
-                    Button {
-                        mergeConfirm = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            if vm.merging {
-                                ProgressView().controlSize(.small).tint(.white)
-                            } else {
-                                Image(systemName: "arrow.triangle.merge")
-                                    .font(.body.weight(.medium))
-                            }
-                            Text("Merge")
-                                .font(.subheadline.weight(.medium))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 28)
-                        .frame(height: 52)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-                        .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(vm.merging || vm.closing)
-                    .accessibilityLabel("Merge pull request")
-                }
-
-                if let prURL {
-                    Link(destination: prURL) {
-                        barCircle {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open PR on GitHub")
                 }
             }
             .padding(.top, 8)

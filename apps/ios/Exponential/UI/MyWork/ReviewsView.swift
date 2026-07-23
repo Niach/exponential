@@ -194,23 +194,26 @@ struct ReviewsListContent: View {
                 Spacer(minLength: 8)
 
                 // Inline merge — same confirm-gated flow as the swipe action
-                // (EXP-248: uniform with the web/Android review rows).
-                Button {
-                    mergeTarget = entry
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.merge")
-                            .font(.caption2)
-                        Text("Merge")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.08), in: Capsule())
-                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                // (EXP-248: uniform with the web/Android review rows). NOT a
+                // Button: nested in a NavigationLink label the link swallows
+                // its tap and only pushes the detail, so this uses the same
+                // contentShape + onTapGesture pattern as IssueListView's
+                // inline status/priority glyphs.
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.merge")
+                        .font(.caption2)
+                    Text("Merge")
+                        .font(.caption.weight(.medium))
                 }
-                .buttonStyle(.borderless)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.white.opacity(0.08), in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Capsule())
+                .onTapGesture { mergeTarget = entry }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Merge pull request")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
