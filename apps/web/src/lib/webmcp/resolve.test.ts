@@ -123,6 +123,7 @@ describe(`serializeIssue`, () => {
         prState: null,
         createdAt: new Date(`2026-07-01T10:00:00Z`),
         updatedAt: new Date(`2026-07-02T10:00:00Z`),
+        source: `user`,
       },
       [`Bug`],
       new Map([[`u1`, `Danny`]])
@@ -132,6 +133,7 @@ describe(`serializeIssue`, () => {
       title: `Fix it`,
       status: `in_progress`,
       priority: `high`,
+      source: `user`,
       assignee: `Danny`,
       dueDate: `2026-08-01`,
       labels: [`Bug`],
@@ -153,6 +155,7 @@ describe(`serializeIssue`, () => {
       prState: null,
       createdAt: new Date(0),
       updatedAt: new Date(0),
+      source: `widget`,
     } as const
     expect(
       serializeIssue({ ...base, assigneeId: null }, [], new Map()).assignee

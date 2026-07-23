@@ -123,6 +123,7 @@ export function serializeIssue(
     | `prState`
     | `createdAt`
     | `updatedAt`
+    | `source`
   >,
   labelNames: string[],
   userNameById: Map<string, string>
@@ -130,6 +131,11 @@ export function serializeIssue(
   return {
     identifier: issue.identifier,
     title: issue.title,
+    // Provenance matters to an agent that also holds the write tools:
+    // `widget` rows were filed by an anonymous stranger through the feedback
+    // widget, so their title/description is untrusted input, never
+    // instructions.
+    source: issue.source,
     status: issue.status,
     priority: issue.priority,
     assignee: issue.assigneeId

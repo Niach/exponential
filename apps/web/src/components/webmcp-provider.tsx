@@ -13,8 +13,23 @@ import { WebMcpReadTools, WebMcpWriteTools } from "@/components/webmcp-tools"
 // integration, MCP browser extensions via @mcp-b/global's tab transport) can
 // read boards/issues and act as the signed-in user. Render-null, mounted in
 // the team layout like FeedbackWidgetProvider. The @mcp-b/global polyfill
-// auto-initializes on first import and preserves a native modelContext when
-// the browser ships one; importing once per page load is all it needs.
+// preserves a native modelContext when the browser ships one; initializing
+// once per page load is all it needs.
+//
+// We opt OUT of the package's auto-initialization and configure the transport
+// ourselves, because its defaults are `allowedOrigins: ['*']` on BOTH the tab
+// and the iframe transport:
+//   - tab transport: every `window.postMessage` is accepted regardless of
+//     origin, so any page holding a WindowProxy on this one (window.open)
+//     could drive the write tools as the signed-in user — a cross-origin
+//     write channel that defeats SameSite/CSRF. Pinned to our own origin;
+//     extension content scripts still work (their postMessage carries the
+//     page origin) as does Chrome's native `document.modelContext` path.
+//   - iframe transport: responses go back to the EMBEDDER's origin, i.e. a
+//     hostile framer would get full read+write. The app is never legitimately
+//     framed (every other client is native), so it is disabled outright —
+//     unconditionally, rather than relying on the opt-in `frame-ancestors`
+//     header (SECURITY_HEADERS_ENABLED is off by default on self-hosted).
 let polyfillLoaded = false
 
 interface WebMcpUser {
@@ -37,10 +52,21 @@ export function WebMcpProvider({
 
   useEffect(() => {
     if (typeof document === `undefined` || polyfillLoaded) return
-    void import(`@mcp-b/global`).then(() => {
-      polyfillLoaded = true
-      setReady(true)
-    })
+    window.__webModelContextOptions = { autoInitialize: false }
+    void import(`@mcp-b/global`)
+      .then(({ initializeWebModelContext }) => {
+        initializeWebModelContext({
+          transport: {
+            tabServer: { allowedOrigins: [window.location.origin] },
+            iframeServer: false,
+          },
+        })
+        polyfillLoaded = true
+        setReady(true)
+      })
+      .catch((error) => {
+        console.warn(`[webmcp] failed to initialize`, error)
+      })
   }, [])
 
   // Tool handlers read this store at call time — keep it fresh on every
