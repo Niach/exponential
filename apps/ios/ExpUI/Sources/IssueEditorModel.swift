@@ -389,6 +389,38 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
+    /// Insert plain text at the caret of the focused text block (replacing any
+    /// selection), falling back to appending to the last text block when no
+    /// caret is known — powers the composer's `@` affordance (EXP-240). Follows
+    /// the `applyMention` pattern: revision bump + desiredSelection so the text
+    /// view re-applies without losing first responder, plus a selection update
+    /// so the autocomplete recomputes against the new caret immediately.
+    public func insertTextAtCaret(_ text: String) {
+        let fallbackId = blocks.last(where: { if case .text = $0 { true } else { false } })?.id
+        guard let targetId = focusedBlockId ?? selection?.blockId ?? fallbackId,
+              let idx = blocks.firstIndex(where: { $0.id == targetId }),
+              case let .text(id, content) = blocks[idx] else { return }
+        let range: NSRange
+        if let sel = selection, sel.blockId == targetId {
+            let location = max(0, min(sel.range.location, content.length))
+            range = NSRange(location: location, length: min(sel.range.length, content.length - location))
+        } else {
+            range = NSRange(location: content.length, length: 0)
+        }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        mutable.replaceCharacters(
+            in: range,
+            with: NSAttributedString(string: text, attributes: MarkdownStyle.baseAttributes)
+        )
+        blocks[idx] = .text(id: id, attributedContent: mutable)
+        bumpRevision(id)
+        let caret = range.location + (text as NSString).length
+        desiredSelection = (id, caret)
+        selection = (id, NSRange(location: caret, length: 0))
+        recomputeAutocomplete()
+        notifyEdit()
+    }
+
     // MARK: - Image insertion
 
     public func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {

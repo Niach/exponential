@@ -2,38 +2,27 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The single compact coding/PR card on issue detail (EXP-156) — replaces the
-/// former SteerSessionSection + ChangesSection. One glass section holding up to
-/// four independent, coexisting rows:
+/// The compact coding/PR status card on issue detail (EXP-156). EXP-240 moved
+/// the remote-start affordance into the bottom bar's Start-coding circle, so
+/// this card is now a pure status glance with up to three coexisting rows:
 ///   - Session: a running coding session → "Coding now" + tap-to-watch (members
 ///              when the relay is on; an inert note when steering is disabled).
-///   - Start:   no session, a member, relay on → remote "Start coding" (device
-///              label when exactly one desktop is online), or a "no desktop
-///              online" hint. Dispatches 1 issue → single session, 2+ → batch.
-///   - PR:      a linked PR → state pill + "PR #n", tapping opens the diff page.
-///   - Branch:  a pushed branch, no PR yet → the branch name, same diff page.
+///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
+///              state + "PR #n"), tapping opens the diff page.
+///   - Branch:  a pushed branch, no PR yet → branch icon + mono name chip,
+///              same diff page.
 /// No inline Close/Merge/GitHub-link/diff-count here — the review actions live
-/// on the diff page (ChangesView); this card is a launcher + status glance.
+/// on the diff page (ChangesView).
 struct AgentPrCard: View {
     let issue: IssueEntity
     let runningSessions: [CodingSessionEntity]
     let permissions: TeamPermissions
     let users: [UserEntity]
-    /// Loads the eligible issues for the Start-coding sheet's picker (the
-    /// current issue pre-checked). Injected so the card stays view-model-free.
-    let loadStartCandidates: () async -> [StartCodingSheet.IssueOption]
+    /// Relay config, loaded by the view model's refreshSteer (EXP-240) —
+    /// gates tap-to-watch on the session row.
+    let config: SteerConfig?
 
-    @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-
-    @State private var config: SteerConfig?
-    @State private var devices: [SteerDevice]?
-    @State private var starting = false
-    @State private var sentToLabel: String?
-    @State private var sentBatch = false
-    @State private var startError: String?
-    @State private var showStartSheet = false
-    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
 
     /// Multi-window desktops can run several sessions on one issue — surface the
     /// most recent (any presence at all counts as "coding now").
@@ -41,15 +30,8 @@ struct AgentPrCard: View {
         runningSessions.max { $0.startedAt < $1.startedAt }
     }
 
-    /// The Start area shows a hint or a button (not the pre-load blank) only for
-    /// a member on a relay-enabled instance with presence resolved.
-    private var startAreaVisible: Bool {
-        session == nil && permissions.isMember && config?.enabled == true && devices != nil
-    }
-
     private var showsCard: Bool {
         session != nil
-            || startAreaVisible
             || issue.prUrl != nil
             || (issue.branch?.isEmpty == false)
     }
@@ -60,24 +42,6 @@ struct AgentPrCard: View {
                 content
             }
         }
-        // Keyed on session presence AND membership: when a session ends the
-        // start area re-appears and must (re)load presence, and on cold start
-        // refreshDevices() guards on isMember — so the load must re-run once the
-        // members shape syncs and isMember flips true (else devices stays nil
-        // forever and neither the Start button nor the no-desktop hint appears).
-        .task(id: "\(accountId)|\(issue.id)|\(session == nil)|\(permissions.isMember)") {
-            config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-            await refreshDevices()
-        }
-        .sheet(isPresented: $showStartSheet) {
-            StartCodingSheet(
-                devices: devices ?? [],
-                issues: startCandidates,
-                preselectedIds: [issue.id]
-            ) { device, issueIds, options in
-                start(on: device, issueIds: issueIds, options: options)
-            }
-        }
     }
 
     private var content: some View {
@@ -85,13 +49,10 @@ struct AgentPrCard: View {
             if let session {
                 sessionRow(session)
             }
-            if startAreaVisible {
-                startArea
-            }
             if issue.prUrl != nil {
-                prRow
+                prChip
             } else if let branch = issue.branch, !branch.isEmpty {
-                branchRow(branch)
+                branchChip(branch)
             }
         }
         .padding(12)
@@ -176,95 +137,16 @@ struct AgentPrCard: View {
         return "· \(name)"
     }
 
-    // MARK: - Start row
+    // MARK: - PR / branch chips (GitHub-style, EXP-240)
 
-    @ViewBuilder
-    private var startArea: some View {
-        if let devices {
-            if devices.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "display.trianglebadge.exclamationmark")
-                        .font(.caption)
-                    Text("No desktop online — open the Exponential desktop app to run here.")
-                        .font(.caption2)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Button {
-                        Task { await presentStartSheet() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if starting {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                    .tint(.white)
-                            } else {
-                                Image(systemName: "play.display")
-                                    .font(.caption)
-                            }
-                            Text(devices.count == 1 && !devices[0].deviceLabel.isEmpty
-                                ? "Start coding on \(devices[0].deviceLabel)"
-                                : "Start coding")
-                                .font(.caption.weight(.medium))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                    }
-                    .glassButton()
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .disabled(starting || sentToLabel != nil)
-                    .opacity(starting || sentToLabel != nil ? 0.6 : 1)
-
-                    if let sentToLabel {
-                        HStack(spacing: 5) {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .tint(.white)
-                            Text(sentBatch
-                                ? "Batch start sent to \(sentToLabel) — follow it in the Agents tab."
-                                : "Start sent to \(sentToLabel) — waiting for the desktop…")
-                                .font(.caption2)
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-
-                    if let startError {
-                        Text(startError)
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                    }
-                }
-            }
+    /// Pull-request icon tint per PR state — GitHub's palette: open green,
+    /// merged indigo (purple), closed red.
+    private var prTint: Color {
+        switch issue.prState {
+        case DomainContract.prStateMerged: Accent.indigo
+        case DomainContract.prStateClosed: DesignTokens.Semantic.red
+        default: DesignTokens.Semantic.green
         }
-    }
-
-    // MARK: - PR / branch rows
-
-    private var prRow: some View {
-        NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
-            HStack(spacing: 8) {
-                if let prState = issue.prState, !prState.isEmpty {
-                    Text(prState.capitalized)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Capsule())
-                        .foregroundStyle(.white)
-                }
-                Text(prLabel)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private var prLabel: String {
@@ -274,9 +156,32 @@ struct AgentPrCard: View {
         return "Pull request"
     }
 
-    private func branchRow(_ branch: String) -> some View {
+    private var prChip: some View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.pull")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(prTint)
+                Text(prLabel)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                if let prState = issue.prState, !prState.isEmpty {
+                    Text(prState.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassButton()
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func branchChip(_ branch: String) -> some View {
+        NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
+            HStack(spacing: 6) {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.caption)
                     .foregroundStyle(Accent.indigo)
@@ -285,70 +190,19 @@ struct AgentPrCard: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassButton()
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - Actions
-
-    private func refreshDevices() async {
-        guard config?.enabled == true, permissions.isMember, session == nil else { return }
-        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
-    }
-
-    private func presentStartSheet() async {
-        startCandidates = await loadStartCandidates()
-        showStartSheet = true
-    }
-
-    private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        starting = true
-        startError = nil
-        let isBatch = issueIds.count > 1
-        Task {
-            defer { starting = false }
-            do {
-                if isBatch {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueIds: issueIds,
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                } else {
-                    try await deps.steerApi.startSession(
-                        accountId: accountId,
-                        issueId: issueIds[0],
-                        deviceId: device.deviceId,
-                        options: options
-                    )
-                }
-                sentBatch = isBatch
-                sentToLabel = device.deviceLabel
-                // The desktop inserts the coding_sessions row when the launcher
-                // spins up, which swaps the start area for the session row via
-                // sync. Re-enable after a grace window in case it never does.
-                Task {
-                    try? await Task.sleep(for: .seconds(30))
-                    sentToLabel = nil
-                }
-            } catch {
-                startError = error.localizedDescription
-            }
-        }
     }
 }
 
 /// The live-session pulse: a solid green core with an expanding, fading ring —
 /// the "Coding now" green, animated. Static under Reduce Motion. Shared by the
-/// issue-detail card and the Agents tab (EXP-156 — one implementation).
+/// issue-detail card, the bottom bar's start circle, and the Agents tab.
 struct PulsingLiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false

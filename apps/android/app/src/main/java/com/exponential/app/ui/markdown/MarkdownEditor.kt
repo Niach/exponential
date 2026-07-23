@@ -60,6 +60,9 @@ fun MarkdownEditor(
     // Reports whether any field of this editor holds focus. Lets the host gate a
     // live remote-apply on "not currently editing" (issue detail description).
     onFocusChanged: ((Boolean) -> Unit)? = null,
+    // Optional hoisted model so a host can drive focus / caret insertion (the
+    // issue-detail comment composer, EXP-240). Null keeps the private default.
+    model: EditorModel? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!editable) {
@@ -78,10 +81,9 @@ fun MarkdownEditor(
     }
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val model = remember { EditorModel() }
+    @Suppress("NAME_SHADOWING")
+    val model = model ?: remember { EditorModel() }
     val currentOnChange by rememberUpdatedState(onChange)
-    val currentUploader by rememberUpdatedState(onUploadImage)
     val currentInitialPending by rememberUpdatedState(initialPendingImages)
     val currentOnFocusChanged by rememberUpdatedState(onFocusChanged)
 
@@ -108,34 +110,7 @@ fun MarkdownEditor(
         currentOnFocusChanged?.invoke(model.focusedRowId != null)
     }
 
-    val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri: Uri? ->
-        val uploader = currentUploader
-        if (uri == null || uploader == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val bytes = MarkdownMediaUtils.readBytes(context, uri)
-            val mime = MarkdownMediaUtils.guessMimeType(context, uri)
-            val name = MarkdownMediaUtils.guessFilename(context, uri)
-            val size = MarkdownMediaUtils.probeSize(context, uri)
-            if (bytes == null) {
-                // No preview bytes — fall back to upload-then-insert (nothing to
-                // show while the upload runs).
-                val url = runCatching { uploader(uri) }.getOrNull() ?: return@launch
-                model.insertImageUrl(url, alt = "image")
-                return@launch
-            }
-            // Insert the block immediately (local preview), then run the host
-            // upload through the model so the tile shows an uploading overlay
-            // and, on failure, a Retry/remove affordance (iOS editor parity).
-            // The host uploader returns either a real /api/attachments/... URL
-            // (eager upload) or a draft:// placeholder (deferred upload at
-            // create time); either way the row's URL is swapped on success.
-            val pending = PendingImage(uri, bytes, name, mime, size.width, size.height)
-            val rowId = model.insertImageUrl(draftUrl(), alt = "image", pending = pending)
-            model.runUpload(rowId) { uploader(uri) }
-        }
-    }
+    val pickImage = rememberMarkdownImagePicker(model, onUploadImage)
 
     // The formatting toolbar is rendered by a screen-level overlay so it can
     // float above the keyboard (see ProvideMarkdownToolbar). Register this
@@ -149,9 +124,7 @@ fun MarkdownEditor(
         LaunchedEffect(model.focusedRowId) {
             if (model.focusedRowId != null) {
                 toolbarController.activeModel = model
-                toolbarController.onPickImage = {
-                    pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
+                toolbarController.onPickImage = pickImage
                 toolbarController.imageEnabled = imageEnabledFlag
             } else if (toolbarController.activeModel === model) {
                 toolbarController.activeModel = null
@@ -183,6 +156,58 @@ fun MarkdownEditor(
                 }
             }
         }
+    }
+}
+
+/**
+ * A system photo-picker launcher wired to [model]'s image-block insert/upload
+ * flow, returned as a plain launch function. [MarkdownEditor] registers it on
+ * the shared toolbar controller for the floating toolbar's Image button; hosts
+ * with their own pick-image affordance (the issue-detail comment composer,
+ * EXP-240) call this directly so the picked image always lands in THEIR model —
+ * the toolbar controller's last-focus-wins slot may still point at another
+ * editor (e.g. the description) and is never safe to borrow.
+ */
+@Composable
+fun rememberMarkdownImagePicker(
+    model: EditorModel,
+    onUploadImage: (suspend (uri: Uri) -> String?)?,
+): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentModel by rememberUpdatedState(model)
+    val currentUploader by rememberUpdatedState(onUploadImage)
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        val target = currentModel
+        val uploader = currentUploader
+        if (uri == null || uploader == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = MarkdownMediaUtils.readBytes(context, uri)
+            val mime = MarkdownMediaUtils.guessMimeType(context, uri)
+            val name = MarkdownMediaUtils.guessFilename(context, uri)
+            val size = MarkdownMediaUtils.probeSize(context, uri)
+            if (bytes == null) {
+                // No preview bytes — fall back to upload-then-insert (nothing to
+                // show while the upload runs).
+                val url = runCatching { uploader(uri) }.getOrNull() ?: return@launch
+                target.insertImageUrl(url, alt = "image")
+                return@launch
+            }
+            // Insert the block immediately (local preview), then run the host
+            // upload through the model so the tile shows an uploading overlay
+            // and, on failure, a Retry/remove affordance (iOS editor parity).
+            // The host uploader returns either a real /api/attachments/... URL
+            // (eager upload) or a draft:// placeholder (deferred upload at
+            // create time); either way the row's URL is swapped on success.
+            val pending = PendingImage(uri, bytes, name, mime, size.width, size.height)
+            val rowId = target.insertImageUrl(draftUrl(), alt = "image", pending = pending)
+            target.runUpload(rowId) { uploader(uri) }
+        }
+    }
+    return remember(launcher) {
+        { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
 }
 

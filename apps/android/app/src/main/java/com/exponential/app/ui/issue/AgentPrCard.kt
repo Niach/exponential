@@ -21,17 +21,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,8 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
@@ -48,17 +42,17 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
 
-// The single compact agent/PR card on the issue detail (EXP-156) — it replaces
-// the old separate SteerPanel + ChangesSection. One glass section stacking the
-// applicable rows: a live "Coding now" session, the "Start coding" launcher (or
-// a "no desktop online" hint), and the PR / branch summary linking to the
-// dedicated Changes page. No inline Close PR, no GitHub link, no diff counts,
-// no branchDiff fetch — merge/close moved to the Changes review page.
+// The compact agent/PR card on the issue detail (EXP-156): a live "Coding now"
+// session row and the PR / branch summary as GitHub-style chips linking to the
+// dedicated Changes page. The Start-coding launcher moved into the bottom
+// bar's start circle (EXP-240) — this card renders only when there is a
+// session, a PR, or a pushed branch.
 
 // The remote-start progress state — relocated here from the deleted SteerPanel.
 // `isBatch` drives the "follow it in the Agents tab" caption for a 2+ run.
@@ -79,6 +73,11 @@ internal val ReviewGreen = DesignTokens.Semantic.Green
 internal val DoneBlue = DesignTokens.Semantic.Blue
 internal val NeedsInputAmber = DesignTokens.Semantic.Yellow
 
+// GitHub PR-state tints (EXP-240): open green / merged indigo / closed red.
+private val PrOpenGreen = DesignTokens.Semantic.Green
+private val PrMergedIndigo = Color(0xFF818CF8)
+private val PrClosedRed = DesignTokens.Semantic.Red
+
 @Composable
 fun AgentPrCard(
     issue: IssueEntity,
@@ -86,64 +85,36 @@ fun AgentPrCard(
     sessionOwner: UserEntity?,
     steerEnabled: Boolean?,
     isMember: Boolean,
-    devices: List<SteerDevice>?,
-    startState: SteerStartState,
-    startCandidates: List<StartIssueOption>,
-    onStart: (SteerDevice, List<String>, SteerStartOptions) -> Unit,
     onWatch: (String) -> Unit,
     onOpenChanges: () -> Unit,
 ) {
-    var sheetOpen by remember { mutableStateOf(false) }
-
-    val startVisible = session == null && isMember && steerEnabled == true
-    val showStartButton = startVisible && !devices.isNullOrEmpty()
-    val showStartHint = startVisible && devices != null && devices.isEmpty()
     val hasPr = !issue.prUrl.isNullOrBlank()
     val hasBranch = !hasPr && !issue.branch.isNullOrBlank()
+    val hasContent = session != null || hasPr || hasBranch
+    if (!hasContent) return
 
-    val hasContent = session != null || showStartButton || showStartHint || hasPr || hasBranch
-
-    if (hasContent) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassSection()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (session != null) {
-                SessionRow(
-                    session = session,
-                    prState = issue.prState,
-                    sessionOwner = sessionOwner,
-                    steerEnabled = steerEnabled,
-                    isMember = isMember,
-                    onWatch = onWatch,
-                )
-            }
-            if (startVisible) {
-                StartSection(
-                    devices = devices,
-                    startState = startState,
-                    onOpenSheet = { sheetOpen = true },
-                )
-            }
-            if (hasPr) {
-                PrRow(prState = issue.prState, prNumber = issue.prNumber, onOpenChanges = onOpenChanges)
-            } else if (hasBranch) {
-                BranchRow(branch = issue.branch!!, onOpenChanges = onOpenChanges)
-            }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassSection()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (session != null) {
+            SessionRow(
+                session = session,
+                prState = issue.prState,
+                sessionOwner = sessionOwner,
+                steerEnabled = steerEnabled,
+                isMember = isMember,
+                onWatch = onWatch,
+            )
         }
-    }
-
-    if (sheetOpen) {
-        StartCodingSheet(
-            devices = devices ?: emptyList(),
-            issues = startCandidates,
-            preselectedIds = setOf(issue.id),
-            onStart = onStart,
-            onDismiss = { sheetOpen = false },
-        )
+        if (hasPr) {
+            PrRow(prState = issue.prState, prNumber = issue.prNumber, onOpenChanges = onOpenChanges)
+        } else if (hasBranch) {
+            BranchRow(branch = issue.branch!!, onOpenChanges = onOpenChanges)
+        }
     }
 }
 
@@ -222,139 +193,53 @@ private fun SessionRow(
     }
 }
 
-// The "Start coding" launcher (or a hint when no desktop is online). devices
-// null renders nothing (still loading); empty renders the hint; otherwise the
-// button + the in-flight/sent/failed captions.
-@Composable
-private fun StartSection(
-    devices: List<SteerDevice>?,
-    startState: SteerStartState,
-    onOpenSheet: () -> Unit,
-) {
-    if (devices == null) return
-    if (devices.isEmpty()) {
-        Text(
-            "No desktop online — open the Exponential desktop app to run here.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        return
-    }
-
-    val busy = startState is SteerStartState.Sending || startState is SteerStartState.Sent
-    Column {
-        Row(
-            modifier = Modifier
-                .glassButton()
-                .clickable(enabled = !busy) { onOpenSheet() }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (startState is SteerStartState.Sending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (busy) TextEmphasis.Quaternary else TextEmphasis.Primary,
-                    ),
-                )
-            }
-            Text(
-                if (devices.size == 1) {
-                    "Start coding on ${devices[0].deviceLabel.ifBlank { devices[0].deviceId }}"
-                } else {
-                    "Start coding"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (busy) TextEmphasis.Quaternary else TextEmphasis.Primary,
-                ),
-            )
-        }
-        when (startState) {
-            is SteerStartState.Sent -> {
-                Spacer(Modifier.height(6.dp))
-                if (startState.isBatch) {
-                    Text(
-                        "Batch start sent to ${startState.deviceLabel} — follow it in the Agents tab.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "Start sent to ${startState.deviceLabel} — waiting for the desktop…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
-                }
-            }
-            is SteerStartState.Failed -> {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    startState.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            else -> Unit
-        }
-    }
-}
-
-// Linked PR: a capitalized state pill + "PR #n", tapping into the Changes page.
+// Linked PR as a GitHub-style capsule chip: pull icon tinted by state
+// (open green / merged indigo / closed red) + "PR #n" + the state word inside
+// the capsule (iOS parity), tapping into Changes.
 @Composable
 private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
+    val tint = when (prState) {
+        DomainContract.prStateMerged -> PrMergedIndigo
+        DomainContract.prStateClosed -> PrClosedRed
+        else -> PrOpenGreen
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpenChanges),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (!prState.isNullOrBlank()) {
-            Text(
-                prState.replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .glassButton()
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+        Row(
+            modifier = Modifier
+                .glassButton()
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.CallMerge,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = tint,
             )
+            Text(
+                prNumber?.let { "PR #$it" } ?: "Pull request",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!prState.isNullOrBlank()) {
+                Text(
+                    prState.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
         }
-        Text(
-            prNumber?.let { "PR #$it" } ?: "Pull request",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "Open review",
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
     }
 }
 
-// Pushed branch, no PR yet: branch icon + mono branch, tapping into Changes.
+// Pushed branch, no PR yet: a capsule chip with the indigo branch icon + mono
+// name, tapping into Changes.
 @Composable
 private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
     Row(
@@ -362,33 +247,34 @@ private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onOpenChanges),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            Icons.AutoMirrored.Filled.AltRoute,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Text(
-            branch,
-            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "Open review",
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .glassButton()
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.AltRoute,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = AccentIndigo,
+            )
+            Text(
+                branch,
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
-// Pulsing live-session dot; internal so the Agents tab reuses the exact
-// "Coding now" pulse (its import survives this relocation — same package).
+// Pulsing live-session dot; internal so the Agents tab and the bottom bar's
+// start circle reuse the exact "Coding now" pulse (same package).
 @Composable
 internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
     val transition = rememberInfiniteTransition(label = "coding-now")
@@ -410,7 +296,7 @@ internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
 }
 
 // Static (non-pulsing) status dot — the `in_review` "ready for review" signal
-// (EXP-194). Internal so the Agents tab reuses the exact glyph.
+// (EXP-194). Internal so the Agents tab and the bottom bar reuse the exact glyph.
 @Composable
 internal fun StaticDot(color: Color, size: androidx.compose.ui.unit.Dp = 8.dp) {
     Box(

@@ -47,7 +47,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
-private val PillFill = Color(0xF2151518)
+// Internal (EXP-240): the issue-detail bottom bar clones this exact treatment.
+internal val BottomBarPillFill = Color(0xF2151518)
 
 // Bottom contentPadding for scrollable content on screens the floating bar
 // overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
@@ -102,7 +103,7 @@ fun BottomNavBar(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(percent = 50))
-                .background(PillFill)
+                .background(BottomBarPillFill)
                 .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), RoundedCornerShape(percent = 50))
                 .padding(5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -174,7 +175,7 @@ fun BottomNavBar(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(CircleShape)
-                    .background(PillFill)
+                    .background(BottomBarPillFill)
                     .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), CircleShape)
                     .clickable(onClick = onCompose),
                 contentAlignment = Alignment.Center,

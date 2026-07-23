@@ -1,16 +1,22 @@
 package com.exponential.app.ui.issue
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,8 +35,6 @@ import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -54,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +67,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -69,10 +75,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
-import com.exponential.app.domain.priorityIcon
-import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.PriorityIcon
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -84,10 +92,18 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
+import kotlinx.coroutines.launch
 
-// iOS-parity issue detail: a centered "Issue" nav title, an identifier chip +
-// overflow header row, a large editable title, the description editor, then the
-// metadata/property cards (IssueMetadataEditor), attachments and comments.
+// The per-property/combined sheets the detail screen can present (EXP-240).
+// One nullable slot: children opened from the Properties sheet stack over it
+// (propertiesOpen stays true beneath).
+private enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, MoveBoard, StartCoding }
+
+// Linear-mobile-style issue detail (EXP-240): centered "Issue" nav title,
+// identifier chip + overflow header row, large editable title, the property
+// chip box, the description editor, the agent/PR card, and the activity
+// timeline — with a floating three-element bottom bar (properties circle,
+// expanding comment pill, start-coding circle).
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueDetailScreen(
@@ -97,6 +113,7 @@ fun IssueDetailScreen(
     onOpenSteer: (String) -> Unit = {},
     onOpenChanges: () -> Unit = {},
     viewModel: IssueDetailViewModel = hiltViewModel(),
+    commentViewModel: CommentThreadViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
@@ -112,30 +129,32 @@ fun IssueDetailScreen(
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
-    // EXP-50: solo teams (one human member) hide the assignee row.
+    // EXP-50: solo teams (one human member) hide the assignee chip/row.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val issue = state.issue
     // Remote-reconciled title/description: seed on first load, live-apply a remote
     // edit while clean, stash + banner while dirty (field-level last-write-wins).
     // remember(issue?.id) gives the per-issue reset the old seed effect provided.
     val titleSync = remember(issue?.id) { RemoteSyncedText(normalizeForEcho = { it.trim() }) }
     val descriptionSync = remember(issue?.id) { RemoteSyncedText(normalizeForEcho = ::stripDraftImages) }
-    var statusMenuOpen by remember { mutableStateOf(false) }
-    var priorityMenuOpen by remember { mutableStateOf(false) }
-    var assigneeMenuOpen by remember { mutableStateOf(false) }
-    var datePickerOpen by remember { mutableStateOf(false) }
-    var dueTimePickerOpen by remember { mutableStateOf(false) }
-    var endTimePickerOpen by remember { mutableStateOf(false) }
-    var labelsOpen by remember { mutableStateOf(false) }
+    var propertiesOpen by remember { mutableStateOf(false) }
+    var activeSheet by remember { mutableStateOf<IssueSheet?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var duplicatePickerOpen by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
-    var movePickerOpen by remember { mutableStateOf(false) }
     // The picked target board, pending the move confirmation (EXP-57).
     var moveTarget by remember { mutableStateOf<com.exponential.app.data.db.BoardEntity?>(null) }
+    // The docked comment composer (bottom bar) expansion.
+    var composerExpanded by remember { mutableStateOf(false) }
+
+    // The bar's comment half shares the thread's screen-scoped VM (hoisted
+    // draft) — bind before either consumer renders.
+    LaunchedEffect(issueId) { commentViewModel.bind(issueId) }
+    val commentDraft by commentViewModel.draft.collectAsStateWithLifecycle()
+    val commentSending by commentViewModel.sending.collectAsStateWithLifecycle()
 
     LaunchedEffect(titleSync, issue?.title) {
         issue?.title?.let { titleSync.syncRemote(it) }
@@ -166,6 +185,23 @@ fun IssueDetailScreen(
         moveError?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeMoveError()
+        }
+    }
+
+    // Remote-start feedback (EXP-240 — the inline captions left with the card's
+    // start strip): failures surface as a snackbar; a batch send points at the
+    // Agents tab (the single-issue send keeps spinning in the start circle
+    // until the session row syncs in).
+    LaunchedEffect(startState) {
+        when (val s = startState) {
+            is SteerStartState.Failed -> snackbarHostState.showSnackbar(s.message)
+            is SteerStartState.Sent ->
+                if (s.isBatch) {
+                    snackbarHostState.showSnackbar(
+                        "Batch start sent to ${s.deviceLabel} — follow it in the Agents tab.",
+                    )
+                }
+            else -> Unit
         }
     }
 
@@ -251,7 +287,7 @@ fun IssueDetailScreen(
                                             text = { Text("Move to board") },
                                             onClick = {
                                                 overflowOpen = false
-                                                movePickerOpen = true
+                                                activeSheet = IssueSheet.MoveBoard
                                             },
                                         )
                                     }
@@ -289,22 +325,51 @@ fun IssueDetailScreen(
 
         val status = IssueStatus.fromWire(issue.status)
         val priority = IssuePriority.fromWire(issue.priority)
+        val mentionMembers = remember(state.users) {
+            state.users
+                .map { MentionMember(it.name ?: it.email, it.email) }
+        }
 
-        Column(
+        // Start-circle gating + content (EXP-240): hidden without steer /
+        // membership / a repo-backed board, and until the device list has
+        // loaded (null = myDevices in flight — no premature dimmed circle); a
+        // live session shows its state dot; an in-flight send spins; otherwise
+        // the play glyph (dimmed while no desktop is online — tapping then
+        // explains via snackbar).
+        val session = runningSession
+        val devices = steerDevices
+        val startAllowed = steerEnabled == true && permissions.isMember && state.board?.repositoryId != null
+        val startUi: StartButtonUi? = when {
+            !startAllowed -> null
+            session != null -> StartButtonUi.Session(codingSessionDisplayState(session, issue.prState))
+            startState is SteerStartState.Sending || startState is SteerStartState.Sent -> StartButtonUi.Sending
+            devices == null -> null
+            else -> StartButtonUi.Start(enabled = devices.isNotEmpty())
+        }
+
+        // The bar yields to the title/description keyboard (the markdown
+        // toolbar owns that space); its own composer keeps it visible.
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val barVisible = composerExpanded || !imeVisible
+
+        Box(
             modifier = Modifier
                 .padding(padding)
                 // Shrink the scrollport above the keyboard: with edge-to-edge,
                 // adjustResize alone never resizes the window, so without this
-                // the comment composer (and any focused editor line) stays
-                // hidden behind the IME (EXP-135). consumeWindowInsets keeps
-                // imePadding from re-adding the nav-bar inset already applied
-                // by the Scaffold padding.
+                // the focused editor line stays hidden behind the IME (EXP-135).
+                // consumeWindowInsets keeps imePadding from re-adding the
+                // nav-bar inset already applied by the Scaffold padding.
                 .consumeWindowInsets(padding)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-                .fillMaxWidth(),
+                .fillMaxSize(),
         ) {
+            Column(
+                modifier = Modifier
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .fillMaxWidth(),
+            ) {
             SyncBannerRow(syncBanner)
             if (syncBanner != SyncBanner.None) Spacer(Modifier.height(8.dp))
             // Header: identifier chip (actions live in the nav bar). The repo
@@ -434,11 +499,26 @@ fun IssueDetailScreen(
                 },
             )
 
+            Spacer(Modifier.height(12.dp))
+            // The top property chip box (EXP-240) — replaces the stacked
+            // property/times cards + labels section.
+            IssuePropertyChips(
+                issue = issue,
+                status = status,
+                priority = priority,
+                assignee = state.assignee,
+                issueLabels = state.issueLabels,
+                isModerator = isModerator,
+                hideAssignee = soloMemberId != null,
+                onOpenStatus = { activeSheet = IssueSheet.Status },
+                onOpenPriority = { activeSheet = IssueSheet.Priority },
+                onOpenAssignee = { activeSheet = IssueSheet.Assignee },
+                onOpenDueDate = { activeSheet = IssueSheet.DueDate },
+                onOpenLabels = { activeSheet = IssueSheet.Labels },
+                onOpenProperties = { propertiesOpen = true },
+            )
+
             Spacer(Modifier.height(16.dp))
-            val mentionMembers = remember(state.users) {
-                state.users
-                    .map { MentionMember(it.name ?: it.email, it.email) }
-            }
             MarkdownEditor(
                 markdown = descriptionSync.text,
                 editable = isModerator,
@@ -455,39 +535,13 @@ fun IssueDetailScreen(
                 onDispose { viewModel.flushDescription() }
             }
 
-            Spacer(Modifier.height(20.dp))
-            // Metadata/property cards + labels (extracted to IssueMetadataEditor).
-            IssueMetadataEditor(
-                issue = issue,
-                status = status,
-                priority = priority,
-                assignee = state.assignee,
-                teamLabels = state.teamLabels,
-                issueLabels = state.issueLabels,
-                isModerator = isModerator,
-                hideAssignee = soloMemberId != null,
-                onStatusClick = { statusMenuOpen = true },
-                onPriorityClick = { priorityMenuOpen = true },
-                onAssigneeClick = { assigneeMenuOpen = true },
-                onDueDateClick = { datePickerOpen = true },
-                onClearDueDate = { viewModel.updateDueDate(null) },
-                onStartTimeClick = { dueTimePickerOpen = true },
-                onEndTimeClick = { endTimePickerOpen = true },
-                onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
-                onAddLabel = { labelsOpen = true },
-            )
-
-            // The single agent/PR card (EXP-156): live "Coding now" session,
-            // the Start-coding launcher (or a "no desktop online" hint), and the
-            // PR/branch summary linking to the dedicated Changes page. Rendered
-            // when there's a session, a PR/branch, or the caller could start one.
-            // The start branch requires devices to have RESOLVED (non-null) so
-            // the gate matches AgentPrCard's own content check — otherwise a
-            // still-loading myDevices leaves an orphaned RepoChip + spacer.
-            val cardVisible = runningSession != null ||
+            // The agent/PR card (EXP-156): a live "Coding now" session and the
+            // PR/branch chips linking to the dedicated Changes page. Start
+            // moved to the bottom bar (EXP-240), so this renders only with a
+            // session, a PR, or a pushed branch.
+            val cardVisible = session != null ||
                 !issue.prUrl.isNullOrBlank() ||
-                !issue.branch.isNullOrBlank() ||
-                (steerEnabled == true && permissions.isMember && steerDevices != null)
+                !issue.branch.isNullOrBlank()
             if (cardVisible) {
                 Spacer(Modifier.height(20.dp))
                 repoName?.let { name ->
@@ -495,130 +549,170 @@ fun IssueDetailScreen(
                 }
                 AgentPrCard(
                     issue = issue,
-                    session = runningSession,
-                    sessionOwner = runningSession?.let { s -> state.users.firstOrNull { it.id == s.userId } },
+                    session = session,
+                    sessionOwner = session?.let { s -> state.users.firstOrNull { it.id == s.userId } },
                     steerEnabled = steerEnabled,
                     isMember = permissions.isMember,
-                    devices = steerDevices,
-                    startState = startState,
-                    startCandidates = startCandidates,
-                    onStart = viewModel::startOnDesktop,
                     onWatch = onOpenSteer,
                     onOpenChanges = onOpenChanges,
                 )
             }
 
             Spacer(Modifier.height(20.dp))
-            AttachmentList(issueId = issue.id)
+            CommentThread(issueId = issue.id, viewModel = commentViewModel)
 
-            Spacer(Modifier.height(8.dp))
-            CommentThread(issueId = issue.id)
+            // Clearance so the last timeline row scrolls out from under the
+            // floating bar (kept in sync with the nav pill inset, EXP-36).
+            Spacer(Modifier.height(BottomBarInset))
+            }
+
+            // The floating bottom bar / docked composer. Lives INSIDE the
+            // ProvideMarkdownToolbar content (which bottom-insets by the
+            // toolbar height), with a single imePadding — so the stack is
+            // IME → markdown toolbar → composer.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding(),
+            ) {
+                AnimatedVisibility(
+                    visible = barVisible,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(180)),
+                ) {
+                    IssueDetailBottomBar(
+                        expanded = composerExpanded,
+                        onExpandedChange = { composerExpanded = it },
+                        showProperties = isModerator,
+                        onOpenProperties = { propertiesOpen = true },
+                        startButton = startUi,
+                        onStartClick = {
+                            when {
+                                session != null -> onOpenSteer(session.id)
+                                startState is SteerStartState.Sending || startState is SteerStartState.Sent -> Unit
+                                steerDevices.isNullOrEmpty() -> scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "No desktop online — open the Exponential desktop app to run here.",
+                                    )
+                                }
+                                else -> activeSheet = IssueSheet.StartCoding
+                            }
+                        },
+                        draft = commentDraft,
+                        onDraftChange = commentViewModel::updateDraft,
+                        sending = commentSending,
+                        onSend = { commentViewModel.send { composerExpanded = false } },
+                        onUploadImage = { uri -> commentViewModel.uploadImage(uri) },
+                        mentionMembers = mentionMembers,
+                    )
+                }
+            }
         }
     }
     }
     }
 
-    if (statusMenuOpen && issue != null && isModerator) {
+    // ── Sheets ────────────────────────────────────────────────────────────────
+
+    if (propertiesOpen && issue != null && isModerator) {
+        PropertiesSheet(
+            issue = issue,
+            status = IssueStatus.fromWire(issue.status),
+            priority = IssuePriority.fromWire(issue.priority),
+            assignee = state.assignee,
+            hideAssignee = soloMemberId != null,
+            issueLabels = state.issueLabels,
+            currentBoardName = state.board?.name,
+            hasMoveTargets = moveTargets.isNotEmpty(),
+            onOpenStatus = { activeSheet = IssueSheet.Status },
+            onOpenPriority = { activeSheet = IssueSheet.Priority },
+            onOpenAssignee = { activeSheet = IssueSheet.Assignee },
+            onOpenDueDate = { activeSheet = IssueSheet.DueDate },
+            onOpenLabels = { activeSheet = IssueSheet.Labels },
+            onOpenMoveBoard = { activeSheet = IssueSheet.MoveBoard },
+            onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
+            onDismiss = { propertiesOpen = false },
+        )
+    }
+
+    if (activeSheet == IssueSheet.Status && issue != null && isModerator) {
         val currentStatus = IssueStatus.fromWire(issue.status)
         IssuePickerSheet(
             title = "Status",
             items = issueStatusOrder,
             selected = currentStatus,
             labelOf = { it.label },
-            iconOf = { statusIcon(it) },
+            leadingContent = { StatusIcon(it, size = 16.dp) },
             onSelect = {
                 // Duplicate = status interception (L27): picking `duplicate`
                 // opens the canonical-issue picker instead of writing the status
                 // directly; markDuplicate sets duplicateOfId + status='duplicate'
                 // atomically. Cancelling the picker leaves the status untouched.
                 if (it == IssueStatus.Duplicate) {
-                    duplicatePickerOpen = true
+                    activeSheet = IssueSheet.Duplicate
                 } else {
                     viewModel.updateStatus(it)
                 }
             },
-            onDismiss = { statusMenuOpen = false },
+            onDismiss = { if (activeSheet == IssueSheet.Status) activeSheet = null },
         )
     }
 
-    if (priorityMenuOpen && issue != null && isModerator) {
+    if (activeSheet == IssueSheet.Priority && issue != null && isModerator) {
         val currentPriority = IssuePriority.fromWire(issue.priority)
         IssuePickerSheet(
             title = "Priority",
             items = issuePriorityOrder,
             selected = currentPriority,
             labelOf = { it.label },
-            iconOf = { priorityIcon(it) },
+            leadingContent = { PriorityIcon(it, size = 16.dp) },
             onSelect = { viewModel.updatePriority(it) },
-            onDismiss = { priorityMenuOpen = false },
+            onDismiss = { activeSheet = null },
         )
     }
 
-    if (assigneeMenuOpen && isModerator) {
-        val people = state.users
-        val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
-            listOf<com.exponential.app.data.db.UserEntity?>(null) + people
-        IssuePickerSheet(
-            title = "Assignee",
-            items = assigneeItems,
-            selected = assigneeItems.firstOrNull { it?.id == state.assignee?.id },
-            keyOf = { it?.id ?: "__unassigned__" },
-            labelOf = { user -> user?.let { it.name ?: it.email } ?: "Unassigned" },
-            iconOf = { user -> if (user == null) Icons.Filled.PersonOff else Icons.Filled.Person },
-            onSelect = { viewModel.updateAssignee(it?.id) },
-            onDismiss = { assigneeMenuOpen = false },
+    if (activeSheet == IssueSheet.Assignee && issue != null && isModerator) {
+        AssigneePickerSheet(
+            users = state.users,
+            selectedUserId = issue.assigneeId,
+            onSelect = { viewModel.updateAssignee(it) },
+            onDismiss = { activeSheet = null },
         )
     }
 
-    if (datePickerOpen) {
-        IssueDatePickerDialog(
-            initialDate = issue?.dueDate,
-            onConfirm = { viewModel.updateDueDate(it); datePickerOpen = false },
-            onDismiss = { datePickerOpen = false },
+    if (activeSheet == IssueSheet.DueDate && issue != null && isModerator) {
+        DueDateSheet(
+            dueDate = issue.dueDate,
+            dueTime = issue.dueTime,
+            endTime = issue.endTime,
+            onSetDate = { viewModel.updateDueDate(it) },
+            onSetDueTime = { viewModel.updateDueTime(it) },
+            onSetEndTime = { viewModel.updateEndTime(it) },
+            onDismiss = { activeSheet = null },
         )
     }
 
-    if (labelsOpen) {
+    if (activeSheet == IssueSheet.Labels && issue != null && isModerator) {
         LabelPickerSheet(
             teamLabels = state.teamLabels,
             selectedLabelIds = state.issueLabels.map { it.id }.toSet(),
             onToggle = { id, assigned -> viewModel.toggleLabel(id, assigned) },
             onCreate = { name, color -> viewModel.createAndAssignLabel(name, color) },
-            onDismiss = { labelsOpen = false },
+            onDismiss = { activeSheet = null },
         )
     }
 
-    if (dueTimePickerOpen && issue != null) {
-        IssueTimePickerDialog(
-            initialTime = issue.dueTime,
-            title = "Start time",
-            onConfirm = { viewModel.updateDueTime(it); dueTimePickerOpen = false },
-            onClear = { viewModel.updateDueTime(null); dueTimePickerOpen = false },
-            onDismiss = { dueTimePickerOpen = false },
-        )
-    }
-
-    if (endTimePickerOpen && issue != null) {
-        IssueTimePickerDialog(
-            initialTime = issue.endTime,
-            title = "End time",
-            onConfirm = { viewModel.updateEndTime(it); endTimePickerOpen = false },
-            onClear = { viewModel.updateEndTime(null); endTimePickerOpen = false },
-            onDismiss = { endTimePickerOpen = false },
-        )
-    }
-
-    if (duplicatePickerOpen && issue != null && isModerator) {
+    if (activeSheet == IssueSheet.Duplicate && issue != null && isModerator) {
         DuplicatePickerSheet(
             candidates = duplicateCandidates,
             onPick = { viewModel.markDuplicate(it.id) },
-            onDismiss = { duplicatePickerOpen = false },
+            onDismiss = { activeSheet = null },
         )
     }
 
     // Move to board (EXP-57): pick a same-team target, then confirm —
     // the move renumbers the issue (new identifier), so it's consequential.
-    if (movePickerOpen && issue != null && isModerator) {
+    if (activeSheet == IssueSheet.MoveBoard && issue != null && isModerator) {
         IssuePickerSheet(
             title = "Move to board",
             items = moveTargets,
@@ -627,7 +721,17 @@ fun IssueDetailScreen(
             labelOf = { it.name },
             iconOf = { Icons.Filled.Folder },
             onSelect = { moveTarget = it },
-            onDismiss = { movePickerOpen = false },
+            onDismiss = { activeSheet = null },
+        )
+    }
+
+    if (activeSheet == IssueSheet.StartCoding && issue != null) {
+        StartCodingSheet(
+            devices = steerDevices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = setOf(issue.id),
+            onStart = viewModel::startOnDesktop,
+            onDismiss = { activeSheet = null },
         )
     }
 

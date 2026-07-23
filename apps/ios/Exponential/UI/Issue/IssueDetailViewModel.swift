@@ -46,6 +46,21 @@ final class IssueDetailViewModel {
     /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
     var singleMemberTeam = false
 
+    // Steer state for the bottom bar's Start-coding circle (EXP-240 — moved
+    // here from AgentPrCard so the card can stay a pure status glance).
+    var steerConfig: SteerConfig?
+    /// The caller's online desktops; nil until presence resolves.
+    var steerDevices: [SteerDevice]?
+    /// True from "start sent" until the desktop's session row lands (or the
+    /// 30s grace elapses) — renders the circle as a spinner. Single-issue
+    /// starts only; batch runs get `batchStartNotice` instead.
+    var startPending = false
+    /// Transient confirmation after a BATCH start (2+ issues): the batch
+    /// session row is issue-LESS (issue_id NULL), so it never syncs into this
+    /// issue's `runningSessions` and the start circle can't reflect it —
+    /// surface explicit "follow it in the Agents tab" feedback instead.
+    var batchStartNotice: String?
+
     private let accountId: String
     private let issueId: String
     private let db: DatabaseManager
@@ -53,6 +68,7 @@ final class IssueDetailViewModel {
     private let issueImagesApi: IssueImagesApi
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
+    private let steerApi: SteerApi
     private let auth: AuthRepository
     private let baseURL: URL?
     /// Raw instance base string for building shareable web links.
@@ -72,6 +88,7 @@ final class IssueDetailViewModel {
         issueImagesApi: IssueImagesApi,
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
+        steerApi: SteerApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
@@ -81,6 +98,7 @@ final class IssueDetailViewModel {
         self.issueImagesApi = issueImagesApi
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
+        self.steerApi = steerApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.instanceUrl = instanceUrl
@@ -272,9 +290,77 @@ final class IssueDetailViewModel {
         Set(issueLabels.map(\.labelId))
     }
 
+    /// The issue's team's labels, name-sorted — the pool holds every synced
+    /// team's labels, so the chip box / label sheet must scope to this one.
+    var teamLabels: [LabelEntity] {
+        guard let teamId = board?.teamId else { return [] }
+        return labels
+            .filter { $0.teamId == teamId }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Labels assigned to this issue, name-sorted (the chip box's label chips).
+    var assignedLabels: [LabelEntity] {
+        let assigned = assignedLabelIds
+        return teamLabels.filter { assigned.contains($0.id) }
+    }
+
     func assignee() -> UserEntity? {
         guard let id = issue?.assigneeId else { return nil }
         return users.first { $0.id == id }
+    }
+
+    // MARK: - Steer (bottom-bar Start-coding circle, EXP-240)
+
+    /// Load the relay config + device presence for the start circle. Presence
+    /// only matters while startable (member, relay on, no live session) — the
+    /// same gating the AgentPrCard start area used.
+    func refreshSteer() async {
+        steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
+        guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }
+        steerDevices = (try? await steerApi.myDevices(accountId: accountId)) ?? []
+    }
+
+    /// Remote-start on the chosen desktop (ported from AgentPrCard.start):
+    /// 1 issue → single session, 2+ → batch. The desktop inserts the
+    /// coding_sessions row when the launcher spins up, which flips the circle
+    /// to the session dot via sync; re-enable after a 30s grace window in
+    /// case it never does.
+    func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        let isBatch = issueIds.count > 1
+        // A batch run's session row is issue-less and never lands in this
+        // issue's runningSessions — a spinner would just time out silently,
+        // so only single-issue starts show the pending state.
+        startPending = !isBatch
+        Task {
+            do {
+                if isBatch {
+                    try await steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                    let label = device.deviceLabel.isEmpty ? "your desktop" : device.deviceLabel
+                    batchStartNotice = "Batch start sent to \(label) — follow it in the Agents tab."
+                } else {
+                    try await steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                    Task {
+                        try? await Task.sleep(for: .seconds(30))
+                        startPending = false
+                    }
+                }
+            } catch {
+                startPending = false
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     /// Same-team boards the issue can move to (EXP-57): the current

@@ -49,6 +49,9 @@ object GlassTokens {
     val RowPaddingV = 10.dp
 }
 
+/** The brand indigo (#6366f1) — iOS `Accent.indigo`: selection checkmarks, branch tints, send accents. */
+val AccentIndigo = Color(0xFF6366F1)
+
 /** iOS `TextOpacity` tiers — apply as foreground alpha over onSurface / white. */
 object TextEmphasis {
     const val Primary = 1.0f

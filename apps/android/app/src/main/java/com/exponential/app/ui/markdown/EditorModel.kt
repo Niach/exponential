@@ -370,6 +370,29 @@ class EditorModel {
     fun pendingMarkActive(rowId: String, caret: Int, kind: InlineKind): Boolean =
         pendingAnchor == rowId to caret && kind in pendingMarks
 
+    /**
+     * Insert plain text at the caret of the active row (falls back to the end of
+     * the last paragraph) — the comment composer's `@` affordance (EXP-240).
+     * Mirrors [insertLinkText] sans the mark; re-asserts focus so the mention
+     * autocomplete fires off the reseeded caret.
+     */
+    fun insertPlainText(text: String) {
+        val rid = activeRowId
+            ?: rows.lastOrNull { it is EditorRow.Para }?.id
+            ?: return
+        val idx = rows.indexOfFirst { it.id == rid }
+        if (idx < 0) return
+        val row = rows[idx] as? EditorRow.Para ?: return
+        val pos = (selection?.takeIf { it.first == rid }?.second?.first ?: row.text.length)
+            .coerceIn(0, row.text.length)
+        val newText = row.text.substring(0, pos) + text + row.text.substring(pos)
+        replaceRow(idx, row.copy(text = newText, marks = MarkRemap.remap(row.text, newText, row.marks)))
+        bump(row.id)
+        setFocused(row.id)
+        desiredSelection = row.id to (pos + text.length)
+        notifyEdit()
+    }
+
     /** Insert link display text at [at] and mark it (used when there is no selection). */
     fun insertLinkText(rowId: String, at: Int, text: String, url: String) {
         val idx = rows.indexOfFirst { it.id == rowId }
