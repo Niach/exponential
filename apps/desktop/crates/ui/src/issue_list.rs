@@ -293,9 +293,12 @@ impl IssueListView {
         }
     }
 
-    /// Whether the current scope's team has at most one member — a solo team
+    /// Whether the current scope's team has exactly one member — a solo team
     /// where the assignee affordance is noise (only self-assign is possible).
-    /// Unresolved team (join not synced) defaults to showing the affordance.
+    /// Exactly one, not `<= 1`: a count of 0 means team_members has not
+    /// synced yet, and treating that as solo made the affordance vanish and
+    /// reappear on a genuine multi-member team. Same contract as
+    /// properties_panel's solo_team and the web clients.
     fn is_solo_team(&self, cx: &App) -> bool {
         let Some(team_id) = self.bulk_team_id(cx) else {
             return false;
@@ -307,7 +310,7 @@ impl IssueListView {
             .iter()
             .filter(|member| member.team_id == team_id)
             .count()
-            <= 1
+            == 1
     }
 
     // -- row rendering -------------------------------------------------------
