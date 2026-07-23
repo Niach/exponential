@@ -159,7 +159,7 @@ struct CommentThreadView: View {
                     expandedRuns.insert(key)
                 } else {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        expandedRuns.insert(key)
+                        _ = expandedRuns.insert(key)
                     }
                 }
             } label: {
