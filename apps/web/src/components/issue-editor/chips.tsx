@@ -18,7 +18,7 @@ import {
 // dedupe), so the create/edit chip row never offers `duplicate` — the status is
 // only ever reached via the duplicate-picker interception on an existing issue
 // (masterplan §4.1 / L27).
-const creatableStatuses = statuses.filter(
+export const creatableStatuses = statuses.filter(
   (option) => option.value !== `duplicate`
 )
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"

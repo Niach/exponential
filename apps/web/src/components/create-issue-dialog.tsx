@@ -394,6 +394,36 @@ export function CreateIssueDialog({
       endTime={endTime}
       onDueTimeChange={setDueTime}
       onEndTimeChange={setEndTime}
+      createMore={createMore}
+      onCreateMoreChange={setCreateMore}
+      mobileFooter={
+        submitPhase === `created_with_image_errors` ? (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
+            <span className="text-xs text-destructive">{attachmentStatus}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={handleClose}
+            >
+              Close
+            </Button>
+          </div>
+        ) : (
+          // Submit lives in the header FAB and "Create more" in the property
+          // card, so the mobile footer is just the attachment rail.
+          <div className="px-4 py-3 border-t border-border">
+            <IssueEditorAttachmentRail
+              attachmentStatus={attachmentStatus}
+              images={imageOccurrences}
+              onFiles={handleImageFiles}
+              onRemove={handleRemoveImageOccurrence}
+              uploading={submitPhase === `uploading`}
+              disabled={closeDisabled}
+            />
+          </div>
+        )
+      }
       footer={
         submitPhase === `created_with_image_errors` ? (
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">

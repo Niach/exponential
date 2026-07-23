@@ -10,6 +10,7 @@ import {
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
+import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
@@ -70,6 +71,12 @@ interface IssueEditorDialogShellProps {
   onToggleLabel: (labelId: string) => void | Promise<void>
   open: boolean
   primaryAction?: PrimaryAction
+  // Mobile renders properties as a native-style card of full-width rows
+  // inside the scroll region (EXP-247); "Create more" lives in that card, so
+  // the caller threads its state here and passes a slimmer `mobileFooter`.
+  createMore?: boolean
+  onCreateMoreChange?: (checked: boolean) => void
+  mobileFooter?: ReactNode
   priority: IssuePriority
   boardColor: string
   boardPrefix: string
@@ -115,6 +122,9 @@ export function IssueEditorDialogShell({
   onToggleLabel,
   open,
   primaryAction,
+  createMore,
+  onCreateMoreChange,
+  mobileFooter,
   priority,
   boardColor,
   boardPrefix,
@@ -271,13 +281,33 @@ export function IssueEditorDialogShell({
 
         <div className="editor-scroll-region flex-1 min-h-0 min-w-0 overflow-y-auto">
           {editor}
+          <IssueEditorMobileProperties
+            status={status}
+            priority={priority}
+            assigneeId={assigneeId}
+            selectedLabelIds={selectedLabelIds}
+            teamId={teamId}
+            users={users}
+            dueDate={dueDate}
+            dueTime={dueTime}
+            endTime={endTime}
+            hideAssignee={hideAssignee}
+            hideDueDateChip={hideDueDateChip}
+            disableStatus={disableStatus}
+            disabled={disabled}
+            createMore={createMore}
+            onCreateMoreChange={onCreateMoreChange}
+            onStatusChange={onStatusChange}
+            onPriorityChange={onPriorityChange}
+            onAssigneeChange={onAssigneeChange}
+            onToggleLabel={onToggleLabel}
+            onDueDateSelect={onDueDateSelect}
+            onDueTimeChange={onDueTimeChange}
+            onEndTimeChange={onEndTimeChange}
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-t border-border shrink-0">
-          {chipNodes}
-        </div>
-
-        {footer}
+        {mobileFooter ?? footer}
       </>
     )
 

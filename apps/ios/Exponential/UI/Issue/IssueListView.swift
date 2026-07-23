@@ -22,6 +22,11 @@ struct IssueListView: View {
     @State private var steerEnabled: Bool?
     @State private var steerDevices: [SteerDevice]?
     @State private var showStartSheet = false
+    // Which bulk-property picker the selection bar is presenting (EXP-247).
+    @State private var bulkSheet: BulkSheet?
+    // Inline status/priority editing straight from a row's icon (EXP-247) —
+    // non-selection rows only, moderator-gated.
+    @State private var inlineEdit: InlineEdit?
     // Transient feedback under/instead of the bar: start sent / failed /
     // no desktop online. Auto-clears (errors included — the bar is modal
     // enough that a sticky error would just block the list).
@@ -89,6 +94,16 @@ struct IssueListView: View {
                 }
             }
         }
+        .sheet(item: $bulkSheet) { sheet in
+            if let vm = viewModel {
+                bulkSheetContent(sheet, vm: vm)
+            }
+        }
+        .sheet(item: $inlineEdit) { edit in
+            if let vm = viewModel {
+                inlineEditContent(edit, vm: vm)
+            }
+        }
         .onAppear {
             if viewModel == nil {
                 let vm = IssueListViewModel(
@@ -97,6 +112,7 @@ struct IssueListView: View {
                     db: deps.db,
                     issuesApi: deps.issuesApi,
                     boardsApi: deps.boardsApi,
+                    labelsApi: deps.labelsApi,
                     auth: deps.auth
                 )
                 viewModel = vm
@@ -412,37 +428,58 @@ struct IssueListView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
         } else {
+            // Inline status/priority editing (EXP-247): tap the icons to open a
+            // picker — only when the viewer may mutate this issue. In selection
+            // mode taps keep toggling selection, so these stay nil there.
+            let canMutate = vm.permissions.canMutateIssue(creatorId: issue.creatorId)
+            let onLongPress: () -> Void = {
+                guard vm.permissions.isMember else { return }
+                enterSelection(with: issue.id, vm: vm)
+            }
             NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                issueRowContent(issue: issue, vm: vm, selected: nil)
+                issueRowContent(
+                    issue: issue,
+                    vm: vm,
+                    selected: nil,
+                    onTapStatus: canMutate ? { inlineEdit = InlineEdit(kind: .status, issue: $0) } : nil,
+                    onTapPriority: canMutate ? { inlineEdit = InlineEdit(kind: .priority, issue: $0) } : nil,
+                    onIconLongPress: onLongPress
+                )
             }
             .buttonStyle(.plain)
             // Long-press enters multi-select (EXP-239); simultaneous so the
             // link's plain tap keeps navigating.
             .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.35).onEnded { _ in
-                    guard vm.permissions.isMember else { return }
-                    enterSelection(with: issue.id, vm: vm)
-                }
+                LongPressGesture(minimumDuration: 0.35).onEnded { _ in onLongPress() }
             )
             .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
         }
     }
 
     @ViewBuilder
-    private func issueRowContent(issue: IssueEntity, vm: IssueListViewModel, selected: Bool?) -> some View {
+    private func issueRowContent(
+        issue: IssueEntity,
+        vm: IssueListViewModel,
+        selected: Bool?,
+        onTapStatus: ((IssueEntity) -> Void)? = nil,
+        onTapPriority: ((IssueEntity) -> Void)? = nil,
+        onIconLongPress: (() -> Void)? = nil
+    ) -> some View {
             HStack(spacing: 10) {
                 // Multi-select indicator (EXP-239) — same glyphs as the
                 // Start-coding picker so "selected" reads identically.
                 if let selected {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.body)
-                        .foregroundStyle(selected ? Accent.indigo : .white.opacity(TextOpacity.tertiary))
+                        .foregroundStyle(selected ? DesignTokens.Palette.primary : .white.opacity(TextOpacity.tertiary))
                 }
                 // Priority icon (16pt column, Android parity)
-                Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
-                    .font(.caption)
-                    .foregroundStyle(IssuePriority.from(issue.priority).color)
-                    .frame(width: 16)
+                inlineEditableIcon(
+                    systemName: IssuePriority.from(issue.priority).sfSymbol,
+                    color: IssuePriority.from(issue.priority).color,
+                    onTap: onTapPriority.map { tap in { tap(issue) } },
+                    onLongPress: onIconLongPress
+                )
 
                 // Identifier — leading-aligned min width so the status icon
                 // and title don't shift horizontally with digit count for
@@ -455,10 +492,12 @@ struct IssueListView: View {
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
                 // Status icon
-                Image(systemName: IssueStatus.from(issue.status).sfSymbol)
-                    .font(.caption)
-                    .foregroundStyle(IssueStatus.from(issue.status).color)
-                    .frame(width: 16)
+                inlineEditableIcon(
+                    systemName: IssueStatus.from(issue.status).sfSymbol,
+                    color: IssueStatus.from(issue.status).color,
+                    onTap: onTapStatus.map { tap in { tap(issue) } },
+                    onLongPress: onIconLongPress
+                )
 
                 // Title — the ONLY flexible element (Android parity): it
                 // truncates under pressure so the due date never wraps.
@@ -494,27 +533,60 @@ struct IssueListView: View {
                     .foregroundStyle(dueDateColor(dueDate))
                 }
 
-                // Assignee avatar (pseudonym initial when the user row isn't synced)
-                if let assigneeId = issue.assigneeId {
+                // Assignee avatar (pseudonym initial when the user row isn't
+                // synced) — hidden on solo teams, where every issue is the
+                // sole member's (EXP-247).
+                if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
                     userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: 22)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            // Selected rows get an unmistakable indigo wash + hairline on top
+            // Selected rows get an unmistakable neutral wash + hairline on top
             // of the glass (the check glyph alone is easy to miss mid-scroll).
             .overlay {
                 if selected == true {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Accent.indigo.opacity(0.12))
+                        .fill(DesignTokens.Palette.primary.opacity(0.12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(Accent.indigo.opacity(0.45), lineWidth: 1)
+                                .stroke(DesignTokens.Palette.primary.opacity(0.45), lineWidth: 1)
                         )
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    /// A row's status/priority glyph. Plain 16pt-wide by default; when `onTap`
+    /// is supplied it grows to a 28pt tap target but reclaims the extra 12pt
+    /// with negative padding so the visual glyph and column alignment stay
+    /// identical to a non-editable row (EXP-247). The row's long-press is
+    /// re-attached here so a press starting over the icon still enters
+    /// selection despite the tap gesture.
+    @ViewBuilder
+    private func inlineEditableIcon(
+        systemName: String,
+        color: Color,
+        onTap: (() -> Void)?,
+        onLongPress: (() -> Void)?
+    ) -> some View {
+        let glyph = Image(systemName: systemName)
+            .font(.caption)
+            .foregroundStyle(color)
+            .frame(width: 16)
+        if let onTap {
+            glyph
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+                .onTapGesture { onTap() }
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.35).onEnded { _ in onLongPress?() }
+                )
+                .padding(.horizontal, -6)
+        } else {
+            glyph
+        }
     }
 
     // MARK: - Multi-select (EXP-239)
@@ -565,50 +637,68 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func selectionBar(_ vm: IssueListViewModel) -> some View {
-        HStack(spacing: 2) {
+        // Bare count (not "N selected") so ✕ + four property buttons + the
+        // Start-coding capsule never clip at ~375pt (EXP-247).
+        HStack(spacing: 0) {
             Button {
                 exitSelection()
             } label: {
                 Image(systemName: "xmark")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Clear selection")
 
-            Text("\(selectedIds.count) selected")
-                .font(.subheadline.weight(.medium))
+            Text("\(selectedIds.count)")
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
+                .padding(.trailing, 2)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            Button {
-                bulkSet(vm, .done)
-            } label: {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.body)
-                    .foregroundStyle(IssueStatus.done.color)
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
+            // Status — the shared status glyph when the selection agrees,
+            // else a neutral checklist mark.
+            barIconButton(
+                systemName: sharedStatus(vm)?.sfSymbol ?? "checklist",
+                color: sharedStatus(vm)?.color ?? .white.opacity(TextOpacity.secondary),
+                accessibility: "Set status"
+            ) {
+                bulkSheet = .status
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Mark done")
 
-            Button {
-                bulkSet(vm, .backlog)
-            } label: {
-                Image(systemName: "circle.dashed")
-                    .font(.body)
-                    // Matches the leading swipe action's backlog tint.
-                    .foregroundStyle(.orange)
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
+            // Priority — shared priority glyph, else the neutral "no priority"
+            // glyph.
+            barIconButton(
+                systemName: sharedPriority(vm)?.sfSymbol ?? IssuePriority.none.sfSymbol,
+                color: sharedPriority(vm)?.color ?? .white.opacity(TextOpacity.secondary),
+                accessibility: "Set priority"
+            ) {
+                bulkSheet = .priority
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Move to backlog")
+
+            // Assignee — only meaningful on multi-member teams.
+            if !vm.singleMemberTeam {
+                barIconButton(
+                    systemName: "person.circle",
+                    color: .white.opacity(TextOpacity.secondary),
+                    accessibility: "Set assignee"
+                ) {
+                    bulkSheet = .assignee
+                }
+            }
+
+            // Labels — tri-state toggle sheet that stays open.
+            barIconButton(
+                systemName: "tag",
+                color: .white.opacity(TextOpacity.secondary),
+                accessibility: "Edit labels"
+            ) {
+                bulkSheet = .labels
+            }
 
             // Start coding — the bar's raison d'être (EXP-239). Only on
             // repo-backed boards, and only while the relay isn't known-off.
@@ -620,7 +710,7 @@ struct IssueListView: View {
                         if steerDevices == nil {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(.white)
+                                .tint(DesignTokens.Palette.primaryForeground)
                         } else {
                             Image(systemName: "play.fill")
                                 .font(.caption)
@@ -628,20 +718,187 @@ struct IssueListView: View {
                         Text("Start coding")
                             .font(.subheadline.weight(.medium))
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
+                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Accent.indigo, in: Capsule())
+                    .background(DesignTokens.Palette.primary, in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, 6)
+                .padding(.leading, 4)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .glassCard(cornerRadius: 24)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// One 32pt property button in the selection bar (EXP-247).
+    @ViewBuilder
+    private func barIconButton(
+        systemName: String,
+        color: Color,
+        accessibility: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.body)
+                .foregroundStyle(color)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibility)
+    }
+
+    // MARK: - Selection-bar bulk pickers (EXP-247)
+
+    private func selectedIssues(_ vm: IssueListViewModel) -> [IssueEntity] {
+        vm.issues.filter { selectedIds.contains($0.id) }
+    }
+
+    /// The status shared by every selected issue, or nil when they differ.
+    private func sharedStatus(_ vm: IssueListViewModel) -> IssueStatus? {
+        let statuses = Set(selectedIssues(vm).map { IssueStatus.from($0.status) })
+        return statuses.count == 1 ? statuses.first : nil
+    }
+
+    /// The priority shared by every selected issue, or nil when they differ.
+    private func sharedPriority(_ vm: IssueListViewModel) -> IssuePriority? {
+        let priorities = Set(selectedIssues(vm).map { IssuePriority.from($0.priority) })
+        return priorities.count == 1 ? priorities.first : nil
+    }
+
+    /// The assignee shared by every selected issue, or nil when they differ /
+    /// are unassigned — the picker's pre-selection.
+    private func sharedAssigneeId(_ vm: IssueListViewModel) -> String? {
+        let assignees = Set(selectedIssues(vm).map { $0.assigneeId })
+        return assignees.count == 1 ? (assignees.first ?? nil) : nil
+    }
+
+    @ViewBuilder
+    private func bulkSheetContent(_ sheet: BulkSheet, vm: IssueListViewModel) -> some View {
+        switch sheet {
+        case .status:
+            // No duplicate: bulk marking has no canonical-issue picker (web parity).
+            GlassPickerSheet(
+                title: "Status",
+                items: IssueStatus.allCases.filter { $0 != .duplicate },
+                selectedID: sharedStatus(vm)?.id,
+                idFor: { $0.id },
+                onSelect: { selected in bulkSetStatus(vm, selected) }
+            ) { status in
+                Label {
+                    Text(status.label)
+                } icon: {
+                    Image(systemName: status.sfSymbol)
+                        .foregroundStyle(status.color)
+                }
+            }
+        case .priority:
+            GlassPickerSheet(
+                title: "Priority",
+                items: IssuePriority.allCases,
+                selectedID: sharedPriority(vm)?.id,
+                idFor: { $0.id },
+                onSelect: { selected in bulkSetPriority(vm, selected) }
+            ) { priority in
+                Label {
+                    Text(priority.label)
+                } icon: {
+                    Image(systemName: priority.sfSymbol)
+                        .foregroundStyle(priority.color)
+                }
+            }
+        case .assignee:
+            AssigneeSheet(
+                users: vm.users,
+                selectedId: sharedAssigneeId(vm),
+                onSelect: { userId in bulkSetAssignee(vm, userId) }
+            )
+        case .labels:
+            BulkLabelsSheet(
+                labels: vm.teamLabels.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                },
+                stateFor: { labelId in labelToggleState(vm, labelId: labelId) },
+                onToggle: { labelId, add in
+                    Task { await vm.bulkToggleLabel(issueIds: Array(selectedIds), labelId: labelId, add: add) }
+                }
+            )
+        }
+    }
+
+    /// Tri-state assignment of one label across the current selection.
+    private func labelToggleState(_ vm: IssueListViewModel, labelId: String) -> LabelToggleState {
+        let ids = selectedIds
+        guard !ids.isEmpty else { return .none }
+        let assigned = ids.filter { issueId in
+            vm.issueLabels.contains { $0.issueId == issueId && $0.labelId == labelId }
+        }.count
+        if assigned == 0 { return .none }
+        if assigned == ids.count { return .all }
+        return .some
+    }
+
+    @ViewBuilder
+    private func inlineEditContent(_ edit: InlineEdit, vm: IssueListViewModel) -> some View {
+        switch edit.kind {
+        case .status:
+            GlassPickerSheet(
+                title: "Status",
+                items: IssueStatus.allCases.filter { $0 != .duplicate },
+                selectedID: IssueStatus.from(edit.issue.status).id,
+                idFor: { $0.id },
+                onSelect: { selected in
+                    Task { await vm.setStatus(issueId: edit.issue.id, status: selected) }
+                }
+            ) { status in
+                Label {
+                    Text(status.label)
+                } icon: {
+                    Image(systemName: status.sfSymbol)
+                        .foregroundStyle(status.color)
+                }
+            }
+        case .priority:
+            GlassPickerSheet(
+                title: "Priority",
+                items: IssuePriority.allCases,
+                selectedID: IssuePriority.from(edit.issue.priority).id,
+                idFor: { $0.id },
+                onSelect: { selected in
+                    Task { await vm.setPriority(issueId: edit.issue.id, priority: selected) }
+                }
+            ) { priority in
+                Label {
+                    Text(priority.label)
+                } icon: {
+                    Image(systemName: priority.sfSymbol)
+                        .foregroundStyle(priority.color)
+                }
+            }
+        }
+    }
+
+    private func bulkSetStatus(_ vm: IssueListViewModel, _ status: IssueStatus) {
+        let ids = Array(selectedIds)
+        exitSelection()
+        Task { await vm.bulkSetStatus(issueIds: ids, status: status) }
+    }
+
+    private func bulkSetPriority(_ vm: IssueListViewModel, _ priority: IssuePriority) {
+        let ids = Array(selectedIds)
+        exitSelection()
+        Task { await vm.bulkSetPriority(issueIds: ids, priority: priority) }
+    }
+
+    private func bulkSetAssignee(_ vm: IssueListViewModel, _ assigneeId: String?) {
+        let ids = Array(selectedIds)
+        exitSelection()
+        Task { await vm.bulkSetAssignee(issueIds: ids, assigneeId: assigneeId) }
     }
 
     @ViewBuilder
@@ -654,12 +911,6 @@ struct IssueListView: View {
             .padding(.vertical, 8)
             .glassCard(cornerRadius: 14)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
-    private func bulkSet(_ vm: IssueListViewModel, _ status: IssueStatus) {
-        let ids = Array(selectedIds)
-        exitSelection()
-        Task { await vm.bulkSetStatus(issueIds: ids, status: status) }
     }
 
     private func startCodingTapped() {
@@ -758,5 +1009,107 @@ struct IssueListView: View {
 private struct StartNotice: Equatable {
     let message: String
     let isError: Bool
+}
+
+/// Which bulk-property picker the selection bar is presenting (EXP-247).
+private enum BulkSheet: String, Identifiable {
+    case status
+    case priority
+    case assignee
+    case labels
+
+    var id: String { rawValue }
+}
+
+/// An inline status/priority edit opened from a single row's icon (EXP-247).
+private struct InlineEdit: Identifiable {
+    enum Kind: String { case status, priority }
+    let kind: Kind
+    let issue: IssueEntity
+
+    var id: String { "\(kind.rawValue)-\(issue.id)" }
+}
+
+/// Assignment of one label across a multi-issue selection (EXP-247).
+private enum LabelToggleState {
+    case all
+    case some
+    case none
+}
+
+/// Tri-state bulk label sheet (EXP-247): each row shows a full checkmark when
+/// ALL selected issues carry the label, a `minus` when only SOME do, and
+/// nothing otherwise. Tapping removes the label from all when every issue has
+/// it, else adds it to the ones missing it. The sheet STAYS open across
+/// toggles (dismiss by swipe) — chrome/row styling mirrors the detail
+/// `LabelsSheet`.
+private struct BulkLabelsSheet: View {
+    let labels: [LabelEntity]
+    let stateFor: (String) -> LabelToggleState
+    let onToggle: (String, Bool) -> Void
+
+    @State private var searchText = ""
+
+    private var trimmedQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filtered: [LabelEntity] {
+        guard !trimmedQuery.isEmpty else { return labels }
+        return labels.filter { $0.name.localizedCaseInsensitiveContains(trimmedQuery) }
+    }
+
+    var body: some View {
+        GlassSheetChrome(title: "Labels", detents: [.medium, .large]) {
+            GlassSheetSearchField(placeholder: "Search labels", text: $searchText)
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(filtered, id: \.id) { label in
+                        let state = stateFor(label.id)
+                        Button {
+                            onToggle(label.id, state != .all)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(hex: label.color) ?? .gray)
+                                    .frame(width: 10, height: 10)
+                                    .frame(width: 24)
+                                Text(label.name)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                switch state {
+                                case .all:
+                                    Image(systemName: "checkmark")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Accent.indigo)
+                                case .some:
+                                    Image(systemName: "minus")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                case .none:
+                                    EmptyView()
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if filtered.isEmpty {
+                        Text("No labels yet.")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .padding(.top, 16)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 16)
+            }
+        }
+    }
 }
 

@@ -146,9 +146,11 @@ export function BulkActionBar({
     if (ran) onClear()
   }
 
+  const isSolo = users.length <= 1
+
   return (
     <div
-      className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border/60 bg-popover/95 px-2 py-1.5 shadow-2xl"
+      className="pointer-events-auto flex items-center gap-1 rounded-xl border border-border/60 bg-popover/95 px-2 py-1.5 shadow-2xl"
       data-testid="bulk-action-bar"
     >
       <span className="px-1.5 text-xs font-medium whitespace-nowrap">
@@ -173,12 +175,18 @@ export function BulkActionBar({
             size="sm"
             className="text-muted-foreground"
             disabled={busy}
+            aria-label="Set status"
           >
             <ListTodo className="size-4" />
-            Status
+            <span className="hidden md:inline">Status</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[11rem]">
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          collisionPadding={12}
+          className="w-[11rem]"
+        >
           {/* No `duplicate` here: bulk marking has no canonical-issue picker,
               and status='duplicate' without duplicateOfId breaks the pairing
               invariant (single-issue paths intercept via the picker). */}
@@ -206,12 +214,18 @@ export function BulkActionBar({
             size="sm"
             className="text-muted-foreground"
             disabled={busy}
+            aria-label="Set priority"
           >
             <Flag className="size-4" />
-            Priority
+            <span className="hidden md:inline">Priority</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[11rem]">
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          collisionPadding={12}
+          className="w-[11rem]"
+        >
           {issuePriorityOptions.map((option) => {
             const Icon = option.icon
             return (
@@ -227,42 +241,52 @@ export function BulkActionBar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={busy}
+      {/* Hidden on solo teams (nothing to reassign); length 0 = still
+          loading, also hidden. */}
+      {!isSolo && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={busy}
+              aria-label="Set assignee"
+            >
+              <UserRound className="size-4" />
+              <span className="hidden md:inline">Assignee</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            align="start"
+            collisionPadding={12}
+            className="w-[13rem]"
           >
-            <UserRound className="size-4" />
-            Assignee
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[13rem]">
-          <DropdownMenuItem onSelect={() => void applyAssignee(null)}>
-            <X className="size-4 text-muted-foreground" />
-            Unassigned
-          </DropdownMenuItem>
-          {orderedUsers.map((user) => {
-            const name = displayUserName(user, user.id)
-            return (
-              <DropdownMenuItem
-                key={user.id}
-                onSelect={() => void applyAssignee(user.id)}
-              >
-                <Avatar className="size-5">
-                  {user.image && <AvatarImage src={user.image} alt={name} />}
-                  <AvatarFallback className="text-[0.5625rem]">
-                    {getInitials(name)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="truncate">{name}</span>
-              </DropdownMenuItem>
-            )
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuItem onSelect={() => void applyAssignee(null)}>
+              <X className="size-4 text-muted-foreground" />
+              Unassigned
+            </DropdownMenuItem>
+            {orderedUsers.map((user) => {
+              const name = displayUserName(user, user.id)
+              return (
+                <DropdownMenuItem
+                  key={user.id}
+                  onSelect={() => void applyAssignee(user.id)}
+                >
+                  <Avatar className="size-5">
+                    {user.image && <AvatarImage src={user.image} alt={name} />}
+                    <AvatarFallback className="text-[0.5625rem]">
+                      {getInitials(name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate">{name}</span>
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -271,12 +295,18 @@ export function BulkActionBar({
             size="sm"
             className="text-muted-foreground"
             disabled={busy}
+            aria-label="Set labels"
           >
             <Tag className="size-4" />
-            Labels
+            <span className="hidden md:inline">Labels</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[13rem]">
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          collisionPadding={12}
+          className="w-[13rem]"
+        >
           {labels.length === 0 ? (
             <DropdownMenuItem disabled>No labels yet</DropdownMenuItem>
           ) : (
@@ -320,12 +350,18 @@ export function BulkActionBar({
             size="sm"
             className="text-destructive hover:text-destructive"
             disabled={busy}
+            aria-label="Delete selected"
           >
             <Trash2 className="size-4" />
-            Delete
+            <span className="hidden md:inline">Delete</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="end" className="w-[14rem]">
+        <DropdownMenuContent
+          side="top"
+          align="end"
+          collisionPadding={12}
+          className="w-[14rem]"
+        >
           <DropdownMenuItem
             variant="destructive"
             onSelect={() => void deleteSelected()}

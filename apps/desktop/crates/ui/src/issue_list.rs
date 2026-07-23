@@ -139,6 +139,10 @@ pub struct IssueListView {
     select_anchor: Option<String>,
     /// One bulk mutation in flight at a time (the bar's buttons disable).
     bulk_busy: bool,
+    /// Whether the current scope's team has a single member — computed once
+    /// per frame in `render` and read by the rows to drop the assignee cell
+    /// (a solo team can only self-assign, so the affordance is noise).
+    solo_team: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
@@ -167,6 +171,7 @@ impl IssueListView {
             selected: HashSet::new(),
             select_anchor: None,
             bulk_busy: false,
+            solo_team: false,
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             scroll_handle: VirtualListScrollHandle::new(),
@@ -288,6 +293,23 @@ impl IssueListView {
         }
     }
 
+    /// Whether the current scope's team has at most one member — a solo team
+    /// where the assignee affordance is noise (only self-assign is possible).
+    /// Unresolved team (join not synced) defaults to showing the affordance.
+    fn is_solo_team(&self, cx: &App) -> bool {
+        let Some(team_id) = self.bulk_team_id(cx) else {
+            return false;
+        };
+        Store::global(cx)
+            .collections()
+            .team_members
+            .read(cx)
+            .iter()
+            .filter(|member| member.team_id == team_id)
+            .count()
+            <= 1
+    }
+
     // -- row rendering -------------------------------------------------------
 
     fn render_row(
@@ -375,6 +397,7 @@ impl IssueListView {
         let menu_issue = issue.clone();
         let is_selected = self.selected.contains(&issue.id);
         let any_selected = !self.selected.is_empty();
+        let solo_team = self.solo_team;
 
         div()
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
@@ -486,15 +509,17 @@ impl IssueListView {
                     .children(labels.iter().map(|label| label_chip(label, cx))),
             )
             // 28px assignee dropdown cell (web `AssigneeDropdown` — avatar or
-            // dashed placeholder circle).
-            .child(
-                control_cell(row_id("assignee-cell", &issue.id))
-                    .ml_3()
-                    .child(assignee_dropdown(issue, cx)),
-            )
-            // auto due date: CalendarDays + short date (dimmed placeholder
-            // glyph when unset — web parity; presets edit via the context
-            // menu's "Set due date" submenu, mirroring `due-date-presets.tsx`).
+            // dashed placeholder circle). Dropped entirely on a solo team.
+            .when(!solo_team, |row| {
+                row.child(
+                    control_cell(row_id("assignee-cell", &issue.id))
+                        .ml_3()
+                        .child(assignee_dropdown(issue, cx)),
+                )
+            })
+            // auto due date: CalendarDays + short date, only when set — web
+            // parity; presets edit via the context menu's "Set due date"
+            // submenu, mirroring `due-date-presets.tsx`.
             .child(due_cell(issue, cx))
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
             .context_menu(move |menu, window, cx| {
@@ -530,7 +555,7 @@ impl IssueListView {
             let list = list.clone();
             Button::new("bulk-status")
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(Icon::from(ExpIcon::ListTodo))
                 .tooltip("Status")
                 .disabled(busy)
@@ -572,7 +597,7 @@ impl IssueListView {
             let list = list.clone();
             Button::new("bulk-priority")
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(Icon::from(ExpIcon::SignalHigh))
                 .tooltip("Priority")
                 .disabled(busy)
@@ -602,76 +627,81 @@ impl IssueListView {
                 })
         };
 
+        // Hidden on a solo team — one member can only self-assign, so the
+        // affordance is noise. The fetched list feeds the menu directly (no
+        // second query on open).
         let assignee_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            let team_id = team_id.clone();
-            Button::new("bulk-assignee")
-                .ghost()
-                .xsmall()
-                .icon(Icon::new(IconName::CircleUser))
-                .tooltip("Assignee")
-                .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
-                    let mut menu = menu.scrollable(true).max_h(px(320.));
-                    menu = menu.item(
-                        PopupMenuItem::new("Unassign")
-                            .icon(Icon::new(IconName::Close))
-                            .on_click({
-                                let ids = ids.clone();
-                                let list = list.clone();
-                                move |_, _, cx| {
-                                    spawn_bulk_op(
-                                        list.clone(),
-                                        cx,
-                                        ids.clone(),
-                                        false,
-                                        "issues.bulkUpdate",
-                                        |trpc, chunk| {
-                                            let mut input =
-                                                api::issues::IssuesBulkUpdateInput::new(
-                                                    chunk.to_vec(),
-                                                );
-                                            input.assignee_id = api::Patch::Null;
-                                            api::issues::issues_bulk_update(trpc, &input)
-                                                .map(|_| ())
-                                        },
-                                    );
-                                }
-                            }),
-                    );
-                    for user in queries::team_users(cx, &team_id) {
-                        let name = crate::comments::author_label(Some(&user));
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let user_id = user.id.clone();
+            let users = queries::team_users(cx, &team_id);
+            (users.len() > 1).then(|| {
+                Button::new("bulk-assignee")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::CircleUser))
+                    .tooltip("Assignee")
+                    .disabled(busy)
+                    .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+                        let mut menu = menu.scrollable(true).max_h(px(320.));
                         menu = menu.item(
-                            PopupMenuItem::new(SharedString::from(name))
-                                .icon(Icon::new(IconName::CircleUser))
-                                .on_click(move |_, _, cx| {
-                                    let user_id = user_id.clone();
-                                    spawn_bulk_op(
-                                        list.clone(),
-                                        cx,
-                                        ids.clone(),
-                                        false,
-                                        "issues.bulkUpdate",
-                                        move |trpc, chunk| {
-                                            let mut input =
-                                                api::issues::IssuesBulkUpdateInput::new(
-                                                    chunk.to_vec(),
-                                                );
-                                            input.assignee_id =
-                                                api::Patch::Set(user_id.clone());
-                                            api::issues::issues_bulk_update(trpc, &input)
-                                                .map(|_| ())
-                                        },
-                                    );
+                            PopupMenuItem::new("Unassign")
+                                .icon(Icon::new(IconName::Close))
+                                .on_click({
+                                    let ids = ids.clone();
+                                    let list = list.clone();
+                                    move |_, _, cx| {
+                                        spawn_bulk_op(
+                                            list.clone(),
+                                            cx,
+                                            ids.clone(),
+                                            false,
+                                            "issues.bulkUpdate",
+                                            |trpc, chunk| {
+                                                let mut input =
+                                                    api::issues::IssuesBulkUpdateInput::new(
+                                                        chunk.to_vec(),
+                                                    );
+                                                input.assignee_id = api::Patch::Null;
+                                                api::issues::issues_bulk_update(trpc, &input)
+                                                    .map(|_| ())
+                                            },
+                                        );
+                                    }
                                 }),
                         );
-                    }
-                    menu
-                })
+                        for user in &users {
+                            let name = crate::comments::author_label(Some(user));
+                            let ids = ids.clone();
+                            let list = list.clone();
+                            let user_id = user.id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(name))
+                                    .icon(Icon::new(IconName::CircleUser))
+                                    .on_click(move |_, _, cx| {
+                                        let user_id = user_id.clone();
+                                        spawn_bulk_op(
+                                            list.clone(),
+                                            cx,
+                                            ids.clone(),
+                                            false,
+                                            "issues.bulkUpdate",
+                                            move |trpc, chunk| {
+                                                let mut input =
+                                                    api::issues::IssuesBulkUpdateInput::new(
+                                                        chunk.to_vec(),
+                                                    );
+                                                input.assignee_id =
+                                                    api::Patch::Set(user_id.clone());
+                                                api::issues::issues_bulk_update(trpc, &input)
+                                                    .map(|_| ())
+                                            },
+                                        );
+                                    }),
+                            );
+                        }
+                        menu
+                    })
+            })
         };
 
         let labels_menu = {
@@ -680,7 +710,7 @@ impl IssueListView {
             let team_id = team_id.clone();
             Button::new("bulk-labels")
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(Icon::from(ExpIcon::Tag))
                 .tooltip("Labels")
                 .disabled(busy)
@@ -773,7 +803,7 @@ impl IssueListView {
             let team_id = team_id.clone();
             Button::new("bulk-start-coding")
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(Icon::new(IconName::Play))
                 .tooltip("Start coding")
                 .disabled(busy)
@@ -792,7 +822,7 @@ impl IssueListView {
             let list = list.clone();
             Button::new("bulk-delete")
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(Icon::new(IconName::Delete).text_color(danger))
                 .tooltip("Delete selected")
                 .disabled(busy)
@@ -835,9 +865,9 @@ impl IssueListView {
                 h_flex()
                     .id("bulk-action-bar")
                     .occlude()
-                    .gap_1()
-                    .px_2()
-                    .py_1()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
                     .items_center()
                     .rounded(px(10.))
                     .border_1()
@@ -848,7 +878,7 @@ impl IssueListView {
                     .child(
                         div()
                             .px_1()
-                            .text_xs()
+                            .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .whitespace_nowrap()
                             .child(SharedString::from(format!("{count} selected"))),
@@ -856,7 +886,7 @@ impl IssueListView {
                     .child(
                         Button::new("bulk-clear")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(Icon::new(IconName::Close))
                             .tooltip("Clear selection")
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -865,7 +895,7 @@ impl IssueListView {
                     )
                     .child(status_menu)
                     .child(priority_menu)
-                    .child(assignee_menu)
+                    .when_some(assignee_menu, |this, btn| this.child(btn))
                     .child(labels_menu)
                     .child(start_coding)
                     .child(delete_menu),
@@ -933,6 +963,9 @@ fn spawn_bulk_op(
 impl Render for IssueListView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let data = self.board_data(cx);
+        // Solo teams drop the per-row assignee cell — resolved once per frame
+        // (the whole list is one team) so no per-row membership query runs.
+        self.solo_team = self.is_solo_team(cx);
 
         // Base surface: the REAL list token (web page background),
         // never a card color. Key context + tracked focus scope the
@@ -1774,8 +1807,8 @@ fn label_chip(label: &Label, cx: &App) -> impl IntoElement {
         .child(SharedString::from(label.name.clone()))
 }
 
-/// Web due cell: `CalendarDays` + "Jul 3" when due; a 30%-dimmed glyph when
-/// not (the web renders the dimmed trigger; the date Popover is a later step).
+/// Web due cell: `CalendarDays` + "Jul 3" when due; an empty slot when not
+/// (the cell stays so the row layout holds; the date Popover is a later step).
 fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
     let cell = h_flex().ml_3().gap_1().items_center().flex_shrink_0();
     match issue.due_date.as_deref() {
@@ -1792,11 +1825,7 @@ fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
                     .whitespace_nowrap()
                     .child(SharedString::from(format_short_date(due))),
             ),
-        None => cell.child(
-            Icon::from(ExpIcon::CalendarDays)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground.opacity(0.3)),
-        ),
+        None => cell,
     }
 }
 
