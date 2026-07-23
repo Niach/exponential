@@ -13,6 +13,10 @@ struct SearchView: View {
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
     @FocusState private var searchFocused: Bool
+    // Same identifier column treatment as IssueListView (EXP-24): min width
+    // so status icons/titles align across rows despite varying identifier
+    // lengths in cross-board results (EXP-250).
+    @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
 
     var body: some View {
         ZStack {
@@ -193,12 +197,14 @@ struct SearchView: View {
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 16)
 
-                if let identifier = issue.identifier {
-                    Text(identifier)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
+                // Leading-aligned min width so the status icon and title
+                // don't shift with identifier length (EXP-250); longer
+                // identifiers grow instead of ellipsizing into ambiguity.
+                Text(issue.identifier ?? "")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .frame(minWidth: identifierMinWidth, alignment: .leading)
 
                 Image(systemName: IssueStatus.from(issue.status).sfSymbol)
                     .font(.caption)
