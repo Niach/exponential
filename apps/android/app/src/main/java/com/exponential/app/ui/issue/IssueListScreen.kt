@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,21 +23,28 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Button
@@ -56,6 +64,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,11 +91,13 @@ import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
+import kotlinx.coroutines.delay
 
 /**
  * How the issue list is mounted:
@@ -120,6 +132,30 @@ fun IssueListScreen(
     var showJoinTeam by remember { mutableStateOf(false) }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
 
+    // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
+    // the floating selection bar acts on the whole selection. Mode is active
+    // exactly while the selection is non-empty.
+    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    var showStartSheet by remember { mutableStateOf(false) }
+    var noDesktopHint by remember { mutableStateOf(false) }
+    val selectionActive = selectedIds.isNotEmpty()
+    val haptics = LocalHapticFeedback.current
+    val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
+    val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
+    val startState by viewModel.startState.collectAsStateWithLifecycle()
+    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+
+    // Selection ids are board-scoped — a board swap drops them.
+    LaunchedEffect(state.board?.id) { selectedIds = emptySet() }
+    // Back gesture leaves selection mode before it pops the screen.
+    BackHandler(enabled = selectionActive) { selectedIds = emptySet() }
+    LaunchedEffect(noDesktopHint) {
+        if (noDesktopHint) {
+            delay(6_000)
+            noDesktopHint = false
+        }
+    }
+
     // Root mode resolves the board outside the nav args (last-used → first),
     // so the ViewModel is re-pointed whenever the resolution changes.
     LaunchedEffect(boardId) { viewModel.setBoard(boardId.orEmpty()) }
@@ -143,7 +179,8 @@ fun IssueListScreen(
         ?.any { group -> group.teamBlocks.any { it.boards.isNotEmpty() } } == true
 
     Scaffold(containerColor = Color.Transparent) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // Pinned nav row. Pushed: circular back button. Root: the inline
             // board switcher control + the settings gear. The filter button
             // moved inline with the tab-preset chips (iOS placement); the
@@ -245,9 +282,95 @@ fun IssueListScreen(
                     onOpenFilters = { showFilters = true },
                     onOpenIssue = onOpenIssue,
                     viewModel = viewModel,
+                    selectedIds = selectedIds,
+                    onToggleSelect = { id ->
+                        selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
+                    },
+                    onEnterSelection = { id ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        selectedIds = setOf(id)
+                        noDesktopHint = false
+                        // Resolve relay + device presence while the user is
+                        // still picking, so Start coding is ready when tapped.
+                        if (state.board?.repositoryId != null) viewModel.ensureSteerLoaded()
+                    },
                 )
             }
         }
+
+        // Floating selection bar + transient start feedback (EXP-239),
+        // above the app's bottom bar zone.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = BottomBarInset),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            when (val sent = startState) {
+                is SteerStartState.Sent -> NoticeChip(
+                    text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
+                        sent.deviceLabel.ifEmpty { "your desktop" } +
+                        " — watch it in Agents.",
+                    isError = false,
+                    onClick = null,
+                )
+                is SteerStartState.Failed -> NoticeChip(
+                    text = sent.message,
+                    isError = true,
+                    onClick = viewModel::dismissStartState,
+                )
+                else -> {}
+            }
+            if (noDesktopHint) {
+                NoticeChip(
+                    text = "No desktop online — open the Exponential desktop app to run here.",
+                    isError = true,
+                    onClick = { noDesktopHint = false },
+                )
+            }
+            if (selectionActive) {
+                SelectionBar(
+                    count = selectedIds.size,
+                    // Only repo-backed boards can code, and only while the
+                    // relay isn't known-off.
+                    showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
+                    devicesLoading = steerDevices == null,
+                    onClear = { selectedIds = emptySet() },
+                    onMarkDone = {
+                        viewModel.bulkUpdateStatus(selectedIds, IssueStatus.Done)
+                        selectedIds = emptySet()
+                    },
+                    onBacklog = {
+                        viewModel.bulkUpdateStatus(selectedIds, IssueStatus.Backlog)
+                        selectedIds = emptySet()
+                    },
+                    onStartCoding = {
+                        val online = steerDevices
+                        when {
+                            online == null -> {} // presence still resolving
+                            online.isEmpty() -> noDesktopHint = true
+                            else -> showStartSheet = true
+                        }
+                    },
+                )
+            }
+        }
+        }
+    }
+
+    if (showStartSheet) {
+        StartCodingSheet(
+            devices = steerDevices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = selectedIds,
+            onStart = { device, ids, options ->
+                selectedIds = emptySet()
+                viewModel.startCoding(device, ids, options)
+            },
+            onDismiss = { showStartSheet = false },
+        )
     }
 
     if (showFilters) {
@@ -381,6 +504,9 @@ private fun IssueListContent(
     onOpenFilters: () -> Unit,
     onOpenIssue: (String) -> Unit,
     viewModel: IssueListViewModel,
+    selectedIds: Set<String>,
+    onToggleSelect: (String) -> Unit,
+    onEnterSelection: (String) -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
 
@@ -438,18 +564,34 @@ private fun IssueListContent(
                     }
                     if (!isCollapsed) {
                         items(group.issues, key = { it.issue.id }) { entry ->
-                            LongPressIssueRow(
+                            // Long-press enters multi-select (EXP-239 — it
+                            // replaced this list's per-row action sheet; Mark
+                            // done / Move to backlog live in the selection bar
+                            // now, and MyIssues keeps LongPressIssueRow).
+                            val selectionActive = selectedIds.isNotEmpty()
+                            IssueRow(
                                 issue = entry.issue,
                                 labels = entry.labels,
                                 assignee = usersById[entry.issue.assigneeId],
-                                canMutate = permissions.canMutateIssue(entry.issue.creatorId),
-                                onMarkDone = {
-                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
+                                selected = if (selectionActive) entry.issue.id in selectedIds else null,
+                                onClick = {
+                                    if (selectionActive) {
+                                        onToggleSelect(entry.issue.id)
+                                    } else {
+                                        onOpenIssue(entry.issue.id)
+                                    }
                                 },
-                                onMoveToBacklog = {
-                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
+                                onLongClick = if (permissions.canMutateIssue(entry.issue.creatorId)) {
+                                    {
+                                        if (selectionActive) {
+                                            onToggleSelect(entry.issue.id)
+                                        } else {
+                                            onEnterSelection(entry.issue.id)
+                                        }
+                                    }
+                                } else {
+                                    null
                                 },
-                                onClick = { onOpenIssue(entry.issue.id) },
                             )
                         }
                     }
@@ -624,17 +766,43 @@ internal fun IssueRow(
     assignee: UserEntity?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    // Multi-select rendering (EXP-239): null = no selection UI; false/true
+    // show the leading check indicator, true additionally tints the row.
+    selected: Boolean? = null,
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
+    val rowShape = RoundedCornerShape(GlassTokens.RowRadius)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .glassRow()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .then(
+                if (selected == true) {
+                    Modifier
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), rowShape)
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), rowShape)
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selected != null) {
+            Icon(
+                if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = if (selected) "Selected" else "Not selected",
+                modifier = Modifier.size(20.dp),
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                },
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         PriorityIcon(priority, size = 16.dp)
         Spacer(Modifier.width(10.dp))
         Text(
@@ -705,4 +873,114 @@ internal fun IssueRow(
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
+}
+
+/**
+ * The floating multi-select action bar (EXP-239) — the mobile sibling of the
+ * desktop bulk bar / web BulkActionBar: count + Mark done + Move to backlog +
+ * Start coding (repo-backed boards only) + clear. Opaque backing beneath the
+ * glass tint so scrolling rows never bleed through (the glassButton `opaque`
+ * trick, EXP-165).
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    showStartCoding: Boolean,
+    devicesLoading: Boolean,
+    onClear: () -> Unit,
+    onMarkDone: () -> Unit,
+    onBacklog: () -> Unit,
+    onStartCoding: () -> Unit,
+) {
+    val shape = RoundedCornerShape(percent = 50)
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(DesignTokens.Palette.Card, shape)
+            .background(GlassTokens.RowFillActive, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeActive, shape)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Clear selection",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        }
+        Text(
+            "$count selected",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(10.dp))
+        IconButton(onClick = onMarkDone, modifier = Modifier.size(34.dp)) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = "Mark done",
+                modifier = Modifier.size(18.dp),
+                tint = DesignTokens.Semantic.Blue,
+            )
+        }
+        IconButton(onClick = onBacklog, modifier = Modifier.size(34.dp)) {
+            Icon(
+                Icons.Outlined.Circle,
+                contentDescription = "Move to backlog",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        }
+        if (showStartCoding) {
+            Spacer(Modifier.width(6.dp))
+            Button(
+                onClick = onStartCoding,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+            ) {
+                if (devicesLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                Text("Start coding", maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Transient outcome chip above/instead of the selection bar (EXP-239). */
+@Composable
+private fun NoticeChip(
+    text: String,
+    isError: Boolean,
+    onClick: (() -> Unit)?,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (isError) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+        },
+        modifier = Modifier
+            .clip(shape)
+            .background(DesignTokens.Palette.Card, shape)
+            .background(GlassTokens.RowFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }

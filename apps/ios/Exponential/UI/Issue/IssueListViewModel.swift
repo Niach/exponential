@@ -217,6 +217,40 @@ final class IssueListViewModel {
         }
     }
 
+    // MARK: - Multi-select (EXP-239)
+
+    /// Candidate issues for the selection bar's Start-coding sheet: this
+    /// board's eligible issues — repo-backed board only, non-archived,
+    /// non-terminal, not merged — recency-ordered. Mirrors
+    /// AgentsViewModel.startCandidates but board-scoped (the bar lives on one
+    /// board, which also guarantees the one-repository-per-run rule).
+    func startCodingCandidates() -> [StartCodingSheet.IssueOption] {
+        guard let board, board.archivedAt == nil, let repoId = board.repositoryId else { return [] }
+        let terminal: Set<String> = [
+            IssueStatus.done.rawValue,
+            IssueStatus.cancelled.rawValue,
+            IssueStatus.duplicate.rawValue,
+        ]
+        return issues
+            .filter { row in
+                if row.archivedAt != nil { return false }
+                if terminal.contains(row.status) { return false }
+                if row.prState == DomainContract.prStateMerged { return false }
+                return true
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map { row in
+                StartCodingSheet.IssueOption(
+                    id: row.id,
+                    identifier: row.identifier,
+                    title: row.title,
+                    repositoryId: repoId,
+                    status: row.status,
+                    priority: row.priority
+                )
+            }
+    }
+
     // MARK: - Mutations
 
     func setStatus(issueId: String, status: IssueStatus) async {
@@ -224,6 +258,14 @@ final class IssueListViewModel {
             try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, status: status.rawValue))
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Bulk status change from the selection bar (EXP-239). Sequential — bar
+    /// selections are small and each update is an independent server write.
+    func bulkSetStatus(issueIds: [String], status: IssueStatus) async {
+        for id in issueIds {
+            await setStatus(issueId: id, status: status)
         }
     }
 

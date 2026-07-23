@@ -8,7 +8,11 @@ import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.UpdateIssueInput
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -19,6 +23,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -34,6 +39,7 @@ import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -84,6 +90,7 @@ class IssueListViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val steerApi: SteerApi,
     private val stats: SyncStats,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
@@ -282,6 +289,140 @@ class IssueListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueListState())
 
+    // ── Multi-select / remote start (EXP-239) ────────────────────────────
+
+    // steer.config is env-derived and static per instance: null = not
+    // resolved yet. Fetched lazily by ensureSteerLoaded — most list visits
+    // never long-press, so the AgentsViewModel init-time fetch would be waste.
+    private val _steerEnabled = MutableStateFlow<Boolean?>(null)
+    val steerEnabled: StateFlow<Boolean?> = _steerEnabled
+
+    // The caller's online desktops (relay presence). null = not loaded yet.
+    private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
+    val devices: StateFlow<List<SteerDevice>?> = _devices
+
+    private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
+    val startState: StateFlow<SteerStartState> = _startState
+
+    private var steerLoadedForAccount: String? = null
+
+    /**
+     * Resolve relay availability + device presence when selection mode starts
+     * on a repo-backed board, so the bar's Start coding is ready by the time
+     * it's tapped. Once per account (an account switch re-resolves).
+     */
+    fun ensureSteerLoaded() {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            if (steerLoadedForAccount == accountId) return@launch
+            steerLoadedForAccount = accountId
+            _steerEnabled.value = null
+            _devices.value = null
+            val enabled = runCatching { steerApi.config(accountId).enabled }
+                .getOrDefault(false)
+            _steerEnabled.value = enabled
+            _devices.value = if (enabled) {
+                runCatching { steerApi.myDevices(accountId).devices }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * Issues the selection bar's Start-coding sheet can queue: this board's
+     * eligible issues — repo-backed live board only, non-archived,
+     * non-terminal, not merged — `updatedAt` desc. Mirrors
+     * AgentsViewModel.startCandidates but board-scoped (the bar lives on one
+     * board, which also guarantees the one-repository-per-run rule). Built
+     * from the RAW board issues, not the filtered groups, so the sheet's own
+     * search can reach issues the active tab preset hides.
+     */
+    val startCandidates: StateFlow<List<StartIssueOption>> = combine(
+        issuesForBoard,
+        _board,
+    ) { issues, board ->
+        val repoId = board?.repositoryId
+        if (board == null || repoId == null || board.archivedAt != null || board.deletedAt != null) {
+            emptyList()
+        } else {
+            issues
+                .filter {
+                    it.archivedAt == null &&
+                        it.status !in TERMINAL_ISSUE_STATUSES &&
+                        it.prState != DomainContract.prStateMerged
+                }
+                .sortedByDescending { it.updatedAt }
+                .map { issue ->
+                    StartIssueOption(
+                        id = issue.id,
+                        identifier = issue.identifier,
+                        title = issue.title,
+                        repositoryId = repoId,
+                        status = issue.status,
+                        priority = issue.priority,
+                    )
+                }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Remote-start on a picked desktop (AgentsViewModel.startCoding's twin):
+     * [issueIds] of size 1 launches a plain single session, 2+ a batch. Sent
+     * state re-enables after a grace window in case the desktop never picks
+     * up (the coding_sessions row would otherwise surface via Electric).
+     */
+    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
+        if (issueIds.isEmpty()) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val isBatch = issueIds.size >= 2
+            _startState.value = SteerStartState.Sending
+            try {
+                if (isBatch) {
+                    steerApi.startSession(accountId, issueIds, device.deviceId, options)
+                } else {
+                    steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
+                }
+                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
+                delay(30_000)
+                if (_startState.value is SteerStartState.Sent) {
+                    _startState.value = SteerStartState.Idle
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _startState.value = SteerStartState.Failed(
+                    trpcErrorMessage(t, "The start command could not be delivered"),
+                )
+            }
+        }
+    }
+
+    /** Tap-to-dismiss for a lingering Failed chip (Sent auto-clears). */
+    fun dismissStartState() {
+        if (_startState.value is SteerStartState.Failed) {
+            _startState.value = SteerStartState.Idle
+        }
+    }
+
+    /**
+     * Bulk status change from the selection bar (EXP-239). Sequential — bar
+     * selections are small and each update is an independent server write.
+     */
+    fun bulkUpdateStatus(issueIds: Collection<String>, status: IssueStatus) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            for (id in issueIds) {
+                runCatching {
+                    issuesApi.update(accountId, UpdateIssueInput(id = id, status = status.wire))
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _error.value = error.message ?: "Failed to update status"
+                }
+            }
+        }
+    }
+
     init {
         viewModelScope.launch {
             combine(
@@ -332,17 +473,6 @@ class IssueListViewModel @Inject constructor(
                 delay(500)
             } finally {
                 _refreshing.value = false
-            }
-        }
-    }
-
-    fun updateIssueStatus(issueId: String, status: IssueStatus) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
-            }.onFailure { error ->
-                _error.value = error.message ?: "Failed to update status"
             }
         }
     }
@@ -510,3 +640,7 @@ class IssueListViewModel @Inject constructor(
         return out
     }
 }
+
+// Terminal issue statuses ineligible to start a new coding run (same set as
+// AgentsViewModel / the iOS candidates builders).
+private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")

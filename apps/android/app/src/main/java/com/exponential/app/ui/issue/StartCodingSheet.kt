@@ -244,14 +244,30 @@ fun StartCodingSheet(
         }
     }
 
-    // Checked issues pinned first (in candidate order = display order), then the
-    // search-filtered unchecked remainder (cap 50 rendered). Submitting sends the
-    // checked ids in this display order.
+    // Preselected rows pinned first (in candidate order), then the
+    // search-filtered remainder (cap 50 rendered). The pin set is the
+    // OPEN-time preselection snapshot, deliberately NOT the live `checked`
+    // set: re-sorting on every toggle teleported the tapped row out from
+    // under the finger, which read as "issues are not selectable" (EXP-241).
+    // Rows stay put; only the check indicator flips. Submitting still sends
+    // the checked ids in candidate order via `checkedInOrder`.
+    val pinnedIds = remember { preselectedIds intersect poolIds }
     val checkedInOrder = remember(issues, checked) { issues.filter { it.id in checked } }
-    val uncheckedFiltered = remember(issues, checked, query) {
+    val pinnedRows = remember(issues, pinnedIds, query) {
+        val q = query.trim()
+        issues.filter {
+            it.id in pinnedIds &&
+                (
+                    q.isEmpty() ||
+                        it.identifier.contains(q, ignoreCase = true) ||
+                        it.title.contains(q, ignoreCase = true)
+                    )
+        }
+    }
+    val otherRows = remember(issues, pinnedIds, query) {
         val q = query.trim()
         issues.asSequence()
-            .filter { it.id !in checked }
+            .filter { it.id !in pinnedIds }
             .filter {
                 q.isEmpty() ||
                     it.identifier.contains(q, ignoreCase = true) ||
@@ -390,7 +406,7 @@ fun StartCodingSheet(
                         ),
                     )
                     GroupDivider()
-                    if (checkedInOrder.isEmpty() && uncheckedFiltered.isEmpty()) {
+                    if (pinnedRows.isEmpty() && otherRows.isEmpty()) {
                         Text(
                             if (issues.isEmpty()) "No eligible issues" else "No matching issues",
                             style = MaterialTheme.typography.bodyMedium,
@@ -410,10 +426,10 @@ fun StartCodingSheet(
                                 .heightIn(max = 264.dp),
                         ) {
                             itemsIndexed(
-                                checkedInOrder + uncheckedFiltered,
+                                pinnedRows + otherRows,
                                 key = { _, option -> option.id },
                             ) { index, option ->
-                                Column {
+                                Column(modifier = Modifier.animateItem()) {
                                     if (index > 0) GroupDivider()
                                     IssueCheckRow(
                                         option = option,
@@ -592,13 +608,18 @@ private fun IssueCheckRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
+            // Selected rows tint so the state is unmissable (EXP-241) —
+            // the icon swap alone was easy to overlook.
+            .background(
+                if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             if (checked) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
             contentDescription = null,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(20.dp),
             tint = if (checked) {
                 MaterialTheme.colorScheme.primary
             } else {

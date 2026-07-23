@@ -3,12 +3,15 @@ import ExpCore
 import SwiftUI
 
 // The unified Start-coding sheet (EXP-156) — the iOS twin of the desktop IDE's
-// single Start-coding dialog. A searchable multi-issue picker (checked rows
-// pinned first) over Agent / Model / Effort pickers, an ultracode toggle (it
-// IS `--effort ultracode`, so it disables the Effort picker), a plan-mode
-// toggle, plus a desktop picker when more than one is online. 1 checked issue
-// launches a plain single-issue session; 2+ launch ONE batch session on a
-// shared `exp/batch-<id8>` branch ending in ONE combined PR.
+// single Start-coding dialog. A searchable multi-issue picker (PRESELECTED
+// rows pinned first — the pin order is snapshotted at open and never re-sorts
+// on toggle, so a tapped row visibly checks in place instead of teleporting
+// into a pinned group, EXP-241) over Agent / Model / Effort pickers, an
+// ultracode toggle (it IS `--effort ultracode`, so it disables the Effort
+// picker), a plan-mode toggle, plus a desktop picker when more than one is
+// online. 1 checked issue launches a plain single-issue session; 2+ launch
+// ONE batch session on a shared `exp/batch-<id8>` branch ending in ONE
+// combined PR.
 //
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
 // agent switcher — a brand-icon pill tab strip (EXP-208), the iOS twin of the
@@ -118,21 +121,21 @@ struct StartCodingSheet: View {
             Form {
                 Section {
                     searchField
-                    if checkedRows.isEmpty, uncheckedRows.isEmpty {
+                    if pinnedRows.isEmpty, otherRows.isEmpty {
                         Text(issues.isEmpty ? "No eligible issues to code." : "No matching issues.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if checkedRows.count + uncheckedRows.count <= 6 {
-                        ForEach(checkedRows) { issueRow($0) }
-                        ForEach(uncheckedRows) { issueRow($0) }
+                    } else if pinnedRows.count + otherRows.count <= 6 {
+                        ForEach(pinnedRows) { issueRow($0) }
+                        ForEach(otherRows) { issueRow($0) }
                     } else {
                         // Many candidates: scroll them inside a bounded box (one
                         // section row) so the Model / Effort / toggle sections
                         // stay near the top instead of being pushed off-screen.
                         ScrollView {
                             LazyVStack(spacing: 0) {
-                                ForEach(checkedRows) { issueRow($0).padding(.vertical, 6) }
-                                ForEach(uncheckedRows) { issueRow($0).padding(.vertical, 6) }
+                                ForEach(pinnedRows) { issueRow($0) }
+                                ForEach(otherRows) { issueRow($0) }
                             }
                         }
                         .frame(maxHeight: 280)
@@ -252,13 +255,17 @@ struct StartCodingSheet: View {
     }
 
     private func issueRow(_ option: IssueOption) -> some View {
-        Button {
+        let isChecked = checked.contains(option.id)
+        return Button {
             toggle(option.id)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: checked.contains(option.id) ? "checkmark.circle.fill" : "circle")
-                    .font(.caption)
-                    .foregroundStyle(checked.contains(option.id) ? Accent.indigo : .secondary)
+                // Selection state must be unmissable (EXP-241): body-size
+                // glyph swap plus a tinted row background below — the old
+                // caption-size circle alone read as decoration, not a control.
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .font(.body)
+                    .foregroundStyle(isChecked ? Accent.indigo : .secondary)
 
                 // Issue-list row anatomy (EXP-173): priority icon, mono
                 // identifier, status icon, title.
@@ -283,6 +290,15 @@ struct StartCodingSheet: View {
 
                 Spacer(minLength: 0)
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                isChecked ? Accent.indigo.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            // Cancel the highlight inset so text stays aligned with the
+            // search field and the neighboring form rows.
+            .padding(.horizontal, -6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -325,12 +341,18 @@ struct StartCodingSheet: View {
         checked.intersection(poolIds)
     }
 
-    private var checkedRows: [IssueOption] {
-        issues.filter { checked.contains($0.id) && matchesSearch($0) }
+    /// Preselected rows, pinned to the top. The pin set is the OPEN-time
+    /// `preselectedIds` snapshot, deliberately NOT the live `checked` set:
+    /// re-sorting on every toggle teleported the tapped row out from under
+    /// the finger (often out of the bounded scroll box), which read as
+    /// "issues are not selectable" (EXP-241). Rows now stay put; only the
+    /// check indicator changes.
+    private var pinnedRows: [IssueOption] {
+        issues.filter { preselectedIds.contains($0.id) && matchesSearch($0) }
     }
 
-    private var uncheckedRows: [IssueOption] {
-        Array(issues.filter { !checked.contains($0.id) && matchesSearch($0) }.prefix(50))
+    private var otherRows: [IssueOption] {
+        Array(issues.filter { !preselectedIds.contains($0.id) && matchesSearch($0) }.prefix(50))
     }
 
     /// Checked ids in the candidate pool's order (pre-checked / recency) — the
@@ -355,10 +377,12 @@ struct StartCodingSheet: View {
     }
 
     private func toggle(_ id: String) {
-        if checked.contains(id) {
-            checked.remove(id)
-        } else {
-            checked.insert(id)
+        withAnimation(.snappy(duration: 0.18)) {
+            if checked.contains(id) {
+                checked.remove(id)
+            } else {
+                checked.insert(id)
+            }
         }
     }
 

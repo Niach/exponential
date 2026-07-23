@@ -13,6 +13,19 @@ struct IssueListView: View {
     @Environment(\.accountId) private var accountId
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
+    // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
+    // and the floating selection bar acts on the whole selection. The steer
+    // state backing the bar's Start coding action (relay enabled + online
+    // desktops) resolves lazily on entry, mirroring AgentsView.
+    @State private var selectionActive = false
+    @State private var selectedIds: Set<String> = []
+    @State private var steerEnabled: Bool?
+    @State private var steerDevices: [SteerDevice]?
+    @State private var showStartSheet = false
+    // Transient feedback under/instead of the bar: start sent / failed /
+    // no desktop online. Auto-clears (errors included — the bar is modal
+    // enough that a sticky error would just block the list).
+    @State private var startNotice: StartNotice?
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
@@ -40,6 +53,22 @@ struct IssueListView: View {
                 }
             }
         }
+        // Floating selection bar + transient start feedback, above the
+        // floating tab bar's zone (EXP-239).
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+                if let notice = startNotice {
+                    noticeCapsule(notice)
+                }
+                if selectionActive, let vm = viewModel {
+                    selectionBar(vm)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, showsTabBarClearance ? 92 : 16)
+        }
+        // Haptic tick when multi-select engages (long-press confirmation).
+        .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
         .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .sheet(isPresented: $showFilterSheet) {
@@ -47,6 +76,17 @@ struct IssueListView: View {
                 IssueFilterSheet(vm: vm)
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
+            }
+        }
+        .sheet(isPresented: $showStartSheet) {
+            if let vm = viewModel {
+                StartCodingSheet(
+                    devices: steerDevices ?? [],
+                    issues: vm.startCodingCandidates(),
+                    preselectedIds: selectedIds
+                ) { device, issueIds, options in
+                    startCoding(on: device, issueIds: issueIds, options: options)
+                }
             }
         }
         .onAppear {
@@ -110,7 +150,9 @@ struct IssueListView: View {
                                             .listRowSeparator(.hidden)
                                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                // Swipes pause while multi-select is active — the
+                                                // bar owns bulk mutations then (EXP-239).
+                                                if !selectionActive, vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .done) }
                                                     } label: {
@@ -128,7 +170,7 @@ struct IssueListView: View {
                                                 }
                                             }
                                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                                if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                if !selectionActive, vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
                                                     Button {
                                                         Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
                                                     } label: {
@@ -361,8 +403,41 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func issueRow(issue: IssueEntity, vm: IssueListViewModel) -> some View {
-        NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+        if selectionActive {
+            Button {
+                toggleSelection(issue.id)
+            } label: {
+                issueRowContent(issue: issue, vm: vm, selected: selectedIds.contains(issue.id))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
+        } else {
+            NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+                issueRowContent(issue: issue, vm: vm, selected: nil)
+            }
+            .buttonStyle(.plain)
+            // Long-press enters multi-select (EXP-239); simultaneous so the
+            // link's plain tap keeps navigating.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.35).onEnded { _ in
+                    guard vm.permissions.isMember else { return }
+                    enterSelection(with: issue.id, vm: vm)
+                }
+            )
+            .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
+        }
+    }
+
+    @ViewBuilder
+    private func issueRowContent(issue: IssueEntity, vm: IssueListViewModel, selected: Bool?) -> some View {
             HStack(spacing: 10) {
+                // Multi-select indicator (EXP-239) — same glyphs as the
+                // Start-coding picker so "selected" reads identically.
+                if let selected {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.body)
+                        .foregroundStyle(selected ? Accent.indigo : .white.opacity(TextOpacity.tertiary))
+                }
                 // Priority icon (16pt column, Android parity)
                 Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
                     .font(.caption)
@@ -427,9 +502,228 @@ struct IssueListView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
+            // Selected rows get an unmistakable indigo wash + hairline on top
+            // of the glass (the check glyph alone is easy to miss mid-scroll).
+            .overlay {
+                if selected == true {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Accent.indigo.opacity(0.12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Accent.indigo.opacity(0.45), lineWidth: 1)
+                        )
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    // MARK: - Multi-select (EXP-239)
+
+    private func enterSelection(with issueId: String, vm: IssueListViewModel) {
+        guard !selectionActive else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            selectionActive = true
+            selectedIds = [issueId]
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
+        // Resolve relay + device presence while the user is still picking, so
+        // the bar's Start coding is ready by the time they tap it (repo-backed
+        // boards only — the button is absent otherwise).
+        if vm.board?.repositoryId != nil, steerDevices == nil {
+            Task { await loadSteer() }
+        }
+    }
+
+    private func toggleSelection(_ issueId: String) {
+        if selectedIds.contains(issueId) {
+            selectedIds.remove(issueId)
+        } else {
+            selectedIds.insert(issueId)
+        }
+        // Deselecting the last row leaves selection mode — same as the web
+        // bulk bar disappearing at zero.
+        if selectedIds.isEmpty {
+            exitSelection()
+        }
+    }
+
+    private func exitSelection() {
+        withAnimation(.snappy(duration: 0.2)) {
+            selectionActive = false
+            selectedIds = []
+        }
+    }
+
+    private func loadSteer() async {
+        let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
+        steerEnabled = config.enabled
+        guard config.enabled else {
+            steerDevices = []
+            return
+        }
+        steerDevices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+    }
+
+    @ViewBuilder
+    private func selectionBar(_ vm: IssueListViewModel) -> some View {
+        HStack(spacing: 2) {
+            Button {
+                exitSelection()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear selection")
+
+            Text("\(selectedIds.count) selected")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Button {
+                bulkSet(vm, .done)
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(IssueStatus.done.color)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Mark done")
+
+            Button {
+                bulkSet(vm, .backlog)
+            } label: {
+                Image(systemName: "circle.dashed")
+                    .font(.body)
+                    // Matches the leading swipe action's backlog tint.
+                    .foregroundStyle(.orange)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Move to backlog")
+
+            // Start coding — the bar's raison d'être (EXP-239). Only on
+            // repo-backed boards, and only while the relay isn't known-off.
+            if vm.board?.repositoryId != nil, steerEnabled != false {
+                Button {
+                    startCodingTapped()
+                } label: {
+                    HStack(spacing: 6) {
+                        if steerDevices == nil {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "play.fill")
+                                .font(.caption)
+                        }
+                        Text("Start coding")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Accent.indigo, in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 6)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .glassCard(cornerRadius: 24)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    @ViewBuilder
+    private func noticeCapsule(_ notice: StartNotice) -> some View {
+        Text(notice.message)
+            .font(.caption)
+            .foregroundStyle(notice.isError ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.secondary))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .glassCard(cornerRadius: 14)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func bulkSet(_ vm: IssueListViewModel, _ status: IssueStatus) {
+        let ids = Array(selectedIds)
+        exitSelection()
+        Task { await vm.bulkSetStatus(issueIds: ids, status: status) }
+    }
+
+    private func startCodingTapped() {
+        guard let devices = steerDevices else { return } // presence still resolving
+        guard steerEnabled == true, !devices.isEmpty else {
+            showNotice(
+                steerEnabled == true
+                    ? "No desktop online — open the Exponential desktop app to run here."
+                    : "Remote start isn't available on this server.",
+                isError: true
+            )
+            return
+        }
+        showStartSheet = true
+    }
+
+    /// Mirror of AgentsView.start — single vs batch overloads of
+    /// steer.startSession, with the outcome surfaced as a transient notice.
+    private func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard !issueIds.isEmpty else { return }
+        let isBatch = issueIds.count > 1
+        let label = device.deviceLabel.isEmpty ? "your desktop" : device.deviceLabel
+        exitSelection()
+        Task {
+            do {
+                if isBatch {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                }
+                showNotice(
+                    isBatch
+                        ? "Batch start sent to \(label) — watch it in the Agents tab."
+                        : "Start sent to \(label) — watch it in the Agents tab.",
+                    isError: false
+                )
+            } catch {
+                showNotice(error.localizedDescription, isError: true)
+            }
+        }
+    }
+
+    private func showNotice(_ message: String, isError: Bool) {
+        withAnimation(.snappy(duration: 0.2)) {
+            startNotice = StartNotice(message: message, isError: isError)
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            withAnimation(.snappy(duration: 0.2)) {
+                if startNotice?.message == message {
+                    startNotice = nil
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -458,5 +752,11 @@ struct IssueListView: View {
         if date < Date() { return DesignTokens.Semantic.red }
         return .white.opacity(TextOpacity.tertiary)
     }
+}
+
+/// Transient outcome of a selection-bar action (EXP-239).
+private struct StartNotice: Equatable {
+    let message: String
+    let isError: Bool
 }
 
