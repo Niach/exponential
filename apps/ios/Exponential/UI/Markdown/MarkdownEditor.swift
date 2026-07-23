@@ -249,10 +249,16 @@ private final class EditorTextView: UITextView {
     // must tear the keyboard + accessory strip down with it. Nothing else
     // resigns UIKit first responders — a stale one left the formatting strip
     // floating over unrelated screens (EXP-246).
+    // Deferred by one runloop turn on purpose: resigning synchronously fires
+    // textViewDidEndEditing -> model.clearFocusIfMatches, which mutates
+    // @Observable state in the middle of SwiftUI's hierarchy teardown
+    // ("Modifying state during view update"). The keyboard still goes away.
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil, isFirstResponder {
-            resignFirstResponder()
+            DispatchQueue.main.async { [weak self] in
+                self?.resignFirstResponder()
+            }
         }
     }
 

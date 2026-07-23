@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-batch-select-and-review-ui`,
+    date: `2026-07-23`,
+    title: `Multi-select everywhere, a cleaner review flow`,
+    summary: `Pick several issues at once on every client, a reworked review screen on mobile, and a tidier issue list.`,
+    body: `- **Multi-select refinements** — selecting several issues at once got faster and more predictable on the web, the desktop IDE, iOS, and Android, and the bulk action bar now matches across all of them.
+- **Reworked review screen on mobile** — merging and closing a pull request moved into a bottom action bar on iOS and Android, so the controls sit where your thumb is, and the file diff opens collapsed so big PRs load instantly.
+- **Steering that reconnects** — the live agent terminal on iOS and Android now reconnects on its own after a dropped connection instead of stranding you on a dead screen.
+- **Issue list alignment** — identifiers line up in My Issues and search results the way they always did on a board.`,
+  },
+  {
     id: `2026-07-webmcp-tools`,
     date: `2026-07-23`,
     title: `Browser AI agents can now work your boards`,

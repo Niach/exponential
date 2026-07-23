@@ -378,10 +378,15 @@ struct StartCodingSheet: View {
 
     private func toggle(_ id: String) {
         withAnimation(.snappy(duration: 0.18)) {
+            // Both results discarded explicitly: a lone `if` is if-expression
+            // eligible, and its branches here have mismatched non-Void types
+            // (String? vs the insert tuple), which is exactly the shape that
+            // makes WMO mis-infer withAnimation's generic Result in Release
+            // builds only (EXP-240).
             if checked.contains(id) {
-                checked.remove(id)
+                _ = checked.remove(id)
             } else {
-                checked.insert(id)
+                _ = checked.insert(id)
             }
         }
     }
