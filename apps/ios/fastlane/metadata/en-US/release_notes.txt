@@ -1,4 +1,5 @@
-• Redesigned issue screen — a cleaner layout with a bottom action bar, tidier property and label pickers, due-date and assignee sheets, and a collapsible activity timeline
-• Start coding — launch a coding session on a connected desktop right from your phone
-• Smoother agent steering — answering plan approvals and questions in a session got a cleaner flow
+• Multi-select refinements — picking several issues at once is faster and more predictable, and bulk edits now apply in one go
+• Reworked review screen — merging and closing a pull request moved into a bottom action bar, and big diffs open collapsed so they load instantly
+• Steering that reconnects — the live agent terminal recovers from a dropped connection on its own instead of stranding you on a dead screen
+• Issue list alignment — identifiers line up in My Issues and search the way they do on a board
 • Various stability and consistency fixes
