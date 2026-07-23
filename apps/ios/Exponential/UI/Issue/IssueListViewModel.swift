@@ -290,37 +290,76 @@ final class IssueListViewModel {
         }
     }
 
-    /// Bulk status change from the selection bar (EXP-239). Sequential — bar
-    /// selections are small and each update is an independent server write.
+    /// The server caps every bulk procedure's id array at 200; larger
+    /// selections go out as sequential chunks, matching the web bar's
+    /// BULK_CHUNK_SIZE.
+    private static let bulkChunkSize = 200
+
+    /// Bulk status change from the selection bar (EXP-239). One
+    /// `issues.bulkUpdate` per chunk instead of a per-issue loop: the batch is
+    /// transactional, and past 25 ids the server deliberately drops the
+    /// per-issue notification fan-out — looping `issues.update` bypassed that
+    /// cap entirely (60 issues ⇒ 60 pushes) and could half-apply.
     func bulkSetStatus(issueIds: [String], status: IssueStatus) async {
-        for id in issueIds {
-            await setStatus(issueId: id, status: status)
+        await runBulk(issueIds) { ids in
+            try await self.issuesApi.bulkUpdate(
+                accountId: self.accountId,
+                BulkUpdateIssuesInput(ids: ids, status: status.rawValue)
+            )
         }
     }
 
     func bulkSetPriority(issueIds: [String], priority: IssuePriority) async {
-        for id in issueIds {
-            await setPriority(issueId: id, priority: priority)
+        await runBulk(issueIds) { ids in
+            try await self.issuesApi.bulkUpdate(
+                accountId: self.accountId,
+                BulkUpdateIssuesInput(ids: ids, priority: priority.rawValue)
+            )
         }
     }
 
+    /// nil ⇒ unassign, which only works when `assigneeId` reaches the server
+    /// as an explicit JSON null — the same distinction `setAssignee` makes.
     func bulkSetAssignee(issueIds: [String], assigneeId: String?) async {
-        for id in issueIds {
-            await setAssignee(issueId: id, assigneeId: assigneeId)
+        await runBulk(issueIds) { ids in
+            var input = BulkUpdateIssuesInput(ids: ids, assigneeId: assigneeId)
+            if assigneeId == nil {
+                input.explicitNulls.insert("assigneeId")
+            }
+            try await self.issuesApi.bulkUpdate(accountId: self.accountId, input)
         }
     }
 
+    /// The bulk label procedures record a timeline event only for the rows
+    /// they really inserted/deleted, so the caller can hand over the whole
+    /// selection — issues that already carry the label are skipped silently
+    /// instead of getting a duplicate `label_added` entry.
     func bulkToggleLabel(issueIds: [String], labelId: String, add: Bool) async {
-        for id in issueIds {
+        await runBulk(issueIds) { ids in
+            if add {
+                try await self.labelsApi.bulkAddToIssues(accountId: self.accountId, issueIds: ids, labelId: labelId)
+            } else {
+                try await self.labelsApi.bulkRemoveFromIssues(accountId: self.accountId, issueIds: ids, labelId: labelId)
+            }
+        }
+    }
+
+    /// Shared driver for the selection-bar writes: chunks at the server's
+    /// 200-id cap and runs the chunks sequentially, stopping at the first
+    /// failure. Electric replays transactions in commit order, so the rows
+    /// land in chunk order too.
+    private func runBulk(_ issueIds: [String], _ write: ([String]) async throws -> Void) async {
+        guard !issueIds.isEmpty else { return }
+        var start = issueIds.startIndex
+        while start < issueIds.endIndex {
+            let end = min(start + Self.bulkChunkSize, issueIds.endIndex)
             do {
-                if add {
-                    try await labelsApi.addToIssue(accountId: accountId, issueId: id, labelId: labelId)
-                } else {
-                    try await labelsApi.removeFromIssue(accountId: accountId, issueId: id, labelId: labelId)
-                }
+                try await write(Array(issueIds[start..<end]))
             } catch {
                 self.error = error.localizedDescription
+                return
             }
+            start = end
         }
     }
 
@@ -362,6 +401,11 @@ final class IssueListViewModel {
         // member, which is a real read-only state.
         permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
         // Solo team ⇒ nothing to reassign to; the assignee affordances hide.
-        singleMemberTeam = humanCount <= 1
+        // EXACTLY one, not `<= 1`: a count of 0 means the member list hasn't
+        // synced yet (never a genuine empty team — the viewer is a member),
+        // and treating that as solo made the assignee affordance vanish and
+        // reappear on a real multi-member team. Same contract as web's
+        // issue-list.tsx / bulk-action-bar.tsx.
+        singleMemberTeam = humanCount == 1
     }
 }

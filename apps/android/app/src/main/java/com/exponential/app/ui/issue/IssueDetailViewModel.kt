@@ -632,8 +632,11 @@ class IssueDetailViewModel @Inject constructor(
     fun updateAssignee(userId: String?) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
+            // setAssignee, not update(): a null userId ("Unassigned") has to
+            // reach the server as an explicit JSON null, and the shared Json
+            // drops nulls — through update() this was a silent no-op.
             runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, assigneeId = userId))
+                issuesApi.setAssignee(accountId, issueId, userId)
             }
         }
     }

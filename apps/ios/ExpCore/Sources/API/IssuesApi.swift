@@ -116,6 +116,51 @@ public struct UpdateIssueInput: Encodable, Sendable {
     }
 }
 
+/// Input for `issues.bulkUpdate` — one transactional property write across a
+/// whole selection (`ids` is capped at 200 server-side). Hand-encoded for the
+/// same reason `UpdateIssueInput` is: `assigneeId` must be OMITTED to leave
+/// the assignee alone but sent as JSON null to unassign, and the two cases are
+/// indistinguishable to the synthesized encoder.
+public struct BulkUpdateIssuesInput: Encodable, Sendable {
+    public let ids: [String]
+    public var status: String?
+    public var priority: String?
+    public var assigneeId: String?
+
+    /// Fields listed here are encoded as JSON null (not omitted).
+    public var explicitNulls: Set<String> = []
+
+    public init(
+        ids: [String],
+        status: String? = nil,
+        priority: String? = nil,
+        assigneeId: String? = nil,
+        explicitNulls: Set<String> = []
+    ) {
+        self.ids = ids
+        self.status = status
+        self.priority = priority
+        self.assigneeId = assigneeId
+        self.explicitNulls = explicitNulls
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ids, status, priority, assigneeId
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(ids, forKey: .ids)
+        try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(priority, forKey: .priority)
+        if assigneeId != nil {
+            try c.encode(assigneeId, forKey: .assigneeId)
+        } else if explicitNulls.contains(CodingKeys.assigneeId.rawValue) {
+            try c.encodeNil(forKey: .assigneeId)
+        }
+    }
+}
+
 public struct DeleteIssueInput: Encodable, Sendable {
     public let id: String
 
@@ -251,6 +296,16 @@ public final class IssuesApi: Sendable {
 
     public func update(accountId: String, _ input: UpdateIssueInput) async throws {
         let _: IssueResult = try await trpc.mutation(accountId: accountId, path: "issues.update", input: input)
+    }
+
+    /// Apply one property change to a whole selection through the same
+    /// `issues.bulkUpdate` procedure web and desktop use. It runs the batch in
+    /// ONE transaction and deliberately skips the per-issue notification
+    /// fan-out past 25 ids — the client-side loop of `issues.update` calls it
+    /// replaces had neither, so a 60-issue assign fired 60 pushes at one
+    /// person and could half-apply. Callers chunk at the server's 200-id cap.
+    public func bulkUpdate(accountId: String, _ input: BulkUpdateIssuesInput) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.bulkUpdate", input: input)
     }
 
     public func delete(accountId: String, id: String) async throws {

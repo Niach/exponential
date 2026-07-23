@@ -53,6 +53,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+// The server caps every bulk procedure's id array at 200; larger selections go
+// out as sequential chunks, matching the web bar's BULK_CHUNK_SIZE.
+private const val BULK_CHUNK_SIZE = 200
+
 data class IssueGroup(val status: IssueStatus, val issues: List<IssueWithLabels>)
 
 data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>)
@@ -406,74 +410,97 @@ class IssueListViewModel @Inject constructor(
     }
 
     /**
-     * Bulk status change from the selection bar (EXP-239). Sequential — bar
-     * selections are small and each update is an independent server write.
+     * Bulk status change from the selection bar (EXP-239). One
+     * `issues.bulkUpdate` per chunk: transactional server-side, and past 25
+     * ids the server deliberately drops the per-issue notification fan-out.
+     * The old per-issue loop bypassed that cap and had no atomicity — a
+     * mid-loop failure left a half-applied batch behind one error toast.
      */
     fun bulkUpdateStatus(issueIds: Collection<String>, status: IssueStatus) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            for (id in issueIds) {
-                runCatching {
-                    issuesApi.update(accountId, UpdateIssueInput(id = id, status = status.wire))
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    _error.value = error.message ?: "Failed to update status"
-                }
-            }
+        runBulk(issueIds, "Failed to update status") { accountId, ids ->
+            issuesApi.bulkUpdate(accountId, ids, status = status.wire)
         }
     }
 
     /** Single-issue status change from an inline list-row tap (EXP-247). */
-    fun updateStatus(issueId: String, status: IssueStatus) = bulkUpdateStatus(setOf(issueId), status)
+    fun updateStatus(issueId: String, status: IssueStatus) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                _error.value = error.message ?: "Failed to update status"
+            }
+        }
+    }
 
     /** Single-issue priority change from an inline list-row tap (EXP-247). */
-    fun updatePriority(issueId: String, priority: IssuePriority) = bulkUpdatePriority(setOf(issueId), priority)
+    fun updatePriority(issueId: String, priority: IssuePriority) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                _error.value = error.message ?: "Failed to update priority"
+            }
+        }
+    }
 
     /** Bulk priority change from the selection bar (EXP-247). */
     fun bulkUpdatePriority(issueIds: Collection<String>, priority: IssuePriority) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            for (id in issueIds) {
-                runCatching {
-                    issuesApi.update(accountId, UpdateIssueInput(id = id, priority = priority.wire))
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    _error.value = error.message ?: "Failed to update priority"
-                }
-            }
+        runBulk(issueIds, "Failed to update priority") { accountId, ids ->
+            issuesApi.bulkUpdate(accountId, ids, priority = priority.wire)
         }
     }
 
     /** Bulk (re)assignment from the selection bar (EXP-247). null = unassign. */
     fun bulkUpdateAssignee(issueIds: Collection<String>, assigneeId: String?) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            for (id in issueIds) {
-                runCatching {
-                    issuesApi.update(accountId, UpdateIssueInput(id = id, assigneeId = assigneeId))
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    _error.value = error.message ?: "Failed to update assignee"
-                }
-            }
+        runBulk(issueIds, "Failed to update assignee") { accountId, ids ->
+            // clearAssignee sends an explicit JSON null — without it the
+            // shared Json omits the key and "Unassigned" is a silent no-op.
+            issuesApi.bulkUpdate(
+                accountId,
+                ids,
+                assigneeId = assigneeId,
+                clearAssignee = assigneeId == null,
+            )
         }
     }
 
     /**
      * Bulk label add/remove from the selection bar (EXP-247). [add] true adds
-     * the label to each issue, false removes it — the same issueLabels
-     * mutations the issue detail uses.
+     * the label to each issue, false removes it — the transactional
+     * issueLabels bulk procedures, which (unlike the per-issue ones) only
+     * record a timeline event for rows they really inserted/deleted.
      */
     fun bulkToggleLabel(issueIds: Collection<String>, labelId: String, add: Boolean) {
+        runBulk(issueIds, "Failed to update labels") { accountId, ids ->
+            if (add) labelsApi.bulkAddLabel(accountId, ids, labelId)
+            else labelsApi.bulkRemoveLabel(accountId, ids, labelId)
+        }
+    }
+
+    /**
+     * Shared driver for the selection-bar writes: chunks the selection at the
+     * server's 200-id input cap (same BULK_CHUNK_SIZE as the web bar) and runs
+     * the chunks sequentially, surfacing the first failure. Electric replays
+     * transactions in commit order, so the rows land in chunk order too.
+     */
+    private fun runBulk(
+        issueIds: Collection<String>,
+        errorMessage: String,
+        write: suspend (accountId: String, ids: List<String>) -> Unit,
+    ) {
+        if (issueIds.isEmpty()) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            for (id in issueIds) {
-                runCatching {
-                    if (add) labelsApi.addLabel(accountId, id, labelId)
-                    else labelsApi.removeLabel(accountId, id, labelId)
-                }.onFailure { error ->
+            for (chunk in issueIds.toList().chunked(BULK_CHUNK_SIZE)) {
+                runCatching { write(accountId, chunk) }.onFailure { error ->
                     if (error is CancellationException) throw error
-                    _error.value = error.message ?: "Failed to update labels"
+                    _error.value = error.message ?: errorMessage
+                    return@launch
                 }
             }
         }

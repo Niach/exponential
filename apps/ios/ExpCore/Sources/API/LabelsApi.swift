@@ -52,6 +52,18 @@ public struct RemoveIssueLabelInput: Encodable, Sendable {
     }
 }
 
+/// Input for `issueLabels.bulkAdd` / `issueLabels.bulkRemove` — one label
+/// across many issues in ONE transaction (`issueIds` capped at 200).
+public struct BulkIssueLabelInput: Encodable, Sendable {
+    public let labelId: String
+    public let issueIds: [String]
+
+    public init(labelId: String, issueIds: [String]) {
+        self.labelId = labelId
+        self.issueIds = issueIds
+    }
+}
+
 public struct LabelResult: Decodable, Sendable {
     public let label: LabelResultData
 
@@ -94,5 +106,19 @@ public final class LabelsApi: Sendable {
 
     public func removeFromIssue(accountId: String, issueId: String, labelId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issueLabels.remove", input: RemoveIssueLabelInput(issueId: issueId, labelId: labelId))
+    }
+
+    /// Add one label to many issues in a single transaction (selection bar).
+    /// Unlike the per-issue `addToIssue`, the server records a `label_added`
+    /// timeline event only for rows it actually inserted, so passing issues
+    /// that already carry the label writes no spurious duplicate events.
+    public func bulkAddToIssues(accountId: String, issueIds: [String], labelId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issueLabels.bulkAdd", input: BulkIssueLabelInput(labelId: labelId, issueIds: issueIds))
+    }
+
+    /// Remove one label from many issues in a single transaction; events are
+    /// likewise recorded only for rows that really went away.
+    public func bulkRemoveFromIssues(accountId: String, issueIds: [String], labelId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issueLabels.bulkRemove", input: BulkIssueLabelInput(labelId: labelId, issueIds: issueIds))
     }
 }

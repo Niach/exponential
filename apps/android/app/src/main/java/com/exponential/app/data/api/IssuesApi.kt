@@ -6,8 +6,10 @@ import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -34,6 +36,8 @@ data class UpdateIssueInput(
     val status: String? = null,
     val priority: String? = null,
     val description: String? = null,
+    // NOTE: a null here means "don't touch" — the shared Json omits it. Use
+    // setAssignee()/bulkUpdate(clearAssignee=true) to actually UNASSIGN.
     @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
@@ -176,6 +180,61 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = SearchIssuesInput.serializer(),
             outputSerializer = ListSerializer(SearchIssueHit.serializer()),
         )
+
+    /**
+     * (Re)assign or UNASSIGN a single issue. Assignment can't go through the
+     * plain [update] path: the shared Json omits nulls (explicitNulls=false),
+     * so a null `assigneeId` never reaches the wire and the server reads the
+     * missing key as "leave the assignee alone" — clearing an assignee was a
+     * silent no-op. Same explicit-JSON-null escape hatch as [setDuplicateOf].
+     */
+    suspend fun setAssignee(accountId: String, issueId: String, assigneeId: String?): IssueEntity =
+        trpc.mutation(
+            accountId,
+            path = "issues.update",
+            input = buildJsonObject {
+                put("id", issueId)
+                if (assigneeId != null) put("assigneeId", assigneeId)
+                else put("assigneeId", JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = IssueResult.serializer(),
+        ).issue
+
+    /**
+     * Bulk property write for the multi-select bar — the same
+     * `issues.bulkUpdate` procedure web and desktop use. One server
+     * transaction for the whole chunk, and (deliberately) NO per-issue
+     * notification fan-out past 25 ids: the old client-side loop of
+     * `issues.update` calls bypassed that cap, so a 60-issue sweep pushed 60
+     * assignment notifications at one person. Callers chunk at the server's
+     * 200-id input cap.
+     *
+     * The body is hand-built for the same reason [setAssignee] is: unassigning
+     * the selection ([clearAssignee]) must reach the server as an explicit
+     * JSON null, which the shared Json would otherwise drop.
+     */
+    suspend fun bulkUpdate(
+        accountId: String,
+        ids: List<String>,
+        status: String? = null,
+        priority: String? = null,
+        assigneeId: String? = null,
+        clearAssignee: Boolean = false,
+    ) {
+        trpc.mutationUnit(
+            accountId,
+            path = "issues.bulkUpdate",
+            input = buildJsonObject {
+                put("ids", JsonArray(ids.map { JsonPrimitive(it) }))
+                if (status != null) put("status", status)
+                if (priority != null) put("priority", priority)
+                if (assigneeId != null) put("assigneeId", assigneeId)
+                else if (clearAssignee) put("assigneeId", JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
 
     /**
      * Mark/unmark an issue as a duplicate of a canonical issue — one atomic
