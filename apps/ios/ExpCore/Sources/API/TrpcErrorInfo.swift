@@ -71,6 +71,17 @@ public extension Error {
         return parsed.isPlanLimit ? planLimitNeutralMessage : parsed.message
     }
 
+    /// The tRPC error `code` (`NOT_FOUND`, `FORBIDDEN`, `PRECONDITION_FAILED`,
+    /// …) of a failed call, or nil for anything that isn't a tRPC error
+    /// envelope (transport failures, non-tRPC errors). Lets a caller tell a
+    /// permanent server "no" from a transient network failure without matching
+    /// on message text.
+    var trpcErrorCode: String? {
+        guard let trpcError = self as? TrpcError,
+              case let .httpError(_, body) = trpcError else { return nil }
+        return TrpcErrorBody.parse(body)?.code
+    }
+
     /// True when a tRPC failure is a plan-cap (`PRECONDITION_FAILED` + the
     /// "Your plan allows" message) — mirrors web `isPlanLimitError`.
     var isPlanLimitError: Bool {

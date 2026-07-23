@@ -121,7 +121,16 @@ final class AgentSessionModel {
         guard let steererId, steererId != currentUserId else { return nil }
         return viewers.first { $0.userId == steererId }?.name ?? "Someone"
     }
-    var sessionEnded: Bool { session?.status == DomainContract.codingSessionStatusEnded }
+    /// Over as far as this client can tell: an explicitly `ended` row, or a
+    /// row that VANISHED. The model is always constructed with a real row, so
+    /// nil means it was deleted (stale rows get swept) or left this client's
+    /// sync scope — either way it can never report `ended` itself, and every
+    /// retry loop exits on this, so treating nil as "still running" would keep
+    /// them dialing forever.
+    var sessionEnded: Bool {
+        guard let session else { return true }
+        return session.status == DomainContract.codingSessionStatusEnded
+    }
 
     /// The desktop's plan-picker resolution narration (steer/src/activity.rs)
     /// — the no-protocol-change signal that a pending plan approval was
@@ -244,6 +253,10 @@ final class AgentSessionModel {
     /// jitter desyncs a herd of viewers all foregrounding at once.
     private static let reconnectBaseSeconds: Double = 3
     private static let reconnectMaxSeconds: Double = 30
+    /// Shown when the session's row no longer exists — a swept row (or one
+    /// that left this client's sync scope) is over as far as any client can
+    /// tell, and nothing about it is retryable.
+    private static let sessionGoneDetail = "This session is no longer available."
     /// Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while
     /// to hit the transcript, but an unmatched echo must not swallow an
     /// identical message sent much later.
@@ -429,7 +442,11 @@ final class AgentSessionModel {
         sessionObservationTask = Task { [weak self] in
             do {
                 for try await row in observation.values(in: pool) {
-                    guard let self, let row else { continue }
+                    guard let self else { continue }
+                    // A nil row is published (not swallowed): the row is gone,
+                    // which `sessionEnded` reads as ended. Holding the last
+                    // known copy instead left the retry loops waiting for an
+                    // `ended` status a deleted row can never report.
                     self.session = row
                 }
             } catch {}
@@ -454,13 +471,27 @@ final class AgentSessionModel {
             ticket = try await steerApi.mintViewerTicket(accountId: accountId, codingSessionId: codingSessionId)
         } catch {
             guard !stopped, generation == dialGeneration else { return }
-            // Often transient (foregrounding before the network is back) —
-            // keep auto-retrying on backoff.
-            phase = .closed(
-                detail: "Couldn't get a viewer ticket. \(error.localizedDescription)",
-                reconnecting: true
-            )
-            scheduleReconnect()
+            switch error.trpcErrorCode {
+            case "NOT_FOUND":
+                // The coding_sessions row is gone (stale rows get swept), so
+                // the mint answers NOT_FOUND forever AND the row can never
+                // report `ended` again — the only other exit from the
+                // reconnect loop. Terminal, or the screen would sit at the 30s
+                // backoff cap showing a raw error for as long as it stays open.
+                phase = .ended(detail: Self.sessionGoneDetail)
+            case "FORBIDDEN":
+                // Access to the session was revoked (membership/permission) —
+                // another permanent no, not a drop.
+                phase = .closed(detail: error.trpcUserMessage, reconnecting: false)
+            default:
+                // Often transient (foregrounding before the network is back) —
+                // keep auto-retrying on backoff.
+                phase = .closed(
+                    detail: "Couldn't get a viewer ticket. \(error.localizedDescription)",
+                    reconnecting: true
+                )
+                scheduleReconnect()
+            }
             return
         }
         guard !stopped, generation == dialGeneration else { return }
@@ -485,8 +516,10 @@ final class AgentSessionModel {
         // a sent message — it must render, so no stale echo may swallow it.
         recentEchoes = []
         sendText(#"{"t":"join","channel":"activity"}"#)
-        phase = .live
-        reconnectAttempts = 0
+        // NOT live yet — the relay may answer the join with no_such_session
+        // (the desktop is still starting). The phase flips on the first
+        // confirming server frame instead (see markLive()), so the starting /
+        // reconnect retry loops never flash the Live header + composer.
         receiveLoop()
     }
 
@@ -514,12 +547,26 @@ final class AgentSessionModel {
         if !stopped, connected { receiveLoop() }
     }
 
+    /// A frame the relay only sends AFTER a successful join (presence goes out
+    /// immediately on join; a bad one answers `no_such_session` instead) — the
+    /// single proof the room is really live. An open socket proves nothing:
+    /// `resume()` never fails synchronously, so a refusing relay still opens
+    /// one, and flipping to live on connect would zero the backoff on every
+    /// attempt and redial at ~3s forever instead of walking up to the 30s cap.
+    /// Mirrors the Android `FrameResult.live` handling.
+    private func markLive() {
+        guard phase != .live else { return }
+        phase = .live
+        reconnectAttempts = 0
+    }
+
     private func onText(_ text: String) {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let t = obj["t"] as? String else { return }
         switch t {
         case "presence":
+            markLive()
             let raw = obj["viewers"] as? [[String: Any]] ?? []
             viewers = raw.compactMap { v in
                 guard let userId = v["userId"] as? String else { return nil }
@@ -531,6 +578,7 @@ final class AgentSessionModel {
             }
             steererId = obj["steererId"] as? String
         case "activity":
+            markLive()
             handleActivityEvent(obj["event"] as? [String: Any])
         case "bye":
             let outcome = obj["outcome"] as? String

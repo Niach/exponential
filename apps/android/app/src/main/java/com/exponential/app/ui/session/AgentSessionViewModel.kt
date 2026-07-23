@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.decodeSteerTicketPerm
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -17,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import javax.inject.Inject
@@ -69,6 +71,11 @@ private const val STARTING_RETRY_MS = 3_000L
  *  desyncs a herd of viewers all foregrounding at once. */
 private const val RECONNECT_BASE_MS = 3_000L
 private const val RECONNECT_MAX_MS = 30_000L
+
+/** Shown when the session's row no longer exists — a swept row (or one that
+ *  left this client's sync scope) is over as far as any client can tell, and
+ *  nothing about it is retryable. */
+private const val SESSION_GONE_DETAIL = "This session is no longer available."
 
 /** Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while to
  *  hit the transcript, but an unmatched echo must not swallow an identical
@@ -314,6 +321,11 @@ class AgentSessionViewModel @Inject constructor(
      *  on a successful (live) connection and on an explicit connect(). */
     private var reconnectAttempts = 0
 
+    /** Set once the synced row has actually been observed — [session] starts
+     *  null (nothing loaded yet), so only a null AFTER a real row proves the
+     *  row is gone rather than still on its way. */
+    private var sawSessionRow = false
+
     /** Auto-connect once when the screen opens; drops after that
      *  auto-reconnect (EXP-243). */
     fun connectIfIdle() {
@@ -332,7 +344,7 @@ class AgentSessionViewModel @Inject constructor(
                         // row still says running.
                         _phase.value = AgentPhase.Starting
                         delay(STARTING_RETRY_MS)
-                        if (session.value?.status == DomainContract.codingSessionStatusEnded) {
+                        if (sessionIsOver()) {
                             _phase.value = AgentPhase.Ended()
                             return@launch
                         }
@@ -352,7 +364,7 @@ class AgentSessionViewModel @Inject constructor(
                         // "Reconnecting…" instead of a Reconnect action.
                         _phase.value = AgentPhase.Closed(outcome.detail, reconnecting = true)
                         delay(reconnectDelayMs(reconnectAttempts++))
-                        if (session.value?.status == DomainContract.codingSessionStatusEnded) {
+                        if (sessionIsOver()) {
                             _phase.value = AgentPhase.Ended()
                             return@launch
                         }
@@ -373,6 +385,23 @@ class AgentSessionViewModel @Inject constructor(
         } else if (p == AgentPhase.Live) {
             ws?.outgoing?.trySend(Frame.Ping(ByteArray(0)))
         }
+    }
+
+    /**
+     * Whether the session is over as far as this client can tell: an
+     * explicitly `ended` row, or a row that VANISHED (stale coding_sessions
+     * rows get swept, and a row can also leave this client's sync scope). A
+     * deleted row can never report `ended` itself, and that status is the only
+     * other exit from the retry loops — so treating its disappearance as
+     * "still running" would keep them dialing a session that no longer exists.
+     */
+    private fun sessionIsOver(): Boolean {
+        val row = session.value
+        if (row != null) {
+            sawSessionRow = true
+            return row.status == DomainContract.codingSessionStatusEnded
+        }
+        return sawSessionRow
     }
 
     /** Equal-jitter exponential backoff (web parity): half the capped
@@ -408,6 +437,8 @@ class AgentSessionViewModel @Inject constructor(
         var sawEnd = false
         var retryStarting = false
         var detail: String? = null
+        // A server "no" that can never turn into a yes — wins over everything.
+        var terminal: DialOutcome? = null
 
         var socket: DefaultClientWebSocketSession? = null
         try {
@@ -466,6 +497,19 @@ class AgentSessionViewModel @Inject constructor(
             if (detail == null) {
                 detail = trpcErrorMessage(t, t.message ?: "Connection failed")
             }
+            // Only the mint throws TrpcException here, and two of its codes are
+            // permanent: NOT_FOUND (404) means the coding_sessions row is gone
+            // — the mint will refuse forever and the deleted row can never
+            // report `ended`, the loop's only other exit — and FORBIDDEN (403)
+            // means access to the session was revoked. Retrying either parks
+            // the screen at the 30s backoff cap behind a raw error string for
+            // as long as it stays open.
+            terminal = when {
+                t !is TrpcException -> null
+                t.status == HttpStatusCode.NotFound -> DialOutcome.Ended(SESSION_GONE_DETAIL)
+                t.status == HttpStatusCode.Forbidden -> DialOutcome.Closed(detail, retryable = false)
+                else -> null
+            }
         } finally {
             ws = null
             idleReleaseJob?.cancel()
@@ -474,6 +518,7 @@ class AgentSessionViewModel @Inject constructor(
 
         _viewers.value = emptyList()
         _steererId.value = null
+        terminal?.let { return it }
         return when {
             sawEnd -> DialOutcome.Ended(detail)
             // Heartbeat-stale rows don't warrant a redial (EXP-153) — the row
