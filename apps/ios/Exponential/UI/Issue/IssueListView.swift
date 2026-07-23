@@ -34,6 +34,14 @@ struct IssueListView: View {
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
+    /// Row content height floor. Pins the row so its height never depends on
+    /// WHICH optional glyphs happen to be present — the selection checkmark,
+    /// the assignee avatar, an inline-edit tap target. Without it, entering
+    /// selection mode changes the tallest element and every row below re-flows
+    /// vertically, which reads as the list jumping (EXP-251). 22 = the avatar,
+    /// the tallest thing a row has ever contained; larger Dynamic Type still
+    /// grows rows, equally in both modes.
+    @ScaledMetric(relativeTo: .subheadline) private var rowContentMinHeight: CGFloat = 22
 
     var body: some View {
         ZStack {
@@ -540,6 +548,7 @@ struct IssueListView: View {
                     userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: 22)
                 }
             }
+            .frame(minHeight: rowContentMinHeight)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
@@ -559,11 +568,14 @@ struct IssueListView: View {
     }
 
     /// A row's status/priority glyph. Plain 16pt-wide by default; when `onTap`
-    /// is supplied it grows to a 28pt tap target but reclaims the extra 12pt
-    /// with negative padding so the visual glyph and column alignment stay
-    /// identical to a non-editable row (EXP-247). The row's long-press is
-    /// re-attached here so a press starting over the icon still enters
-    /// selection despite the tap gesture.
+    /// is supplied it takes 6pt of padding on every side for a ~28pt tap
+    /// target, then gives all of it back with matching negative padding so the
+    /// glyph occupies exactly the same layout box as a non-editable one
+    /// (EXP-247). The padding must be symmetric: reclaiming only the
+    /// horizontal 12pt left the box 28pt TALL, which made every row outside
+    /// selection mode taller than the same row inside it (EXP-251). The row's
+    /// long-press is re-attached here so a press starting over the icon still
+    /// enters selection despite the tap gesture.
     @ViewBuilder
     private func inlineEditableIcon(
         systemName: String,
@@ -577,13 +589,13 @@ struct IssueListView: View {
             .frame(width: 16)
         if let onTap {
             glyph
-                .frame(width: 28, height: 28)
+                .padding(6)
                 .contentShape(Rectangle())
                 .onTapGesture { onTap() }
                 .simultaneousGesture(
                     LongPressGesture(minimumDuration: 0.35).onEnded { _ in onLongPress?() }
                 )
-                .padding(.horizontal, -6)
+                .padding(-6)
         } else {
             glyph
         }

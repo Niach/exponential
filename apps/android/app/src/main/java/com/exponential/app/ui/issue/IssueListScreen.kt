@@ -933,7 +933,15 @@ internal fun IssueRow(
                     Modifier
                 },
             )
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+            // Content height floor, so a row is the same height regardless of
+            // WHICH optional glyphs it happens to hold — the selection
+            // checkmark, the assignee avatar. Without it, entering selection
+            // mode changes the tallest element and every row below re-flows
+            // vertically, which reads as the list jumping (EXP-251). 22dp =
+            // the avatar, the tallest thing a row has ever held; a larger font
+            // scale still grows rows, equally in both modes.
+            .heightIn(min = RowContentMinHeight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected != null) {
@@ -949,13 +957,8 @@ internal fun IssueRow(
             )
             Spacer(Modifier.width(10.dp))
         }
-        if (onPriorityClick != null) {
-            InlineIconTarget(onClick = onPriorityClick, onLongClick = onLongClick) {
-                PriorityIcon(priority, size = 16.dp)
-            }
-        } else {
+        IconColumn(onClick = onPriorityClick, onLongClick = onLongClick) {
             PriorityIcon(priority, size = 16.dp)
-            Spacer(Modifier.width(10.dp))
         }
         Text(
             issue.identifier,
@@ -972,14 +975,8 @@ internal fun IssueRow(
             // clipping to a plausible-but-wrong identifier.
             modifier = Modifier.widthIn(min = 60.dp),
         )
-        if (onStatusClick != null) {
-            InlineIconTarget(onClick = onStatusClick, onLongClick = onLongClick) {
-                StatusIcon(status, size = 16.dp)
-            }
-        } else {
-            Spacer(Modifier.width(10.dp))
+        IconColumn(onClick = onStatusClick, onLongClick = onLongClick) {
             StatusIcon(status, size = 16.dp)
-            Spacer(Modifier.width(10.dp))
         }
         Text(
             issue.title,
@@ -1033,6 +1030,13 @@ internal fun IssueRow(
     }
 }
 
+/**
+ * Floor for an issue row's content height (excludes the row's own vertical
+ * padding). Matches the assignee avatar, the tallest element a row can hold —
+ * see the usage in [IssueRow] for why the floor has to exist at all.
+ */
+private val RowContentMinHeight = 22.dp
+
 /** Which bulk-property sheet the selection bar has open. */
 private enum class BulkSheet { Status, Priority, Assignee, Labels }
 
@@ -1042,15 +1046,23 @@ private enum class InlineKind { Status, Priority }
 private data class InlineEdit(val issueId: String, val kind: InlineKind)
 
 /**
- * A list-row status / priority glyph turned into its own tap target (EXP-247):
- * a fixed-width, full-row-height hit box that opens the inline picker on tap
- * and forwards long-press to the row's selection gesture. Full-height (not a
- * fixed square) so the touch target never grows the row.
+ * A list-row status / priority glyph column (EXP-247): a fixed-width,
+ * full-row-height box, and when [onClick] is non-null also its own tap target
+ * that opens the inline picker and forwards long-press to the row's selection
+ * gesture. Full-height (not a fixed square) so the touch target never grows
+ * the row.
+ *
+ * The column is the SAME width whether or not it is tappable (EXP-251).
+ * Previously the non-tappable branches hand-rolled their own spacing — 26dp
+ * for priority, 36dp for status against 32dp here — so the identifier and
+ * title sat at different x positions depending on whether the viewer could
+ * edit the row, and shifted again when entering selection mode (which turns
+ * inline editing off).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun InlineIconTarget(
-    onClick: () -> Unit,
+private fun IconColumn(
+    onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
     content: @Composable () -> Unit,
 ) {
@@ -1058,7 +1070,13 @@ private fun InlineIconTarget(
         modifier = Modifier
             .width(32.dp)
             .fillMaxHeight()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         content()
