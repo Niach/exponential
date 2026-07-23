@@ -7,23 +7,22 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 final class MarkdownToolbar: UIInputView {
     weak var textView: UITextView?
     var onImagePick: (() -> Void)?
-    var onInsertLink: (() -> Void)?
+    /// Solo teams hide the @ affordance — there is nobody to mention but
+    /// yourself (EXP-246; the typed `@` autocomplete stays functional).
+    var showsMentionButton = true {
+        didSet { atButton.isHidden = !showsMentionButton }
+    }
 
-    private var headingButton: UIButton!
-    private var boldButton: UIButton!
-    private var italicButton: UIButton!
-    private var strikethroughButton: UIButton!
+    private var atButton: UIButton!
     private var bulletListButton: UIButton!
     private var orderedListButton: UIButton!
     private var checklistButton: UIButton!
     private var codeButton: UIButton!
     private var quoteButton: UIButton!
-    private var linkButton: UIButton!
 
-    // Coalesced state-refresh bookkeeping so we don't recompute font traits on
-    // every caret movement.
+    // Coalesced state-refresh bookkeeping so we don't recompute typing
+    // attributes on every caret movement.
     private struct ToolbarState: Equatable {
-        var heading = false, bold = false, italic = false, strike = false
         var bullet = false, ordered = false, checklist = false, code = false, quote = false
     }
     private var lastState: ToolbarState?
@@ -69,18 +68,20 @@ final class MarkdownToolbar: UIInputView {
             return sep
         }
 
-        headingButton = makeButton("textformat.size", #selector(toggleHeading))
-        boldButton = makeButton("bold", #selector(toggleBold))
-        italicButton = makeButton("italic", #selector(toggleItalic))
-        strikethroughButton = makeButton("strikethrough", #selector(tapStrikethrough))
+        // Linear-style simplified strip (EXP-246): image | @ # | lists, code,
+        // quote. Text formatting (heading/bold/italic/strikethrough/link)
+        // deliberately has no buttons — inline marks still render and
+        // round-trip, only the authoring affordance is gone.
+        atButton = makeButton("at", #selector(insertMention))
+        let hashButton = makeButton("number", #selector(insertIssueRef))
         bulletListButton = makeButton("list.bullet", #selector(toggleBulletList))
         orderedListButton = makeButton("list.number", #selector(toggleOrderedList))
         checklistButton = makeButton("checklist", #selector(toggleChecklist))
         codeButton = makeButton("chevron.left.forwardslash.chevron.right", #selector(toggleCode))
         quoteButton = makeButton("text.quote", #selector(toggleBlockquote))
-        linkButton = makeButton("link", #selector(tapLink))
         let imageButton = makeButton("photo", #selector(pickImage))
         let dismissButton = makeButton("keyboard.chevron.compact.down", #selector(dismissKeyboard))
+        atButton.isHidden = !showsMentionButton
 
         let scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
@@ -89,11 +90,9 @@ final class MarkdownToolbar: UIInputView {
         let stack = UIStackView(arrangedSubviews: [
             imageButton,
             makeSep(),
-            headingButton, boldButton, italicButton, strikethroughButton,
+            atButton, hashButton,
             makeSep(),
             bulletListButton, orderedListButton, checklistButton, codeButton, quoteButton,
-            makeSep(),
-            linkButton,
         ])
         stack.axis = .horizontal
         stack.alignment = .center
@@ -142,14 +141,8 @@ final class MarkdownToolbar: UIInputView {
         guard let textView else { return }
         let attrs = textView.typingAttributes
 
-        let font = attrs[.font] as? UIFont
-        let isHeading = (attrs[.markdownHeadingLevel] as? Int).map { $0 > 0 } ?? false
         let listType = attrs[.markdownListType] as? String
         let state = ToolbarState(
-            heading: isHeading,
-            bold: font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true && !isHeading,
-            italic: font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true,
-            strike: (attrs[.strikethroughStyle] as? Int).map { $0 != 0 } ?? false,
             bullet: listType == "bullet",
             ordered: listType == "ordered",
             checklist: listType == "checklist",
@@ -159,10 +152,6 @@ final class MarkdownToolbar: UIInputView {
         guard state != lastState else { return }
         lastState = state
 
-        setActive(headingButton, state.heading)
-        setActive(boldButton, state.bold)
-        setActive(italicButton, state.italic)
-        setActive(strikethroughButton, state.strike)
         setActive(bulletListButton, state.bullet)
         setActive(orderedListButton, state.ordered)
         setActive(checklistButton, state.checklist)
@@ -174,84 +163,18 @@ final class MarkdownToolbar: UIInputView {
         button.tintColor = active ? MarkdownStyle.linkColor : UIColor.white.withAlphaComponent(0.65)
     }
 
-    // MARK: - Inline formatting
+    // MARK: - Mention / issue-ref triggers
 
-    @objc private func toggleBold() {
-        guard let textView else { return }
-        toggleFontTrait(.traitBold, in: textView)
+    // insertText is equivalent to typing: it runs the full delegate chain
+    // (textViewDidChange → model.updateText → recomputeAutocomplete), so the
+    // existing @/# autocomplete bars pop with an empty query.
+
+    @objc private func insertMention() {
+        textView?.insertText("@")
     }
 
-    @objc private func toggleItalic() {
-        guard let textView else { return }
-        toggleFontTrait(.traitItalic, in: textView)
-    }
-
-    @objc private func tapStrikethrough() {
-        guard let textView else { return }
-        let range = textView.selectedRange
-        let current = (textView.typingAttributes[.strikethroughStyle] as? Int) ?? 0
-        let newValue = current == 0 ? NSUnderlineStyle.single.rawValue : 0
-
-        if range.length > 0 {
-            if newValue == 0 {
-                textView.textStorage.removeAttribute(.strikethroughStyle, range: range)
-                textView.textStorage.removeAttribute(.markdownStrikethrough, range: range)
-            } else {
-                textView.textStorage.addAttributes([
-                    .strikethroughStyle: newValue,
-                    .markdownStrikethrough: true,
-                ], range: range)
-            }
-        }
-        textView.typingAttributes[.strikethroughStyle] = newValue
-        if newValue != 0 {
-            textView.typingAttributes[.markdownStrikethrough] = true
-        } else {
-            textView.typingAttributes.removeValue(forKey: .markdownStrikethrough)
-        }
-        refresh(textView)
-    }
-
-    // MARK: - Heading
-
-    @objc private func toggleHeading() {
-        guard let textView else { return }
-        let paraRange = paragraphRange(in: textView)
-
-        let current: Int
-        if let attrs = textView.textStorage.attributesIfInBounds(at: paraRange.location) {
-            current = (attrs[.markdownHeadingLevel] as? Int) ?? 0
-        } else {
-            current = (textView.typingAttributes[.markdownHeadingLevel] as? Int) ?? 0
-        }
-
-        let nextLevel: Int
-        switch current {
-        case 0: nextLevel = 1
-        case 1: nextLevel = 2
-        case 2: nextLevel = 3
-        default: nextLevel = 0
-        }
-
-        if nextLevel > 0 {
-            let font = MarkdownStyle.headingFont(level: nextLevel)
-            if paraRange.length > 0 {
-                textView.textStorage.addAttributes([
-                    .font: font,
-                    .markdownHeadingLevel: nextLevel,
-                ], range: paraRange)
-            }
-            textView.typingAttributes[.font] = font
-            textView.typingAttributes[.markdownHeadingLevel] = nextLevel
-        } else {
-            if paraRange.length > 0 {
-                textView.textStorage.addAttribute(.font, value: MarkdownStyle.bodyFont, range: paraRange)
-                textView.textStorage.removeAttribute(.markdownHeadingLevel, range: paraRange)
-            }
-            textView.typingAttributes[.font] = MarkdownStyle.bodyFont
-            textView.typingAttributes.removeValue(forKey: .markdownHeadingLevel)
-        }
-        refresh(textView)
+    @objc private func insertIssueRef() {
+        textView?.insertText("#")
     }
 
     // MARK: - Lists
@@ -296,16 +219,16 @@ final class MarkdownToolbar: UIInputView {
             textView.typingAttributes.removeValue(forKey: .backgroundColor)
             textView.typingAttributes[.font] = MarkdownStyle.bodyFont
         } else {
+            // No `.backgroundColor`: MarkdownLayoutManager draws the fence as
+            // one connected box off `.markdownCodeBlock` (EXP-246).
             if paraRange.length > 0 {
                 textView.textStorage.addAttributes([
                     .markdownCodeBlock: true,
                     .font: MarkdownStyle.monospaceFont,
-                    .backgroundColor: MarkdownStyle.codeBlockBackground,
                 ], range: paraRange)
             }
             textView.typingAttributes[.markdownCodeBlock] = true
             textView.typingAttributes[.font] = MarkdownStyle.monospaceFont
-            textView.typingAttributes[.backgroundColor] = MarkdownStyle.codeBlockBackground
         }
         refresh(textView)
     }
@@ -324,30 +247,36 @@ final class MarkdownToolbar: UIInputView {
         }
 
         if isQuote {
+            let plainStyle = NSMutableParagraphStyle()
+            plainStyle.lineSpacing = 4
             if paraRange.length > 0 {
                 textView.textStorage.removeAttribute(.markdownBlockquote, range: paraRange)
-                textView.textStorage.addAttribute(.foregroundColor, value: MarkdownStyle.textColor, range: paraRange)
+                textView.textStorage.addAttributes([
+                    .foregroundColor: MarkdownStyle.textColor,
+                    .paragraphStyle: plainStyle,
+                ], range: paraRange)
             }
             textView.typingAttributes.removeValue(forKey: .markdownBlockquote)
             textView.typingAttributes[.foregroundColor] = MarkdownStyle.textColor
+            textView.typingAttributes[.paragraphStyle] = plainStyle
         } else {
+            // The indent clears the gutter for the quote bar drawn by
+            // MarkdownLayoutManager (EXP-246).
             if paraRange.length > 0 {
                 textView.textStorage.addAttributes([
                     .markdownBlockquote: true,
                     .foregroundColor: MarkdownStyle.blockquoteTextColor,
+                    .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle,
                 ], range: paraRange)
             }
             textView.typingAttributes[.markdownBlockquote] = true
             textView.typingAttributes[.foregroundColor] = MarkdownStyle.blockquoteTextColor
+            textView.typingAttributes[.paragraphStyle] = MarkdownStyle.blockquoteParagraphStyle
         }
         refresh(textView)
     }
 
-    // MARK: - Link / Image / Dismiss
-
-    @objc private func tapLink() {
-        onInsertLink?()
-    }
+    // MARK: - Image / Dismiss
 
     @objc private func pickImage() {
         onImagePick?()
@@ -358,23 +287,6 @@ final class MarkdownToolbar: UIInputView {
     }
 
     // MARK: - Helpers
-
-    private func toggleFontTrait(_ trait: UIFontDescriptor.SymbolicTraits, in textView: UITextView) {
-        let range = textView.selectedRange
-        let currentFont = (textView.typingAttributes[.font] as? UIFont) ?? MarkdownStyle.bodyFont
-        let hasTrait = currentFont.fontDescriptor.symbolicTraits.contains(trait)
-
-        var traits = currentFont.fontDescriptor.symbolicTraits
-        if hasTrait { traits.remove(trait) } else { traits.insert(trait) }
-        let desc = currentFont.fontDescriptor.withSymbolicTraits(traits) ?? currentFont.fontDescriptor
-        let newFont = UIFont(descriptor: desc, size: currentFont.pointSize)
-
-        if range.length > 0 {
-            textView.textStorage.addAttribute(.font, value: newFont, range: range)
-        }
-        textView.typingAttributes[.font] = newFont
-        refresh(textView)
-    }
 
     private func insertOrToggleList(type: String, prefix: String, initialIndex: Int, in textView: UITextView) {
         let storage = textView.textStorage

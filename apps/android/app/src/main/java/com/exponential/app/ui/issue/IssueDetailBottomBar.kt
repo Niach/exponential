@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.ArrowCircleUp
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -101,6 +102,9 @@ fun IssueDetailBottomBar(
     onSend: () -> Unit,
     onUploadImage: suspend (Uri) -> String?,
     mentionMembers: List<MentionMember>,
+    // Solo teams hide the @ button (nobody else to mention, EXP-246) — same
+    // gate the assignee chip uses, threaded explicitly from the screen.
+    showMentionButton: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // The composer's editor model lives at bar level so the block document
@@ -153,6 +157,7 @@ fun IssueDetailBottomBar(
                 onSend = onSend,
                 onUploadImage = onUploadImage,
                 mentionMembers = mentionMembers,
+                showMentionButton = showMentionButton,
                 onCollapse = { onExpandedChange(false) },
             )
         } else {
@@ -265,7 +270,7 @@ private fun BarCircle(
 }
 
 // The docked composer the pill expands into: MarkdownEditor over a
-// [photo][@][spacer][send] row. Ports the send gating from the old inline
+// [photo][@][#][spacer][send] row. Ports the send gating from the old inline
 // end-of-thread composer verbatim (draft:// placeholders block Send).
 @Composable
 private fun ExpandedCommentComposer(
@@ -276,6 +281,7 @@ private fun ExpandedCommentComposer(
     onSend: () -> Unit,
     onUploadImage: suspend (Uri) -> String?,
     mentionMembers: List<MentionMember>,
+    showMentionButton: Boolean,
     onCollapse: () -> Unit,
 ) {
     BackHandler(onBack = onCollapse)
@@ -308,6 +314,9 @@ private fun ExpandedCommentComposer(
                 placeholder = "Write a comment…",
                 minHeight = 40.dp,
                 mentionMembers = mentionMembers,
+                // The composer carries its own image/@/# row below — the
+                // floating formatting strip never shows for it (EXP-246).
+                showToolbar = false,
                 model = model,
             )
         }
@@ -330,10 +339,20 @@ private fun ExpandedCommentComposer(
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                 )
             }
-            IconButton(onClick = { model.insertPlainText("@") }) {
+            if (showMentionButton) {
+                IconButton(onClick = { model.insertPlainText("@") }) {
+                    Icon(
+                        Icons.Filled.AlternateEmail,
+                        contentDescription = "Mention a member",
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            }
+            IconButton(onClick = { model.insertPlainText("#") }) {
                 Icon(
-                    Icons.Filled.AlternateEmail,
-                    contentDescription = "Mention a member",
+                    Icons.Filled.Tag,
+                    contentDescription = "Reference an issue",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                 )

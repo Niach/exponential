@@ -316,7 +316,12 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_PARAGRAPH:
         appendBlockSeparatorToCollector(collector: collector, context: &context)
         if context.inBlockquote {
-            context.pushStyle(color: MarkdownStyle.blockquoteTextColor, extra: [.markdownBlockquote: true])
+            context.pushStyle(color: MarkdownStyle.blockquoteTextColor, extra: [
+                .markdownBlockquote: true,
+                // Indent clears the gutter for the quote bar drawn by
+                // MarkdownLayoutManager (EXP-246).
+                .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle,
+            ])
         }
         renderChildrenToBlocks(node, collector: collector, context: &context)
         if context.inBlockquote { context.popStyle() }
@@ -368,7 +373,9 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) }
         var attrs = context.makeAttributes()
         attrs[.font] = MarkdownStyle.monospaceFont
-        attrs[.backgroundColor] = MarkdownStyle.codeBlockBackground
+        // No `.backgroundColor` here: UITextView paints it per line fragment
+        // (a stripe per line). MarkdownLayoutManager draws the whole fence as
+        // ONE rounded box off `.markdownCodeBlock` instead (EXP-246).
         attrs[.markdownCodeBlock] = true
         if let lang, !lang.isEmpty { attrs[.markdownCodeBlockLang] = lang }
         var text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal

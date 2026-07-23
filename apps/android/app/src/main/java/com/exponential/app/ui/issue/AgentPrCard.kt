@@ -46,7 +46,6 @@ import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassSection
 
 // The compact agent/PR card on the issue detail (EXP-156): a live "Coding now"
 // session row and the PR / branch summary as GitHub-style chips linking to the
@@ -93,11 +92,10 @@ fun AgentPrCard(
     val hasContent = session != null || hasPr || hasBranch
     if (!hasContent) return
 
+    // No card wrapper (EXP-246): the session row + PR/branch chips render full
+    // width against the screen background, matching iOS.
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassSection()
-            .padding(12.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (session != null) {

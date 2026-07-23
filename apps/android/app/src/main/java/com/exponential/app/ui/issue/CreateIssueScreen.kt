@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -262,6 +266,11 @@ fun CreateIssueScreen(
             },
             containerColor = Color.Transparent,
         ) { padding ->
+            // Tap-outside keyboard dismissal (EXP-246): taps on dead space in
+            // the form clear focus and drop the IME; interactive children
+            // consume their own taps first.
+            val focusManager = LocalFocusManager.current
+            val keyboard = LocalSoftwareKeyboardController.current
             Column(
                 modifier = Modifier
                     .padding(padding)
@@ -272,6 +281,12 @@ fun CreateIssueScreen(
                     .consumeWindowInsets(padding)
                     .imePadding()
                     .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                        })
+                    }
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -317,6 +332,7 @@ fun CreateIssueScreen(
                         users
                             .map { MentionMember(it.name ?: it.email, it.email) }
                     },
+                    mentionEnabled = !isSoloTeam,
                 )
 
                 // Status / Priority / Assignee — one grouped glass card.

@@ -44,6 +44,9 @@ class MarkdownToolbarController {
     /** Image-picker action + flag for the active editor (its picker launcher lives in that editor's composition). */
     var onPickImage by mutableStateOf<() -> Unit>({})
     var imageEnabled by mutableStateOf(false)
+
+    /** Whether the active editor offers the @-mention button (solo teams hide it, EXP-246). */
+    var mentionEnabled by mutableStateOf(true)
 }
 
 val LocalMarkdownToolbarController = compositionLocalOf<MarkdownToolbarController?> { null }
@@ -111,14 +114,15 @@ private fun MarkdownToolbarOverlay(
                 .background(GlassTokens.StrokeSection),
         )
         // key(model): the toolbar is a single hoisted instance reused across every
-        // editor on the screen, so reset its internal state (e.g. the link dialog)
-        // when the focused editor changes — otherwise a dialog opened for one
-        // editor would act on the next one.
+        // editor on the screen, so reset any internal state when the focused
+        // editor changes — otherwise state kept for one editor would act on the
+        // next one.
         key(model) {
             MarkdownToolbar(
                 model = model,
                 onPickImage = controller.onPickImage,
                 imageEnabled = controller.imageEnabled,
+                mentionEnabled = controller.mentionEnabled,
             )
         }
     }

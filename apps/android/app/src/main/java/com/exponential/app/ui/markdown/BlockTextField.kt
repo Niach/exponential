@@ -4,9 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -329,13 +332,52 @@ private fun ParagraphDecoration(
         }
 
         BlockKind.CodeBlock -> {
+            // Consecutive code rows merge into ONE visual box (EXP-246): corners
+            // round and outer/inner vertical padding apply only at the run's
+            // edges, so an N-line fence reads as a single connected block —
+            // read-view CodeBlockView parity. Neighbor kinds come straight off
+            // model.rows (snapshot state — recomposes when a neighbor changes).
+            val rows = model.rows
+            val idx = rows.indexOfFirst { it.id == row.id }
+            fun kindAt(i: Int) = (rows.getOrNull(i) as? EditorRow.Para)?.attrs?.kind
+            val joinsPrev = kindAt(idx - 1) == BlockKind.CodeBlock
+            val joinsNext = kindAt(idx + 1) == BlockKind.CodeBlock
             Box(
                 modifier = Modifier
-                    .padding(vertical = 1.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .fillMaxWidth()
+                    .padding(top = if (joinsPrev) 0.dp else 1.dp, bottom = if (joinsNext) 0.dp else 1.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = if (joinsPrev) 0.dp else 4.dp,
+                            topEnd = if (joinsPrev) 0.dp else 4.dp,
+                            bottomStart = if (joinsNext) 0.dp else 4.dp,
+                            bottomEnd = if (joinsNext) 0.dp else 4.dp,
+                        ),
+                    )
                     .background(MdStyle.CodeBlockBg)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(
+                        start = 8.dp,
+                        end = 8.dp,
+                        top = if (joinsPrev) 1.dp else 4.dp,
+                        bottom = if (joinsNext) 1.dp else 4.dp,
+                    ),
             ) { inner() }
+        }
+
+        BlockKind.Blockquote -> {
+            // Linear-style quote (EXP-246): vertical left bar + indented text.
+            // The bar fills the row's full height and rows stack flush in the
+            // editor column, so a multi-line quote reads as one continuous bar.
+            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                Box(
+                    Modifier
+                        .width(MdStyle.quoteBarWidth)
+                        .fillMaxHeight()
+                        .background(MdStyle.QuoteBar),
+                )
+                Spacer(Modifier.width(MdStyle.quoteIndent))
+                Box(Modifier.weight(1f).padding(vertical = MdStyle.textInsetV)) { inner() }
+            }
         }
 
         else -> {

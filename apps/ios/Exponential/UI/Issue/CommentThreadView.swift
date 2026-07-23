@@ -12,6 +12,9 @@ import GRDB
 // comments moved to the docked bottom-bar composer (IssueDetailBottomBar).
 struct CommentThreadView: View {
     let issue: IssueEntity
+    /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
+    /// gate as the assignee chip, threaded from the detail view model.
+    let singleMemberTeam: Bool
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -198,6 +201,7 @@ struct CommentThreadView: View {
                 isAdmin: deps.auth.isAdmin,
                 isEditing: editingCommentId == comment.id,
                 editEditor: editEditor,
+                singleMemberTeam: singleMemberTeam,
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
                 httpClient: deps.httpClient,
@@ -384,6 +388,7 @@ private struct RegularCommentRow: View {
     let isAdmin: Bool
     let isEditing: Bool
     let editEditor: IssueEditorModel
+    let singleMemberTeam: Bool
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
@@ -442,9 +447,12 @@ private struct RegularCommentRow: View {
                     accountId: accountId,
                     httpClient: httpClient,
                     mentionMembers: mentionMembers,
-                    onIssueRefTap: { issueId in onOpenIssue(issueId) }
+                    onIssueRefTap: { issueId in onOpenIssue(issueId) },
+                    showsMentionButton: !singleMemberTeam
                 )
-                .frame(minHeight: 60, maxHeight: 220)
+                // Bounded scroller, not a bare frame clamp — overflow content
+                // rendered outside the clamp with the caret detached (EXP-246).
+                .boundedEditorHeight(minHeight: 60, maxHeight: 220)
                 .padding(.vertical, 2)
                 .background(Color.white.opacity(0.04))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
