@@ -1,10 +1,14 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -77,7 +81,8 @@ private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
     val attrs = (lines.indices).map { rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN } }
     val lineMarks = lineLocalMarks(rich)
 
-    // Group consecutive code-block lines so they render in one rounded box.
+    // Group consecutive code-block lines so they render in one rounded box,
+    // and consecutive quote lines behind one continuous left bar (EXP-246).
     var i = 0
     Column(modifier = Modifier.fillMaxWidth()) {
         while (i < lines.size) {
@@ -87,9 +92,48 @@ private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
                 while (j + 1 < lines.size && attrs[j + 1].kind == BlockKind.CodeBlock) j++
                 CodeBlockView((i..j).map { lines[it] })
                 i = j + 1
+            } else if (a.kind == BlockKind.Blockquote) {
+                var j = i
+                while (j + 1 < lines.size && attrs[j + 1].kind == BlockKind.Blockquote) j++
+                QuoteBlockView((i..j).map { lines[it] }, (i..j).map { lineMarks[it] }, issueRefs)
+                i = j + 1
             } else {
                 LineView(lines[i], a, lineMarks[i], issueRefs)
                 i++
+            }
+        }
+    }
+}
+
+// A run of consecutive quote lines: one continuous vertical bar with the muted
+// quoted text indented beside it (Linear-style, EXP-246) — matches the editor's
+// Blockquote ParagraphDecoration.
+@Composable
+private fun QuoteBlockView(
+    texts: List<String>,
+    marks: List<List<InlineMark>>,
+    issueRefs: IssueRefHandler?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .height(IntrinsicSize.Min),
+    ) {
+        Box(
+            Modifier
+                .width(MdStyle.quoteBarWidth)
+                .fillMaxHeight()
+                .background(MdStyle.QuoteBar),
+        )
+        Spacer(Modifier.width(MdStyle.quoteIndent))
+        Column(Modifier.weight(1f)) {
+            texts.forEachIndexed { index, text ->
+                Text(
+                    text = annotate(text, marks[index], issueRefs),
+                    style = MdStyle.body.copy(color = MdStyle.Blockquote),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                )
             }
         }
     }
@@ -123,11 +167,9 @@ private fun LineView(
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
 
-        BlockKind.Blockquote -> Text(
-            text = annotate(text, marks, issueRefs),
-            style = MdStyle.body.copy(color = MdStyle.Blockquote),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        )
+        // Blockquote never reaches here — TextBlockView groups quote runs into
+        // QuoteBlockView (runs of length ≥ 1), like CodeBlock.
+        BlockKind.Blockquote -> Unit
 
         BlockKind.ThematicBreak -> Text(
             text = MarkdownParser.THEMATIC_BREAK_GLYPH,

@@ -72,6 +72,9 @@ internal val TimelineRail = Color.White.copy(alpha = 0.08f)
 fun CommentThread(
     issueId: String,
     viewModel: CommentThreadViewModel,
+    // Solo teams hide the comment-edit toolbar's @ button (EXP-246) — threaded
+    // explicitly from the screen's soloMemberId gate, like the assignee chip.
+    mentionEnabled: Boolean = true,
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -175,6 +178,7 @@ fun CommentThread(
                                 },
                                 onUploadImage = { uri -> viewModel.uploadImage(uri) },
                                 mentionMembers = mentionMembers,
+                                mentionEnabled = mentionEnabled,
                             )
                         }
                     }

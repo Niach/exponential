@@ -2,9 +2,10 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The compact coding/PR status card on issue detail (EXP-156). EXP-240 moved
-/// the remote-start affordance into the bottom bar's Start-coding circle, so
-/// this card is now a pure status glance with up to three coexisting rows:
+/// The compact coding/PR status section on issue detail (EXP-156). EXP-240
+/// moved the remote-start affordance into the bottom bar's Start-coding
+/// circle; EXP-246 dropped the glass card wrapper (full-width rows, Linear
+/// parity). A pure status glance with up to three coexisting rows:
 ///   - Session: a running coding session → "Coding now" + tap-to-watch (members
 ///              when the relay is on; an inert note when steering is disabled).
 ///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
@@ -44,6 +45,8 @@ struct AgentPrCard: View {
         }
     }
 
+    // Full-width rows, no card wrapper (EXP-246) — the PR/branch chips keep
+    // their own glassButton capsules.
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let session {
@@ -55,8 +58,7 @@ struct AgentPrCard: View {
                 branchChip(branch)
             }
         }
-        .padding(12)
-        .glassSection()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Session row

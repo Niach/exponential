@@ -66,7 +66,8 @@ struct CreateIssueSheet: View {
                             baseURL: instanceBaseURL,
                             accountId: accountId,
                             httpClient: deps.httpClient,
-                            mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+                            mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                            showsMentionButton: !singleMemberTeam
                         )
 
                         // Metadata row
@@ -223,7 +224,16 @@ struct CreateIssueSheet: View {
                         }
                     }
                     .padding(20)
+                    // Tap-outside keyboard dismissal (EXP-246): catcher BEHIND
+                    // the content — only dead-space taps reach it, interactive
+                    // children keep winning hit-testing.
+                    .background {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { UIApplication.endEditing() }
+                    }
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("New Issue")
             .navigationBarTitleDisplayMode(.inline)
@@ -246,6 +256,21 @@ struct CreateIssueSheet: View {
                     }
                     .disabled(title.isEmpty || loading)
                 }
+            }
+            // Presenting a picker over a focused editor kept the editor first
+            // responder — its keyboard-accessory strip then floated over the
+            // picker sheet (EXP-246). Resign before each picker lands.
+            .onChange(of: showStatusPicker) { _, shown in
+                if shown { UIApplication.endEditing() }
+            }
+            .onChange(of: showPriorityPicker) { _, shown in
+                if shown { UIApplication.endEditing() }
+            }
+            .onChange(of: showAssigneePicker) { _, shown in
+                if shown { UIApplication.endEditing() }
+            }
+            .onChange(of: showCreateLabel) { _, shown in
+                if shown { UIApplication.endEditing() }
             }
             .onAppear {
                 titleFocused = true

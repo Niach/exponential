@@ -65,6 +65,7 @@ internal fun RegularCommentRow(
     onDelete: () -> Unit,
     onUploadImage: suspend (Uri) -> String?,
     mentionMembers: List<MentionMember>,
+    mentionEnabled: Boolean = true,
 ) {
     val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
@@ -164,6 +165,7 @@ internal fun RegularCommentRow(
                     placeholder = "Edit comment…",
                     minHeight = 40.dp,
                     mentionMembers = mentionMembers,
+                    mentionEnabled = mentionEnabled,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

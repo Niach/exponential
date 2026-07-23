@@ -26,11 +26,19 @@ struct MarkdownEditor: View {
     /// (link taps open URLs), image blocks lose their delete affordance, and
     /// the editing chrome (toolbar, pickers, autocomplete bars) never mounts.
     var isReadOnly: Bool = false
+    /// False suppresses the keyboard-accessory formatting strip entirely —
+    /// the bottom-bar comment composer keeps only its own photo/@/# row
+    /// (EXP-246).
+    var showsFormattingToolbar: Bool = true
+    /// Solo teams hide the toolbar's @ button (nobody to mention but
+    /// yourself); the typed `@` autocomplete stays functional (EXP-246).
+    var showsMentionButton: Bool = true
+    /// Caps embedded image blocks — compact contexts (the comment composer)
+    /// would otherwise be dominated by a single image (EXP-246).
+    var imageMaxHeight: CGFloat?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
-    @State private var showLinkAlert = false
-    @State private var linkURLText = ""
     @State private var toolbar = MarkdownToolbar()
 
     // NOTE: deliberately no internal ScrollView. Every usage embeds this
@@ -52,7 +60,7 @@ struct MarkdownEditor: View {
                                 revision: model.revision(for: id),
                                 isFocused: model.focusedBlockId == id,
                                 placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
-                                toolbar: toolbar,
+                                toolbar: showsFormattingToolbar ? toolbar : nil,
                                 isReadOnly: isReadOnly,
                                 onPasteImage: { image in insert(uiImage: image) },
                                 onIssueRefTap: onIssueRefTap
@@ -70,6 +78,7 @@ struct MarkdownEditor: View {
                                 httpClient: httpClient,
                                 pendingImages: model.pendingImages,
                                 isReadOnly: isReadOnly,
+                                maxHeight: imageMaxHeight,
                                 onDelete: { model.deleteImageBlock(id: id) },
                                 onTapBelow: { focusBlock(after: id) },
                                 onRetry: { Task { await model.retryImage(blockId: id) } }
@@ -96,23 +105,15 @@ struct MarkdownEditor: View {
             guard let newItem else { return }
             Task { await ingestPhoto(newItem) }
         }
-        .alert("Add Link", isPresented: $showLinkAlert) {
-            TextField("https://", text: $linkURLText)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-            Button("Cancel", role: .cancel) { linkURLText = "" }
-            Button("Add") {
-                applyLink(urlText: linkURLText)
-                linkURLText = ""
-            }
-        } message: {
-            Text("Link the selected text to a URL.")
-        }
         .onAppear {
             guard !isReadOnly else { return }
             toolbar.onImagePick = { showPhotoPicker = true }
-            toolbar.onInsertLink = { showLinkAlert = true }
+            toolbar.showsMentionButton = showsMentionButton
             model.mentionMembers = mentionMembers
+        }
+        // Membership can sync in after mount and flip the solo-team gate.
+        .onChange(of: showsMentionButton) { _, newValue in
+            toolbar.showsMentionButton = newValue
         }
     }
 
@@ -217,31 +218,6 @@ struct MarkdownEditor: View {
         let h = Int(image.size.height * image.scale)
         return (w > 0 ? w : nil, h > 0 ? h : nil)
     }
-
-    // MARK: - Link insertion
-
-    private func applyLink(urlText: String) {
-        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let tv = toolbar.textView else { return }
-        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard let url = URL(string: normalized) else { return }
-        let range = tv.selectedRange
-        if range.length > 0 {
-            tv.textStorage.addAttributes([
-                .link: url,
-                .foregroundColor: MarkdownStyle.linkColor,
-            ], range: range)
-        } else {
-            let linkText = NSAttributedString(string: normalized, attributes: [
-                .link: url,
-                .foregroundColor: MarkdownStyle.linkColor,
-                .font: MarkdownStyle.bodyFont,
-            ])
-            tv.textStorage.insert(linkText, at: range.location)
-            tv.selectedRange = NSRange(location: range.location + linkText.length, length: 0)
-        }
-        tv.delegate?.textViewDidChange?(tv)
-    }
 }
 
 // MARK: - Editor Text View (UITextView subclass)
@@ -253,6 +229,11 @@ private final class EditorTextView: UITextView {
     /// Display-only rendering: issue-ref taps still navigate, but checkbox
     /// glyph taps must not mutate the (never-persisted) text.
     var isReadOnlyRendering = false
+    /// Strong ref to the manually-built TextKit 1 stack's storage. TextKit
+    /// ownership is strictly downward (storage → layoutManager → container);
+    /// the text view only retains its container, so without this the storage
+    /// would deallocate out from under the view.
+    var ownedTextStorage: NSTextStorage?
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -263,6 +244,17 @@ private final class EditorTextView: UITextView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    // Detaching from the window (navigation pop, sheet teardown, unmount)
+    // must tear the keyboard + accessory strip down with it. Nothing else
+    // resigns UIKit first responders — a stale one left the formatting strip
+    // floating over unrelated screens (EXP-246).
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil, isFirstResponder {
+            resignFirstResponder()
+        }
+    }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
@@ -322,13 +314,25 @@ private struct BlockTextEditor: UIViewRepresentable {
     let revision: Int
     let isFocused: Bool
     let placeholder: String?
-    let toolbar: MarkdownToolbar
+    /// nil = no formatting accessory strip (the comment composer, EXP-246).
+    let toolbar: MarkdownToolbar?
     var isReadOnly = false
     var onPasteImage: (UIImage) -> Void
     var onIssueRefTap: ((String) -> Void)?
 
     func makeUIView(context: Context) -> EditorTextView {
-        let tv = EditorTextView()
+        // Explicit TextKit 1 stack: installs MarkdownLayoutManager (quote bar
+        // + one-box code fences) and makes the TextKit version deterministic
+        // — handleTap's `layoutManager` access was already forcing the lazy
+        // TextKit 1 fallback (EXP-246).
+        let storage = NSTextStorage()
+        let layoutManager = MarkdownLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 0, height: .greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        let tv = EditorTextView(frame: .zero, textContainer: container)
+        tv.ownedTextStorage = storage
         tv.backgroundColor = .clear
         tv.textColor = MarkdownStyle.textColor
         tv.tintColor = MarkdownStyle.linkColor
@@ -344,7 +348,7 @@ private struct BlockTextEditor: UIViewRepresentable {
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
         tv.typingAttributes = MarkdownStyle.baseAttributes
-        if !isReadOnly {
+        if !isReadOnly, let toolbar {
             tv.inputAccessoryView = toolbar
         }
         tv.delegate = context.coordinator
@@ -425,10 +429,10 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         if !isReadOnly, isFocused, !tv.isFirstResponder {
             tv.becomeFirstResponder()
-            toolbar.textView = tv
+            toolbar?.textView = tv
         }
         if !isReadOnly, tv.isFirstResponder {
-            toolbar.textView = tv
+            toolbar?.textView = tv
         }
     }
 
@@ -522,7 +526,10 @@ private struct BlockTextEditor: UIViewRepresentable {
             let caret = tv.caretRect(for: selection.end)
             guard !caret.isNull, !caret.isInfinite else { return }
             var target = tv.convert(caret, to: scrollView)
-            target.size.height += 88
+            // Cap the margin to what the viewport can actually show — the
+            // fixed +88 exceeded the composer's small bounded scroller and
+            // pushed the caret out of view (EXP-246).
+            target.size.height += min(88, max(0, scrollView.bounds.height - caret.height - 8))
             scrollView.scrollRectToVisible(target, animated: true)
         }
 
@@ -617,6 +624,9 @@ private struct BlockImageView: View {
     let httpClient: HTTPClient?
     let pendingImages: [String: PendingImage]
     var isReadOnly = false
+    /// Height cap for compact contexts (the comment composer) — the aspect-fit
+    /// image shrinks to fit, leading-aligned.
+    var maxHeight: CGFloat?
     var onDelete: () -> Void
     var onTapBelow: () -> Void
     var onRetry: () -> Void
@@ -645,6 +655,7 @@ private struct BlockImageView: View {
                 imageBody
                     .frame(maxWidth: .infinity)
                     .aspectRatio(aspectRatio, contentMode: .fit)
+                    .frame(maxHeight: maxHeight ?? .infinity, alignment: .leading)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .animation(.easeInOut(duration: 0.15), value: aspectRatio)
 
@@ -761,5 +772,39 @@ private struct BlockImageView: View {
                 log.error("Image load failed for \(url, privacy: .public): \(error.localizedDescription)")
             }
         }
+    }
+}
+
+// MARK: - Bounded editor height
+
+/// Wraps an editor in a vertical ScrollView whose visible height hugs the
+/// content between `minHeight` and `maxHeight`. The editor deliberately has
+/// no internal scrolling, and a bare `.frame(maxHeight:)` clamp does NOT clip
+/// an overflowing child — content taller than the clamp rendered centered
+/// outside the composer card with the caret visually detached (EXP-246).
+/// Safe re the file-top NOTE: that concerned an UNBOUNDED-height nested
+/// ScrollView blowing the width out; a vertical ScrollView proposes its own
+/// finite width, which sizeThatFits adopts.
+struct BoundedEditorHeight: ViewModifier {
+    let minHeight: CGFloat
+    let maxHeight: CGFloat
+    @State private var contentHeight: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        ScrollView {
+            content
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                    contentHeight = newHeight
+                }
+        }
+        .frame(height: min(max(contentHeight, minHeight), maxHeight))
+        .scrollBounceBehavior(.basedOnSize)
+    }
+}
+
+extension View {
+    /// See `BoundedEditorHeight`.
+    func boundedEditorHeight(minHeight: CGFloat, maxHeight: CGFloat) -> some View {
+        modifier(BoundedEditorHeight(minHeight: minHeight, maxHeight: maxHeight))
     }
 }

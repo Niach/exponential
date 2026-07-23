@@ -20,6 +20,7 @@ object MdStyle {
     val IssueRefBg = Color.White.copy(alpha = 0.10f) // #IDENTIFIER pill (web .issue-ref-pill)
     val CodeBlockBg = Color.White.copy(alpha = 0.06f)
     val Blockquote = Color.White.copy(alpha = 0.6f)
+    val QuoteBar = Color.White.copy(alpha = 0.2f) // blockquote left rule (EXP-246)
     val Placeholder = Color.White.copy(alpha = 0.3f)
     val Dim = Color.White.copy(alpha = 0.3f) // thematic break
 
@@ -46,6 +47,11 @@ object MdStyle {
     // List indentation (iOS headIndent = depth*20 + 24).
     val listIndentBase = 24.dp
     val listIndentPerDepth = 20.dp
+
+    // Blockquote geometry (EXP-246, Linear-style): a vertical left bar with the
+    // quoted text indented beside it.
+    val quoteBarWidth = 3.dp
+    val quoteIndent = 10.dp
 
     val textInsetV = 4.dp
     val blockSpacing = 8.dp

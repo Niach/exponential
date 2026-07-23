@@ -32,6 +32,9 @@ enum StartCircleUi: Equatable {
 struct IssueDetailBottomBar: View {
     let issue: IssueEntity
     let mentionMembers: [MentionMember]
+    /// Solo teams hide the composer's @ button (nobody to mention but
+    /// yourself, EXP-246) — same gate as the assignee chip.
+    let singleMemberTeam: Bool
     let isModerator: Bool
     let startUi: StartCircleUi
     let onOpenProperties: () -> Void
@@ -229,9 +232,13 @@ struct IssueDetailBottomBar: View {
                 accountId: accountId,
                 httpClient: deps.httpClient,
                 mentionMembers: mentionMembers,
-                onIssueRefTap: { issueId in deps.deepLinkBus.navigateToIssue(issueId) }
+                onIssueRefTap: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
+                // The composer keeps only its own photo/@/# row — no
+                // formatting strip (EXP-246).
+                showsFormattingToolbar: false,
+                imageMaxHeight: 120
             )
-            .frame(minHeight: 44, maxHeight: 140)
+            .boundedEditorHeight(minHeight: 44, maxHeight: 140)
 
             HStack(spacing: 2) {
                 Button {
@@ -246,17 +253,31 @@ struct IssueDetailBottomBar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add photo")
 
+                if !singleMemberTeam {
+                    Button {
+                        composerEditor.insertTextAtCaret("@")
+                    } label: {
+                        Image(systemName: "at")
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Mention a member")
+                }
+
                 Button {
-                    composerEditor.insertTextAtCaret("@")
+                    composerEditor.insertTextAtCaret("#")
                 } label: {
-                    Image(systemName: "at")
+                    Image(systemName: "number")
                         .font(.body)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 36, height: 36)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Mention a member")
+                .accessibilityLabel("Reference an issue")
 
                 Spacer(minLength: 0)
 

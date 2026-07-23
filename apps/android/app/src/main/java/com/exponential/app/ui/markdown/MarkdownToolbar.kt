@@ -16,27 +16,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.FormatBold
-import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.markdown.model.BlockKind
-import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
 
 private val PillBg = Color.White.copy(alpha = 0.10f)
@@ -52,44 +40,23 @@ private val IconInactive = Color.White.copy(alpha = 0.65f)
 private val SepColor = Color.White.copy(alpha = 0.12f)
 
 /**
- * Formatting bar driving the [EditorModel] — ports the iOS `MarkdownToolbar`
- * button set, order and active-tint styling (active = link blue, no fill). Mark
- * buttons act on the active row's selection; block buttons act on the active row.
+ * Formatting bar driving the [EditorModel] — the Linear-style simplified set
+ * (EXP-246): image, @/# autocomplete triggers, lists, code block and quote.
+ * The inline-mark affordances (heading/bold/italic/strikethrough/link) were
+ * removed; existing marks still render and round-trip, they just aren't
+ * authorable from the bar. Block buttons act on the active row; @/# insert
+ * their trigger character at the caret so the editor's autocomplete popup opens.
  */
 @Composable
 fun MarkdownToolbar(
     model: EditorModel,
     onPickImage: () -> Unit,
     imageEnabled: Boolean,
+    mentionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    var linkDialogOpen by remember { mutableStateOf(false) }
-
     val activeRowId = model.activeRowId
     val attrs = activeRowId?.let { model.attrsFor(it) }
-    val sel = model.activeSelection()
-
-    fun markActive(kind: InlineKind): Boolean {
-        val s = sel ?: return false
-        if (s.second.last <= s.second.first) return false
-        return MarkOps.hasMarkOver(model.marksFor(s.first), s.second.first, s.second.last, kind)
-    }
-
-    // Active when the range carries the mark, or — with a collapsed caret — when
-    // the mark is queued to apply to the next character typed.
-    fun markOrPendingActive(kind: InlineKind): Boolean {
-        val s = sel ?: return false
-        return if (s.second.last > s.second.first) markActive(kind)
-        else model.pendingMarkActive(s.first, s.second.first, kind)
-    }
-
-    // With a selection, toggle the mark over the range; with a collapsed caret,
-    // queue it so the next typed characters inherit it (iOS typingAttributes).
-    fun onMarkClick(kind: InlineKind) {
-        val s = sel ?: return
-        if (s.second.last > s.second.first) model.toggleMark(s.first, s.second, kind)
-        else model.togglePendingMark(s.first, s.second.first, kind)
-    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -109,17 +76,13 @@ fun MarkdownToolbar(
             ) {
                 ToolbarButton(Icons.Filled.Image, "Image", active = false, enabled = imageEnabled) { onPickImage() }
                 Separator()
-                ToolbarButton(Icons.Filled.FormatSize, "Heading", active = attrs?.kind == BlockKind.Heading) {
-                    activeRowId?.let { model.cycleHeading(it) }
+                if (mentionEnabled) {
+                    ToolbarButton(Icons.Filled.AlternateEmail, "Mention a member", active = false) {
+                        model.insertPlainText("@")
+                    }
                 }
-                ToolbarButton(Icons.Filled.FormatBold, "Bold", active = markOrPendingActive(InlineKind.Bold)) {
-                    onMarkClick(InlineKind.Bold)
-                }
-                ToolbarButton(Icons.Filled.FormatItalic, "Italic", active = markOrPendingActive(InlineKind.Italic)) {
-                    onMarkClick(InlineKind.Italic)
-                }
-                ToolbarButton(Icons.Filled.FormatStrikethrough, "Strikethrough", active = markOrPendingActive(InlineKind.Strikethrough)) {
-                    onMarkClick(InlineKind.Strikethrough)
+                ToolbarButton(Icons.Filled.Tag, "Reference an issue", active = false) {
+                    model.insertPlainText("#")
                 }
                 Separator()
                 ToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", active = attrs?.listType == ListType.Bullet) {
@@ -137,28 +100,8 @@ fun MarkdownToolbar(
                 ToolbarButton(Icons.Filled.FormatQuote, "Quote", active = attrs?.kind == BlockKind.Blockquote) {
                     activeRowId?.let { model.toggleQuote(it) }
                 }
-                Separator()
-                ToolbarButton(Icons.Filled.Link, "Link", active = markActive(InlineKind.Link)) {
-                    linkDialogOpen = true
-                }
             }
         }
-    }
-
-    if (linkDialogOpen) {
-        InsertLinkDialog(
-            onInsert = { text, url ->
-                linkDialogOpen = false
-                val s = sel
-                val normalized = if (url.contains("://")) url else "https://$url"
-                if (s != null && s.second.last > s.second.first) {
-                    model.toggleMark(s.first, s.second, InlineKind.Link, normalized)
-                } else if (s != null) {
-                    model.insertLinkText(s.first, s.second.first, text.ifBlank { normalized }, normalized)
-                }
-            },
-            onDismiss = { linkDialogOpen = false },
-        )
     }
 }
 
@@ -189,58 +132,4 @@ private fun Separator() {
             .height(18.dp)
             .background(SepColor),
     )
-}
-
-@Composable
-private fun InsertLinkDialog(
-    onInsert: (text: String, url: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    val urlValid = isValidLinkUrl(url)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Insert link") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("Display text (optional)") },
-                    singleLine = true,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("URL") },
-                    singleLine = true,
-                    isError = url.isNotBlank() && !urlValid,
-                    supportingText = if (url.isNotBlank() && !urlValid) {
-                        { Text("Enter a valid http(s) URL") }
-                    } else {
-                        null
-                    },
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onInsert(text, url.trim()) }, enabled = urlValid) { Text("Insert") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-// Basic URL sanity check before enabling Insert: no whitespace, parses as a
-// http(s) URI with a non-empty host (the caller still prepends https:// for
-// scheme-less input like "example.com").
-private fun isValidLinkUrl(raw: String): Boolean {
-    val candidate = raw.trim()
-    if (candidate.isEmpty() || candidate.any { it.isWhitespace() }) return false
-    val normalized = if (candidate.contains("://")) candidate else "https://$candidate"
-    val uri = runCatching { java.net.URI(normalized) }.getOrNull() ?: return false
-    val scheme = uri.scheme?.lowercase()
-    val host = uri.host ?: return false
-    return (scheme == "http" || scheme == "https") && (host.contains(".") || host == "localhost")
 }

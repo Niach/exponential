@@ -27,6 +27,7 @@ public enum MarkdownStyle {
     public nonisolated(unsafe) static let codeBackground = PlatformColor.white.withAlphaComponent(0.08)
     public nonisolated(unsafe) static let codeBlockBackground = PlatformColor.white.withAlphaComponent(0.06)
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
+    public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)
 
     public static func headingFont(level: Int) -> PlatformFont {
@@ -37,6 +38,18 @@ public enum MarkdownStyle {
 
     public static var monospaceFont: PlatformFont {
         PlatformFont.monospacedSystemFont(ofSize: bodyFont.pointSize * 0.9, weight: .regular)
+    }
+
+    /// Paragraph style for blockquote paragraphs (EXP-246, Linear-style): the
+    /// head indents clear the gutter where MarkdownLayoutManager draws the
+    /// vertical quote bar. Serialization is untouched — the serializer keys
+    /// off `.markdownBlockquote` only.
+    public static var blockquoteParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 4
+        style.headIndent = 14
+        style.firstLineHeadIndent = 14
+        return style
     }
 
     public static var baseAttributes: [NSAttributedString.Key: Any] {

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,8 +67,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -352,6 +356,13 @@ fun IssueDetailScreen(
         val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         val barVisible = composerExpanded || !imeVisible
 
+        // Tap-outside keyboard dismissal (EXP-246): a tap on dead space clears
+        // focus and drops the IME. Children (chips, editors, the bar) consume
+        // their own taps, so this only fires on genuinely empty areas; an
+        // empty-draft composer then collapses via its own blur logic.
+        val focusManager = LocalFocusManager.current
+        val keyboard = LocalSoftwareKeyboardController.current
+
         Box(
             modifier = Modifier
                 .padding(padding)
@@ -361,7 +372,13 @@ fun IssueDetailScreen(
                 // consumeWindowInsets keeps imePadding from re-adding the
                 // nav-bar inset already applied by the Scaffold padding.
                 .consumeWindowInsets(padding)
-                .fillMaxSize(),
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {
+                        focusManager.clearFocus()
+                        keyboard?.hide()
+                    })
+                },
         ) {
             Column(
                 modifier = Modifier
@@ -529,6 +546,7 @@ fun IssueDetailScreen(
                 onUploadImage = if (isModerator) { uri -> viewModel.uploadImage(uri) } else null,
                 imageUploadEnabled = isModerator,
                 mentionMembers = mentionMembers,
+                mentionEnabled = soloMemberId == null,
                 onFocusChanged = { descriptionSync.setFocused(it) },
             )
             DisposableEffect(Unit) {
@@ -559,7 +577,11 @@ fun IssueDetailScreen(
             }
 
             Spacer(Modifier.height(20.dp))
-            CommentThread(issueId = issue.id, viewModel = commentViewModel)
+            CommentThread(
+                issueId = issue.id,
+                viewModel = commentViewModel,
+                mentionEnabled = soloMemberId == null,
+            )
 
             // Clearance so the last timeline row scrolls out from under the
             // floating bar (kept in sync with the nav pill inset, EXP-36).
@@ -604,6 +626,7 @@ fun IssueDetailScreen(
                         onSend = { commentViewModel.send { composerExpanded = false } },
                         onUploadImage = { uri -> commentViewModel.uploadImage(uri) },
                         mentionMembers = mentionMembers,
+                        showMentionButton = soloMemberId == null,
                     )
                 }
             }

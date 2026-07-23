@@ -161,7 +161,8 @@ struct IssueDetailView: View {
                                 // Route through the deep-link bus — MainNavigator
                                 // observes it and pushes the issue route.
                                 deps.deepLinkBus.navigateToIssue(issueId)
-                            }
+                            },
+                            showsMentionButton: !vm.singleMemberTeam
                         )
 
                         // Coding + PR status card (EXP-156): "Coding now" /
@@ -184,10 +185,21 @@ struct IssueDetailView: View {
                         }
 
                         // Activity timeline (comments + events)
-                        CommentThreadView(issue: issue)
+                        CommentThreadView(issue: issue, singleMemberTeam: vm.singleMemberTeam)
                     }
                     .padding(20)
+                    // Tap-outside keyboard dismissal (EXP-246): a catcher
+                    // BEHIND the content, so it only receives taps on dead
+                    // space (gaps, padding) — interactive children and the
+                    // UIKit editors keep winning hit-testing and are never
+                    // double-handled.
+                    .background {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { UIApplication.endEditing() }
+                    }
                 }
+                .scrollDismissesKeyboard(.interactively)
                 // The floating bottom bar (EXP-240): reserves scroll clearance
                 // and rides the keyboard automatically. ALWAYS mounted so the
                 // composer draft (bar-owned @State) survives; the bar renders
@@ -199,6 +211,7 @@ struct IssueDetailView: View {
                     IssueDetailBottomBar(
                         issue: issue,
                         mentionMembers: vm.mentionMembers,
+                        singleMemberTeam: vm.singleMemberTeam,
                         isModerator: vm.permissions.isModerator,
                         startUi: startCircleUi(vm: vm, issue: issue),
                         onOpenProperties: { activeSheet = .properties },
@@ -215,6 +228,12 @@ struct IssueDetailView: View {
                 }
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet, vm: vm, issue: issue)
+                }
+                // Presenting a sheet over a focused editor kept the editor
+                // first responder — its keyboard-accessory strip then floated
+                // over the sheet (EXP-246). Resign before the sheet lands.
+                .onChange(of: activeSheet) { _, newSheet in
+                    if newSheet != nil { UIApplication.endEditing() }
                 }
                 // Batch starts insert an issue-LESS session row that never
                 // syncs into this issue's runningSessions, so the start circle
@@ -355,6 +374,9 @@ struct IssueDetailView: View {
             }
         }
         .onDisappear {
+            // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
+            // first responder may outlive this screen (EXP-246).
+            UIApplication.endEditing()
             if let vm = viewModel {
                 Task {
                     await vm.saveTitle()
