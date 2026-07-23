@@ -632,6 +632,16 @@ html {
   background: var(--background);
 }
 
+/* On phones the toolbar stays a single horizontally scrollable line instead
+   of wrapping to two rows (EXP-247 — native-create parity). */
+@media (max-width: 767px) {
+  .static-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+
 /* Inline link editor (inside the toolbar) */
 .toolbar-link-edit {
   display: inline-flex;

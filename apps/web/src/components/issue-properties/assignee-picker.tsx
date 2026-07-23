@@ -24,6 +24,9 @@ interface AssigneePickerProps {
   users: User[]
   selectedUserId: string | null
   onSelect: (userId: string | null) => void
+  // Replaces the default chip button (the mobile create form renders the
+  // picker as a full-width property row).
+  trigger?: React.ReactNode
 }
 
 export function AssigneePicker({
@@ -31,6 +34,7 @@ export function AssigneePicker({
   users,
   selectedUserId,
   onSelect,
+  trigger,
 }: AssigneePickerProps) {
   const [open, setOpen] = useState(false)
 
@@ -50,36 +54,40 @@ export function AssigneePicker({
       }}
     >
       <MobilePopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground"
-          disabled={disabled}
-        >
-          {selectedUser ? (
-            <>
-              <Avatar className="size-4">
-                {selectedUser.image && (
-                  <AvatarImage
-                    src={selectedUser.image}
-                    alt={displayUserName(selectedUser, selectedUser.id)}
-                  />
-                )}
-                <AvatarFallback className="text-[0.5rem]">
-                  {getInitials(displayUserName(selectedUser, selectedUser.id))}
-                </AvatarFallback>
-              </Avatar>
-              <span className="max-w-[6.25rem] truncate">
-                {displayUserName(selectedUser, selectedUser.id)}
-              </span>
-            </>
-          ) : (
-            <>
-              <UserIcon className="size-3" />
-              Assignee
-            </>
-          )}
-        </Button>
+        {trigger ?? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            disabled={disabled}
+          >
+            {selectedUser ? (
+              <>
+                <Avatar className="size-4">
+                  {selectedUser.image && (
+                    <AvatarImage
+                      src={selectedUser.image}
+                      alt={displayUserName(selectedUser, selectedUser.id)}
+                    />
+                  )}
+                  <AvatarFallback className="text-[0.5rem]">
+                    {getInitials(
+                      displayUserName(selectedUser, selectedUser.id)
+                    )}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="max-w-[6.25rem] truncate">
+                  {displayUserName(selectedUser, selectedUser.id)}
+                </span>
+              </>
+            ) : (
+              <>
+                <UserIcon className="size-3" />
+                Assignee
+              </>
+            )}
+          </Button>
+        )}
       </MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[14rem] p-0"

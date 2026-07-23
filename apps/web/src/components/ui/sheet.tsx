@@ -54,7 +54,13 @@ function SheetContent({
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {/* The overlay doubles as a Close trigger: Radix's outside-dismiss
+          waits for a `click` after pointerdown, which iOS Safari never
+          synthesizes on non-interactive elements — so bottom sheets were
+          undismissable by tapping outside on mobile web (EXP-247). */}
+      <SheetPrimitive.Close asChild>
+        <SheetOverlay />
+      </SheetPrimitive.Close>
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(

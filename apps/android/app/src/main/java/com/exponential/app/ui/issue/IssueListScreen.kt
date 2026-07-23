@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,20 +27,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -45,6 +53,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Button
@@ -54,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +78,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -79,8 +90,14 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.domain.issueStatusOrder
+import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
@@ -91,6 +108,7 @@ import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -138,12 +156,33 @@ fun IssueListScreen(
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
     var showStartSheet by remember { mutableStateOf(false) }
     var noDesktopHint by remember { mutableStateOf(false) }
+    // Which bulk-property sheet the selection bar has open (null = none).
+    var bulkSheet by remember { mutableStateOf<BulkSheet?>(null) }
+    // Inline single-issue status/priority edit fired from a list-row icon tap.
+    var inlineEdit by remember { mutableStateOf<InlineEdit?>(null) }
     val selectionActive = selectedIds.isNotEmpty()
     val haptics = LocalHapticFeedback.current
+    val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+
+    // Selected rows resolved back to their entries — drives the selection
+    // bar's shared status/priority glyphs and the bulk property sheets. A
+    // single distinct value means every selected issue shares it.
+    val selectedEntries = remember(state.groups, selectedIds) {
+        state.groups.flatMap { it.issues }.filter { it.issue.id in selectedIds }
+    }
+    val sharedStatus = remember(selectedEntries) {
+        selectedEntries.map { IssueStatus.fromWire(it.issue.status) }.distinct().singleOrNull()
+    }
+    val sharedPriority = remember(selectedEntries) {
+        selectedEntries.map { IssuePriority.fromWire(it.issue.priority) }.distinct().singleOrNull()
+    }
+    val sharedAssigneeId = remember(selectedEntries) {
+        selectedEntries.map { it.issue.assigneeId }.distinct().singleOrNull()
+    }
 
     // Selection ids are board-scoped — a board swap drops them.
     LaunchedEffect(state.board?.id) { selectedIds = emptySet() }
@@ -275,12 +314,15 @@ fun IssueListScreen(
                 IssueListContent(
                     state = state,
                     permissions = permissions,
+                    soloMemberId = soloMemberId,
                     collapsed = collapsed,
                     onToggleCollapsed = { status, isCollapsed ->
                         collapsed = if (isCollapsed) collapsed - status else collapsed + status
                     },
                     onOpenFilters = { showFilters = true },
                     onOpenIssue = onOpenIssue,
+                    onInlineStatus = { id -> inlineEdit = InlineEdit(id, InlineKind.Status) },
+                    onInlinePriority = { id -> inlineEdit = InlineEdit(id, InlineKind.Priority) },
                     viewModel = viewModel,
                     selectedIds = selectedIds,
                     onToggleSelect = { id ->
@@ -333,19 +375,19 @@ fun IssueListScreen(
             if (selectionActive) {
                 SelectionBar(
                     count = selectedIds.size,
+                    sharedStatus = sharedStatus,
+                    sharedPriority = sharedPriority,
+                    // Assignee is meaningless in a solo team (one member).
+                    showAssignee = soloMemberId == null,
                     // Only repo-backed boards can code, and only while the
                     // relay isn't known-off.
                     showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
                     devicesLoading = steerDevices == null,
                     onClear = { selectedIds = emptySet() },
-                    onMarkDone = {
-                        viewModel.bulkUpdateStatus(selectedIds, IssueStatus.Done)
-                        selectedIds = emptySet()
-                    },
-                    onBacklog = {
-                        viewModel.bulkUpdateStatus(selectedIds, IssueStatus.Backlog)
-                        selectedIds = emptySet()
-                    },
+                    onStatus = { bulkSheet = BulkSheet.Status },
+                    onPriority = { bulkSheet = BulkSheet.Priority },
+                    onAssignee = { bulkSheet = BulkSheet.Assignee },
+                    onLabels = { bulkSheet = BulkSheet.Labels },
                     onStartCoding = {
                         val online = steerDevices
                         when {
@@ -371,6 +413,86 @@ fun IssueListScreen(
             },
             onDismiss = { showStartSheet = false },
         )
+    }
+
+    // Bulk property sheets (EXP-247) — status/priority/assignee apply then
+    // clear the selection; the label sheet stays open across tri-state toggles.
+    when (bulkSheet) {
+        BulkSheet.Status -> IssuePickerSheet(
+            title = "Status",
+            items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
+            selected = sharedStatus,
+            labelOf = { it.label },
+            leadingContent = { StatusIcon(it, size = 18.dp) },
+            onSelect = {
+                viewModel.bulkUpdateStatus(selectedIds, it)
+                selectedIds = emptySet()
+            },
+            onDismiss = { bulkSheet = null },
+        )
+        BulkSheet.Priority -> IssuePickerSheet(
+            title = "Priority",
+            items = issuePriorityOrder,
+            selected = sharedPriority,
+            labelOf = { it.label },
+            leadingContent = { PriorityIcon(it, size = 18.dp) },
+            onSelect = {
+                viewModel.bulkUpdatePriority(selectedIds, it)
+                selectedIds = emptySet()
+            },
+            onDismiss = { bulkSheet = null },
+        )
+        BulkSheet.Assignee -> AssigneePickerSheet(
+            users = state.users,
+            selectedUserId = sharedAssigneeId,
+            onSelect = {
+                viewModel.bulkUpdateAssignee(selectedIds, it)
+                selectedIds = emptySet()
+            },
+            onDismiss = { bulkSheet = null },
+        )
+        BulkSheet.Labels -> BulkLabelSheet(
+            teamLabels = state.labels,
+            selectedEntries = selectedEntries,
+            onToggle = { labelId, allHave ->
+                if (allHave) {
+                    viewModel.bulkToggleLabel(selectedIds, labelId, add = false)
+                } else {
+                    val missing = selectedEntries
+                        .filter { entry -> entry.labels.none { it.id == labelId } }
+                        .map { it.issue.id }
+                    viewModel.bulkToggleLabel(missing, labelId, add = true)
+                }
+            },
+            onDismiss = { bulkSheet = null },
+        )
+        null -> {}
+    }
+
+    val edit = inlineEdit
+    if (edit != null) {
+        val editIssue = state.groups.flatMap { it.issues }
+            .firstOrNull { it.issue.id == edit.issueId }?.issue
+        when (edit.kind) {
+            InlineKind.Status -> IssuePickerSheet(
+                title = "Status",
+                items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
+                selected = editIssue?.let { IssueStatus.fromWire(it.status) },
+                labelOf = { it.label },
+                leadingContent = { StatusIcon(it, size = 18.dp) },
+                onSelect = { viewModel.updateStatus(edit.issueId, it) },
+                onDismiss = { inlineEdit = null },
+            )
+            InlineKind.Priority -> IssuePickerSheet(
+                title = "Priority",
+                items = issuePriorityOrder,
+                selected = editIssue?.let { IssuePriority.fromWire(it.priority) },
+                labelOf = { it.label },
+                leadingContent = { PriorityIcon(it, size = 18.dp) },
+                onSelect = { viewModel.updatePriority(edit.issueId, it) },
+                onDismiss = { inlineEdit = null },
+            )
+        }
     }
 
     if (showFilters) {
@@ -499,10 +621,13 @@ private fun JoinTeamDialog(
 private fun IssueListContent(
     state: IssueListState,
     permissions: TeamPermissions,
+    soloMemberId: String?,
     collapsed: Set<IssueStatus>,
     onToggleCollapsed: (IssueStatus, Boolean) -> Unit,
     onOpenFilters: () -> Unit,
     onOpenIssue: (String) -> Unit,
+    onInlineStatus: (String) -> Unit,
+    onInlinePriority: (String) -> Unit,
     viewModel: IssueListViewModel,
     selectedIds: Set<String>,
     onToggleSelect: (String) -> Unit,
@@ -569,10 +694,16 @@ private fun IssueListContent(
                             // done / Move to backlog live in the selection bar
                             // now, and MyIssues keeps LongPressIssueRow).
                             val selectionActive = selectedIds.isNotEmpty()
+                            // Inline status/priority edit is offered only out of
+                            // selection mode and when the viewer may mutate the
+                            // issue (same gate as entering selection).
+                            val canMutate = permissions.canMutateIssue(entry.issue.creatorId)
+                            val inlineEditable = canMutate && !selectionActive
                             IssueRow(
                                 issue = entry.issue,
                                 labels = entry.labels,
-                                assignee = usersById[entry.issue.assigneeId],
+                                // Solo teams hide the assignee avatar (one member).
+                                assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
                                 selected = if (selectionActive) entry.issue.id in selectedIds else null,
                                 onClick = {
                                     if (selectionActive) {
@@ -581,7 +712,7 @@ private fun IssueListContent(
                                         onOpenIssue(entry.issue.id)
                                     }
                                 },
-                                onLongClick = if (permissions.canMutateIssue(entry.issue.creatorId)) {
+                                onLongClick = if (canMutate) {
                                     {
                                         if (selectionActive) {
                                             onToggleSelect(entry.issue.id)
@@ -589,6 +720,16 @@ private fun IssueListContent(
                                             onEnterSelection(entry.issue.id)
                                         }
                                     }
+                                } else {
+                                    null
+                                },
+                                onStatusClick = if (inlineEditable) {
+                                    { onInlineStatus(entry.issue.id) }
+                                } else {
+                                    null
+                                },
+                                onPriorityClick = if (inlineEditable) {
+                                    { onInlinePriority(entry.issue.id) }
                                 } else {
                                     null
                                 },
@@ -769,6 +910,11 @@ internal fun IssueRow(
     // Multi-select rendering (EXP-239): null = no selection UI; false/true
     // show the leading check indicator, true additionally tints the row.
     selected: Boolean? = null,
+    // Inline property edit (EXP-247): non-null makes the status / priority
+    // glyph its own tap target (long-press still forwards to [onLongClick]).
+    // Null leaves the glyphs as plain decorations (SearchScreen, selection mode).
+    onStatusClick: (() -> Unit)? = null,
+    onPriorityClick: (() -> Unit)? = null,
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
@@ -803,8 +949,14 @@ internal fun IssueRow(
             )
             Spacer(Modifier.width(10.dp))
         }
-        PriorityIcon(priority, size = 16.dp)
-        Spacer(Modifier.width(10.dp))
+        if (onPriorityClick != null) {
+            InlineIconTarget(onClick = onPriorityClick, onLongClick = onLongClick) {
+                PriorityIcon(priority, size = 16.dp)
+            }
+        } else {
+            PriorityIcon(priority, size = 16.dp)
+            Spacer(Modifier.width(10.dp))
+        }
         Text(
             issue.identifier,
             style = MaterialTheme.typography.labelMedium,
@@ -820,9 +972,15 @@ internal fun IssueRow(
             // clipping to a plausible-but-wrong identifier.
             modifier = Modifier.widthIn(min = 60.dp),
         )
-        Spacer(Modifier.width(10.dp))
-        StatusIcon(status, size = 16.dp)
-        Spacer(Modifier.width(10.dp))
+        if (onStatusClick != null) {
+            InlineIconTarget(onClick = onStatusClick, onLongClick = onLongClick) {
+                StatusIcon(status, size = 16.dp)
+            }
+        } else {
+            Spacer(Modifier.width(10.dp))
+            StatusIcon(status, size = 16.dp)
+            Spacer(Modifier.width(10.dp))
+        }
         Text(
             issue.title,
             style = MaterialTheme.typography.bodyMedium,
@@ -875,86 +1033,254 @@ internal fun IssueRow(
     }
 }
 
+/** Which bulk-property sheet the selection bar has open. */
+private enum class BulkSheet { Status, Priority, Assignee, Labels }
+
+/** A hoisted single-issue inline edit fired from a list-row glyph tap. */
+private enum class InlineKind { Status, Priority }
+
+private data class InlineEdit(val issueId: String, val kind: InlineKind)
+
 /**
- * The floating multi-select action bar (EXP-239) — the mobile sibling of the
- * desktop bulk bar / web BulkActionBar: count + Mark done + Move to backlog +
- * Start coding (repo-backed boards only) + clear. Opaque backing beneath the
- * glass tint so scrolling rows never bleed through (the glassButton `opaque`
- * trick, EXP-165).
+ * A list-row status / priority glyph turned into its own tap target (EXP-247):
+ * a fixed-width, full-row-height hit box that opens the inline picker on tap
+ * and forwards long-press to the row's selection gesture. Full-height (not a
+ * fixed square) so the touch target never grows the row.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun InlineIconTarget(
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .width(32.dp)
+            .fillMaxHeight()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+/**
+ * The floating multi-select action bar (EXP-239 / EXP-247) — the mobile sibling
+ * of the desktop bulk bar / web BulkActionBar: count + Status/Priority/Assignee/
+ * Labels property buttons + Start coding (repo-backed boards only) + clear. The
+ * shared-value glyphs reflect a selection that all share one status/priority;
+ * mixed selections fall back to neutral placeholder glyphs. Opaque backing
+ * beneath the glass tint so scrolling rows never bleed through.
  */
 @Composable
 private fun SelectionBar(
     count: Int,
+    sharedStatus: IssueStatus?,
+    sharedPriority: IssuePriority?,
+    showAssignee: Boolean,
     showStartCoding: Boolean,
     devicesLoading: Boolean,
     onClear: () -> Unit,
-    onMarkDone: () -> Unit,
-    onBacklog: () -> Unit,
+    onStatus: () -> Unit,
+    onPriority: () -> Unit,
+    onAssignee: () -> Unit,
+    onLabels: () -> Unit,
     onStartCoding: () -> Unit,
 ) {
     val shape = RoundedCornerShape(percent = 50)
-    Row(
-        modifier = Modifier
-            .clip(shape)
-            .background(DesignTokens.Palette.Card, shape)
-            .background(GlassTokens.RowFillActive, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeActive, shape)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Clear selection",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+    val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    // Suppress the 48dp minimum interactive inflation so the 34dp icon buttons
+    // keep the bar at ~46dp instead of ballooning it.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(DesignTokens.Palette.Card, shape)
+                .background(GlassTokens.RowFillActive, shape)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeActive, shape)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Clear selection",
+                    modifier = Modifier.size(18.dp),
+                    tint = neutral,
+                )
+            }
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
-        }
-        Text(
-            "$count selected",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
-        Spacer(Modifier.width(10.dp))
-        IconButton(onClick = onMarkDone, modifier = Modifier.size(34.dp)) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = "Mark done",
-                modifier = Modifier.size(18.dp),
-                tint = DesignTokens.Semantic.Blue,
-            )
-        }
-        IconButton(onClick = onBacklog, modifier = Modifier.size(34.dp)) {
-            Icon(
-                Icons.Outlined.Circle,
-                contentDescription = "Move to backlog",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-        }
-        if (showStartCoding) {
-            Spacer(Modifier.width(6.dp))
-            Button(
-                onClick = onStartCoding,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-            ) {
-                if (devicesLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
+            IconButton(onClick = onStatus, modifier = Modifier.size(34.dp)) {
+                if (sharedStatus != null) {
+                    StatusIcon(sharedStatus, size = 18.dp)
                 } else {
                     Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                        Icons.Filled.Checklist,
+                        contentDescription = "Status",
+                        modifier = Modifier.size(18.dp),
+                        tint = neutral,
                     )
                 }
-                Spacer(Modifier.width(6.dp))
-                Text("Start coding", maxLines = 1)
             }
+            IconButton(onClick = onPriority, modifier = Modifier.size(34.dp)) {
+                if (sharedPriority != null) {
+                    PriorityIcon(sharedPriority, size = 18.dp)
+                } else {
+                    Icon(
+                        priorityIcon(IssuePriority.None),
+                        contentDescription = "Priority",
+                        modifier = Modifier.size(18.dp),
+                        tint = neutral,
+                    )
+                }
+            }
+            if (showAssignee) {
+                IconButton(onClick = onAssignee, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        Icons.Outlined.Person,
+                        contentDescription = "Assignee",
+                        modifier = Modifier.size(18.dp),
+                        tint = neutral,
+                    )
+                }
+            }
+            IconButton(onClick = onLabels, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Filled.Tag,
+                    contentDescription = "Labels",
+                    modifier = Modifier.size(18.dp),
+                    tint = neutral,
+                )
+            }
+            if (showStartCoding) {
+                Spacer(Modifier.width(4.dp))
+                Row(
+                    modifier = Modifier
+                        .height(34.dp)
+                        .clip(shape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .clickable(onClick = onStartCoding)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (devicesLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Start coding",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The selection bar's bulk-label sheet (EXP-247): tri-state rows — a check when
+ * every selected issue carries the label, a dash when only some do, nothing
+ * otherwise. Tapping removes it from all when all have it, else adds it to the
+ * ones missing it; the sheet stays open across toggles.
+ */
+@Composable
+private fun BulkLabelSheet(
+    teamLabels: List<LabelEntity>,
+    selectedEntries: List<IssueWithLabels>,
+    onToggle: (labelId: String, allHave: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(teamLabels, query) {
+        val q = query.trim()
+        if (q.isEmpty()) teamLabels
+        else teamLabels.filter { it.name.contains(q, ignoreCase = true) }
+    }
+    val counts = remember(selectedEntries) {
+        selectedEntries.flatMap { entry -> entry.labels.map { it.id } }
+            .groupingBy { it }
+            .eachCount()
+    }
+    val total = selectedEntries.size
+
+    GlassSheet(title = "Labels", onDismiss = onDismiss) {
+        GlassSheetSearchField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "Search labels",
+        )
+        Spacer(Modifier.height(4.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            filtered.forEach { label ->
+                val count = counts[label.id] ?: 0
+                val allHave = total > 0 && count == total
+                val someHave = count in 1 until total
+                GlassSheetRow(
+                    label = label.name,
+                    leading = {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(parseColor(label.color), CircleShape),
+                        )
+                    },
+                    trailing = {
+                        when {
+                            allHave -> Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "On every selected issue",
+                                modifier = Modifier.size(18.dp),
+                                tint = AccentIndigo,
+                            )
+                            someHave -> Icon(
+                                Icons.Filled.Remove,
+                                contentDescription = "On some selected issues",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                            else -> {}
+                        }
+                    },
+                    onClick = { onToggle(label.id, allHave) },
+                )
+            }
+            if (filtered.isEmpty()) {
+                Text(
+                    if (query.isBlank()) "No labels yet." else "No matching labels",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

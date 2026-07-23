@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { boardCollection } from "@/lib/collections"
-import { StatusDropdown, getStatusConfig } from "@/components/issue-properties/status-dropdown"
+import {
+  StatusDropdown,
+  getStatusConfig,
+} from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
-import { DueDateDropdown } from "@/components/issue-properties/due-date-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
@@ -13,7 +15,14 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import { Plus, ChevronRight, ListTodo, SearchX } from "lucide-react"
+import {
+  CalendarDays,
+  Plus,
+  ChevronRight,
+  ListTodo,
+  SearchX,
+} from "lucide-react"
+import { formatDate } from "@/lib/utils"
 import type { IssueStatus } from "@/lib/domain"
 import type { IssueGroup } from "@/lib/board-view"
 
@@ -247,21 +256,31 @@ export function IssueList({
     [groups, selectedIds]
   )
 
-  // The row grid grows a leading checkbox column (md+ when bulk select is on)
-  // and a trailing action column when the caller renders one.
-  const rowGridClass = bulkEnabled
-    ? renderRowAction
-      ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
-      : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
-    : renderRowAction
-      ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
-      : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
-
-  // Solo team (exactly one human member): render the assignee cell as a
-  // static avatar, not an interactive dropdown. `users` is the bot-excluded
+  // Solo team (exactly one human member): the assignee cell is hidden
+  // entirely (EXP-247 — nothing to reassign). `users` is the bot-excluded
   // member list; length 0 means still loading (never a genuine empty), so a
   // multi-member team never briefly reads as solo.
   const isSolo = users.length === 1
+
+  // The row grid grows a leading checkbox column (md+ when bulk select is
+  // on), drops the md assignee column on solo teams, and grows a trailing
+  // action column when the caller renders one. Every combination is a full
+  // literal — Tailwind only sees complete class strings.
+  const rowGridClass = bulkEnabled
+    ? renderRowAction
+      ? isSolo
+        ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+      : isSolo
+        ? `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+    : renderRowAction
+      ? isSolo
+        ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+      : isSolo
+        ? `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
   const toggleGroup = (status: IssueStatus) => {
     setCollapsedGroups((prev) => {
@@ -451,28 +470,31 @@ export function IssueList({
                           </span>
                         ))}
                       </div>
-                      <div
-                        className="hidden md:flex items-center justify-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <AssigneeDropdown
-                          issueId={issue.id}
-                          assigneeId={issue.assigneeId}
-                          users={users}
-                          userMap={userMap}
-                          disabled={!moderatorRowCanMutate}
-                          readOnly={isSolo}
-                        />
-                      </div>
-                      <div
-                        className="flex items-center justify-end"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <DueDateDropdown
-                          issueId={issue.id}
-                          dueDate={issue.dueDate}
-                          disabled={!moderatorRowCanMutate}
-                        />
+                      {!isSolo && (
+                        <div
+                          className="hidden md:flex items-center justify-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <AssigneeDropdown
+                            issueId={issue.id}
+                            assigneeId={issue.assigneeId}
+                            users={users}
+                            userMap={userMap}
+                            disabled={!moderatorRowCanMutate}
+                          />
+                        </div>
+                      )}
+                      {/* Display-only: due dates are edited in the issue
+                          detail, never inline from the list (EXP-247). */}
+                      <div className="flex items-center justify-end">
+                        {issue.dueDate && (
+                          <span className="flex items-center gap-1 px-1">
+                            <CalendarDays className="size-3 shrink-0 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {formatDate(issue.dueDate)}
+                            </span>
+                          </span>
+                        )}
                       </div>
                       {renderRowAction && (
                         <div
@@ -492,13 +514,19 @@ export function IssueList({
       })}
 
       {bulkEnabled && bulkTeamId && selectedIssues.length > 0 && (
-        <BulkActionBar
-          issues={selectedIssues}
-          issueLabelMap={issueLabelMap}
-          labels={labels}
-          users={users}
-          onClear={clearSelection}
-        />
+        // Sticky inside the list's scroll container: centers within the
+        // content column (not the viewport, which put the bar under the
+        // sidebar) and survives sidebar collapse with zero JS. The mobile
+        // offset clears the floating tab bar.
+        <div className="pointer-events-none sticky bottom-4 z-40 flex justify-center px-3 py-1 max-md:bottom-[calc(4.5rem+max(1rem,env(safe-area-inset-bottom)))]">
+          <BulkActionBar
+            issues={selectedIssues}
+            issueLabelMap={issueLabelMap}
+            labels={labels}
+            users={users}
+            onClear={clearSelection}
+          />
+        </div>
       )}
     </div>
   )

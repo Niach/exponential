@@ -369,17 +369,9 @@ fun CreateIssueScreen(
                             )
                         }
                     }
-                }
-
-                // Due date + (when set) start/end times — second grouped card,
-                // matching iOS where the time rows only appear with a due date.
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassSection()
-                        .padding(vertical = 4.dp)
-                        .alpha(if (isModerator) 1f else 0.55f),
-                ) {
+                    // Due date + (when set) start/end times — same grouped card
+                    // (EXP-247), the time rows only appearing with a due date.
+                    MetaDivider()
                     MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
                         Icon(Icons.Filled.CalendarMonth, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
                         Spacer(Modifier.width(6.dp))

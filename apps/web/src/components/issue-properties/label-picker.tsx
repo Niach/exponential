@@ -29,6 +29,10 @@ interface LabelPickerProps {
   teamId: string
   selectedLabelIds: string[]
   onToggle: (labelId: string) => void
+  // Replaces the default chip button (the mobile create form renders the
+  // picker as a full-width property row). Receives the selected labels so
+  // the row can show its own value.
+  renderTrigger?: (selectedLabels: Label[]) => React.ReactNode
 }
 
 export function LabelPicker({
@@ -36,6 +40,7 @@ export function LabelPicker({
   teamId,
   selectedLabelIds,
   onToggle,
+  renderTrigger,
 }: LabelPickerProps) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<`list` | `create`>(`list`)
@@ -93,32 +98,36 @@ export function LabelPicker({
       }}
     >
       <MobilePopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground"
-          disabled={disabled}
-        >
-          <Tag className="size-3" />
-          {selectedLabels.length > 0 ? (
-            <>
-              <span className="flex items-center -space-x-0.5">
-                {selectedLabels.slice(0, 3).map((l: Label) => (
-                  <span
-                    key={l.id}
-                    className="h-2 w-2 shrink-0 rounded-full ring-1 ring-background"
-                    style={{ backgroundColor: l.color }}
-                  />
-                ))}
-              </span>
-              <span className="max-w-[7.5rem] truncate">
-                {selectedLabels.map((l: Label) => l.name).join(`, `)}
-              </span>
-            </>
-          ) : (
-            `Label`
-          )}
-        </Button>
+        {renderTrigger ? (
+          renderTrigger(selectedLabels)
+        ) : (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            disabled={disabled}
+          >
+            <Tag className="size-3" />
+            {selectedLabels.length > 0 ? (
+              <>
+                <span className="flex items-center -space-x-0.5">
+                  {selectedLabels.slice(0, 3).map((l: Label) => (
+                    <span
+                      key={l.id}
+                      className="h-2 w-2 shrink-0 rounded-full ring-1 ring-background"
+                      style={{ backgroundColor: l.color }}
+                    />
+                  ))}
+                </span>
+                <span className="max-w-[7.5rem] truncate">
+                  {selectedLabels.map((l: Label) => l.name).join(`, `)}
+                </span>
+              </>
+            ) : (
+              `Label`
+            )}
+          </Button>
+        )}
       </MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[14rem] p-0"

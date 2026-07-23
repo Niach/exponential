@@ -423,6 +423,62 @@ class IssueListViewModel @Inject constructor(
         }
     }
 
+    /** Single-issue status change from an inline list-row tap (EXP-247). */
+    fun updateStatus(issueId: String, status: IssueStatus) = bulkUpdateStatus(setOf(issueId), status)
+
+    /** Single-issue priority change from an inline list-row tap (EXP-247). */
+    fun updatePriority(issueId: String, priority: IssuePriority) = bulkUpdatePriority(setOf(issueId), priority)
+
+    /** Bulk priority change from the selection bar (EXP-247). */
+    fun bulkUpdatePriority(issueIds: Collection<String>, priority: IssuePriority) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            for (id in issueIds) {
+                runCatching {
+                    issuesApi.update(accountId, UpdateIssueInput(id = id, priority = priority.wire))
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _error.value = error.message ?: "Failed to update priority"
+                }
+            }
+        }
+    }
+
+    /** Bulk (re)assignment from the selection bar (EXP-247). null = unassign. */
+    fun bulkUpdateAssignee(issueIds: Collection<String>, assigneeId: String?) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            for (id in issueIds) {
+                runCatching {
+                    issuesApi.update(accountId, UpdateIssueInput(id = id, assigneeId = assigneeId))
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _error.value = error.message ?: "Failed to update assignee"
+                }
+            }
+        }
+    }
+
+    /**
+     * Bulk label add/remove from the selection bar (EXP-247). [add] true adds
+     * the label to each issue, false removes it — the same issueLabels
+     * mutations the issue detail uses.
+     */
+    fun bulkToggleLabel(issueIds: Collection<String>, labelId: String, add: Boolean) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            for (id in issueIds) {
+                runCatching {
+                    if (add) labelsApi.addLabel(accountId, id, labelId)
+                    else labelsApi.removeLabel(accountId, id, labelId)
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _error.value = error.message ?: "Failed to update labels"
+                }
+            }
+        }
+    }
+
     init {
         viewModelScope.launch {
             combine(

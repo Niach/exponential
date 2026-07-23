@@ -18,6 +18,9 @@ final class IssueListViewModel {
     // team_members shape hasn't synced yet — drives a "Syncing team…"
     // banner instead of silently rendering everything as a permission denial.
     var permissionsPending = false
+    /// True when the board's team has one human member: the selection bar's
+    /// assignee button and the row assignee avatar are hidden (EXP-50 parity).
+    var singleMemberTeam = false
     var error: String?
 
     private let accountId: String
@@ -25,15 +28,17 @@ final class IssueListViewModel {
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private let boardsApi: BoardsApi
+    private let labelsApi: LabelsApi
     private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, auth: AuthRepository) {
+    init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, labelsApi: LabelsApi, auth: AuthRepository) {
         self.accountId = accountId
         self.boardId = boardId
         self.db = db
         self.issuesApi = issuesApi
         self.boardsApi = boardsApi
+        self.labelsApi = labelsApi
         self.auth = auth
     }
 
@@ -261,11 +266,61 @@ final class IssueListViewModel {
         }
     }
 
+    func setPriority(issueId: String, priority: IssuePriority) async {
+        do {
+            try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, priority: priority.rawValue))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Set (or clear, when nil) an issue's assignee — mirrors the detail
+    /// view's explicit-null path for "Unassigned".
+    func setAssignee(issueId: String, assigneeId: String?) async {
+        do {
+            if let assigneeId {
+                try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, assigneeId: assigneeId))
+            } else {
+                var input = UpdateIssueInput(id: issueId)
+                input.explicitNulls.insert("assigneeId")
+                try await issuesApi.update(accountId: accountId, input)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     /// Bulk status change from the selection bar (EXP-239). Sequential — bar
     /// selections are small and each update is an independent server write.
     func bulkSetStatus(issueIds: [String], status: IssueStatus) async {
         for id in issueIds {
             await setStatus(issueId: id, status: status)
+        }
+    }
+
+    func bulkSetPriority(issueIds: [String], priority: IssuePriority) async {
+        for id in issueIds {
+            await setPriority(issueId: id, priority: priority)
+        }
+    }
+
+    func bulkSetAssignee(issueIds: [String], assigneeId: String?) async {
+        for id in issueIds {
+            await setAssignee(issueId: id, assigneeId: assigneeId)
+        }
+    }
+
+    func bulkToggleLabel(issueIds: [String], labelId: String, add: Bool) async {
+        for id in issueIds {
+            do {
+                if add {
+                    try await labelsApi.addToIssue(accountId: accountId, issueId: id, labelId: labelId)
+                } else {
+                    try await labelsApi.removeFromIssue(accountId: accountId, issueId: id, labelId: labelId)
+                }
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
     }
 
@@ -281,18 +336,21 @@ final class IssueListViewModel {
         guard let board else {
             permissions = .denied
             permissionsPending = false
+            singleMemberTeam = false
             return
         }
         guard let pool = try? db.pool(forAccountId: accountId) else {
             permissions = .denied
             permissionsPending = false
+            singleMemberTeam = false
             return
         }
-        let (team, membersLive): (TeamEntity?, Bool) = (try? pool.read { db in
+        let (team, membersLive, humanCount): (TeamEntity?, Bool, Int) = (try? pool.read { db in
             let ws = try TeamEntity.fetchOne(db, key: board.teamId)
             let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-            return (ws, live)
-        }) ?? (nil, false)
+            let count = try humanTeamMemberIds(teamId: board.teamId, db: db).count
+            return (ws, live, count)
+        }) ?? (nil, false, 0)
         permissions = TeamPermissions.resolve(
             team: team,
             currentUserId: auth.userId,
@@ -303,5 +361,7 @@ final class IssueListViewModel {
         // members shape with no matching row means the viewer really isn't a
         // member, which is a real read-only state.
         permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
+        // Solo team ⇒ nothing to reassign to; the assignee affordances hide.
+        singleMemberTeam = humanCount <= 1
     }
 }

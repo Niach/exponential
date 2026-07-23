@@ -70,88 +70,87 @@ struct CreateIssueSheet: View {
                             showsMentionButton: !singleMemberTeam
                         )
 
-                        // Metadata row
-                        VStack(spacing: 12) {
-                            // Status
-                            metadataRow(label: "Status", icon: status.sfSymbol, iconColor: status.color) {
-                                Button {
-                                    showStatusPicker = true
-                                } label: {
-                                    Text(status.label)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!permissions.isModerator)
-                            }
-
-                            // Priority
-                            metadataRow(label: "Priority", icon: priority.sfSymbol, iconColor: priority.color) {
-                                Button {
-                                    showPriorityPicker = true
-                                } label: {
-                                    Text(priority.label)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!permissions.isModerator)
-                            }
-
-                            // Assignee — hidden on solo teams, where the
-                            // sole member is pre-assigned (EXP-50).
-                            if !singleMemberTeam {
-                                metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
+                        // Metadata + due date, one card (EXP-247): the due-date
+                        // row (and, when set, the time rows) attach directly to
+                        // the Status/Priority/Assignee card instead of floating
+                        // as standalone sections.
+                        VStack(spacing: 0) {
+                            VStack(spacing: 12) {
+                                // Status
+                                metadataRow(label: "Status", icon: status.sfSymbol, iconColor: status.color) {
                                     Button {
-                                        showAssigneePicker = true
+                                        showStatusPicker = true
                                     } label: {
-                                        let assignee = users.first { $0.id == assigneeId }
-                                        // memberDisplayName falls back to the email for a
-                                        // blank name (name-less Apple logins); keep the
-                                        // "Unassigned" sentinel when there is no assignee.
-                                        Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
+                                        Text(status.label)
                                             .font(.subheadline)
                                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     }
                                     .buttonStyle(.plain)
-                                    .disabled(!permissions.isModerator)
                                 }
-                            }
 
-                        }
-                        .padding(16)
-                        .glassSection()
-                        .opacity(permissions.isModerator ? 1 : 0.55)
-
-                        // Due date — same inline picker as IssueDetailView
-                        DueDatePicker(date: $dueDate)
-                            .disabled(!permissions.isModerator)
-                            .opacity(permissions.isModerator ? 1 : 0.55)
-
-                        // Times (only when a due date is selected)
-                        if dueDate != nil {
-                            VStack(spacing: 12) {
-                                metadataRow(label: "Start time", icon: "clock", iconColor: .white.opacity(0.6)) {
-                                    TimeFieldButton(
-                                        value: dueTime,
-                                        placeholder: "—",
-                                        onChange: { dueTime = $0 }
-                                    )
-                                    .disabled(!permissions.isModerator)
+                                // Priority
+                                metadataRow(label: "Priority", icon: priority.sfSymbol, iconColor: priority.color) {
+                                    Button {
+                                        showPriorityPicker = true
+                                    } label: {
+                                        Text(priority.label)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                metadataRow(label: "End time", icon: "clock.badge", iconColor: .white.opacity(0.6)) {
-                                    TimeFieldButton(
-                                        value: endTime,
-                                        placeholder: "—",
-                                        onChange: { endTime = $0 }
-                                    )
-                                    .disabled(!permissions.isModerator)
+
+                                // Assignee — hidden on solo teams, where the
+                                // sole member is pre-assigned (EXP-50).
+                                if !singleMemberTeam {
+                                    metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
+                                        Button {
+                                            showAssigneePicker = true
+                                        } label: {
+                                            let assignee = users.first { $0.id == assigneeId }
+                                            // memberDisplayName falls back to the email for a
+                                            // blank name (name-less Apple logins); keep the
+                                            // "Unassigned" sentinel when there is no assignee.
+                                            Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
                             }
                             .padding(16)
-                            .glassSection()
-                            .opacity(permissions.isModerator ? 1 : 0.55)
+
+                            Divider().background(Color.white.opacity(0.06))
+
+                            // Due date — embedded so it carries no card of its own.
+                            DueDatePicker(date: $dueDate, embedded: true)
+
+                            // Times (only when a due date is selected)
+                            if dueDate != nil {
+                                Divider().background(Color.white.opacity(0.06))
+                                VStack(spacing: 12) {
+                                    metadataRow(label: "Start time", icon: "clock", iconColor: .white.opacity(0.6)) {
+                                        TimeFieldButton(
+                                            value: dueTime,
+                                            placeholder: "—",
+                                            onChange: { dueTime = $0 }
+                                        )
+                                    }
+                                    metadataRow(label: "End time", icon: "clock.badge", iconColor: .white.opacity(0.6)) {
+                                        TimeFieldButton(
+                                            value: endTime,
+                                            placeholder: "—",
+                                            onChange: { endTime = $0 }
+                                        )
+                                    }
+                                }
+                                .padding(16)
+                            }
                         }
+                        .glassSection()
+                        .opacity(permissions.isModerator ? 1 : 0.55)
+                        .disabled(!permissions.isModerator)
 
                         // Labels — all team labels as colored-dot toggle
                         // chips + a "+ Label" chip (parity with Android's
