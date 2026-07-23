@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,7 +84,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.TeamPermissions
@@ -220,9 +218,10 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned nav row. Pushed: circular back button. Root: the inline
-            // board switcher control + the settings gear. The filter button
-            // moved inline with the tab-preset chips (iOS placement); the
+            // Pinned nav row. Pushed: circular back button + the filter
+            // trigger trailing. Root: the inline board switcher control +
+            // the filter trigger next to the settings gear (EXP-251 — the
+            // filter button moved up from the removed tab-preset row); the
             // single add-issue affordance is the bottom bar's compose FAB.
             Row(
                 modifier = Modifier
@@ -233,6 +232,8 @@ fun IssueListScreen(
                 when (mode) {
                     IssueListMode.Pushed -> {
                         CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                        Spacer(Modifier.weight(1f))
+                        FilterButton(count = state.filters.count, onClick = { showFilters = true })
                     }
                     IssueListMode.Root -> {
                         BoardSwitcherControl(
@@ -241,7 +242,78 @@ fun IssueListScreen(
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
+                        // No filter state exists before a board resolves —
+                        // the empty/create-board states have nothing to filter.
+                        if (!boardId.isNullOrBlank()) {
+                            FilterButton(count = state.filters.count, onClick = { showFilters = true })
+                            Spacer(Modifier.width(8.dp))
+                        }
                         CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
+                    }
+                }
+            }
+
+            // In-flow start feedback + selection bar, pinned above the list
+            // in the space the removed tab-preset row used to occupy
+            // (EXP-251 — sticky at the top, no longer a floating bottom
+            // overlay).
+            val startNoticeVisible =
+                startState is SteerStartState.Sent || startState is SteerStartState.Failed
+            if (startNoticeVisible || noDesktopHint || selectionActive) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when (val sent = startState) {
+                        is SteerStartState.Sent -> NoticeChip(
+                            text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
+                                sent.deviceLabel.ifEmpty { "your desktop" } +
+                                " — watch it in Agents.",
+                            isError = false,
+                            onClick = null,
+                        )
+                        is SteerStartState.Failed -> NoticeChip(
+                            text = sent.message,
+                            isError = true,
+                            onClick = viewModel::dismissStartState,
+                        )
+                        else -> {}
+                    }
+                    if (noDesktopHint) {
+                        NoticeChip(
+                            text = "No desktop online — open the Exponential desktop app to run here.",
+                            isError = true,
+                            onClick = { noDesktopHint = false },
+                        )
+                    }
+                    if (selectionActive) {
+                        SelectionBar(
+                            count = selectedIds.size,
+                            sharedStatus = sharedStatus,
+                            sharedPriority = sharedPriority,
+                            // Assignee is meaningless in a solo team (one member).
+                            showAssignee = soloMemberId == null,
+                            // Only repo-backed boards can code, and only while the
+                            // relay isn't known-off.
+                            showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
+                            devicesLoading = steerDevices == null,
+                            onClear = { selectedIds = emptySet() },
+                            onStatus = { bulkSheet = BulkSheet.Status },
+                            onPriority = { bulkSheet = BulkSheet.Priority },
+                            onAssignee = { bulkSheet = BulkSheet.Assignee },
+                            onLabels = { bulkSheet = BulkSheet.Labels },
+                            onStartCoding = {
+                                val online = steerDevices
+                                when {
+                                    online == null -> {} // presence still resolving
+                                    online.isEmpty() -> noDesktopHint = true
+                                    else -> showStartSheet = true
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -319,7 +391,6 @@ fun IssueListScreen(
                     onToggleCollapsed = { status, isCollapsed ->
                         collapsed = if (isCollapsed) collapsed - status else collapsed + status
                     },
-                    onOpenFilters = { showFilters = true },
                     onOpenIssue = onOpenIssue,
                     onInlineStatus = { id -> inlineEdit = InlineEdit(id, InlineKind.Status) },
                     onInlinePriority = { id -> inlineEdit = InlineEdit(id, InlineKind.Priority) },
@@ -340,65 +411,6 @@ fun IssueListScreen(
             }
         }
 
-        // Floating selection bar + transient start feedback (EXP-239),
-        // above the app's bottom bar zone.
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = BottomBarInset),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            when (val sent = startState) {
-                is SteerStartState.Sent -> NoticeChip(
-                    text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
-                        sent.deviceLabel.ifEmpty { "your desktop" } +
-                        " — watch it in Agents.",
-                    isError = false,
-                    onClick = null,
-                )
-                is SteerStartState.Failed -> NoticeChip(
-                    text = sent.message,
-                    isError = true,
-                    onClick = viewModel::dismissStartState,
-                )
-                else -> {}
-            }
-            if (noDesktopHint) {
-                NoticeChip(
-                    text = "No desktop online — open the Exponential desktop app to run here.",
-                    isError = true,
-                    onClick = { noDesktopHint = false },
-                )
-            }
-            if (selectionActive) {
-                SelectionBar(
-                    count = selectedIds.size,
-                    sharedStatus = sharedStatus,
-                    sharedPriority = sharedPriority,
-                    // Assignee is meaningless in a solo team (one member).
-                    showAssignee = soloMemberId == null,
-                    // Only repo-backed boards can code, and only while the
-                    // relay isn't known-off.
-                    showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
-                    devicesLoading = steerDevices == null,
-                    onClear = { selectedIds = emptySet() },
-                    onStatus = { bulkSheet = BulkSheet.Status },
-                    onPriority = { bulkSheet = BulkSheet.Priority },
-                    onAssignee = { bulkSheet = BulkSheet.Assignee },
-                    onLabels = { bulkSheet = BulkSheet.Labels },
-                    onStartCoding = {
-                        val online = steerDevices
-                        when {
-                            online == null -> {} // presence still resolving
-                            online.isEmpty() -> noDesktopHint = true
-                            else -> showStartSheet = true
-                        }
-                    },
-                )
-            }
-        }
         }
     }
 
@@ -624,7 +636,6 @@ private fun IssueListContent(
     soloMemberId: String?,
     collapsed: Set<IssueStatus>,
     onToggleCollapsed: (IssueStatus, Boolean) -> Unit,
-    onOpenFilters: () -> Unit,
     onOpenIssue: (String) -> Unit,
     onInlineStatus: (String) -> Unit,
     onInlinePriority: (String) -> Unit,
@@ -645,23 +656,20 @@ private fun IssueListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            item(key = "pills") {
-                FilterPills(
-                    active = state.tab,
-                    hasFilters = !state.filters.isEmpty,
-                    filterCount = state.filters.count,
-                    onSelect = viewModel::setTab,
-                    onClear = viewModel::clearFilters,
-                    onOpenFilters = onOpenFilters,
-                )
-                ActiveFilterPills(
-                    filters = state.filters,
-                    labels = state.labels,
-                    onToggleStatus = viewModel::toggleStatus,
-                    onTogglePriority = viewModel::togglePriority,
-                    onToggleLabel = viewModel::toggleLabel,
-                    onClear = viewModel::clearFilters,
-                )
+            // Removable pills for the active filters (the filter trigger
+            // itself lives in the nav row since EXP-251). Gated so an
+            // unfiltered list has no zero-height item eating a spacedBy gap.
+            if (!state.filters.isEmpty) {
+                item(key = "pills") {
+                    ActiveFilterPills(
+                        filters = state.filters,
+                        labels = state.labels,
+                        onToggleStatus = viewModel::toggleStatus,
+                        onTogglePriority = viewModel::togglePriority,
+                        onToggleLabel = viewModel::toggleLabel,
+                        onClear = viewModel::clearFilters,
+                    )
+                }
             }
 
             if (state.groups.isEmpty()) {
@@ -798,67 +806,14 @@ private fun CircleIconButton(icon: ImageVector, contentDescription: String, onCl
     }
 }
 
-// Inline glass filter pills (iOS filter bar): the circular filter button with
-// its active-count badge leading, then the three tab presets as glass
-// capsules, plus a "Clear" pill when any advanced filter is active.
+// Nav-row filter trigger: the circular glass filter button with its
+// active-count badge (EXP-251 — moved up from the removed tab-preset row).
 @Composable
-private fun FilterPills(
-    active: FilterTab,
-    hasFilters: Boolean,
-    filterCount: Int,
-    onSelect: (FilterTab) -> Unit,
-    onClear: () -> Unit,
-    onOpenFilters: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BadgedBox(badge = {
-            if (filterCount > 0) Badge { Text(filterCount.toString()) }
-        }) {
-            CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = onOpenFilters)
-        }
-        FilterTab.entries.forEach { tab ->
-            val selected = active == tab
-            Text(
-                tab.label,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
-                ),
-                modifier = Modifier
-                    .glassButton(active = selected)
-                    .clickable { onSelect(tab) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
-        }
-        if (hasFilters) {
-            Row(
-                modifier = Modifier
-                    .glassButton()
-                    .clickable { onClear() }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    "Clear",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-        }
+private fun FilterButton(count: Int, onClick: () -> Unit) {
+    BadgedBox(badge = {
+        if (count > 0) Badge { Text(count.toString()) }
+    }) {
+        CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = onClick)
     }
 }
 

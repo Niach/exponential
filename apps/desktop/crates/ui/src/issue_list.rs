@@ -532,13 +532,14 @@ impl IssueListView {
 
     // -- bulk action bar -------------------------------------------------------
 
-    /// The Linear-style floating bar (web `bulk-action-bar.tsx`): N selected ·
-    /// Status · Priority · Assignee · Labels · Start coding · Delete
-    /// (nested confirm) · clear. Buttons are icon-only with tooltips — every
-    /// issue list renders inside the ~260px tool panel, where the web's
-    /// labeled buttons cannot fit on one row. Property edits keep the
-    /// selection alive — only delete clears it (FIX F3); every mutation
-    /// chunks at 200 ids (FIX F4) and lands via the Electric echo.
+    /// The bulk action bar (web `bulk-action-bar.tsx`): an in-flow row pinned
+    /// above the scroll area (EXP-251 — the space freed by the removed filter
+    /// tabs): N selected · Status · Priority · Assignee · Labels ·
+    /// Start coding · Delete (nested confirm) · clear. Buttons are icon-only
+    /// with tooltips — every issue list renders inside the ~260px tool panel,
+    /// where the web's labeled buttons cannot fit on one row. Property edits
+    /// keep the selection alive — only delete clears it (FIX F3); every
+    /// mutation chunks at 200 ids (FIX F4) and lands via the Electric echo.
     fn render_bulk_bar(
         &self,
         team_id: String,
@@ -562,7 +563,7 @@ impl IssueListView {
                 .icon(Icon::from(ExpIcon::ListTodo))
                 .tooltip("Status")
                 .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                .dropdown_menu(move |menu, _window, cx| {
                     let mut menu = menu.check_side(Side::Right);
                     // No Duplicate here: bulk marking has no canonical-issue
                     // picker, and status='duplicate' without duplicate_of_id
@@ -604,7 +605,7 @@ impl IssueListView {
                 .icon(Icon::from(ExpIcon::SignalHigh))
                 .tooltip("Priority")
                 .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                .dropdown_menu(move |menu, _window, cx| {
                     let mut menu = menu.check_side(Side::Right);
                     for option in &ISSUE_PRIORITY_OPTIONS {
                         let ids = ids.clone();
@@ -644,7 +645,7 @@ impl IssueListView {
                     .icon(Icon::new(IconName::CircleUser))
                     .tooltip("Assignee")
                     .disabled(busy)
-                    .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+                    .dropdown_menu(move |menu, _window, _cx| {
                         let mut menu = menu.scrollable(true).max_h(px(320.));
                         menu = menu.item(
                             PopupMenuItem::new("Unassign")
@@ -717,7 +718,7 @@ impl IssueListView {
                 .icon(Icon::from(ExpIcon::Tag))
                 .tooltip("Labels")
                 .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, cx| {
+                .dropdown_menu(move |menu, _window, cx| {
                     let mut menu = menu
                         .scrollable(true)
                         .max_h(px(320.))
@@ -829,7 +830,7 @@ impl IssueListView {
                 .icon(Icon::new(IconName::Delete).text_color(danger))
                 .tooltip("Delete selected")
                 .disabled(busy)
-                .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+                .dropdown_menu(move |menu, _window, _cx| {
                     // Nested confirm (destructive actions confirm first).
                     let label = if ids.len() == 1 {
                         "Confirm delete 1 issue".to_string()
@@ -858,16 +859,13 @@ impl IssueListView {
         };
 
         div()
-            .absolute()
-            .bottom_4()
-            .left_0()
-            .right_0()
+            .w_full()
+            .px_4()
+            .pb_2()
             .flex()
-            .justify_center()
             .child(
                 h_flex()
                     .id("bulk-action-bar")
-                    .occlude()
                     .gap_2()
                     .px_3()
                     .py_2()
@@ -877,7 +875,6 @@ impl IssueListView {
                     .border_color(border)
                     .bg(popover_bg)
                     .text_color(popover_fg)
-                    .shadow_lg()
                     .child(
                         div()
                             .px_1()
@@ -1080,9 +1077,10 @@ impl Render for IssueListView {
         );
         self.rows = Rc::new(rows);
 
-        // The floating bulk action bar — selected ids snapshotted in visible
-        // list order (team resolution can lag the issue rows; the bar
-        // waits for it, the selection itself does not).
+        // The bulk action bar — an in-flow row above the scroll area;
+        // selected ids snapshotted in visible list order (team resolution can
+        // lag the issue rows; the bar waits for it, the selection itself does
+        // not).
         let bulk_bar = if self.selected.is_empty() {
             None
         } else {
@@ -1098,12 +1096,9 @@ impl Render for IssueListView {
             })
         };
 
-        base.child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .relative()
-                .child(
+        base.when_some(bulk_bar, |this, bar| this.child(bar))
+            .child(
+                div().flex_1().min_h_0().child(
                     v_flex()
                         .id("issue-list-scroll")
                         .relative()
@@ -1125,10 +1120,9 @@ impl Render for IssueListView {
                             &self.scroll_handle,
                             gpui_component::scroll::ScrollbarAxis::Vertical,
                         ),
-                )
-                .when_some(bulk_bar, |this, bar| this.child(bar)),
-        )
-        .into_any_element()
+                ),
+            )
+            .into_any_element()
     }
 }
 

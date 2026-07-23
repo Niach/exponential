@@ -14,9 +14,10 @@ struct IssueListView: View {
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
-    // and the floating selection bar acts on the whole selection. The steer
-    // state backing the bar's Start coding action (relay enabled + online
-    // desktops) resolves lazily on entry, mirroring AgentsView.
+    // and the selection bar (in-flow at the top of the list, EXP-251) acts on
+    // the whole selection. The steer state backing the bar's Start coding
+    // action (relay enabled + online desktops) resolves lazily on entry,
+    // mirroring AgentsView.
     @State private var selectionActive = false
     @State private var selectedIds: Set<String> = []
     @State private var steerEnabled: Bool?
@@ -66,24 +67,21 @@ struct IssueListView: View {
                 }
             }
         }
-        // Floating selection bar + transient start feedback, above the
-        // floating tab bar's zone (EXP-239).
-        .overlay(alignment: .bottom) {
-            VStack(spacing: 8) {
-                if let notice = startNotice {
-                    noticeCapsule(notice)
-                }
-                if selectionActive, let vm = viewModel {
-                    selectionBar(vm)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, showsTabBarClearance ? 92 : 16)
-        }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
         .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // Filter trigger in the nav bar (EXP-251 — replaces the removed
+        // inline filter/tab bar). In Root mode SwiftUI merges this trailing
+        // item next to IssuesHomeView's Settings gear; pushed boards show it
+        // as the sole trailing item.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let vm = viewModel {
+                    filterToolbarButton(vm)
+                }
+            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             if let vm = viewModel {
                 IssueFilterSheet(vm: vm)
@@ -139,14 +137,24 @@ struct IssueListView: View {
                 syncingBanner
             }
 
-            // Filter bar (search lives in the Search tab, not the issue list)
-            filterBar(vm)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            // In-flow start feedback + selection bar, pinned above the list
+            // in the space the removed filter tabs used to occupy (EXP-251 —
+            // sticky at the top, no longer a floating bottom overlay).
+            if let notice = startNotice {
+                noticeCapsule(notice)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
+            if selectionActive {
+                selectionBar(vm)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
 
             if !vm.filters.isEmpty {
                 activeFilterPills(vm)
                     .padding(.horizontal, 16)
+                    .padding(.top, 8)
                     .padding(.bottom, 8)
             }
 
@@ -260,62 +268,33 @@ struct IssueListView: View {
         .padding(.top, 8)
     }
 
+    /// Nav-bar filter-sheet trigger with active-count badge (EXP-251 — the
+    /// inline filter bar and its tab presets are gone; the trigger sits next
+    /// to the Settings gear in Root mode, matching its 32pt style).
     @ViewBuilder
-    private func filterBar(_ vm: IssueListViewModel) -> some View {
-        HStack(spacing: 8) {
-            // Filter sheet trigger with active-count badge (Android parity).
-            Button {
-                showFilterSheet = true
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
-                    // 38pt circle, matching Android's CircleIconButton — equal
-                    // width/height turns the glassButton capsule into a circle.
-                    .frame(width: 38, height: 38)
-            }
-            .glassButton(isActive: !vm.filters.isEmpty)
-            // Badge OUTSIDE glassButton's Capsule clip, so the count isn't cut
-            // off. The bar's vertical padding gives the -4pt offset headroom.
-            .overlay(alignment: .topTrailing) {
-                if vm.filters.count > 0 {
-                    Text("\(vm.filters.count)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 15, minHeight: 15)
-                        .background(Accent.indigo, in: Circle())
-                        .offset(x: 4, y: -4)
-                        // The badge sits above the button; it must not swallow
-                        // taps meant for the filter control underneath it.
-                        .allowsHitTesting(false)
-                }
-            }
-
-            // Only the three tabs scroll here — they fit at rest on iPhone
-            // widths. The Clear affordance lives in the active-filter-pills
-            // row below as "Clear all" (web parity; appears exactly when
-            // filters are active). Both earlier EXP-47 layouts clipped a chip
-            // at rest: Clear pinned outside the scroller squeezed "Backlog",
-            // and Clear inside the scroller pushed itself off-screen.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(FilterTab.allCases) { tab in
-                        Button {
-                            vm.setTab(tab)
-                        } label: {
-                            Text(tab.label)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white.opacity(vm.activeTab == tab ? 1.0 : TextOpacity.secondary))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                        }
-                        .glassButton(isActive: vm.activeTab == tab)
-                    }
-                }
-                // Trailing content margin so the last chip's capsule stroke rests
-                // fully inside the scroll clip (visible when scrolled to the end)
-                // instead of being shaved by the edge.
-                .padding(.trailing, 8)
+    private func filterToolbarButton(_ vm: IssueListViewModel) -> some View {
+        Button {
+            showFilterSheet = true
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.body)
+                .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filters")
+        .overlay(alignment: .topTrailing) {
+            if vm.filters.count > 0 {
+                Text("\(vm.filters.count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 15, minHeight: 15)
+                    .background(Accent.indigo, in: Circle())
+                    .offset(x: 2, y: -2)
+                    // The badge sits above the button; it must not swallow
+                    // taps meant for the filter control underneath it.
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -747,7 +726,7 @@ struct IssueListView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .glassCard(cornerRadius: 24)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     /// One 32pt property button in the selection bar (EXP-247).
@@ -926,7 +905,7 @@ struct IssueListView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .glassCard(cornerRadius: 14)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private func startCodingTapped() {

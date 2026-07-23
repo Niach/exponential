@@ -1,14 +1,11 @@
 //! Issue filters — a VERBATIM port of `apps/web/src/lib/filters.ts`
 //! (masterplan-v3 §4.7).
 //!
-//! Tab presets and `matches_filters()` are mirrored across four clients: web
-//! (`lib/filters.ts`), iOS (`Domain/IssueFilters.swift`), Android
-//! (`domain/IssueFilters.kt`) and this crate. If you change the active/backlog
-//! status mapping or the filter shape here, update the other three to keep the
-//! clients in lockstep (no shared package yet).
-//!
-//! Behavior is byte-identical to the TS: the `active` set is
-//! `{in_progress, in_review, todo}` — memorize it; do not "fix" it (§4.7).
+//! The `IssueFilters` shape and `matches_filters()` are mirrored across four
+//! clients: web (`lib/filters.ts`), iOS (`Domain/IssueFilters.swift`), Android
+//! (`domain/IssueFilters.kt`) and this crate. If you change the filter shape
+//! or matching semantics here, update the other three to keep the clients in
+//! lockstep (no shared package yet).
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::rows::Issue;
@@ -31,56 +28,6 @@ impl IssueFilters {
     pub fn empty() -> Self {
         Self::default()
     }
-}
-
-/// Web `type TabPreset = "all" | "active" | "backlog"`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TabPreset {
-    All,
-    Active,
-    Backlog,
-}
-
-/// Web `tabPresetStatuses` — the status set each tab preselects.
-pub fn tab_preset_statuses(preset: TabPreset) -> &'static [IssueStatus] {
-    match preset {
-        TabPreset::All => &[],
-        TabPreset::Active => &[
-            IssueStatus::InProgress,
-            IssueStatus::InReview,
-            IssueStatus::Todo,
-        ],
-        TabPreset::Backlog => &[IssueStatus::Backlog],
-    }
-}
-
-/// Web `deriveActiveTab(statuses)`: which tab a status set corresponds to.
-/// Exact-set comparison (order-insensitive), anything else falls back to All —
-/// mirroring the TS sort-and-compare.
-pub fn derive_active_tab(statuses: &[IssueStatus]) -> TabPreset {
-    if statuses.is_empty() {
-        return TabPreset::All;
-    }
-    let sorted = sorted_wire(statuses);
-    if sorted == sorted_wire(tab_preset_statuses(TabPreset::Active)) {
-        return TabPreset::Active;
-    }
-    if sorted == sorted_wire(tab_preset_statuses(TabPreset::Backlog)) {
-        return TabPreset::Backlog;
-    }
-    TabPreset::All
-}
-
-/// The TS compares `[...statuses].sort()` — i.e. the canonical wire strings in
-/// lexicographic order. Mirror that exactly (enum-ordinal sorting would be a
-/// silent behavioral fork).
-fn sorted_wire(statuses: &[IssueStatus]) -> Vec<&'static str> {
-    let mut wire: Vec<&'static str> = statuses
-        .iter()
-        .map(|s| s.as_wire().unwrap_or("unknown"))
-        .collect();
-    wire.sort_unstable();
-    wire
 }
 
 /// Web `matchesFilters(issue, issueLabelIds, filters)`. Each active category
@@ -139,65 +86,6 @@ mod tests {
         assert!(filters.priorities.is_empty());
         assert!(filters.label_ids.is_empty());
         assert_eq!(filters, IssueFilters::empty());
-    }
-
-    #[test]
-    fn tab_presets_mirror_web() {
-        // web: all: [], active: [in_progress, in_review, todo], backlog: [backlog]
-        assert_eq!(tab_preset_statuses(TabPreset::All), &[] as &[IssueStatus]);
-        assert_eq!(
-            tab_preset_statuses(TabPreset::Active),
-            &[
-                IssueStatus::InProgress,
-                IssueStatus::InReview,
-                IssueStatus::Todo
-            ]
-        );
-        assert_eq!(
-            tab_preset_statuses(TabPreset::Backlog),
-            &[IssueStatus::Backlog]
-        );
-    }
-
-    #[test]
-    fn derive_active_tab_matches_web_semantics() {
-        // Empty → all.
-        assert_eq!(derive_active_tab(&[]), TabPreset::All);
-        // Exact active set, any order.
-        assert_eq!(
-            derive_active_tab(&[
-                IssueStatus::InProgress,
-                IssueStatus::InReview,
-                IssueStatus::Todo
-            ]),
-            TabPreset::Active
-        );
-        assert_eq!(
-            derive_active_tab(&[
-                IssueStatus::Todo,
-                IssueStatus::InProgress,
-                IssueStatus::InReview
-            ]),
-            TabPreset::Active
-        );
-        // Exact backlog set.
-        assert_eq!(derive_active_tab(&[IssueStatus::Backlog]), TabPreset::Backlog);
-        // Superset / subset / anything else → all.
-        assert_eq!(
-            derive_active_tab(&[
-                IssueStatus::InProgress,
-                IssueStatus::Todo,
-                IssueStatus::Done
-            ]),
-            TabPreset::All
-        );
-        // A subset of the active set (missing in_review) is not "active".
-        assert_eq!(
-            derive_active_tab(&[IssueStatus::InProgress, IssueStatus::Todo]),
-            TabPreset::All
-        );
-        assert_eq!(derive_active_tab(&[IssueStatus::Todo]), TabPreset::All);
-        assert_eq!(derive_active_tab(&[IssueStatus::Done]), TabPreset::All);
     }
 
     #[test]

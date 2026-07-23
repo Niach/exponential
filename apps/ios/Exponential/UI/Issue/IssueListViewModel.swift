@@ -11,7 +11,6 @@ final class IssueListViewModel {
     var users: [UserEntity] = []
     var board: BoardEntity?
     var filters = IssueFilters()
-    var activeTab: FilterTab = .all
     var collapsedStatuses: Set<IssueStatus> = []
     var permissions: TeamPermissions = .denied
     // True while a signed-in viewer looks like a non-member ONLY because the
@@ -178,19 +177,12 @@ final class IssueListViewModel {
         return labels.filter { $0.teamId == teamId }
     }
 
-    func setTab(_ tab: FilterTab) {
-        activeTab = tab
-        filters.statuses = tab.statuses
-    }
-
     func toggleStatus(_ status: IssueStatus) {
         if filters.statuses.contains(status) {
             filters.statuses.remove(status)
         } else {
             filters.statuses.insert(status)
         }
-        // Keep the tab pills in sync when a manual status mix matches a preset.
-        activeTab = deriveTab(from: filters.statuses)
     }
 
     func togglePriority(_ priority: IssuePriority) {
@@ -211,7 +203,6 @@ final class IssueListViewModel {
 
     func clearFilters() {
         filters = IssueFilters()
-        activeTab = .all
     }
 
     func toggleStatusCollapsed(_ status: IssueStatus) {

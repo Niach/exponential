@@ -9,7 +9,6 @@ import {
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
-import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -64,11 +63,21 @@ interface IssueListProps {
   // Optional trailing per-row action cell. Rendered in its own
   // click-isolated grid column.
   renderRowAction?: (issue: Issue) => React.ReactNode
-  // Enables bulk selection + the floating action bar (hover checkboxes on
-  // md+, shift-click ranges, Cmd/Ctrl+A, Esc).
-  // Undefined = bulk select off. Selection also requires canModerate.
+  // Enables bulk selection (hover checkboxes on md+, shift-click ranges,
+  // Cmd/Ctrl+A, Esc). Undefined = bulk select off. Selection also requires
+  // canModerate.
   bulkTeamId?: string
+  // Selection state is owned by the parent so it can render the BulkActionBar
+  // in the header region above the scroll container (EXP-251). The setter is
+  // a state dispatcher because the prune effect and keyboard handlers rely on
+  // functional updates.
+  selectedIds?: Set<string>
+  onSelectedIdsChange?: React.Dispatch<React.SetStateAction<Set<string>>>
 }
+
+const EMPTY_SELECTION = new Set<string>()
+const noopSetSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>> =
+  () => {}
 
 function IssueListSkeleton() {
   return (
@@ -110,9 +119,10 @@ export function IssueList({
   emptyStateExtra,
   renderRowAction,
   bulkTeamId,
+  selectedIds = EMPTY_SELECTION,
+  onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
@@ -164,11 +174,6 @@ export function IssueList({
       return next.size === prev.size ? prev : next
     })
   }, [groups])
-
-  const clearSelection = () => {
-    setSelectedIds(new Set())
-    setAnchorId(null)
-  }
 
   const toggleSelect = (issueId: string, shiftKey: boolean) => {
     const ids = visibleFlatIssues.map((issue) => issue.id)
@@ -247,14 +252,6 @@ export function IssueList({
     window.addEventListener(`keydown`, handleKeyDown)
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [bulkEnabled, visibleFlatIssues])
-
-  const selectedIssues = useMemo(
-    () =>
-      groups
-        .flatMap((group) => group.issues)
-        .filter((issue) => selectedIds.has(issue.id)),
-    [groups, selectedIds]
-  )
 
   // Solo team (exactly one human member): the assignee cell is hidden
   // entirely (EXP-247 — nothing to reassign). `users` is the bot-excluded
@@ -512,22 +509,6 @@ export function IssueList({
           </CollapsiblePrimitive.Root>
         )
       })}
-
-      {bulkEnabled && bulkTeamId && selectedIssues.length > 0 && (
-        // Sticky inside the list's scroll container: centers within the
-        // content column (not the viewport, which put the bar under the
-        // sidebar) and survives sidebar collapse with zero JS. The mobile
-        // offset clears the floating tab bar.
-        <div className="pointer-events-none sticky bottom-4 z-40 flex justify-center px-3 py-1 max-md:bottom-[calc(4.5rem+max(1rem,env(safe-area-inset-bottom)))]">
-          <BulkActionBar
-            issues={selectedIssues}
-            issueLabelMap={issueLabelMap}
-            labels={labels}
-            users={users}
-            onClear={clearSelection}
-          />
-        </div>
-      )}
     </div>
   )
 }

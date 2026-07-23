@@ -1,5 +1,7 @@
+import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { CircleUser } from "lucide-react"
+import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
@@ -46,6 +48,18 @@ export function MyIssuesView({
 
   const permissions = useTeamPermissions(team)
 
+  // Bulk-selection state lives here so the action bar can render in the
+  // header region above the scroll container (EXP-251); IssueList keeps all
+  // the selection mechanics.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const selectedIssues = useMemo(
+    () =>
+      visibleGroups
+        .flatMap((group) => group.issues)
+        .filter((issue) => selectedIds.has(issue.id)),
+    [visibleGroups, selectedIds]
+  )
+
   if (!team) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
@@ -60,6 +74,18 @@ export function MyIssuesView({
         onNewIssue={() => {}}
         canCreate={false}
       />
+
+      {selectedIssues.length > 0 && (
+        <div className="flex px-4 md:px-6 pb-2">
+          <BulkActionBar
+            issues={selectedIssues}
+            issueLabelMap={issueLabelMap}
+            labels={labelList}
+            users={users}
+            onClear={() => setSelectedIds(new Set())}
+          />
+        </div>
+      )}
 
       <div className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
         {issuesReady && totalIssueCount === 0 ? (
@@ -92,6 +118,8 @@ export function MyIssuesView({
             canMutateIssue={permissions.canMutateIssue}
             canModerate={permissions.isModerator}
             bulkTeamId={team.id}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
             isLoading={!issuesReady}
             hasAnyIssues={totalIssueCount > 0}
             hasActiveFilters={filtersActive(filters)}
