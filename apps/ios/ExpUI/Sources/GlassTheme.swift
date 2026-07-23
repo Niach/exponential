@@ -53,14 +53,20 @@ public struct GlassRow: ViewModifier {
 
 public struct GlassButton: ViewModifier {
     public var isActive: Bool = false
+    /// Lays a solid card fill beneath the glass tint — for pills floating
+    /// over scrolling content, where the low-alpha fill alone lets the
+    /// content bleed through (Android glassButton `opaque` parity, EXP-165).
+    public var isOpaque: Bool = false
 
-    public init(isActive: Bool = false) {
+    public init(isActive: Bool = false, isOpaque: Bool = false) {
         self.isActive = isActive
+        self.isOpaque = isOpaque
     }
 
     public func body(content: Content) -> some View {
         content
             .background(isActive ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
+            .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
@@ -109,8 +115,8 @@ extension View {
         modifier(GlassRow())
     }
 
-    public func glassButton(isActive: Bool = false) -> some View {
-        modifier(GlassButton(isActive: isActive))
+    public func glassButton(isActive: Bool = false, isOpaque: Bool = false) -> some View {
+        modifier(GlassButton(isActive: isActive, isOpaque: isOpaque))
     }
 
     public func glassSection() -> some View {
