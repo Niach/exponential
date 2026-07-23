@@ -48,6 +48,7 @@ struct AgentSessionView: View {
     let session: CodingSessionEntity
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: AgentSessionModel?
     @State private var inputText = ""
     @State private var showDiffSheet = false
@@ -91,16 +92,13 @@ struct AgentSessionView: View {
                         .lineLimit(1)
                 }
             }
-            if case .closed = model?.phase {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        model?.connect()
-                    } label: {
-                        Label("Reconnect", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Returning from the background (EXP-243): the socket rarely
+            // survives suspension — reconnect automatically instead of
+            // parking behind a manual button.
+            if newPhase == .active {
+                model?.reconnectNow()
             }
         }
         .onAppear {
@@ -144,7 +142,7 @@ struct AgentSessionView: View {
                 ? "Needs your input\(device)"
                 : "Live\(device)"
         case .ended: return "Session ended"
-        case .closed: return "Disconnected"
+        case let .closed(_, reconnecting): return reconnecting ? "Reconnecting…" : "Disconnected"
         default: return "Connecting…"
         }
     }
@@ -323,9 +321,12 @@ struct AgentSessionView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-        case let .closed(detail):
+        case let .closed(detail, reconnecting):
             bannerRow {
-                Text(detail ?? "Disconnected")
+                if reconnecting {
+                    ProgressView().controlSize(.small).tint(.white)
+                }
+                Text(detail ?? (reconnecting ? "Connection lost — reconnecting…" : "Disconnected"))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
@@ -795,13 +796,15 @@ private struct StatusDot: View {
     @State private var pulsing = false
 
     private var connecting: Bool {
-        phase == .connecting || phase == .starting || phase == .idle
+        // Auto-reconnecting after a drop reads as connecting (EXP-243).
+        if case .closed(_, true) = phase { return true }
+        return phase == .connecting || phase == .starting || phase == .idle
     }
 
     private var color: Color {
         switch phase {
         case .live: awaiting ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
-        case .connecting, .starting, .idle: DesignTokens.Semantic.yellow
+        case .connecting, .starting, .idle, .closed(_, true): DesignTokens.Semantic.yellow
         default: DesignTokens.Semantic.neutral
         }
     }

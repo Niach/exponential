@@ -31,8 +31,11 @@ final class AgentSessionModel {
         case starting
         /// The session ended (relay `bye`). Feed retained, input hidden.
         case ended(detail: String?)
-        /// Unexpected socket loss / ticket failure — Reconnect offered.
-        case closed(detail: String?)
+        /// Unexpected socket loss / ticket failure. With `reconnecting` the
+        /// model auto-redials on jittered exponential backoff (EXP-243 — no
+        /// manual Reconnect button); false only for terminal states (steer
+        /// disabled on this instance).
+        case closed(detail: String?, reconnecting: Bool)
     }
 
     /// One answer choice of a `question` event — `key` is the raw keystroke
@@ -217,6 +220,14 @@ final class AgentSessionModel {
     /// `user_message` event (EXP-78 dedupe).
     private var recentEchoes: [(text: String, at: Date)] = []
     private var retryTask: Task<Void, Never>?
+    /// Consecutive failed reconnect dials — indexes the backoff curve; reset
+    /// on a successful (live) connection and on an explicit connect().
+    private var reconnectAttempts = 0
+    /// Monotonic dial id — each dial() invalidates the ones before it, so a
+    /// dial that was superseded mid-await (a foreground connect() racing a
+    /// fired backoff retry, EXP-243) can't install a second socket or stomp
+    /// the winner's phase.
+    private var dialGeneration = 0
     private var idleReleaseTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
 
@@ -228,6 +239,11 @@ final class AgentSessionModel {
     private static let idleReleaseSeconds: Double = 60
     /// Redial cadence while the desktop's publisher socket is still starting.
     private static let startingRetrySeconds: Double = 3
+    /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
+    /// exponential 3s→30s, mirroring the web viewer's starting retry — the
+    /// jitter desyncs a herd of viewers all foregrounding at once.
+    private static let reconnectBaseSeconds: Double = 3
+    private static let reconnectMaxSeconds: Double = 30
     /// Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while
     /// to hit the transcript, but an unmatched echo must not swallow an
     /// identical message sent much later.
@@ -250,7 +266,7 @@ final class AgentSessionModel {
     }
 
     /// Bind the synced session row and auto-connect once when presented;
-    /// reconnects after that are explicit.
+    /// drops after that auto-reconnect (EXP-243).
     func start() {
         startObservingSession()
         if phase == .idle { connect() }
@@ -261,9 +277,31 @@ final class AgentSessionModel {
         guard phase != .connecting, phase != .live else { return }
         stopped = false
         retryTask?.cancel()
+        reconnectAttempts = 0
         resetDialState()
         phase = .connecting
         Task { await dial() }
+    }
+
+    /// Foreground revival (EXP-243): the socket rarely survives app
+    /// suspension. Skip any pending reconnect backoff and redial now; while
+    /// nominally live, ping-probe the socket so a connection that died in the
+    /// background surfaces (and auto-reconnects) immediately instead of on
+    /// the next failed receive.
+    func reconnectNow() {
+        guard !stopped else { return }
+        if case .closed(_, true) = phase {
+            connect()
+        } else if phase == .live {
+            task?.sendPing { [weak self] error in
+                guard error != nil else { return }
+                Task { @MainActor in
+                    guard let self, self.connected else { return }
+                    self.disconnectSocket()
+                    self.onSocketClosed()
+                }
+            }
+        }
     }
 
     /// Revive after a shutdown() (EXP-221): as a pushed destination the view
@@ -409,17 +447,26 @@ final class AgentSessionModel {
     }
 
     private func dial() async {
+        dialGeneration += 1
+        let generation = dialGeneration
         let ticket: SteerTicket
         do {
             ticket = try await steerApi.mintViewerTicket(accountId: accountId, codingSessionId: codingSessionId)
         } catch {
-            guard !stopped else { return }
-            phase = .closed(detail: "Couldn't get a viewer ticket. \(error.localizedDescription)")
+            guard !stopped, generation == dialGeneration else { return }
+            // Often transient (foregrounding before the network is back) —
+            // keep auto-retrying on backoff.
+            phase = .closed(
+                detail: "Couldn't get a viewer ticket. \(error.localizedDescription)",
+                reconnecting: true
+            )
+            scheduleReconnect()
             return
         }
-        guard !stopped else { return }
+        guard !stopped, generation == dialGeneration else { return }
         guard !ticket.isDisabled, let url = ticket.connectURL() else {
-            phase = .closed(detail: "Live sessions are unavailable on this instance.")
+            // Config state, not a transient failure — retrying can't help.
+            phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
             return
         }
         perm = Self.decodeTicketPerm(ticket.ticket ?? "")
@@ -439,6 +486,7 @@ final class AgentSessionModel {
         recentEchoes = []
         sendText(#"{"t":"join","channel":"activity"}"#)
         phase = .live
+        reconnectAttempts = 0
         receiveLoop()
     }
 
@@ -489,8 +537,8 @@ final class AgentSessionModel {
             if outcome == "publisher_lost" {
                 // The desktop's relay socket dropped but the session may still
                 // be running — the synced row is the truth. Stay retryable
-                // (closed, with Reconnect).
-                endDetail = "The desktop's connection to the relay dropped — retry once it reconnects."
+                // (closed, auto-reconnecting).
+                endDetail = "The desktop's connection to the relay dropped — waiting for it to come back."
             } else {
                 sawEnd = true
                 endDetail = (outcome != nil && outcome != "ended") ? outcome : nil
@@ -643,7 +691,11 @@ final class AgentSessionModel {
             phase = .starting
             scheduleStartingRetry()
         } else {
-            phase = .closed(detail: endDetail ?? "Connection lost.")
+            // Never park on a dead socket behind a manual button (EXP-243) —
+            // auto-redial on backoff; the phase carries the reconnecting flag
+            // so the UI shows "Reconnecting…" instead of a Reconnect action.
+            phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+            scheduleReconnect()
         }
     }
 
@@ -661,6 +713,33 @@ final class AgentSessionModel {
             self.resetDialState()
             await self.dial()
         }
+    }
+
+    /// Auto-redial (fresh ticket) after an unexpected drop (EXP-243) — the
+    /// phase stays `.closed(reconnecting: true)` across the wait and the dial
+    /// so the banner doesn't flicker; a foreground reconnectNow() cancels the
+    /// wait and dials immediately.
+    private func scheduleReconnect() {
+        retryTask?.cancel()
+        let delay = Self.reconnectDelay(attempt: reconnectAttempts)
+        reconnectAttempts += 1
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !self.stopped, !Task.isCancelled else { return }
+            if self.sessionEnded {
+                self.phase = .ended(detail: nil)
+                return
+            }
+            self.resetDialState()
+            await self.dial()
+        }
+    }
+
+    /// Equal-jitter exponential backoff (web parity): half the capped
+    /// exponential delay fixed, half random.
+    static func reconnectDelay(attempt: Int) -> Double {
+        let capped = min(reconnectMaxSeconds, reconnectBaseSeconds * pow(2, Double(attempt)))
+        return capped / 2 + Double.random(in: 0...(capped / 2))
     }
 
     private func sendText(_ text: String) {
