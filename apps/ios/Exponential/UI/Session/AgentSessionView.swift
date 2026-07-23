@@ -264,7 +264,9 @@ struct AgentSessionView: View {
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                         }
-                        .glassButton(isActive: true)
+                        // Opaque: the feed scrolls beneath this pill
+                        // (EXP-165 Android parity, EXP-242).
+                        .glassButton(isActive: true, isOpaque: true)
                         .buttonStyle(.plain)
                         .padding(.bottom, 8)
                     }
@@ -838,8 +840,19 @@ private struct FollowPinTracker: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
             content.onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height
-                    >= geometry.contentSize.height + geometry.contentInsets.bottom - slack
+                // Pinned ⇔ within slack of the MAXIMUM scrollable offset.
+                // The max is clamped to the minimum resting offset
+                // (-contentInsets.top): a feed shorter than the viewport
+                // rests there, and the unclamped bottom formula reported it
+                // as "not at bottom" — sticking the "Jump to latest" pill
+                // on screen with nothing to scroll (EXP-242).
+                let minOffset = -geometry.contentInsets.top
+                let maxOffset = max(
+                    geometry.contentSize.height + geometry.contentInsets.bottom
+                        - geometry.containerSize.height,
+                    minOffset
+                )
+                return geometry.contentOffset.y >= maxOffset - slack
             } action: { _, pinned in
                 if atBottom != pinned {
                     atBottom = pinned
