@@ -20,6 +20,8 @@ import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import javax.inject.Inject
+import kotlin.math.pow
+import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
@@ -61,6 +63,12 @@ private const val IDLE_RELEASE_MS = 60_000L
 
 /** Redial cadence while the desktop's publisher socket is still starting. */
 private const val STARTING_RETRY_MS = 3_000L
+
+/** Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
+ *  exponential 3s→30s, mirroring the web viewer's starting retry — the jitter
+ *  desyncs a herd of viewers all foregrounding at once. */
+private const val RECONNECT_BASE_MS = 3_000L
+private const val RECONNECT_MAX_MS = 30_000L
 
 /** Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while to
  *  hit the transcript, but an unmatched echo must not swallow an identical
@@ -244,8 +252,10 @@ sealed interface AgentPhase {
     /** The session ended (relay `bye`, or the synced row flipped to ended). */
     data class Ended(val detail: String? = null) : AgentPhase
 
-    /** Unexpected socket loss — offer a manual Reconnect (fresh ticket). */
-    data class Closed(val detail: String? = null) : AgentPhase
+    /** Unexpected socket loss. With [reconnecting] the VM auto-redials on
+     *  jittered exponential backoff (EXP-243 — no manual Reconnect button);
+     *  false only for terminal states (steer disabled on this instance). */
+    data class Closed(val detail: String? = null, val reconnecting: Boolean = false) : AgentPhase
 }
 
 @HiltViewModel
@@ -300,13 +310,19 @@ class AgentSessionViewModel @Inject constructor(
     private var connectJob: Job? = null
     private var idleReleaseJob: Job? = null
 
-    /** Auto-connect once when the screen opens; reconnects are explicit. */
+    /** Consecutive failed reconnect dials — indexes the backoff curve; reset
+     *  on a successful (live) connection and on an explicit connect(). */
+    private var reconnectAttempts = 0
+
+    /** Auto-connect once when the screen opens; drops after that
+     *  auto-reconnect (EXP-243). */
     fun connectIfIdle() {
         if (_phase.value == AgentPhase.Idle) connect()
     }
 
     fun connect() {
         connectJob?.cancel()
+        reconnectAttempts = 0
         connectJob = viewModelScope.launch {
             while (isActive) {
                 when (val outcome = dialOnce()) {
@@ -326,26 +342,65 @@ class AgentSessionViewModel @Inject constructor(
                         return@launch
                     }
                     is DialOutcome.Closed -> {
-                        _phase.value = AgentPhase.Closed(outcome.detail)
-                        return@launch
+                        if (!outcome.retryable) {
+                            _phase.value = AgentPhase.Closed(outcome.detail)
+                            return@launch
+                        }
+                        // Never park on a dead socket behind a manual button
+                        // (EXP-243) — auto-redial on backoff; the phase
+                        // carries the reconnecting flag so the UI shows
+                        // "Reconnecting…" instead of a Reconnect action.
+                        _phase.value = AgentPhase.Closed(outcome.detail, reconnecting = true)
+                        delay(reconnectDelayMs(reconnectAttempts++))
+                        if (session.value?.status == DomainContract.codingSessionStatusEnded) {
+                            _phase.value = AgentPhase.Ended()
+                            return@launch
+                        }
                     }
                 }
             }
         }
     }
 
+    /** Foreground revival (EXP-243): skip any pending reconnect backoff and
+     *  redial immediately; while nominally live, ping-probe the socket so a
+     *  connection that died in the background surfaces (and auto-reconnects)
+     *  now instead of on the next failed read. */
+    fun reconnectNow() {
+        val p = _phase.value
+        if (p is AgentPhase.Closed && p.reconnecting) {
+            connect()
+        } else if (p == AgentPhase.Live) {
+            ws?.outgoing?.trySend(Frame.Ping(ByteArray(0)))
+        }
+    }
+
+    /** Equal-jitter exponential backoff (web parity): half the capped
+     *  exponential delay fixed, half random. */
+    private fun reconnectDelayMs(attempt: Int): Long {
+        val capped = minOf(
+            RECONNECT_MAX_MS.toDouble(),
+            RECONNECT_BASE_MS * 2.0.pow(attempt),
+        )
+        return (capped / 2 + Random.nextDouble() * (capped / 2)).toLong()
+    }
+
     private sealed interface DialOutcome {
         /** no_such_session while the synced row says running — auto-retry. */
         data object RetryStarting : DialOutcome
         data class Ended(val detail: String? = null) : DialOutcome
-        data class Closed(val detail: String? = null) : DialOutcome
+        data class Closed(val detail: String? = null, val retryable: Boolean = true) : DialOutcome
     }
 
     private suspend fun dialOnce(): DialOutcome {
-        // Hold the Starting phase steady across auto-retry redials — flipping
-        // to Connecting per attempt made the header flicker every ~3s while
-        // the desktop was still dialing its publisher.
-        if (_phase.value != AgentPhase.Starting) _phase.value = AgentPhase.Connecting
+        // Hold the Starting / reconnecting-Closed phase steady across
+        // auto-retry redials — flipping to Connecting per attempt made the
+        // header flicker every ~3s while the desktop was still dialing its
+        // publisher (and would flicker the reconnect banner the same way).
+        val held = _phase.value
+        if (held != AgentPhase.Starting && !(held is AgentPhase.Closed && held.reconnecting)) {
+            _phase.value = AgentPhase.Connecting
+        }
         _viewers.value = emptyList()
         _steererId.value = null
 
@@ -360,7 +415,8 @@ class AgentSessionViewModel @Inject constructor(
                 ?: throw IllegalStateException("No active account")
             val minted = steerApi.mintViewerTicket(accountId, codingSessionId)
             if (!minted.isUsable) {
-                return DialOutcome.Closed("Live sessions are unavailable on this instance.")
+                // Config state, not a transient failure — retrying can't help.
+                return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
             }
             _perm.value = decodeSteerTicketPerm(minted.ticket!!)
 
@@ -392,6 +448,7 @@ class AgentSessionViewModel @Inject constructor(
                         if (result != null) {
                             if (result.live && _phase.value != AgentPhase.Live) {
                                 _phase.value = AgentPhase.Live
+                                reconnectAttempts = 0
                             }
                             sawEnd = sawEnd || result.sawEnd
                             result.detail?.let { detail = it }
@@ -457,9 +514,9 @@ class AgentSessionViewModel @Inject constructor(
                 if (outcome == "publisher_lost") {
                     // The desktop's relay socket dropped but the session may
                     // still be running — the synced row is the truth. Stay
-                    // retryable (Closed, with Reconnect).
+                    // retryable (Closed, auto-reconnecting).
                     FrameResult(
-                        detail = "The desktop's connection to the relay dropped — retry once it reconnects.",
+                        detail = "The desktop's connection to the relay dropped — waiting for it to come back.",
                     )
                 } else {
                     FrameResult(sawEnd = true, detail = outcome?.takeIf { it != "ended" })

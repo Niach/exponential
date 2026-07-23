@@ -40,7 +40,6 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.issue.PatchLines
@@ -115,6 +115,12 @@ fun AgentSessionScreen(
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
+    // Returning from the background (EXP-243): the socket rarely survives it —
+    // reconnect automatically instead of parking behind a manual button.
+    LifecycleResumeEffect(Unit) {
+        viewModel.reconnectNow()
+        onPauseOrDispose { }
+    }
     // Auto-release the steer claim when the screen goes away (best-effort;
     // closing the socket releases it relay-side anyway).
     DisposableEffect(Unit) {
@@ -215,32 +221,20 @@ fun AgentSessionScreen(
                     )
                 }
                 is AgentPhase.Closed -> BannerRow {
+                    if (p.reconnecting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                     Text(
-                        p.detail ?: "Disconnected",
+                        p.detail
+                            ?: if (p.reconnecting) "Connection lost — reconnecting…" else "Disconnected",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         modifier = Modifier.weight(1f),
                     )
-                    Row(
-                        modifier = Modifier
-                            .glassButton()
-                            .clickable { viewModel.connect() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Replay,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "Reconnect",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
                 }
                 AgentPhase.Starting -> if (feed.isNotEmpty()) {
                     BannerRow {
@@ -345,11 +339,13 @@ private fun SessionStatusTitle(
      *  answer, not stuck (EXP-97). */
     awaitingInput: Boolean = false,
 ) {
-    val connecting = phase == AgentPhase.Connecting || phase == AgentPhase.Starting
+    // Auto-reconnecting after a drop reads as connecting (EXP-243).
+    val connecting = phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
+        (phase is AgentPhase.Closed && phase.reconnecting)
     val awaiting = phase == AgentPhase.Live && awaitingInput
-    val dotColor = when (phase) {
-        AgentPhase.Live -> if (awaiting) ConnectingYellow else LiveGreen
-        AgentPhase.Connecting, AgentPhase.Starting -> ConnectingYellow
+    val dotColor = when {
+        phase == AgentPhase.Live -> if (awaiting) ConnectingYellow else LiveGreen
+        connecting -> ConnectingYellow
         else -> LostGray
     }
     // The connecting dot pulses; live/ended dots hold steady.
@@ -378,7 +374,7 @@ private fun SessionStatusTitle(
                 }
                 AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
                 is AgentPhase.Ended -> "Session ended"
-                is AgentPhase.Closed -> "Disconnected"
+                is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
