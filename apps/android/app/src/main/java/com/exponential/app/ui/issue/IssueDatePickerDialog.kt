@@ -12,6 +12,18 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+// ISO `yyyy-MM-dd` ⇄ UTC-midnight millis, shared with the glass DueDateSheet
+// (EXP-240) — the M3 DatePickerState speaks epoch millis in UTC.
+internal fun isoDateToUtcMillis(value: String?): Long? = value?.let {
+    runCatching {
+        DateTimeFormatter.ISO_LOCAL_DATE.parse(it)
+        Instant.parse(it + "T00:00:00Z").toEpochMilli()
+    }.getOrNull()
+}
+
+internal fun utcMillisToIsoDate(millis: Long): String =
+    Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate().toString()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueDatePickerDialog(
@@ -19,23 +31,13 @@ fun IssueDatePickerDialog(
     onConfirm: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val initialMillis = initialDate?.let {
-        runCatching {
-            DateTimeFormatter.ISO_LOCAL_DATE.parse(it)
-            Instant.parse(it + "T00:00:00Z").toEpochMilli()
-        }.getOrNull()
-    }
-    val state = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    val state = rememberDatePickerState(initialSelectedDateMillis = isoDateToUtcMillis(initialDate))
 
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(onClick = {
-                val millis = state.selectedDateMillis
-                val iso = millis?.let {
-                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate().toString()
-                }
-                onConfirm(iso)
+                onConfirm(state.selectedDateMillis?.let(::utcMillisToIsoDate))
             }) { Text("Set") }
         },
         dismissButton = {

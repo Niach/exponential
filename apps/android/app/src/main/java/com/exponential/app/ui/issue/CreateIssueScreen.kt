@@ -392,7 +392,7 @@ fun CreateIssueScreen(
                 // Labels (masterplan §3 client parity: every client supports
                 // labels at create). All team labels as colored-dot toggle
                 // chips + a "+ Label" chip opening the shared picker sheet —
-                // the same pattern as the post-create IssueMetadataEditor,
+                // the same chip pattern as the issue-detail property box,
                 // toggling a local selection instead of issueLabels mutations.
                 // Not moderator-gated: issues.create lets any creator set
                 // title/description/labels (web create dialog parity).

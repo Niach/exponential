@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class CommentThreadState(
     val issue: IssueEntity? = null,
@@ -98,6 +99,36 @@ class CommentThreadViewModel @Inject constructor(
 
     fun bind(issueId: String) {
         issueIdFlow.value = issueId
+    }
+
+    // Composer draft + in-flight flag, hoisted here (EXP-240) so the expanding
+    // bottom-bar composer keeps its text across collapse/expand, rotation, and
+    // the thread/bar being separate composables sharing this screen-level VM.
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft
+
+    private val _sending = MutableStateFlow(false)
+    val sending: StateFlow<Boolean> = _sending
+
+    fun updateDraft(text: String) {
+        _draft.value = text
+    }
+
+    /**
+     * Post the current draft. Clears it and invokes [onSent] only when the
+     * comment actually lands — a declined/failed send keeps the draft.
+     */
+    fun send(onSent: () -> Unit = {}) {
+        val text = _draft.value.trim()
+        if (text.isEmpty() || _sending.value) return
+        viewModelScope.launch {
+            _sending.value = true
+            if (createComment(text)) {
+                _draft.value = ""
+                onSent()
+            }
+            _sending.value = false
+        }
     }
 
     // Returns true only when the comment was actually posted, so the composer

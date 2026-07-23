@@ -3,6 +3,23 @@ import ExpCore
 import SwiftUI
 import GRDB
 
+/// Every sheet the issue detail can present, driving ONE `.sheet(item:)`
+/// (EXP-240 — replaces six independent Bools so sheet hand-offs are just a
+/// deferred item swap).
+enum IssueDetailSheet: String, Identifiable {
+    case status
+    case priority
+    case assignee
+    case labels
+    case dueDate
+    case properties
+    case moveBoard
+    case duplicateOf
+    case startCoding
+
+    var id: String { rawValue }
+}
+
 struct IssueDetailView: View {
     let issueId: String
 
@@ -11,12 +28,9 @@ struct IssueDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
-    @State private var showStatusPicker = false
-    @State private var showPriorityPicker = false
-    @State private var showAssigneePicker = false
-    @State private var showDuplicatePicker = false
-    @State private var showCreateLabel = false
-    @State private var showMoveBoardPicker = false
+    @State private var activeSheet: IssueDetailSheet?
+    // Candidates for the Start-coding sheet, loaded just before presenting.
+    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
     // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
     @State private var moveTarget: BoardEntity?
@@ -108,6 +122,17 @@ struct IssueDetailView: View {
                             if !focused { Task { await vm.saveTitle() } }
                         }
 
+                        // Property chip box (EXP-240) — replaces the old
+                        // properties / times / labels sections.
+                        IssuePropertyChipsBox(
+                            issue: issue,
+                            assignee: vm.assignee(),
+                            assignedLabels: vm.assignedLabels,
+                            singleMemberTeam: vm.singleMemberTeam,
+                            isModerator: vm.permissions.isModerator,
+                            onTap: { activeSheet = $0 }
+                        )
+
                         // A remote edit arrived while editing locally — offer
                         // a non-blocking reload (field-level last-write-wins).
                         if vm.editor.pendingRemoteMarkdown != nil {
@@ -139,171 +164,17 @@ struct IssueDetailView: View {
                             }
                         )
 
-                        // Coding + PR card (EXP-156): "Coding now" / remote
-                        // start (single or batch) / PR state + branch diff entry
-                        // — one card replacing the old SteerSession + Changes
-                        // sections. Renders nothing when there's nothing to show.
+                        // Coding + PR status card (EXP-156): "Coding now" /
+                        // GitHub-style PR + branch chips → diff page. Remote
+                        // start moved into the bottom bar (EXP-240). Renders
+                        // nothing when there's nothing to show.
                         AgentPrCard(
                             issue: issue,
                             runningSessions: vm.runningSessions,
                             permissions: vm.permissions,
                             users: vm.users,
-                            loadStartCandidates: { await vm.startCodingCandidates() }
+                            config: vm.steerConfig
                         )
-
-                        // Metadata
-                        VStack(spacing: 0) {
-                            // Status
-                            detailRow(label: "Status") {
-                                Button {
-                                    showStatusPicker = true
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: IssueStatus.from(issue.status).sfSymbol)
-                                            .font(.caption)
-                                            .foregroundStyle(IssueStatus.from(issue.status).color)
-                                        Text(IssueStatus.from(issue.status).label)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!vm.permissions.isModerator)
-                            }
-
-                            Divider().background(Color.white.opacity(0.06))
-
-                            // Priority
-                            detailRow(label: "Priority") {
-                                Button {
-                                    showPriorityPicker = true
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
-                                            .font(.caption)
-                                            .foregroundStyle(IssuePriority.from(issue.priority).color)
-                                        Text(IssuePriority.from(issue.priority).label)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!vm.permissions.isModerator)
-                            }
-
-                            // Assignee — hidden on solo teams, where there's
-                            // no one else to reassign to (EXP-50).
-                            if !vm.singleMemberTeam {
-                                Divider().background(Color.white.opacity(0.06))
-
-                                detailRow(label: "Assignee") {
-                                    Button {
-                                        showAssigneePicker = true
-                                    } label: {
-                                        if let assigneeId = vm.issue?.assigneeId {
-                                            Text(memberDisplayName(vm.assignee(), id: assigneeId))
-                                                .font(.subheadline)
-                                                .foregroundStyle(.white)
-                                        } else {
-                                            Text("Unassigned")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(!vm.permissions.isModerator)
-                                }
-                            }
-
-                            Divider().background(Color.white.opacity(0.06))
-
-                            // Due date — inline calendar, embedded as the card's
-                            // last row (EXP-167). Card A's opacity already dims
-                            // every child, so no per-row .opacity here.
-                            DueDatePicker(date: Binding(
-                                get: { parseDate(issue.dueDate) },
-                                set: { newDate in Task { await vm.setDueDate(newDate) } }
-                            ), embedded: true)
-                            .disabled(!vm.permissions.isModerator)
-                        }
-                        .padding(.vertical, 4)
-                        .glassSection()
-                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
-
-                        // Times (only when a due date is set; matches the
-                        // server-side semantics where dueTime depends on dueDate).
-                        if issue.dueDate != nil {
-                            VStack(spacing: 0) {
-                                detailRow(label: "Start time") {
-                                    TimeFieldButton(
-                                        value: issue.dueTime,
-                                        placeholder: "—",
-                                        onChange: { value in Task { await vm.setDueTime(value) } }
-                                    )
-                                    .disabled(!vm.permissions.isModerator)
-                                }
-                                Divider().background(Color.white.opacity(0.06))
-                                detailRow(label: "End time") {
-                                    TimeFieldButton(
-                                        value: issue.endTime,
-                                        placeholder: "—",
-                                        onChange: { value in Task { await vm.setEndTime(value) } }
-                                    )
-                                    .disabled(!vm.permissions.isModerator)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                            .glassSection()
-                            .opacity(vm.permissions.isModerator ? 1 : 0.55)
-                        }
-
-                        // Labels
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Labels")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                            FlowLayout(spacing: 6) {
-                                ForEach(vm.labels, id: \.id) { label in
-                                    Button {
-                                        Task { await vm.toggleLabel(label.id) }
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Circle()
-                                                .fill(Color(hex: label.color) ?? .gray)
-                                                .frame(width: 8, height: 8)
-                                            Text(label.name)
-                                                .font(.caption)
-                                                .foregroundStyle(.white)
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .glassButton(isActive: vm.assignedLabelIds.contains(label.id))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(!vm.permissions.isModerator)
-                                }
-                                // "+ Label" — create a new team label and
-                                // assign it in one step (parity with Android).
-                                if vm.permissions.isModerator {
-                                    Button {
-                                        showCreateLabel = true
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "plus")
-                                                .font(.caption2)
-                                            Text("Label")
-                                                .font(.caption)
-                                        }
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .glassButton()
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
 
                         // Error
                         if let error = vm.error {
@@ -312,128 +183,54 @@ struct IssueDetailView: View {
                                 .foregroundStyle(.red)
                         }
 
-                        // Attachments (read-only list synced from Electric).
-                        // Inline images in the description still preview
-                        // inside MarkdownEditor's preview tab — this section
-                        // surfaces them as discoverable items.
-                        AttachmentListView(issueId: issue.id)
-
-                        // Comments
+                        // Activity timeline (comments + events)
                         CommentThreadView(issue: issue)
                     }
                     .padding(20)
                 }
-                .sheet(isPresented: $showStatusPicker) {
-                    PickerSheet(
-                        title: "Status",
-                        items: IssueStatus.allCases,
-                        selectedID: IssueStatus.from(issue.status).id,
-                        idFor: { $0.id },
-                        onSelect: { selected in
-                            // Duplicate = status interception (L27): picking
-                            // `duplicate` opens the canonical-issue picker instead
-                            // of writing the status directly; markDuplicate sets
-                            // duplicateOfId + status='duplicate' atomically.
-                            // Cancelling the picker leaves the status untouched.
-                            // Defer so this sheet finishes dismissing first.
-                            if selected == .duplicate {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                    showDuplicatePicker = true
-                                }
-                            } else {
-                                Task { await vm.setStatus(selected) }
-                            }
-                        }
-                    ) { status in
-                        Label {
-                            Text(status.label)
-                        } icon: {
-                            Image(systemName: status.sfSymbol)
-                                .foregroundStyle(status.color)
-                        }
-                    }
-                }
-                .sheet(isPresented: $showPriorityPicker) {
-                    PickerSheet(
-                        title: "Priority",
-                        items: IssuePriority.allCases,
-                        selectedID: IssuePriority.from(issue.priority).id,
-                        idFor: { $0.id },
-                        onSelect: { selected in
-                            Task { await vm.setPriority(selected) }
-                        }
-                    ) { priority in
-                        Label {
-                            Text(priority.label)
-                        } icon: {
-                            Image(systemName: priority.sfSymbol)
-                                .foregroundStyle(priority.color)
-                        }
-                    }
-                }
-                .sheet(isPresented: $showAssigneePicker) {
-                    PickerSheet(
-                        title: "Assignee",
-                        items: assigneeOptions(users: vm.users),
-                        selectedID: issue.assigneeId ?? AssigneeOption.unassigned.id,
-                        idFor: { $0.id },
-                        onSelect: { option in
-                            Task { await vm.setAssignee(option.userId) }
-                        }
-                    ) { option in
-                        if option.userId == nil {
-                            Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
-                        } else {
-                            Label {
-                                Text(option.displayName)
-                            } icon: {
-                                Image(systemName: "person.circle")
-                            }
-                        }
-                    }
-                }
-                .sheet(isPresented: $showCreateLabel) {
-                    CreateLabelSheet { name, color in
-                        Task { await vm.createAndAssignLabel(name: name, color: color) }
-                    }
-                    .presentationDetents([.medium])
-                    .presentationBackground(.ultraThinMaterial)
-                }
-                .sheet(isPresented: $showDuplicatePicker) {
-                    DuplicatePickerSheet(
-                        loadCandidates: { await vm.duplicateCandidates() },
-                        onSelect: { canonical in
-                            Task { await vm.markDuplicate(of: canonical) }
-                        }
+                // The floating bottom bar (EXP-240): reserves scroll clearance
+                // and rides the keyboard automatically. ALWAYS mounted so the
+                // composer draft (bar-owned @State) survives; the bar renders
+                // itself zero-height while another editor (title, description,
+                // or a comment edit) owns the keyboard, so it never stacks
+                // over the markdown toolbar — Android parity:
+                // barVisible = composerExpanded || !imeVisible.
+                .safeAreaInset(edge: .bottom) {
+                    IssueDetailBottomBar(
+                        issue: issue,
+                        mentionMembers: vm.mentionMembers,
+                        isModerator: vm.permissions.isModerator,
+                        startUi: startCircleUi(vm: vm, issue: issue),
+                        onOpenProperties: { activeSheet = .properties },
+                        onStartCoding: { presentStartSheet(vm: vm) }
                     )
-                    .presentationBackground(.ultraThinMaterial)
                 }
-                // Move to board (EXP-57): pick a same-team target, then
-                // confirm — the issue is renumbered in the target board, so
-                // the move deserves an explicit yes before it fires.
-                .sheet(isPresented: $showMoveBoardPicker) {
-                    PickerSheet(
-                        title: "Move to board",
-                        items: vm.moveTargetBoards,
-                        selectedID: issue.boardId,
-                        idFor: { $0.id },
-                        onSelect: { target in
-                            // Defer so this sheet finishes dismissing before
-                            // the confirmation alert presents (same trick as
-                            // the duplicate picker hand-off).
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                moveTarget = target
-                            }
-                        }
-                    ) { board in
-                        Label {
-                            Text(board.name)
-                        } icon: {
-                            Circle()
-                                .fill(Color(hex: board.color) ?? .gray)
-                                .frame(width: 10, height: 10)
-                        }
-                    }
+                // Relay config + device presence for the start circle — keyed
+                // on session presence AND membership (mirrors the old
+                // AgentPrCard task): when a session ends the circle must
+                // (re)load presence, and the load must re-run once the members
+                // shape syncs and isMember flips true.
+                .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)") {
+                    await vm.refreshSteer()
+                }
+                .sheet(item: $activeSheet) { sheet in
+                    sheetContent(sheet, vm: vm, issue: issue)
+                }
+                // Batch starts insert an issue-LESS session row that never
+                // syncs into this issue's runningSessions, so the start circle
+                // can't reflect them — confirm explicitly instead (parity with
+                // Android's batch-Sent snackbar).
+                .alert(
+                    "Batch start sent",
+                    isPresented: Binding(
+                        get: { vm.batchStartNotice != nil },
+                        set: { if !$0 { vm.batchStartNotice = nil } }
+                    ),
+                    presenting: vm.batchStartNotice
+                ) { _ in
+                    Button("OK", role: .cancel) {}
+                } message: { notice in
+                    Text(notice)
                 }
                 .alert(
                     "Move issue",
@@ -494,7 +291,7 @@ struct IssueDetailView: View {
                                 // (EXP-57) — hidden when there's nowhere to go.
                                 if !vm.moveTargetBoards.isEmpty {
                                     Button {
-                                        showMoveBoardPicker = true
+                                        activeSheet = .moveBoard
                                     } label: {
                                         Label("Move to board", systemImage: "folder")
                                     }
@@ -537,6 +334,7 @@ struct IssueDetailView: View {
                     issueImagesApi: deps.issueImagesApi,
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
+                    steerApi: deps.steerApi,
                     auth: deps.auth
                 )
                 viewModel = vm
@@ -564,6 +362,177 @@ struct IssueDetailView: View {
                     vm.stopObserving()
                 }
             }
+        }
+    }
+
+    // MARK: - Sheets
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: IssueDetailSheet, vm: IssueDetailViewModel, issue: IssueEntity) -> some View {
+        switch sheet {
+        case .status:
+            GlassPickerSheet(
+                title: "Status",
+                items: IssueStatus.allCases,
+                selectedID: IssueStatus.from(issue.status).id,
+                idFor: { $0.id },
+                onSelect: { selected in
+                    // Duplicate = status interception (L27): picking
+                    // `duplicate` opens the canonical-issue picker instead
+                    // of writing the status directly; markDuplicate sets
+                    // duplicateOfId + status='duplicate' atomically.
+                    // Cancelling the picker leaves the status untouched.
+                    if selected == .duplicate {
+                        handOff(to: .duplicateOf)
+                    } else {
+                        Task { await vm.setStatus(selected) }
+                    }
+                }
+            ) { status in
+                Label {
+                    Text(status.label)
+                } icon: {
+                    Image(systemName: status.sfSymbol)
+                        .foregroundStyle(status.color)
+                }
+            }
+        case .priority:
+            GlassPickerSheet(
+                title: "Priority",
+                items: IssuePriority.allCases,
+                selectedID: IssuePriority.from(issue.priority).id,
+                idFor: { $0.id },
+                onSelect: { selected in
+                    Task { await vm.setPriority(selected) }
+                }
+            ) { priority in
+                Label {
+                    Text(priority.label)
+                } icon: {
+                    Image(systemName: priority.sfSymbol)
+                        .foregroundStyle(priority.color)
+                }
+            }
+        case .assignee:
+            AssigneeSheet(
+                users: vm.users,
+                selectedId: issue.assigneeId,
+                onSelect: { userId in
+                    Task { await vm.setAssignee(userId) }
+                }
+            )
+        case .labels:
+            LabelsSheet(
+                labels: vm.teamLabels,
+                assignedIds: vm.assignedLabelIds,
+                onToggle: { labelId in
+                    Task { await vm.toggleLabel(labelId) }
+                },
+                onCreate: { name in
+                    Task { await vm.createAndAssignLabel(name: name, color: autoLabelColor(for: name)) }
+                }
+            )
+        case .dueDate:
+            DueDateSheet(
+                date: parseDate(issue.dueDate),
+                dueTime: issue.dueTime,
+                endTime: issue.endTime,
+                onDateChange: { date in Task { await vm.setDueDate(date) } },
+                onDueTimeChange: { time in Task { await vm.setDueTime(time) } },
+                onEndTimeChange: { time in Task { await vm.setEndTime(time) } }
+            )
+        case .properties:
+            IssuePropertiesSheet(
+                issue: issue,
+                assignee: vm.assignee(),
+                labels: vm.teamLabels,
+                assignedIds: vm.assignedLabelIds,
+                singleMemberTeam: vm.singleMemberTeam,
+                boardName: vm.board?.name,
+                hasMoveTargets: !vm.moveTargetBoards.isEmpty,
+                onNavigate: { handOff(to: $0) },
+                onToggleLabel: { labelId in
+                    Task { await vm.toggleLabel(labelId) }
+                }
+            )
+        case .moveBoard:
+            // Move to board (EXP-57): pick a same-team target, then
+            // confirm — the issue is renumbered in the target board, so
+            // the move deserves an explicit yes before it fires.
+            // Deliberately still the stock PickerSheet.
+            PickerSheet(
+                title: "Move to board",
+                items: vm.moveTargetBoards,
+                selectedID: issue.boardId,
+                idFor: { $0.id },
+                onSelect: { target in
+                    // Defer so this sheet finishes dismissing before
+                    // the confirmation alert presents.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        moveTarget = target
+                    }
+                }
+            ) { board in
+                Label {
+                    Text(board.name)
+                } icon: {
+                    Circle()
+                        .fill(Color(hex: board.color) ?? .gray)
+                        .frame(width: 10, height: 10)
+                }
+            }
+        case .duplicateOf:
+            DuplicatePickerSheet(
+                loadCandidates: { await vm.duplicateCandidates() },
+                onSelect: { canonical in
+                    Task { await vm.markDuplicate(of: canonical) }
+                }
+            )
+            .presentationBackground(.ultraThinMaterial)
+        case .startCoding:
+            StartCodingSheet(
+                devices: vm.steerDevices ?? [],
+                issues: startCandidates,
+                preselectedIds: [issue.id]
+            ) { device, issueIds, options in
+                vm.startCoding(on: device, issueIds: issueIds, options: options)
+            }
+        }
+    }
+
+    /// Dismiss the current sheet and present `target` once the dismissal
+    /// animation finished (the same trick the duplicate-status interception
+    /// has always used).
+    private func handOff(to target: IssueDetailSheet) {
+        activeSheet = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            activeSheet = target
+        }
+    }
+
+    // MARK: - Start circle state
+
+    private func startCircleUi(vm: IssueDetailViewModel, issue: IssueEntity) -> StartCircleUi {
+        guard vm.steerConfig?.enabled == true,
+              vm.permissions.isMember,
+              vm.board?.repositoryId != nil else { return .hidden }
+        // Multi-window desktops can run several sessions on one issue —
+        // surface the most recent.
+        if let session = vm.runningSessions.max(by: { $0.startedAt < $1.startedAt }) {
+            return .session(
+                CodingSessionDisplayState.of(session: session, prState: issue.prState),
+                sessionId: session.id
+            )
+        }
+        if vm.startPending { return .sending }
+        guard let devices = vm.steerDevices else { return .hidden }
+        return devices.isEmpty ? .noDevices : .start
+    }
+
+    private func presentStartSheet(vm: IssueDetailViewModel) {
+        Task {
+            startCandidates = await vm.startCodingCandidates()
+            activeSheet = .startCoding
         }
     }
 
@@ -610,132 +579,8 @@ struct IssueDetailView: View {
         .glassSection()
     }
 
-    @ViewBuilder
-    private func detailRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 80, alignment: .leading)
-
-            Spacer()
-
-            content()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
     private func parseDate(_ dateString: String?) -> Date? {
         guard let dateString else { return nil }
         return AppDateFormatters.yyyyMMdd.date(from: dateString)
-    }
-
-}
-
-// Inline time picker that surfaces the iOS wheel picker via a popover
-// and a "Clear" affordance for nullable time values.
-struct TimeFieldButton: View {
-    let value: String?
-    let placeholder: String
-    let onChange: (String?) -> Void
-
-    @State private var showPicker = false
-    @State private var draft = Date()
-
-    var body: some View {
-        Button {
-            draft = parseTime(value) ?? defaultTime()
-            showPicker = true
-        } label: {
-            Text(value ?? placeholder)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(value == nil
-                    ? .white.opacity(TextOpacity.tertiary)
-                    : .white)
-        }
-        .popover(isPresented: $showPicker) {
-            VStack(spacing: 12) {
-                DatePicker("Time", selection: $draft, displayedComponents: [.hourAndMinute])
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                HStack {
-                    if value != nil {
-                        Button("Clear") {
-                            onChange(nil)
-                            showPicker = false
-                        }
-                        .tint(.red)
-                    }
-                    Spacer()
-                    Button("Cancel") { showPicker = false }
-                    Button("Save") {
-                        onChange(formatTime(draft))
-                        showPicker = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(16)
-            .presentationCompactAdaptation(.popover)
-        }
-    }
-
-    private func parseTime(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        return AppDateFormatters.HHmm.date(from: value)
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        AppDateFormatters.HHmm.string(from: date)
-    }
-
-    private func defaultTime() -> Date {
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        components.hour = 9
-        components.minute = 0
-        return Calendar.current.date(from: components) ?? Date()
-    }
-}
-
-// MARK: - Flow Layout for labels
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (positions: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var maxX: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            maxX = max(maxX, x)
-        }
-
-        return (positions, CGSize(width: maxX, height: y + rowHeight))
     }
 }

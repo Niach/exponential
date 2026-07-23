@@ -1,51 +1,46 @@
 package com.exponential.app.ui.issue
 
-import com.exponential.app.ui.parseColor
-
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.theme.LabelPalette
+import com.exponential.app.ui.theme.TextEmphasis
 
-private val SUGGESTED_COLORS = listOf(
-    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
-    "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
-    "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
-    "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
-)
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/**
+ * Searchable multi-toggle label sheet (EXP-240): dot + name rows that toggle
+ * without dismissing, plus a one-tap `+ Create new label "query"` row when the
+ * query matches no existing name (case-insensitive exact) — color picked
+ * deterministically via [LabelPalette.autoColor], no swatch strip. The
+ * signature is unchanged (incl. `onCreate(name, color)`) so CreateIssueScreen
+ * keeps compiling against it.
+ */
 @Composable
 fun LabelPickerSheet(
     teamLabels: List<LabelEntity>,
@@ -54,88 +49,76 @@ fun LabelPickerSheet(
     onCreate: (String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var newName by remember { mutableStateOf("") }
-    var newColor by remember { mutableStateOf(SUGGESTED_COLORS.first()) }
+    var query by remember { mutableStateOf("") }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-    ) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-            Text("Labels", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.size(12.dp))
+    val filtered = remember(teamLabels, query) {
+        val q = query.trim()
+        if (q.isEmpty()) teamLabels
+        else teamLabels.filter { it.name.contains(q, ignoreCase = true) }
+    }
+    val trimmedQuery = query.trim()
+    val hasExactMatch = remember(teamLabels, trimmedQuery) {
+        teamLabels.any { it.name.equals(trimmedQuery, ignoreCase = true) }
+    }
 
-            teamLabels.forEach { label ->
+    GlassSheet(title = "Labels", onDismiss = onDismiss) {
+        GlassSheetSearchField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "Search or create labels",
+        )
+        Spacer(Modifier.height(4.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            filtered.forEach { label ->
                 val selected = label.id in selectedLabelIds
-                Row(
+                GlassSheetRow(
+                    label = label.name,
+                    selected = selected,
+                    leading = {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(parseColor(label.color), CircleShape),
+                        )
+                    },
+                    // Multi-toggle: the sheet stays open across taps.
+                    onClick = { onToggle(label.id, selected) },
+                )
+            }
+            if (trimmedQuery.isNotEmpty() && !hasExactMatch) {
+                GlassSheetRow(
+                    label = "Create new label “$trimmedQuery”",
+                    leading = {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    },
+                    labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    onClick = {
+                        onCreate(trimmedQuery, LabelPalette.autoColor(trimmedQuery))
+                        query = ""
+                    },
+                )
+            }
+            if (filtered.isEmpty() && trimmedQuery.isEmpty()) {
+                Text(
+                    "No labels yet — type a name to create one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onToggle(label.id, selected) }
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .background(parseColor(label.color), CircleShape),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(label.name, modifier = Modifier.weight(1f))
-                    if (selected) {
-                        Icon(
-                            Icons.Filled.Check,
-                            null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                )
             }
-
-            Spacer(Modifier.size(16.dp))
-            Text(
-                "New label",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.size(6.dp))
-            OutlinedTextField(
-                value = newName,
-                onValueChange = { newName = it },
-                placeholder = { Text("Label name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.size(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SUGGESTED_COLORS.forEach { color ->
-                    val selected = color == newColor
-                    Box(
-                        modifier = Modifier
-                            .size(if (selected) 28.dp else 22.dp)
-                            .background(parseColor(color), CircleShape)
-                            .clickable { newColor = color },
-                    )
-                }
-            }
-            Spacer(Modifier.size(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(
-                    enabled = newName.isNotBlank(),
-                    onClick = {
-                        onCreate(newName, newColor)
-                        newName = ""
-                    },
-                ) {
-                    Icon(Icons.Filled.Add, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Create label")
-                }
-            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
