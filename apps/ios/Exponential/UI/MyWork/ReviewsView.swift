@@ -143,13 +143,13 @@ struct ReviewsListContent: View {
         // The Review detail (the diff + Merge/Close screen) is what a reviewer
         // wants first (EXP-168); the issue itself is one tap away in the menu.
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
-            HStack(alignment: .top, spacing: 10) {
-                // PR glyph — the in_review status icon, green (EXP-120/131).
+            HStack(alignment: .center, spacing: 10) {
+                // PR glyph — the in_review status icon, green, vertically
+                // centered like the Android row (EXP-248).
                 Image(systemName: IssueStatus.inReview.sfSymbol)
                     .font(.caption)
                     .foregroundStyle(IssueStatus.inReview.color)
                     .frame(width: 16)
-                    .padding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 3) {
                     if entry.isBatch {
@@ -184,18 +184,33 @@ struct ReviewsListContent: View {
                     }
 
                     if let branch = entry.branch, !branch.isEmpty {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.caption2)
-                            Text(branch)
-                                .font(.caption.monospaced())
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        Text(branch)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+
+                // Inline merge — same confirm-gated flow as the swipe action
+                // (EXP-248: uniform with the web/Android review rows).
+                Button {
+                    mergeTarget = entry
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.merge")
+                            .font(.caption2)
+                        Text("Merge")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                }
+                .buttonStyle(.borderless)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -206,7 +221,7 @@ struct ReviewsListContent: View {
             Button { mergeTarget = entry } label: {
                 Label("Merge", systemImage: "arrow.triangle.merge")
             }
-            .tint(.green)
+            .tint(DesignTokens.Semantic.green)
         }
         .contextMenu {
             Button {

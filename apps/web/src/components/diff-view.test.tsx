@@ -89,6 +89,27 @@ describe(`FileDiffList`, () => {
     expect(screen.getByText(`line 550`)).toBeTruthy()
   })
 
+  it(`review mode: slim totals row + all files collapsed (EXP-248)`, () => {
+    render(
+      <FileDiffList
+        files={[smallFile, binaryFile]}
+        showFileNav={false}
+        defaultCollapsed
+      />
+    )
+
+    // Totals row replaces the jump-list card — no per-file nav buttons.
+    expect(screen.getByText(`2 files changed`)).toBeTruthy()
+    expect(screen.getAllByText(`example.ts`).length).toBe(1)
+
+    // Even the small file starts collapsed…
+    expect(screen.queryByText(`@@ -1,2 +1,3 @@`)).toBeNull()
+
+    // …and expands on demand.
+    fireEvent.click(screen.getByRole(`button`, { name: /example\.ts/ }))
+    expect(screen.getByText(`@@ -1,2 +1,3 @@`)).toBeTruthy()
+  })
+
   it(`shows a note instead of rows for files without a textual diff`, () => {
     render(<FileDiffList files={[binaryFile]} />)
 

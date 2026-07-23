@@ -1,21 +1,12 @@
 import { useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import {
-  ExternalLink,
-  GitMerge,
-  GitPullRequest,
-  Loader2,
-  X,
-} from "lucide-react"
+import { GitMerge, GitPullRequest, Loader2 } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import { EmptyState } from "@/components/empty-state"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import { getInitials } from "@/lib/utils"
-import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -60,7 +51,6 @@ function ReviewsPage() {
     count,
     isLoading,
     externalLoading,
-    userMap,
     removeExternalPull,
   } = useReviewsData(team)
 
@@ -68,15 +58,12 @@ function ReviewsPage() {
   // merge (keyed by entry.key). A successful merge keeps its spinner until the
   // Electric echo flips prState and the entry leaves the list; external PRs
   // have no echo and are removed locally on success.
+  // Closing without merging lives on the review-detail page (EXP-248) — list
+  // rows offer merge only, matching the iOS/Android review rows.
   const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
-  // The reject path (EXP-100): close WITHOUT merging — deliberately subtle
-  // (hover-revealed ghost ×); merge stays the primary action. Same spinner
-  // semantics as merge: success waits for the Electric echo to drop the entry.
-  const [closeTarget, setCloseTarget] = useState<ReviewEntry | null>(null)
-  const [closingIds, setClosingIds] = useState<Set<string>>(new Set())
 
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
@@ -98,22 +85,6 @@ function ReviewsPage() {
       // The global mutation toast already surfaced the error; just unstick
       // the row spinner so the merge can be retried.
       setMergingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(entry.key)
-        return next
-      })
-    })
-  }
-
-  const confirmClose = () => {
-    const entry = closeTarget
-    if (!entry) return
-    setCloseTarget(null)
-    setClosingIds((prev) => new Set(prev).add(entry.key))
-    trpc.issues.closePr.mutate({ issueId: entry.issue.id }).catch(() => {
-      // The global mutation toast already surfaced the error; just unstick
-      // the row spinner so the close can be retried.
-      setClosingIds((prev) => {
         const next = new Set(prev)
         next.delete(entry.key)
         return next
@@ -204,15 +175,11 @@ function ReviewsPage() {
               {group.entries.map((entry) => {
                 const issue = entry.issue
                 const isBatch = entry.issues.length > 1
-                const assignee = issue.assigneeId
-                  ? userMap.get(issue.assigneeId)
-                  : undefined
                 const merging = mergingIds.has(entry.key)
-                const closing = closingIds.has(entry.key)
                 return (
                   <div
                     key={entry.key}
-                    className="group/row grid h-11 cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 hover:bg-muted/50"
+                    className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-1.5 hover:bg-muted/50"
                     onClick={() => openReview(issue.identifier)}
                     data-testid={`review-row-${issue.identifier}`}
                   >
@@ -222,106 +189,48 @@ function ReviewsPage() {
                         ? `#${issue.prNumber}`
                         : issue.identifier}
                     </span>
-                    <span className="min-w-0 truncate pr-2 text-sm">
-                      {isBatch ? (
+                    <div className="min-w-0 pr-2">
+                      <div className="truncate text-sm">
+                        {isBatch ? (
+                          <>
+                            {`${entry.issues.length} issues`}
+                            <span className="ml-2 font-mono text-xs text-muted-foreground">
+                              {entry.issues
+                                .map((linked) => linked.identifier)
+                                .join(`, `)}
+                            </span>
+                          </>
+                        ) : (
+                          issue.title
+                        )}
+                      </div>
+                      {issue.branch && (
+                        <div className="truncate font-mono text-xs text-muted-foreground">
+                          {issue.branch}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={merging}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMergeTarget(entry)
+                      }}
+                    >
+                      {merging ? (
                         <>
-                          {`${entry.issues.length} issues`}
-                          <span className="ml-2 font-mono text-xs text-muted-foreground">
-                            {entry.issues
-                              .map((linked) => linked.identifier)
-                              .join(`, `)}
-                          </span>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Merging…
                         </>
                       ) : (
-                        issue.title
+                        <>
+                          <GitMerge className="h-3.5 w-3.5" />
+                          Merge
+                        </>
                       )}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {issue.branch && (
-                        <Badge
-                          variant="outline"
-                          className="hidden font-mono text-xs md:inline-flex"
-                        >
-                          {issue.branch}
-                        </Badge>
-                      )}
-                      {issue.prUrl && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          aria-label="Open pull request on GitHub"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            window.open(
-                              issue.prUrl ?? ``,
-                              `_blank`,
-                              `noopener,noreferrer`
-                            )
-                          }}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {assignee && (
-                        <Avatar className="size-5">
-                          {assignee.image && (
-                            <AvatarImage
-                              src={assignee.image}
-                              alt={displayUserName(assignee, assignee.id)}
-                            />
-                          )}
-                          <AvatarFallback className="text-[0.625rem]">
-                            {getInitials(
-                              displayUserName(assignee, assignee.id)
-                            )}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`h-7 w-7 text-muted-foreground ${
-                          closing
-                            ? ``
-                            : `md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100`
-                        }`}
-                        aria-label="Close pull request without merging"
-                        title="Close PR without merging"
-                        disabled={merging || closing}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setCloseTarget(entry)
-                        }}
-                      >
-                        {closing ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <X className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={merging || closing}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setMergeTarget(entry)
-                        }}
-                      >
-                        {merging ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Merging…
-                          </>
-                        ) : (
-                          <>
-                            <GitMerge className="h-3.5 w-3.5" />
-                            Merge
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    </Button>
                   </div>
                 )
               })}
@@ -347,7 +256,7 @@ function ReviewsPage() {
                 return (
                   <div
                     key={pull.number}
-                    className="group/row grid h-11 cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 hover:bg-muted/50"
+                    className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-1.5 hover:bg-muted/50"
                     onClick={() =>
                       window.open(pull.url, `_blank`, `noopener,noreferrer`)
                     }
@@ -357,68 +266,44 @@ function ReviewsPage() {
                     <span className="truncate font-mono text-xs text-muted-foreground">
                       #{pull.number}
                     </span>
-                    <span className="min-w-0 truncate pr-2 text-sm">
-                      {pull.title}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {pull.draft && <Badge variant="secondary">Draft</Badge>}
+                    <div className="min-w-0 pr-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-sm">
+                          {pull.title}
+                        </span>
+                        {pull.draft && <Badge variant="secondary">Draft</Badge>}
+                      </div>
                       {pull.branch && (
-                        <Badge
-                          variant="outline"
-                          className="hidden font-mono text-xs md:inline-flex"
-                        >
+                        <div className="truncate font-mono text-xs text-muted-foreground">
                           {pull.branch}
-                        </Badge>
+                        </div>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        aria-label="Open pull request on GitHub"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          window.open(pull.url, `_blank`, `noopener,noreferrer`)
-                        }}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                      {pull.authorAvatarUrl && (
-                        <Avatar className="size-5">
-                          <AvatarImage
-                            src={pull.authorAvatarUrl}
-                            alt={pull.authorLogin ?? `PR author`}
-                          />
-                          <AvatarFallback className="text-[0.625rem]">
-                            {getInitials(pull.authorLogin ?? `?`)}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={merging || pull.draft}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setExternalMergeTarget({
-                            repositoryId: group.repositoryId,
-                            fullName: group.fullName,
-                            pull,
-                          })
-                        }}
-                      >
-                        {merging ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Merging…
-                          </>
-                        ) : (
-                          <>
-                            <GitMerge className="h-3.5 w-3.5" />
-                            Merge
-                          </>
-                        )}
-                      </Button>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={merging || pull.draft}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setExternalMergeTarget({
+                          repositoryId: group.repositoryId,
+                          fullName: group.fullName,
+                          pull,
+                        })
+                      }}
+                    >
+                      {merging ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Merging…
+                        </>
+                      ) : (
+                        <>
+                          <GitMerge className="h-3.5 w-3.5" />
+                          Merge
+                        </>
+                      )}
+                    </Button>
                   </div>
                 )
               })}
@@ -455,39 +340,6 @@ function ReviewsPage() {
               Cancel
             </Button>
             <Button onClick={confirmMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={closeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setCloseTarget(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {closeTarget && closeTarget.issues.length > 1
-                ? `Close PR #${closeTarget.issue.prNumber}?`
-                : `Close ${closeTarget?.issue.identifier}'s pull request?`}
-            </DialogTitle>
-            <DialogDescription>
-              {`Closes pull request #${closeTarget?.issue.prNumber} (${closeTarget?.issue.branch}) on GitHub WITHOUT merging — use this when the issue was dropped even though the work exists. The branch is kept; the PR can be reopened on GitHub.`}
-              {closeTarget && closeTarget.issues.length > 1
-                ? ` The PR is linked to ${closeTarget.issues.length} issues: ${closeTarget.issues
-                    .map((linked) => linked.identifier)
-                    .join(`, `)}.`
-                : ``}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCloseTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmClose}>
-              Close pull request
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

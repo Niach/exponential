@@ -50,8 +50,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
 /**
@@ -174,11 +176,12 @@ private fun ReviewRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // PR glyph — green like the iOS/web review rows (EXP-248).
         Icon(
             Icons.AutoMirrored.Filled.CallMerge,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            tint = DesignTokens.Semantic.Green,
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -238,6 +241,30 @@ private fun ReviewRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        Spacer(Modifier.width(6.dp))
+        // Inline merge — same confirm-gated flow as the long-press sheet
+        // (EXP-248: uniform with the web/iOS review rows).
+        Row(
+            modifier = Modifier
+                .glassButton()
+                .clickable(onClick = onMerge)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.CallMerge,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "Merge",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
         }
         Spacer(Modifier.width(6.dp))
         Icon(

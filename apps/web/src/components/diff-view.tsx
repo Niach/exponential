@@ -452,8 +452,18 @@ function FileNav({
 // Shared file-patch list — reused by the PR-diff tier (this file's DiffView)
 // and the pushed-branch-no-PR tier (the review-detail route's BranchDiffSection),
 // both of which get their files in the same `PullFile[]` shape (github-pr.ts /
-// github-app.ts).
-export function FileDiffList({ files }: { files: PullFile[] }) {
+// github-app.ts). The review-detail route passes `showFileNav={false}` +
+// `defaultCollapsed` to match the iOS/Android review layout (EXP-248): a slim
+// totals row instead of the jump-list card, every file starting closed.
+export function FileDiffList({
+  files,
+  showFileNav = true,
+  defaultCollapsed = false,
+}: {
+  files: PullFile[]
+  showFileNav?: boolean
+  defaultCollapsed?: boolean
+}) {
   // Sparse user overrides on top of size-based defaults, keyed by filename —
   // a tier-3 refresh replaces `files` without discarding the user's toggles.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
@@ -462,10 +472,13 @@ export function FileDiffList({ files }: { files: PullFile[] }) {
   const defaults = useMemo(() => {
     const map = new Map<string, boolean>()
     for (const f of files) {
-      map.set(f.filename, patchLineCount(f.patch) <= COLLAPSE_THRESHOLD)
+      map.set(
+        f.filename,
+        !defaultCollapsed && patchLineCount(f.patch) <= COLLAPSE_THRESHOLD
+      )
     }
     return map
-  }, [files])
+  }, [files, defaultCollapsed])
 
   const jumpTo = (filename: string) => {
     setOverrides((prev) => ({ ...prev, [filename]: true }))
@@ -477,9 +490,22 @@ export function FileDiffList({ files }: { files: PullFile[] }) {
     })
   }
 
+  const totalAdditions = files.reduce((n, f) => n + f.additions, 0)
+  const totalDeletions = files.reduce((n, f) => n + f.deletions, 0)
+
   return (
     <div className="space-y-2 p-3">
-      {files.length > 1 && <FileNav files={files} onJump={jumpTo} />}
+      {showFileNav ? (
+        files.length > 1 && <FileNav files={files} onJump={jumpTo} />
+      ) : (
+        <div className="flex items-center gap-2 px-1 text-xs">
+          <span className="font-medium">
+            {files.length === 1 ? `1 file changed` : `${files.length} files changed`}
+          </span>
+          <span className="ml-auto" />
+          <AddDelCounts additions={totalAdditions} deletions={totalDeletions} />
+        </div>
+      )}
       {files.map((f) => (
         <div
           key={f.filename}
@@ -502,7 +528,15 @@ export function FileDiffList({ files }: { files: PullFile[] }) {
   )
 }
 
-export function DiffView({ issueId }: { issueId: string }) {
+export function DiffView({
+  issueId,
+  showFileNav,
+  defaultCollapsed,
+}: {
+  issueId: string
+  showFileNav?: boolean
+  defaultCollapsed?: boolean
+}) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<PullFile[]>([])
@@ -550,5 +584,11 @@ export function DiffView({ issueId }: { issueId: string }) {
     )
   }
 
-  return <FileDiffList files={files} />
+  return (
+    <FileDiffList
+      files={files}
+      showFileNav={showFileNav}
+      defaultCollapsed={defaultCollapsed}
+    />
+  )
 }

@@ -127,7 +127,7 @@ function BranchDiffSection({
             <RotateCw className="size-3.5" />
           </Button>
         </div>
-        <FileDiffList files={branch.files} />
+        <FileDiffList files={branch.files} showFileNav={false} defaultCollapsed />
       </div>
     )
   }
@@ -297,45 +297,6 @@ function ReviewDetailPage() {
             {issue.branch}
           </span>
         )}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {isOpen && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground"
-                aria-label="Close pull request without merging"
-                title="Close PR without merging"
-                disabled={merging || closing}
-                onClick={() => setConfirmCloseOpen(true)}
-              >
-                {closing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <X className="h-3.5 w-3.5" />
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={merging || closing}
-                onClick={() => setConfirmMergeOpen(true)}
-              >
-                {merging ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Merging…
-                  </>
-                ) : (
-                  <>
-                    <GitMerge className="h-3.5 w-3.5" />
-                    Merge
-                  </>
-                )}
-              </Button>
-            </>
-          )}
-        </div>
       </div>
 
       {/* Linked-issue chips (batch PRs) */}
@@ -358,14 +319,71 @@ function ReviewDetailPage() {
         </div>
       )}
 
-      {/* Diff body */}
-      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto">
+      {/* Diff body — bottom padding clears the floating action bar */}
+      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto pb-24">
         {issue.prNumber != null ? (
-          <DiffView issueId={issue.id} />
+          <DiffView issueId={issue.id} showFileNav={false} defaultCollapsed />
         ) : (
           <BranchDiffSection issueId={issue.id} identifier={issue.identifier} />
         )}
       </div>
+
+      {/* Floating action bar (EXP-248) — dismiss · Merge · GitHub, matching the
+          mobile clients' review-detail bar and the app's glass-pill chrome. */}
+      {(isOpen || issue.prUrl) && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex items-center justify-center gap-3 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          {isOpen && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="pointer-events-auto size-11 rounded-full border border-white/10 bg-zinc-900/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-zinc-800/85 hover:text-foreground"
+              aria-label="Close pull request without merging"
+              title="Close PR without merging"
+              disabled={merging || closing}
+              onClick={() => setConfirmCloseOpen(true)}
+            >
+              {closing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <X className="size-4" />
+              )}
+            </Button>
+          )}
+          {isOpen && (
+            <Button
+              className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+              disabled={merging || closing}
+              onClick={() => setConfirmMergeOpen(true)}
+            >
+              {merging ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Merging…
+                </>
+              ) : (
+                <>
+                  <GitMerge className="size-4" />
+                  Merge
+                </>
+              )}
+            </Button>
+          )}
+          {issue.prUrl && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="pointer-events-auto size-11 rounded-full border border-white/10 bg-zinc-900/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-zinc-800/85 hover:text-foreground"
+              aria-label="Open pull request on GitHub"
+              title="Open PR on GitHub"
+              onClick={() =>
+                window.open(issue.prUrl ?? ``, `_blank`, `noopener,noreferrer`)
+              }
+            >
+              <ExternalLink className="size-4" />
+            </Button>
+          )}
+        </div>
+      )}
 
       <Dialog open={confirmMergeOpen} onOpenChange={setConfirmMergeOpen}>
         <DialogContent>

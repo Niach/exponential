@@ -97,7 +97,9 @@ final class ChangesViewModel {
             } else {
                 files = try await repositoriesApi.branchDiff(accountId: accountId, issueId: issueId)?.files ?? []
             }
-            expanded = files.count <= 3 ? Set(files.map(\.filename)) : []
+            // Every file starts collapsed (EXP-248) — uniform with the web
+            // and Android review detail.
+            expanded = []
             load = .loaded(files)
         } catch {
             load = .failed(error.localizedDescription)
@@ -163,9 +165,10 @@ final class ChangesViewModel {
 }
 
 /// The dedicated diff + review page (EXP-34/156): summary header (branch,
-/// PR-state badge, totals, GitHub link, and — for members on an open PR —
-/// Merge / Close PR actions) + per-file expandable unified patches with the
-/// shared DiffRendering coloring. Pushed from AgentPrCard's PR / branch rows.
+/// PR-state badge, totals) + per-file expandable unified patches with the
+/// shared DiffRendering coloring, with the review actions (Merge / Close /
+/// GitHub) in a floating bottom bar (EXP-248 — uniform with web/Android).
+/// Pushed from AgentPrCard's PR / branch rows.
 /// Horizontal panning stays inside each file's code block — the page itself
 /// never scrolls sideways. Matches the Android ChangesScreen's hierarchy.
 struct ChangesView: View {
@@ -190,6 +193,13 @@ struct ChangesView: View {
         .navigationTitle("Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // Floating review actions (EXP-248) — reserves scroll clearance like
+        // the issue-detail bottom bar.
+        .safeAreaInset(edge: .bottom) {
+            if let vm = viewModel {
+                changesBottomBar(vm)
+            }
+        }
         .onAppear {
             if viewModel == nil {
                 viewModel = ChangesViewModel(
@@ -245,11 +255,11 @@ struct ChangesView: View {
         }()
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                // The PR/branch header + review actions come from synced issue
-                // fields, so they render in EVERY load state — a diff-fetch
-                // failure must never strand a member without Merge / Close
-                // (Close exists nowhere else on iOS). The stats line only shows
-                // once files are loaded.
+                // The PR/branch header (and the floating action bar below)
+                // come from synced issue fields, so they render in EVERY load
+                // state — a diff-fetch failure must never strand a member
+                // without Merge / Close (Close exists nowhere else on iOS).
+                // The stats line only shows once files are loaded.
                 if vm.issue != nil {
                     summaryHeader(vm: vm, files: loadedFiles)
                 }
@@ -325,75 +335,107 @@ struct ChangesView: View {
                 }
                 Spacer()
             }
-            prActionsRow(vm: vm)
+            if let actionError = vm.actionError {
+                Text(actionError)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .glassSection()
     }
 
-    /// Review actions (EXP-156): Merge + a subtle Close PR for members on an
-    /// open PR, beside the "Open PR on GitHub" link. Hidden entirely when there
-    /// is no PR to act on.
+    // MARK: - Floating action bar
+
+    /// Review actions (EXP-248): a floating bottom bar matching the main
+    /// tab bar / issue-detail bar chrome — dismiss (icon), Merge (labeled,
+    /// center), open on GitHub (icon). Merge/dismiss show for members on an
+    /// open PR; the GitHub circle whenever a PR exists. Hidden entirely when
+    /// there is no PR to act on (pushed-branch tier).
     @ViewBuilder
-    private func prActionsRow(vm: ChangesViewModel) -> some View {
+    private func changesBottomBar(_ vm: ChangesViewModel) -> some View {
         let issue = vm.issue
         let canReview = vm.permissions.isMember
             && issue?.prState == DomainContract.prStateOpen
             && (issue?.prUrl?.isEmpty == false)
         let prURL = issue?.prUrl.flatMap { URL(string: $0) }
         if canReview || prURL != nil {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    if canReview {
-                        Button {
-                            mergeConfirm = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                if vm.merging {
-                                    ProgressView().controlSize(.mini).tint(.white)
-                                } else {
-                                    Image(systemName: "arrow.triangle.merge")
-                                        .font(.caption)
-                                }
-                                Text("Merge")
-                                    .font(.caption.weight(.medium))
+            HStack(spacing: 12) {
+                if canReview {
+                    Button {
+                        closeConfirm = true
+                    } label: {
+                        barCircle {
+                            if vm.closing {
+                                ProgressView().controlSize(.small).tint(.white)
+                            } else {
+                                Image(systemName: "xmark")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
                         }
-                        .glassButton()
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .disabled(vm.merging || vm.closing)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(vm.merging || vm.closing)
+                    .accessibilityLabel("Close PR without merging")
 
-                        if vm.closing {
-                            ProgressView().controlSize(.mini).tint(.white)
-                        } else {
-                            Button {
-                                closeConfirm = true
-                            } label: {
-                                Text("Close PR")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Button {
+                        mergeConfirm = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            if vm.merging {
+                                ProgressView().controlSize(.small).tint(.white)
+                            } else {
+                                Image(systemName: "arrow.triangle.merge")
+                                    .font(.body.weight(.medium))
                             }
-                            .buttonStyle(.plain)
-                            .disabled(vm.merging)
+                            Text("Merge")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 28)
+                        .frame(height: 52)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(
+                            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(vm.merging || vm.closing)
+                    .accessibilityLabel("Merge pull request")
+                }
+
+                if let prURL {
+                    Link(destination: prURL) {
+                        barCircle {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                     }
-                    Spacer()
-                    if let prURL {
-                        Link("Open PR on GitHub", destination: prURL)
-                            .font(.caption)
-                    }
-                }
-                if let actionError = vm.actionError {
-                    Text(actionError)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open PR on GitHub")
                 }
             }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
         }
+    }
+
+    /// Icon-only circle — same chrome as MobileTabBar / IssueDetailBottomBar
+    /// (ultraThinMaterial, white-12% hairline, soft shadow).
+    private func barCircle<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(width: 52, height: 52)
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(
+                Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+            .contentShape(Circle())
     }
 
     // MARK: - Per-file section
