@@ -16,6 +16,7 @@ import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
+import { WebMcpProvider } from "@/components/webmcp-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import { MentionProvider } from "@/components/mention-provider"
 import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
@@ -123,6 +124,7 @@ function TeamLayout() {
               survives $teamSlug param changes and pins to the viewport. */}
           <AgentDockProvider teamId={team?.id ?? ``}>
             <FeedbackWidgetProvider />
+            {team && user && <WebMcpProvider team={team} user={user} />}
             <TeamSidebar
               teamSlug={teamSlug}
               team={team}
