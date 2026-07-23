@@ -57,7 +57,14 @@ function SheetContent({
       {/* The overlay doubles as a Close trigger: Radix's outside-dismiss
           waits for a `click` after pointerdown, which iOS Safari never
           synthesizes on non-interactive elements — so bottom sheets were
-          undismissable by tapping outside on mobile web (EXP-247). */}
+          undismissable by tapping outside on mobile web (EXP-247).
+          CAVEAT: this calls onOpenChange(false) on the Root directly, i.e.
+          OUTSIDE the DismissableLayer, so a SheetContent's
+          `onInteractOutside` + preventDefault no longer blocks an overlay
+          tap. Every current consumer wants outside-dismiss, and the one
+          guard that matters (issue-editor/dialog-shell.tsx) re-checks at
+          the Root — but if you need to veto a dismissal, do it there, not
+          with onInteractOutside. */}
       <SheetPrimitive.Close asChild>
         <SheetOverlay />
       </SheetPrimitive.Close>

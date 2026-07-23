@@ -146,7 +146,11 @@ export function BulkActionBar({
     if (ran) onClear()
   }
 
-  const isSolo = users.length <= 1
+  // Exactly one, not `<= 1` — same contract as the list's assignee column
+  // (issue-list.tsx): `users` length 0 means the member list is still
+  // syncing, and treating that as solo made the Assignee button vanish and
+  // reappear on a genuine multi-member team.
+  const isSolo = users.length === 1
 
   return (
     <div
