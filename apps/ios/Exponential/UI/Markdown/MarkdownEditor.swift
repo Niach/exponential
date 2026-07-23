@@ -327,7 +327,12 @@ private struct BlockTextEditor: UIViewRepresentable {
         // TextKit 1 fallback (EXP-246).
         let storage = NSTextStorage()
         let layoutManager = MarkdownLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: 0, height: .greatestFiniteMagnitude))
+        // `CGFloat.` spelled out: a bare `.greatestFiniteMagnitude` next to the
+        // untyped `0` leaves the CGSize overload unpinned and the literal is
+        // ambiguous between CGFloat and Double, which fails to compile.
+        let container = NSTextContainer(
+            size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        )
         container.widthTracksTextView = true
         layoutManager.addTextContainer(container)
         storage.addLayoutManager(layoutManager)
