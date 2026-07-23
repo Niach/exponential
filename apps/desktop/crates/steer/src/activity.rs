@@ -98,6 +98,13 @@ const GIT_CREDENTIALS_FILE: &str = "exp-git-credentials";
 /// the web / iOS / Android agent-session views.
 pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
 
+/// Substring identifying claude's "refine with Ultraplan on Claude Code on
+/// the web" plan-picker option (key "3" on v2.1.211+). We strip it from the
+/// remotely-offered plan-approval options — it hands the plan off to
+/// claude.ai instead of approving/refining locally, which is not a safe
+/// thing for a remote steerer to trigger blind.
+const ULTRAPLAN_WEB_OPTION: &str = "Claude Code on the web";
+
 /// Answered-question narration prefix (EXP-197). When the transcript flushes
 /// an answered `AskUserQuestion` (claude withholds the entry until the picker
 /// resolves), the emitter publishes one `Question answered: <answer>`
@@ -898,9 +905,17 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                         .map(|raw| truncate(&redactor.redact(&raw), QUESTION_TEXT_MAX))
                         .filter(|t| !t.trim().is_empty())
                         .unwrap_or_else(|| "Plan ready for approval.".to_string());
+                    // Drop the "refine with Ultraplan on Claude Code on the
+                    // web" option (key "3" on claude v2.1.211+): it bounces
+                    // planning to claude.ai and is not something we want a
+                    // remote steerer to trigger — same stance the transcript
+                    // fallback (`parse_exit_plan_mode`) already takes. The
+                    // remaining options keep their real key numbers, so the
+                    // keystroke sent to the PTY still lands on the right row.
                     let options = snapshot
                         .options
                         .into_iter()
+                        .filter(|o| !o.label.contains(ULTRAPLAN_WEB_OPTION))
                         .take(QUESTION_OPTIONS_MAX)
                         .map(|o| QuestionOption {
                             label: truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),

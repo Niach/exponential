@@ -26,7 +26,22 @@ use crate::frames::QuestionOption;
 /// The anchor phrases that mark a plan-approval picker. A numbered list
 /// alone is NOT enough (a plan body usually contains one) — options are only
 /// trusted when one of these lines sits above them on the same screen.
-const ANCHORS: &[&str] = &["Ready to code?", "Exit plan mode?", "wants to exit plan mode"];
+///
+/// `"Ready to code?"` renders at the TOP of the plan card, so on a long plan
+/// it scrolls off the visible grid before the options reach the bottom —
+/// which used to make `detect` miss the picker entirely. `"written up a
+/// plan"` (from the sentence `claude` pins directly above the options —
+/// "Claude has written up a plan and is ready to execute. Would you like to
+/// proceed?") never scrolls off, so it catches long plans. We anchor on
+/// `"written up a plan"` rather than `"Would you like to proceed?"` because
+/// `claude` word-wraps the latter across two grid rows, defeating
+/// `line.contains`.
+const ANCHORS: &[&str] = &[
+    "Ready to code?",
+    "written up a plan",
+    "Exit plan mode?",
+    "wants to exit plan mode",
+];
 
 /// The selection cursor `claude` renders on the highlighted option row —
 /// required once per option run so echoed markdown can never look like a
@@ -267,6 +282,35 @@ mod tests {
         );
         // The plan-box cross-check line skips the rule row.
         assert_eq!(snap.plan_box_first_line.as_deref(), Some("## Plan"));
+    }
+
+    #[test]
+    fn detects_the_picker_when_ready_to_code_has_scrolled_off() {
+        // A long plan pushes the top-of-card "Ready to code?" header above the
+        // visible grid; only the sentence claude pins directly over the
+        // options survives. Detection must still fire via the "written up a
+        // plan" anchor (regression: long batch plans showed nothing remotely).
+        let lines = screen(&[
+            "   (…top of the plan has scrolled off…)",
+            "- EXP-241: keep the Start-coding sheet rows in place on tap.",
+            "- EXP-239: add the mobile bulk-select bar.",
+            "────────────────────────────────────────",
+            " Claude has written up a plan and is ready to execute. Would you like to",
+            " proceed?",
+            "",
+            " ❯ 1. Yes, auto-accept edits",
+            "   2. Yes, manually approve edits",
+            "   3. No, refine with Ultraplan on Claude Code on the web",
+            "   4. Tell Claude what to change",
+            "     shift+tab to approve with this feedback",
+            " ctrl+g to edit Vim · ~/.claude/plans/some-slug.md",
+        ]);
+        // "Ready to code?" is NOT on this screen.
+        assert!(!lines.iter().any(|l| l.contains("Ready to code?")));
+        let snap = detect(&lines).expect("picker detected via the bottom anchor");
+        assert_eq!(snap.options.len(), 4);
+        assert_eq!(snap.options[0].key, "1");
+        assert_eq!(snap.options[3].key, "4");
     }
 
     #[test]
