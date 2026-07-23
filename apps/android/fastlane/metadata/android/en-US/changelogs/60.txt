@@ -1,0 +1,1 @@
+Multi-select refinements, a reworked review screen, steering that reconnects on its own — plus a fix for issue rows changing size when you enter selection mode.
