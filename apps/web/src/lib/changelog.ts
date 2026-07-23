@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-mobile-detail-live-support`,
+    date: `2026-07-23`,
+    title: `Redesigned issue view on mobile, live support chat`,
+    summary: `A reworked issue screen on iOS and Android, start coding from your phone, and live support conversations.`,
+    body: `- **Reworked issue detail on mobile** — iOS and Android get a cleaner issue screen: a bottom action bar, tidier property and label pickers, due-date and assignee sheets, and a collapsible activity timeline.
+- **Start coding from iOS** — kick off a coding session on a connected desktop straight from the iOS app.
+- **Live support chat** — when a reporter has their support thread open, replies appear live and we hold back the email notification while they're watching.
+- **Resizable web terminal** — drag to resize the agent panel on the web, and it remembers your height.
+- **Desktop IDE tabs** — closing, middle-click, and right-click on editor tabs now feel like a real IDE.
+- **More reliable email** — hardened transactional email with automatic bounce and complaint handling.`,
+  },
+  {
     id: `2026-07-reliability-and-security`,
     date: `2026-07-22`,
     title: `Faster sync, tighter security, keyboard-driven search`,
