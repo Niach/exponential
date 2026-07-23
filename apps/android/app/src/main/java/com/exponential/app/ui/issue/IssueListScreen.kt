@@ -1046,11 +1046,16 @@ private enum class InlineKind { Status, Priority }
 private data class InlineEdit(val issueId: String, val kind: InlineKind)
 
 /**
- * A list-row status / priority glyph column (EXP-247): a fixed-width,
- * full-row-height box, and when [onClick] is non-null also its own tap target
- * that opens the inline picker and forwards long-press to the row's selection
- * gesture. Full-height (not a fixed square) so the touch target never grows
- * the row.
+ * A list-row status / priority glyph column (EXP-247): a 32dp-wide box the
+ * height of its own glyph, and when [onClick] is non-null also its own tap
+ * target that opens the inline picker and forwards long-press to the row's
+ * selection gesture.
+ *
+ * The [fillMaxHeight] is inert — every caller is a LazyColumn item, so the
+ * Row's incoming max height is Infinity and Compose skips the fill. It stays
+ * only as a no-op guard for a future bounded-height caller; the tap target is
+ * really 32dp x glyph height. Widen it with `heightIn(min = ...)`, never by
+ * relying on the fill.
  *
  * The column is the SAME width whether or not it is tappable (EXP-251).
  * Previously the non-tappable branches hand-rolled their own spacing — 26dp

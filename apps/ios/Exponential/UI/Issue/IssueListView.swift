@@ -545,7 +545,11 @@ struct IssueListView: View {
                 // synced) — hidden on solo teams, where every issue is the
                 // sole member's (EXP-247).
                 if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
-                    userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: 22)
+                    // Sized off the height floor rather than a fixed 22: the
+                    // floor scales with Dynamic Type, so a hard 22 would poke
+                    // above it at text sizes below default and make rows with
+                    // an assignee taller than rows without.
+                    userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: rowContentMinHeight)
                 }
             }
             .frame(minHeight: rowContentMinHeight)
