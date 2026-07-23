@@ -1,5 +1,5 @@
-// Tab presets and matchesFilters() are mirrored across three clients. If you
-// change the active/backlog status mapping or the filter shape here, also
+// The IssueFilters shape and matchesFilters() are mirrored across three
+// clients. If you change the filter shape or matching semantics here, also
 // update apps/ios/Exponential/Domain/IssueFilters.swift and
 // apps/android/app/src/main/java/com/exponential/app/domain/IssueFilters.kt
 // to keep the three clients in sync (no shared package yet).
@@ -17,32 +17,6 @@ export const emptyFilters: IssueFilters = {
   statuses: [],
   priorities: [],
   labelIds: [],
-}
-
-export type TabPreset = `all` | `active` | `backlog`
-
-export const tabPresetStatuses: Record<TabPreset, IssueStatus[]> = {
-  all: [],
-  active: [`in_progress`, `in_review`, `todo`],
-  backlog: [`backlog`],
-}
-
-export function deriveActiveTab(statuses: IssueStatus[]): TabPreset {
-  if (statuses.length === 0) return `all`
-  const sorted = [...statuses].sort()
-  const activeSorted = [...tabPresetStatuses.active].sort()
-  const backlogSorted = [...tabPresetStatuses.backlog].sort()
-  if (
-    sorted.length === activeSorted.length &&
-    sorted.every((s, i) => s === activeSorted[i])
-  )
-    return `active`
-  if (
-    sorted.length === backlogSorted.length &&
-    sorted.every((s, i) => s === backlogSorted[i])
-  )
-    return `backlog`
-  return `all`
 }
 
 export function matchesFilters(

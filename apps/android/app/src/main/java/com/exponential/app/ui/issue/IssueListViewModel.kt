@@ -24,16 +24,13 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.TeamPermissions
-import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
 import com.exponential.app.domain.sortIssuesForGroup
-import com.exponential.app.domain.statuses
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
@@ -68,7 +65,6 @@ private data class GroupedIssueState(
     val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
     val filters: IssueFilters = IssueFilters(),
-    val tab: FilterTab = FilterTab.All,
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
 )
@@ -77,7 +73,6 @@ data class IssueListState(
     val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
     val filters: IssueFilters = IssueFilters(),
-    val tab: FilterTab = FilterTab.All,
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
     val isCreating: Boolean = false,
@@ -268,7 +263,6 @@ class IssueListViewModel @Inject constructor(
             board = board,
             groups = grouped,
             filters = filters,
-            tab = deriveTab(filters.statuses),
             labels = labels,
             users = users,
         )
@@ -284,7 +278,6 @@ class IssueListViewModel @Inject constructor(
             board = grouped.board,
             groups = grouped.groups,
             filters = grouped.filters,
-            tab = grouped.tab,
             labels = grouped.labels,
             users = grouped.users,
             isCreating = busy,
@@ -340,7 +333,7 @@ class IssueListViewModel @Inject constructor(
      * AgentsViewModel.startCandidates but board-scoped (the bar lives on one
      * board, which also guarantees the one-repository-per-run rule). Built
      * from the RAW board issues, not the filtered groups, so the sheet's own
-     * search can reach issues the active tab preset hides.
+     * search can reach issues the active filters hide.
      */
     val startCandidates: StateFlow<List<StartIssueOption>> = combine(
         issuesForBoard,
@@ -515,10 +508,6 @@ class IssueListViewModel @Inject constructor(
                 all.firstOrNull { it.id == pid }
             }.collect { _board.value = it }
         }
-    }
-
-    fun setTab(tab: FilterTab) {
-        _filters.value = _filters.value.copy(statuses = tab.statuses())
     }
 
     fun setFilters(filters: IssueFilters) {

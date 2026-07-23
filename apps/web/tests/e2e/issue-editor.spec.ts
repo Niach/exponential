@@ -190,12 +190,17 @@ test(`creates and edits an issue through the shared issue editor`, async ({
     )
   ).toBeVisible()
 
-  await page.getByRole(`button`, { name: `Backlog` }).click()
+  // Filter to backlog-only via the filter popover (the tab presets are gone,
+  // EXP-251) — the done issue disappears; clearing the filter brings it back.
+  await page.getByRole(`button`, { name: `Filter` }).click()
+  await page.getByRole(`option`, { name: `Status` }).click()
+  await page.getByRole(`option`, { name: `Backlog` }).click()
+  await page.keyboard.press(`Escape`)
   await expect(
     page.locator(`[data-testid="issue-row-${identifier}"]`)
   ).toHaveCount(0)
 
-  await page.getByRole(`button`, { name: `All Issues` }).click()
+  await page.getByRole(`button`, { name: `Clear all` }).click()
   await expect(
     page.locator(
       `[data-testid="issue-group-done"] [data-testid="issue-row-${identifier}"]`

@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 
-// Linear-style floating bulk action bar: shown while the issue list has a
+// Bulk action bar: rendered by the board / My Issues views as an in-flow row
+// at the top of the list (in the header region) while the issue list has a
 // multi-selection. Property edits (status/priority/assignee/labels)
 // keep the selection alive — only delete clears it (Linear semantics; the
 // desktop bar mirrors this). Every mutation goes through the bulk tRPC
@@ -154,7 +155,7 @@ export function BulkActionBar({
 
   return (
     <div
-      className="pointer-events-auto flex items-center gap-1 rounded-xl border border-border/60 bg-popover/95 px-2 py-1.5 shadow-2xl"
+      className="flex items-center gap-1 rounded-lg border border-border/60 bg-popover/95 px-2 py-1.5"
       data-testid="bulk-action-bar"
     >
       <span className="px-1.5 text-xs font-medium whitespace-nowrap">
@@ -186,7 +187,7 @@ export function BulkActionBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          side="top"
+          side="bottom"
           align="start"
           collisionPadding={12}
           className="w-[11rem]"
@@ -225,7 +226,7 @@ export function BulkActionBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          side="top"
+          side="bottom"
           align="start"
           collisionPadding={12}
           className="w-[11rem]"
@@ -262,7 +263,7 @@ export function BulkActionBar({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            side="top"
+            side="bottom"
             align="start"
             collisionPadding={12}
             className="w-[13rem]"
@@ -306,7 +307,7 @@ export function BulkActionBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          side="top"
+          side="bottom"
           align="start"
           collisionPadding={12}
           className="w-[13rem]"
@@ -361,7 +362,7 @@ export function BulkActionBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          side="top"
+          side="bottom"
           align="end"
           collisionPadding={12}
           className="w-[14rem]"

@@ -2,7 +2,7 @@
 //! `apps/web/src/routes/t/$teamSlug/boards/$boardSlug/index.tsx`
 //! (masterplan-v3 §4.2 "Board view").
 //!
-//! Composition mirrors the web route: [`IssueFilterBar`] (title row + tabs +
+//! Composition mirrors the web route: [`IssueFilterBar`] (title row +
 //! filter popover + active pills) on top, the virtualized [`IssueListView`]
 //! filling the rest. The same view also backs **My Issues** (web
 //! `my-issues/index.tsx` renders the identical bar+list pair with
@@ -95,7 +95,7 @@ impl BoardView {
         &self.filters
     }
 
-    /// The single `onFiltersChange` sink (bar tabs, popover toggles, pills,
+    /// The single `onFiltersChange` sink (popover toggles, pills and
     /// clear-all all funnel here — web prop parity).
     fn apply_filters(&mut self, next: IssueFilters, cx: &mut gpui::Context<Self>) {
         if self.filters == next {

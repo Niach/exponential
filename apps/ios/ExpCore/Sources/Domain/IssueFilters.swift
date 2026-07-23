@@ -1,7 +1,7 @@
 import Foundation
 
-// Mirrored from apps/web/src/lib/filters.ts. The active/backlog tab presets
-// must match the web mapping; if you change one, change the others
+// Mirrored from apps/web/src/lib/filters.ts. The filter shape and matching
+// semantics must match the web mapping; if you change one, change the others
 // (apps/web/src/lib/filters.ts, apps/android/.../domain/IssueFilters.kt).
 public struct IssueFilters: Equatable, Sendable {
     public var statuses: Set<IssueStatus> = []
@@ -16,37 +16,6 @@ public struct IssueFilters: Equatable, Sendable {
 
     public var isEmpty: Bool { statuses.isEmpty && priorities.isEmpty && labelIds.isEmpty }
     public var count: Int { statuses.count + priorities.count + labelIds.count }
-}
-
-public enum FilterTab: String, CaseIterable, Identifiable, Sendable {
-    case all
-    case active
-    case backlog
-
-    public var id: String { rawValue }
-
-    public var label: String {
-        switch self {
-        case .all: "All issues"
-        case .active: "Active"
-        case .backlog: "Backlog"
-        }
-    }
-
-    public var statuses: Set<IssueStatus> {
-        switch self {
-        case .all: []
-        case .active: [.inProgress, .inReview, .todo]
-        case .backlog: [.backlog]
-        }
-    }
-}
-
-public func deriveTab(from statuses: Set<IssueStatus>) -> FilterTab {
-    if statuses.isEmpty { return .all }
-    if statuses == Set([IssueStatus.inProgress, .inReview, .todo]) { return .active }
-    if statuses == Set([IssueStatus.backlog]) { return .backlog }
-    return .all
 }
 
 public func matchesFilters(
