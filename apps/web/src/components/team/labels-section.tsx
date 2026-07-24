@@ -24,18 +24,26 @@ import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 function LabelRow({
   label,
   teamId,
+  isDuplicateName,
 }: {
   label: LabelType
   teamId: string
+  isDuplicateName: (name: string) => boolean
 }) {
   const [name, setName] = useState(label.name)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const persistName = async () => {
     const trimmed = name.trim()
     if (!trimmed || trimmed === label.name) {
       setName(label.name)
+      setError(null)
+      return
+    }
+    if (isDuplicateName(trimmed)) {
+      setError(`A label with this name already exists.`)
       return
     }
     setBusy(true)
@@ -46,6 +54,9 @@ function LabelRow({
         name: trimmed,
       })
       await labelCollection.utils.awaitTxId(txId)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to rename label.`)
     } finally {
       setBusy(false)
     }
@@ -81,87 +92,91 @@ function LabelRow({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-md border px-3 py-2">
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Change label color"
-            className="h-4 w-4 rounded-full ring-1 ring-border shrink-0"
-            style={{ backgroundColor: label.color }}
-            disabled={busy}
-          />
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-2" align="start">
-          <ColorSwatchGrid value={label.color} onChange={persistColor} />
-        </PopoverContent>
-      </Popover>
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={persistName}
-        onKeyDown={(e) => {
-          if (e.key === `Enter`) {
-            e.preventDefault()
-            ;(e.target as HTMLInputElement).blur()
-          }
-          if (e.key === `Escape`) {
-            setName(label.name)
-            ;(e.target as HTMLInputElement).blur()
-          }
-        }}
-        disabled={busy}
-        className="h-8 flex-1 border-none shadow-none focus-visible:ring-0 px-1"
-      />
-      {confirmingDelete ? (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">Delete?</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-destructive"
-            onClick={handleDelete}
-            disabled={busy}
-            aria-label="Confirm delete"
-          >
-            <Check className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setConfirmingDelete(false)}
-            disabled={busy}
-            aria-label="Cancel delete"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-          onClick={() => setConfirmingDelete(true)}
+    <div className="rounded-md border px-3 py-2">
+      <div className="flex items-center gap-3">
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Change label color"
+              className="h-4 w-4 rounded-full ring-1 ring-border shrink-0"
+              style={{ backgroundColor: label.color }}
+              disabled={busy}
+            />
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-2" align="start">
+            <ColorSwatchGrid value={label.color} onChange={persistColor} />
+          </PopoverContent>
+        </Popover>
+        <Input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            setError(null)
+          }}
+          onBlur={persistName}
+          onKeyDown={(e) => {
+            if (e.key === `Enter`) {
+              e.preventDefault()
+              ;(e.target as HTMLInputElement).blur()
+            }
+            if (e.key === `Escape`) {
+              setName(label.name)
+              setError(null)
+              ;(e.target as HTMLInputElement).blur()
+            }
+          }}
           disabled={busy}
-          aria-label={`Delete label ${label.name}`}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      )}
+          className="h-8 flex-1 border-none shadow-none focus-visible:ring-0 px-1"
+        />
+        {confirmingDelete ? (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">Delete?</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive"
+              onClick={handleDelete}
+              disabled={busy}
+              aria-label="Confirm delete"
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={busy}
+              aria-label="Cancel delete"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={busy}
+            aria-label={`Delete label ${label.name}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+      {error && <p className="text-xs text-destructive mt-1 px-1">{error}</p>}
     </div>
   )
 }
 
-export function TeamLabelsSection({
-  teamId,
-}: {
-  teamId: string
-}) {
+export function TeamLabelsSection({ teamId }: { teamId: string }) {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState(``)
   const [newColor, setNewColor] = useState(LABEL_COLORS[6])
   const [submitting, setSubmitting] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const { data: labels } = useLiveQuery(
     (q) =>
@@ -174,14 +189,25 @@ export function TeamLabelsSection({
 
   const labelList = labels ?? []
 
+  const isDuplicateName = (name: string, excludeId?: string) =>
+    labelList.some(
+      (l) =>
+        l.id !== excludeId &&
+        l.name.trim().toLowerCase() === name.trim().toLowerCase()
+    )
+
   const resetForm = () => {
     setNewName(``)
     setNewColor(LABEL_COLORS[Math.floor(Math.random() * LABEL_COLORS.length)])
+    setCreateError(null)
   }
+
+  const newNameIsDuplicate =
+    newName.trim().length > 0 && isDuplicateName(newName)
 
   const handleCreate = async () => {
     const trimmed = newName.trim()
-    if (!trimmed || submitting) return
+    if (!trimmed || submitting || newNameIsDuplicate) return
     setSubmitting(true)
     try {
       const { txId } = await trpc.labels.create.mutate({
@@ -192,6 +218,10 @@ export function TeamLabelsSection({
       await labelCollection.utils.awaitTxId(txId)
       resetForm()
       setCreating(false)
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : `Failed to create label.`
+      )
     } finally {
       setSubmitting(false)
     }
@@ -213,12 +243,11 @@ export function TeamLabelsSection({
               key={label.id}
               label={label}
               teamId={teamId}
+              isDuplicateName={(name) => isDuplicateName(name, label.id)}
             />
           ))}
           {labelList.length === 0 && !creating && (
-            <p className="text-sm text-muted-foreground py-2">
-              No labels yet.
-            </p>
+            <p className="text-sm text-muted-foreground py-2">No labels yet.</p>
           )}
         </div>
 
@@ -226,7 +255,10 @@ export function TeamLabelsSection({
           <div className="mt-3 space-y-3 rounded-md border p-3">
             <Input
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                setNewName(e.target.value)
+                setCreateError(null)
+              }}
               placeholder="Label name"
               autoFocus
               className="h-8 text-sm"
@@ -241,6 +273,13 @@ export function TeamLabelsSection({
                 }
               }}
             />
+            {(newNameIsDuplicate || createError) && (
+              <p className="text-xs text-destructive">
+                {newNameIsDuplicate
+                  ? `A label with this name already exists.`
+                  : createError}
+              </p>
+            )}
             <div>
               <span className="text-xs text-muted-foreground mb-1.5 block">
                 Color
@@ -251,7 +290,7 @@ export function TeamLabelsSection({
               <Button
                 size="xs"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                disabled={!newName.trim() || submitting}
+                disabled={!newName.trim() || submitting || newNameIsDuplicate}
                 onClick={handleCreate}
               >
                 {submitting ? `Creating...` : `Create label`}

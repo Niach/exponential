@@ -378,7 +378,15 @@ export const labels = pgTable(
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
-  (table) => [index(`idx_labels_team`).on(table.teamId)]
+  (table) => [
+    index(`idx_labels_team`).on(table.teamId),
+    // One label per (team, name), case-insensitive — labels.create/update
+    // pre-check and map its violation to a readable CONFLICT (EXP-254).
+    uniqueIndex(`uniq_labels_team_name_ci`).on(
+      table.teamId,
+      sql`lower(${table.name})`
+    ),
+  ]
 )
 
 export const issueLabels = pgTable(
