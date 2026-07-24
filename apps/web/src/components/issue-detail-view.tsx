@@ -20,10 +20,6 @@ import {
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
-import {
-  extractMarkdownImageOccurrences,
-  removeMarkdownImageByOccurrence,
-} from "@/lib/storage/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
 import { useSession } from "@/hooks/use-session"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -50,7 +46,6 @@ import {
   MarkdownEditor,
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
-import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
@@ -422,16 +417,6 @@ export function IssueDetailView({
     }
   }
 
-  const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
-    const nextDescription = removeMarkdownImageByOccurrence(
-      descriptionRef.current,
-      occurrenceIndex
-    )
-    editorRef.current?.setMarkdown(nextDescription)
-    setDescriptionValue(nextDescription)
-    setAttachmentStatus(null)
-  }
-
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
@@ -448,7 +433,6 @@ export function IssueDetailView({
   }
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
-  const imageOccurrences = extractMarkdownImageOccurrences(description)
 
   // Coding "coding now" / remote-start control (EXP-184): a sidebar "Agent"
   // property group on desktop, the classic full-width row on mobile. The
@@ -741,18 +725,12 @@ export function IssueDetailView({
     </div>
   )
 
-  const attachmentRail = (
-    <div className="flex items-center px-4 py-3 border-t border-border">
-      <IssueEditorAttachmentRail
-        attachmentStatus={attachmentStatus}
-        images={imageOccurrences}
-        onFiles={readOnly ? undefined : handleImageFiles}
-        onRemove={readOnly ? undefined : handleRemoveImageOccurrence}
-        uploading={activeUploadCount > 0}
-        disabled={readOnly || activeUploadCount > 0}
-      />
-    </div>
-  )
+  // The attachments strip is gone (EXP-256) — the editor's toolbar/paste/drop
+  // and the image node menu cover add/remove; only upload errors still need a
+  // surface.
+  const attachmentError = attachmentStatus ? (
+    <p className="px-5 py-2 text-xs text-destructive">{attachmentStatus}</p>
+  ) : null
 
   // PR / pushed-branch link to the review-detail route (EXP-106) — stays in
   // the main column on every layout.
@@ -790,7 +768,7 @@ export function IssueDetailView({
         <div className="flex-1 overflow-y-auto">
           {titleField}
           {editor}
-          {attachmentRail}
+          {attachmentError}
           {codingControl}
           {prRow}
           {widgetCard}
@@ -811,7 +789,7 @@ export function IssueDetailView({
             <div className="mx-auto max-w-3xl">
               {titleField}
               {editor}
-              {attachmentRail}
+              {attachmentError}
               {prRow}
               {widgetCard}
               {timeline}

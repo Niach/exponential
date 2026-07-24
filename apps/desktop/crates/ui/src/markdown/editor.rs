@@ -25,20 +25,25 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry, Context,
-    ElementId, Entity, Focusable as _, FontStyle, FontWeight, HighlightStyle,
-    InteractiveElement as _,
-    InteractiveText, IntoElement, ParentElement as _, Pixels, Render, SharedString,
+    canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry,
+    ClipboardItem, Context, ElementId, Entity, Focusable as _, FontStyle, FontWeight,
+    HighlightStyle, InteractiveElement as _, InteractiveText, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, SharedString,
     StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledImage as _, StyledText,
-    Subscription, TextRun, UnderlineStyle, Window,
+    Subscription, TextRun, UnderlineStyle, WeakEntity, Window,
 };
 use gpui_component::input::{self, Input, InputEvent, InputState, Position};
+use gpui_component::notification::Notification;
 use gpui_component::text::TextView;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    h_flex,
+    menu::{ContextMenuExt as _, PopupMenuItem},
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
+
+use super::image_url;
 
 use super::autocomplete::{detect_trigger, CompletionItem, CompletionSource};
 use super::blocks::{BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs};
@@ -149,6 +154,20 @@ impl ImageCache {
         self.transport = transport;
     }
 
+    /// The transport, for flows that fetch outside the cache (download).
+    pub fn transport(&self) -> Option<Arc<dyn AttachmentTransport>> {
+        self.transport.clone()
+    }
+
+    /// The decoded image for `url` if (and only if) it is already cached —
+    /// the "Copy image" path; never triggers a fetch.
+    pub(crate) fn ready_image(&self, url: &str) -> Option<Arc<gpui::Image>> {
+        match self.slots.get(url) {
+            Some(ImageSlot::Ready(image)) => Some(image.clone()),
+            _ => None,
+        }
+    }
+
     /// Register locally-staged bytes (a `draft://` image) for rendering.
     pub fn insert_bytes(&mut self, url: String, content_type: &str, bytes: Vec<u8>) {
         let format = sniff_format(content_type, &bytes);
@@ -226,51 +245,203 @@ fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
     }
 }
 
+/// Editor-side hooks for one image slot (EXP-256): identify the block for
+/// delete/resize, carry its painted bounds cell, and the live drag width
+/// while a handle is being dragged.
+pub(crate) struct EditorImageHooks {
+    editor: WeakEntity<MarkdownEditor>,
+    block_id: u64,
+    bounds: Rc<std::cell::Cell<Bounds<Pixels>>>,
+    drag_width: Option<f32>,
+}
+
+/// Natural (probed) pixel width of an own-attachment URL from the synced
+/// `attachments` collection — the resize drag's upper clamp (web reads the
+/// same synced dims).
+fn attachment_natural_width(url: &str, cx: &App) -> Option<f32> {
+    let id = image_url::attachment_id_from_src(url)?;
+    let attachment = sync::Store::global(cx)
+        .collections()
+        .attachments
+        .read(cx)
+        .get(id)
+        .cloned()?;
+    attachment.width.map(|width| width as f32)
+}
+
+/// Download filename: the synced attachment row's `filename`, else the URL's
+/// last path segment, else a generic fallback (web `handleDownload`).
+fn attachment_download_filename(url: &str, cx: &App) -> String {
+    if let Some(id) = image_url::attachment_id_from_src(url) {
+        if let Some(name) = sync::Store::global(cx)
+            .collections()
+            .attachments
+            .read(cx)
+            .get(id)
+            .and_then(|attachment| attachment.filename.clone())
+            .filter(|name| !name.trim().is_empty())
+        {
+            return name;
+        }
+    }
+    image_url::strip_query(url)
+        .rsplit('/')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_string())
+        .unwrap_or_else(|| "image.png".to_string())
+}
+
+/// EXP-256 "Download": native save dialog (defaulting to the OS downloads
+/// dir) → background fetch through the auth-gated transport → disk, with a
+/// window notification either way.
+fn download_image(url: String, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) {
+    let Some(transport) = images.read(cx).transport() else {
+        return;
+    };
+    let filename = attachment_download_filename(&url, cx);
+    let directory = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let receiver = cx.prompt_for_new_path(&directory, Some(&filename));
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        // Receiver error = dialog dismissed/unsupported; None = cancelled.
+        let Ok(Ok(Some(path))) = receiver.await else {
+            return;
+        };
+        let fetch_url = url.clone();
+        let write_path = path.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                let bytes = transport.fetch(&fetch_url)?;
+                std::fs::write(&write_path, bytes)?;
+                anyhow::Ok(())
+            })
+            .await;
+        let note = match result {
+            Ok(()) => Notification::info(SharedString::from(format!(
+                "Image saved to {}",
+                path.display()
+            ))),
+            Err(error) => {
+                log::warn!("image download failed for {url}: {error}");
+                Notification::error(SharedString::from(format!("Image download failed: {error}")))
+            }
+        };
+        let _ = handle.update(cx, |_, window, cx| {
+            window.push_notification(note, cx);
+        });
+    })
+    .detach();
+}
+
+/// Web-parity image slot (EXP-256): centered in the column, sized by the
+/// `?w=` width param carried in the markdown URL (query-stripped for the
+/// cache fetch — the server ignores `?w=`, resizing is a client display
+/// hint), right-click context menu, and — with [`EditorImageHooks`] — hover
+/// resize handles, the hover ✕ remove, and a Delete menu item. Used by both
+/// the editor's blocks and [`MarkdownView`] (comments/timeline), so the
+/// read-only surfaces render identically minus the editing affordances.
 fn render_image_slot(
     id: impl Into<ElementId>,
     images: Option<&Entity<ImageCache>>,
     url: &str,
     alt: &str,
+    hooks: Option<EditorImageHooks>,
     cx: &mut App,
 ) -> gpui::AnyElement {
+    let fetch_url = image_url::strip_query(url).to_string();
     let slot = images
-        .map(|images| images.update(cx, |cache, cx| cache.slot(url, cx)))
+        .map(|images| images.update(cx, |cache, cx| cache.slot(&fetch_url, cx)))
         .unwrap_or_else(|| ImageSlot::Failed(std::time::Instant::now()));
-    match slot {
+    let body = match slot {
         ImageSlot::Ready(image) => {
+            let own_attachment = image_url::attachment_id_from_src(url).is_some();
+            // Live drag width wins over the persisted `?w=`; external image
+            // URLs keep their query untouched and get no width handling.
+            let display_width = hooks
+                .as_ref()
+                .and_then(|hooks| hooks.drag_width)
+                .or_else(|| {
+                    own_attachment
+                        .then(|| image_url::width_param_from_src(url))
+                        .flatten()
+                });
             let rendered = img(image)
+                .when_some(display_width, |el, width| el.w(px(width)))
                 .max_w_full()
-                .h(px(260.))
                 .object_fit(gpui::ObjectFit::ScaleDown)
                 .rounded(px(4.));
             // Click-to-open (EXP-33): an in-app lightbox over the shared
             // [`ImageCache`] — never the web browser. The preview itself
-            // carries the "Open in browser" affordance.
-            match images {
-                Some(images) => {
-                    let images = images.clone();
-                    let url = url.to_string();
-                    let alt = alt.to_string();
-                    div()
-                        .id(id.into())
-                        .cursor_pointer()
-                        .on_click(move |_, window, cx| {
-                            // In the blurred-editor preview a bubbling click
-                            // would also start editing behind the lightbox.
-                            cx.stop_propagation();
-                            crate::image_preview::open_image_preview(
-                                url.clone(),
-                                alt.clone(),
-                                Some(images.clone()),
-                                window,
-                                cx,
-                            );
-                        })
-                        .child(rendered)
-                        .into_any_element()
-                }
-                None => rendered.into_any_element(),
+            // carries the "Open in browser" affordance; always full size
+            // (query-stripped), web parity.
+            let Some(images) = images else {
+                return rendered.into_any_element();
+            };
+            let clickable = {
+                let images = images.clone();
+                let url = fetch_url.clone();
+                let alt = alt.to_string();
+                // Fixed child id — unique globally through the wrapper's id
+                // path (gpui element ids are hierarchical).
+                div()
+                    .id("md-image-open")
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        // In the blurred-editor preview a bubbling click
+                        // would also start editing behind the lightbox.
+                        cx.stop_propagation();
+                        crate::image_preview::open_image_preview(
+                            url.clone(),
+                            alt.clone(),
+                            Some(images.clone()),
+                            window,
+                            cx,
+                        );
+                    })
+                    .child(rendered)
+            };
+            let group_name = SharedString::from(
+                hooks
+                    .as_ref()
+                    .map(|hooks| format!("md-image-{}", hooks.block_id))
+                    .unwrap_or_else(|| "md-image-view".to_string()),
+            );
+            // The stable id lives on the WRAPPER: `.context_menu` keys its
+            // popup state off this element's id — an id-less element falls
+            // back to a per-frame pointer address and the menu never stays
+            // open across the re-render.
+            let mut wrapper = div()
+                .id(id.into())
+                .relative()
+                .max_w_full()
+                .group(group_name.clone())
+                .child(clickable);
+            if let Some(hooks) = &hooks {
+                wrapper = wrapper
+                    // Record the painted image bounds — the resize drag's
+                    // start width (same cell pattern as the text blocks).
+                    .child({
+                        let bounds = hooks.bounds.clone();
+                        canvas(
+                            move |element_bounds, _, _| bounds.set(element_bounds),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full()
+                    })
+                    // Hover ✕ remove (pre-EXP-256 affordance, kept).
+                    .child(render_image_remove_button(hooks))
+                    // Hover resize handles, own attachments only (web only
+                    // resizes URLs it can persist a `?w=` onto).
+                    .when(own_attachment, |el| {
+                        el.child(render_image_resize_handle(hooks, true, &group_name))
+                            .child(render_image_resize_handle(hooks, false, &group_name))
+                    });
             }
+            attach_image_context_menu(wrapper, images, &fetch_url, alt, own_attachment, hooks.as_ref())
+                .into_any_element()
         }
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
         ImageSlot::Failed(_) => placeholder_box(
@@ -281,7 +452,194 @@ fn render_image_slot(
             },
             cx,
         ),
-    }
+    };
+    // Web `.editor-image-node`: the node hugs the image and centers in the
+    // column (fixed/natural-width child inside a `w_full` `justify_center`
+    // row — the app's safe centering shape).
+    h_flex()
+        .w_full()
+        .justify_center()
+        .child(body)
+        .into_any_element()
+}
+
+/// The hover ✕ on an editor image block (absolute top-right, appears with
+/// the group hover like the resize handles).
+fn render_image_remove_button(hooks: &EditorImageHooks) -> impl IntoElement {
+    let editor = hooks.editor.clone();
+    let block_id = hooks.block_id;
+    div().absolute().top_1().right_1().child(
+        Button::new(ElementId::from(("md-image-remove", block_id as usize)))
+            .ghost()
+            .xsmall()
+            .icon(Icon::new(IconName::Close))
+            .tooltip("Remove image")
+            .on_click(move |_, window, cx| {
+                // Never also fire the image's open-preview click beneath.
+                cx.stop_propagation();
+                let _ = editor.update(cx, |this, cx| {
+                    let Some(index) = this.blocks.iter().position(|b| b.id() == block_id) else {
+                        return;
+                    };
+                    this.remove_image_at(index, window, cx);
+                });
+            }),
+    )
+}
+
+/// One resize handle pill (web `.editor-image-handle`): vertically centered
+/// on the left/right edge, visible on group hover, starts an
+/// [`ImageResizeDrag`] on mouse-down (the editor's render registers the
+/// window-level move/up listeners while a drag is live).
+fn render_image_resize_handle(
+    hooks: &EditorImageHooks,
+    left_edge: bool,
+    group_name: &SharedString,
+) -> impl IntoElement {
+    let editor = hooks.editor.clone();
+    let block_id = hooks.block_id;
+    let bounds = hooks.bounds.clone();
+    div()
+        .id(ElementId::from((
+            if left_edge {
+                "md-image-handle-l"
+            } else {
+                "md-image-handle-r"
+            },
+            block_id as usize,
+        )))
+        .absolute()
+        .top(gpui::relative(0.5))
+        .mt(px(-20.))
+        .map(|el| if left_edge { el.left_1p5() } else { el.right_1p5() })
+        .w(px(6.))
+        .h(px(40.))
+        .rounded_full()
+        .bg(gpui::white().opacity(0.7))
+        .border_1()
+        .border_color(gpui::black().opacity(0.2))
+        .invisible()
+        .group_hover(group_name.clone(), |el| el.visible())
+        .cursor_ew_resize()
+        .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, _, cx| {
+            // A drag must never also open the lightbox beneath.
+            cx.stop_propagation();
+            let start_width = f32::from(bounds.get().size.width);
+            let start_x = event.position.x;
+            let _ = editor.update(cx, |this, cx| {
+                let natural_width = this
+                    .blocks
+                    .iter()
+                    .find_map(|block| match block {
+                        EditorBlock::Image { id, url, .. } if *id == block_id => Some(url.clone()),
+                        _ => None,
+                    })
+                    .and_then(|url| attachment_natural_width(&url, cx));
+                this.image_resize = Some(ImageResizeDrag {
+                    block_id,
+                    left_edge,
+                    start_x,
+                    start_width,
+                    natural_width,
+                    latest: None,
+                });
+                cx.notify();
+            });
+        })
+}
+
+/// The right-click menu (web's image node "…" menu): View image · Download ·
+/// Copy image (macOS — the pinned Linux clipboard backends write text mime
+/// types only) · Copy link · Delete (editor blocks only).
+fn attach_image_context_menu(
+    wrapper: gpui::Stateful<gpui::Div>,
+    images: &Entity<ImageCache>,
+    fetch_url: &str,
+    alt: &str,
+    own_attachment: bool,
+    hooks: Option<&EditorImageHooks>,
+) -> impl IntoElement {
+    let images = images.clone();
+    let url = fetch_url.to_string();
+    let alt = alt.to_string();
+    let editor = hooks.map(|hooks| (hooks.editor.clone(), hooks.block_id));
+    wrapper.context_menu(move |menu, _window, menu_cx| {
+        // Editor blocks: hold edit mode while the menu is open — the popup
+        // focuses itself, and the resulting input blur would otherwise flip
+        // the editor to preview and unmount this menu (see
+        // `MarkdownEditor::image_menu_open`). Cleared on dismiss.
+        if let Some((editor, _)) = editor.clone() {
+            let menu_entity = menu_cx.entity();
+            let _ = editor.update(menu_cx, |this, cx| {
+                this.image_menu_open = true;
+                this._image_menu_subscription = Some(cx.subscribe(
+                    &menu_entity,
+                    |this, _, _: &gpui::DismissEvent, cx| {
+                        this.image_menu_open = false;
+                        this._image_menu_subscription = None;
+                        cx.notify();
+                    },
+                ));
+                cx.notify();
+            });
+        }
+        let mut menu = menu.item(PopupMenuItem::new("View image").on_click({
+            let images = images.clone();
+            let url = url.clone();
+            let alt = alt.clone();
+            move |_, window, cx| {
+                crate::image_preview::open_image_preview(
+                    url.clone(),
+                    alt.clone(),
+                    Some(images.clone()),
+                    window,
+                    cx,
+                );
+            }
+        }));
+        if own_attachment {
+            menu = menu.item(PopupMenuItem::new("Download").on_click({
+                let images = images.clone();
+                let url = url.clone();
+                move |_, window, cx| {
+                    download_image(url.clone(), &images, window, cx);
+                }
+            }));
+            if cfg!(target_os = "macos") {
+                menu = menu.item(PopupMenuItem::new("Copy image").on_click({
+                    let images = images.clone();
+                    let url = url.clone();
+                    move |_, _, cx| {
+                        if let Some(image) = images.read(cx).ready_image(&url) {
+                            cx.write_to_clipboard(ClipboardItem::new_image(&image));
+                        }
+                    }
+                }));
+            }
+            menu = menu.item(PopupMenuItem::new("Copy link").on_click({
+                let url = url.clone();
+                move |_, _, cx| {
+                    if let Some(absolute) = crate::queries::absolute_api_url(cx, &url) {
+                        cx.write_to_clipboard(ClipboardItem::new_string(absolute));
+                    }
+                }
+            }));
+        }
+        if let Some((editor, block_id)) = editor.clone() {
+            menu = menu.separator().item(PopupMenuItem::new("Delete").on_click(
+                move |_, window, cx| {
+                    let _ = editor.update(cx, |this, cx| {
+                        let Some(index) = this.blocks.iter().position(|b| b.id() == block_id)
+                        else {
+                            return;
+                        };
+                        this.remove_image_at(index, window, cx);
+                    });
+                },
+            ));
+        }
+        menu
+    })
 }
 
 pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
@@ -316,6 +674,9 @@ enum EditorBlock {
         id: u64,
         url: String,
         alt: String,
+        /// Painted image bounds (same cell pattern as the text blocks) — the
+        /// resize drag's start width.
+        bounds: Rc<std::cell::Cell<Bounds<Pixels>>>,
     },
 }
 
@@ -337,6 +698,23 @@ struct ActiveCompletion {
 struct LinkEditor {
     url: Entity<InputState>,
     text: Entity<InputState>,
+}
+
+/// An in-flight image resize drag (EXP-256; web `ResizeDrag`). Started by a
+/// handle's mouse-down, advanced/finished by window-level listeners the
+/// editor registers while `Some` (the gpui-component resizable-panel
+/// pattern).
+struct ImageResizeDrag {
+    block_id: u64,
+    left_edge: bool,
+    start_x: Pixels,
+    /// Painted width at mouse-down.
+    start_width: f32,
+    /// Natural probed width — the upper clamp; dragging to it drops the
+    /// `?w=` param (markdown stays canonical-clean).
+    natural_width: Option<f32>,
+    /// Live width during the drag (None until the first move = plain click).
+    latest: Option<f32>,
 }
 
 type ChangeCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
@@ -368,6 +746,13 @@ pub struct MarkdownEditor {
     staged: Vec<StagedImage>,
     uploads_in_flight: usize,
     link_editor: Option<LinkEditor>,
+    /// In-flight image resize drag (EXP-256), `None` otherwise.
+    image_resize: Option<ImageResizeDrag>,
+    /// An image context menu is open (EXP-256). The popup focuses itself, so
+    /// without this flag the blur would flip a `preview_when_blurred` editor
+    /// back to preview and unmount the very element hosting the menu.
+    image_menu_open: bool,
+    _image_menu_subscription: Option<Subscription>,
     error: Option<SharedString>,
     /// Blurred-preview seam (EXP-161): while no text block owns focus the
     /// editor renders a [`MarkdownView`] of its own document — live
@@ -375,6 +760,11 @@ pub struct MarkdownEditor {
     /// back to the editable blocks on click. Opt-in (detail description);
     /// the create dialog keeps the always-editable surface.
     preview_when_blurred: bool,
+    /// Edit-mode card chrome (border + rounding + inner padding). The create
+    /// dialog keeps it (a bordered form field); the detail description turns
+    /// it off (EXP-256 — entering edit mode must not shift the content
+    /// sideways or draw a box around the whole description).
+    chrome: bool,
     resolver: Option<RefResolver>,
     on_open_issue: Option<OpenIssueCallback>,
 }
@@ -397,8 +787,12 @@ impl MarkdownEditor {
             staged: Vec::new(),
             uploads_in_flight: 0,
             link_editor: None,
+            image_resize: None,
+            image_menu_open: false,
+            _image_menu_subscription: None,
             error: None,
             preview_when_blurred: false,
+            chrome: true,
             resolver: None,
             on_open_issue: None,
         };
@@ -456,6 +850,13 @@ impl MarkdownEditor {
     /// (EXP-161).
     pub fn set_preview_when_blurred(&mut self, preview: bool) {
         self.preview_when_blurred = preview;
+    }
+
+    /// Toggle the edit-mode card chrome (border/rounding + inner padding).
+    /// Off for the detail description (EXP-256): edit mode then aligns with
+    /// the borderless blurred preview instead of jumping into a card.
+    pub fn set_chrome(&mut self, chrome: bool) {
+        self.chrome = chrome;
     }
 
     /// Resolve `@email`/`#IDENT` into pills in the blurred preview (§4.5).
@@ -558,6 +959,7 @@ impl MarkdownEditor {
                     id: super::blocks::next_block_id(),
                     url: url.clone(),
                     alt: alt.clone(),
+                    bounds: Rc::new(std::cell::Cell::new(Bounds::default())),
                 },
             })
             .collect();
@@ -911,6 +1313,7 @@ impl MarkdownEditor {
             id: super::blocks::next_block_id(),
             url: url.to_string(),
             alt: "image".to_string(),
+            bounds: Rc::new(std::cell::Cell::new(Bounds::default())),
         };
         let Some(target) = self.target_block() else {
             self.blocks.push(image_block);
@@ -950,6 +1353,61 @@ impl MarkdownEditor {
             tail_input.update(cx, |state, cx| {
                 state.set_cursor_position(Position::new(0, 0), window, cx)
             });
+        }
+    }
+
+    /// Advance a live resize drag (window-level mouse move). Web
+    /// `moveResize`: clamp to [MIN, natural] and re-render at the live width.
+    fn update_image_resize(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        let Some(drag) = self.image_resize.as_mut() else {
+            return;
+        };
+        let delta = f32::from(x - drag.start_x);
+        let raw = if drag.left_edge {
+            drag.start_width - delta
+        } else {
+            drag.start_width + delta
+        };
+        let max = drag
+            .natural_width
+            .unwrap_or(image_url::FALLBACK_MAX_RESIZE_WIDTH)
+            .max(image_url::MIN_RESIZE_WIDTH);
+        let clamped = raw.clamp(image_url::MIN_RESIZE_WIDTH, max).round();
+        if drag.latest != Some(clamped) {
+            drag.latest = Some(clamped);
+            cx.notify();
+        }
+    }
+
+    /// Finish a resize drag (window-level mouse up). Web `endResize`: no
+    /// move = no change; at (or beyond) the natural width the `?w=` param is
+    /// dropped; a changed URL is a structural edit → commit immediately.
+    fn finish_image_resize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.image_resize.take() else {
+            return;
+        };
+        cx.notify();
+        let Some(latest) = drag.latest else {
+            return;
+        };
+        let at_full = drag
+            .natural_width
+            .is_some_and(|natural| latest >= natural);
+        let width = (!at_full).then_some(latest as u32);
+        let changed = self.blocks.iter_mut().any(|block| match block {
+            EditorBlock::Image { id, url, .. } if *id == drag.block_id => {
+                let next = image_url::src_with_width(url, width);
+                if next != *url {
+                    *url = next;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        });
+        if changed {
+            self.emit_commit(window, cx);
         }
     }
 
@@ -1252,6 +1710,12 @@ impl MarkdownEditor {
                             .child(
                                 Input::new(input)
                                     .appearance(false)
+                                    // Chrome-less (detail description): drop
+                                    // the widget's built-in 12px input_px so
+                                    // the text aligns with the blurred
+                                    // preview instead of shifting sideways
+                                    // on click (EXP-256; EXP-181 trick).
+                                    .when(!self.chrome, |input| input.px_0())
                                     .w_full(),
                             )
                             .child(
@@ -1265,44 +1729,28 @@ impl MarkdownEditor {
                             .into_any_element(),
                     );
                 }
-                EditorBlock::Image { id, url, alt, .. } => {
+                EditorBlock::Image {
+                    id, url, alt, bounds, ..
+                } => {
                     let block_id = *id;
-                    let image = render_image_slot(
+                    let hooks = EditorImageHooks {
+                        editor: cx.entity().downgrade(),
+                        block_id,
+                        bounds: bounds.clone(),
+                        drag_width: self
+                            .image_resize
+                            .as_ref()
+                            .filter(|drag| drag.block_id == block_id)
+                            .and_then(|drag| drag.latest),
+                    };
+                    elements.push(render_image_slot(
                         ElementId::from(("md-image-open", index)),
                         Some(&images),
                         url,
                         alt,
+                        Some(hooks),
                         cx,
-                    );
-                    elements.push(
-                        div()
-                            .relative()
-                            .w_full()
-                            .child(image)
-                            .child(
-                                div().absolute().top_1().right_1().child(
-                                    Button::new(ElementId::from(("md-image-remove", index)))
-                                        .ghost()
-                                        .xsmall()
-                                        .icon(Icon::new(IconName::Close))
-                                        .tooltip("Remove image")
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            // Never also fire the image's
-                                            // open-preview click beneath.
-                                            cx.stop_propagation();
-                                            let Some(index) = this
-                                                .blocks
-                                                .iter()
-                                                .position(|b| b.id() == block_id)
-                                            else {
-                                                return;
-                                            };
-                                            this.remove_image_at(index, window, cx);
-                                        })),
-                                ),
-                            )
-                            .into_any_element(),
-                    );
+                    ));
                 }
             }
         }
@@ -1364,6 +1812,8 @@ impl Render for MarkdownEditor {
         if self.preview_when_blurred
             && self.link_editor.is_none()
             && self.error.is_none()
+            && !self.image_menu_open
+            && self.image_resize.is_none()
             && !self.is_focused(window, cx)
         {
             let markdown = self.markdown(cx);
@@ -1375,13 +1825,45 @@ impl Render for MarkdownEditor {
         let theme_border = cx.theme().border;
         let error = self.error.clone();
         let completion = self.render_completion(window, cx);
+        // While an image resize drag is live, one canvas child registers the
+        // window-level move/up listeners each frame (the gpui-component
+        // resizable-panel pattern) — the mouse may leave the handle mid-drag.
+        let resize_overlay = self.image_resize.is_some().then(|| {
+            let entity = cx.entity();
+            canvas(
+                |_, _, _| (),
+                move |_, _, window, _| {
+                    let move_entity = entity.clone();
+                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                        if !phase.bubble() {
+                            return;
+                        }
+                        move_entity.update(cx, |this, cx| {
+                            this.update_image_resize(event.position.x, cx);
+                        });
+                    });
+                    let up_entity = entity.clone();
+                    window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
+                        if !phase.bubble() {
+                            return;
+                        }
+                        up_entity.update(cx, |this, cx| {
+                            this.finish_image_resize(window, cx);
+                        });
+                    });
+                },
+            )
+            .absolute()
+            .size_full()
+        });
 
         v_flex()
+            .relative()
             .key_context("MarkdownEditor")
             .w_full()
-            .border_1()
-            .border_color(theme_border)
-            .rounded(px(6.))
+            .when(self.chrome, |el| {
+                el.border_1().border_color(theme_border).rounded(px(6.))
+            })
             .capture_action(cx.listener(Self::on_move_up))
             .capture_action(cx.listener(Self::on_move_down))
             .capture_action(cx.listener(Self::on_escape))
@@ -1401,12 +1883,16 @@ impl Render for MarkdownEditor {
             })
             .child(
                 v_flex()
-                    .p_1()
+                    // Chrome-less: keep the blurred preview's py_1-only
+                    // layout so entering edit mode never shifts the text
+                    // sideways (the border's px is gone too).
+                    .map(|el| if self.chrome { el.p_1() } else { el.py_1() })
                     .gap_1()
                     .min_h(px(96.))
                     .children(self.render_edit_blocks(cx)),
             )
             .when_some(completion, |el, completion| el.child(completion))
+            .when_some(resize_overlay, |el, overlay| el.child(overlay))
             .into_any_element()
     }
 }
@@ -1520,6 +2006,7 @@ impl gpui::RenderOnce for MarkdownView {
                         self.images.as_ref(),
                         url,
                         alt,
+                        None,
                         cx,
                     ));
                 }
