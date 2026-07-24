@@ -1,0 +1,41 @@
+# Vendored third-party crate (EXP-261) — see NOTICE for provenance and the
+# list of local modifications. Upstream: github.com/yuWorm/gpui-markdeditor
+# (Apache-2.0), itself an extraction of github.com/manyougz/velotype v0.7.0.
+#
+# License is EXPLICITLY Apache-2.0, never `license.workspace = true` — the
+# workspace default is LicenseRef-ESTL-1.0 and must not be stamped onto
+# third-party code. `gpui` resolves through [workspace.dependencies] to the
+# zed GIT pin; upstream targeted the unrelated crates.io `gpui 0.2.2` package
+# id, which must never enter this graph (see the workspace Cargo.toml warning).
+[package]
+name = "gpui-markdown-editor"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Vendored WYSIWYG Markdown editor core for GPUI (Velotype engine)"
+publish = false
+
+[features]
+default = []
+# EXP-261 vendoring: the tree-sitter code-highlight and native-HTML feature
+# implementations were stripped together with their grammar dependencies —
+# these names remain declared only so the `#[cfg(feature = ...)]` gates in
+# code_highlight.rs / html.rs stay known to rustc. Do NOT enable them; the
+# gated code no longer has its dependencies.
+code-highlight-core = []
+code-highlight-official = ["code-highlight-core"]
+code-highlight-config = ["code-highlight-core"]
+html-native = []
+
+[dependencies]
+anyhow = "1"
+cssparser = "0.37"
+gpui.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-segmentation = "1.13"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
