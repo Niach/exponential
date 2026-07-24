@@ -736,6 +736,11 @@ pub enum BlockEvent {
     /// The block's content or kind changed; the editor should mark the
     /// document dirty and optionally scroll to keep the block visible.
     Changed,
+    /// EXP-261 vendoring: Cmd/Ctrl+click on a decorated reference pill.
+    RequestOpenReference {
+        kind: crate::host::ReferenceKind,
+        value: String,
+    },
     /// EXP-261 vendoring: an image resize drag finished; the editor forwards
     /// this to the host, which persists the width as a `?w=` URL param.
     ImageResizeCommitted {

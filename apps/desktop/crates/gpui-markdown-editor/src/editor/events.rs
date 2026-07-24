@@ -1413,6 +1413,14 @@ impl Editor {
             .unwrap_or(0);
 
         match event {
+            // EXP-261 vendoring: forward reference-pill activations to the
+            // host (issue refs navigate in-app).
+            BlockEvent::RequestOpenReference { kind, value } => {
+                cx.emit(MarkdownEditorEvent::ReferenceClicked {
+                    kind: *kind,
+                    value: value.clone(),
+                });
+            }
             // EXP-261 vendoring: forward to the host, which persists the
             // width as a `?w=` URL param via `rewrite_image_sources`.
             BlockEvent::ImageResizeCommitted { src, width } => {

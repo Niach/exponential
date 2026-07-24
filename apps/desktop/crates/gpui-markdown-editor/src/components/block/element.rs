@@ -63,8 +63,20 @@ fn build_text_runs(
     mono_family: &SharedString,
 ) -> Vec<TextRun> {
     let spans = input.inline_spans();
+    // EXP-261 vendoring: host-decorated `@email` / `#IDENT` pills (render-time
+    // only; the tokens stay plain GFM text on serialization).
+    let reference_spans = input
+        .environment
+        .reference_decorator
+        .as_ref()
+        .map(|decorator| decorator.scan(display_text.as_ref()))
+        .unwrap_or_default();
     let mut boundaries = vec![0, display_text.len()];
     for span in spans {
+        boundaries.push(span.range.start);
+        boundaries.push(span.range.end);
+    }
+    for span in &reference_spans {
         boundaries.push(span.range.start);
         boundaries.push(span.range.end);
     }
@@ -145,6 +157,23 @@ fn build_text_runs(
             && let Some(color) = style.background_color
         {
             background_color = Some(html_css_color_to_hsla(color, run_color));
+        }
+
+        // EXP-261 vendoring: reference pills — tinted background, medium
+        // weight, link color for issue refs. Code style wins (a token inside
+        // a code span stays code).
+        if !inline_style.code
+            && let Some(reference) = reference_spans
+                .iter()
+                .find(|span| span.range.start <= start && start < span.range.end)
+        {
+            background_color = Some(code_bg);
+            if font.weight < FontWeight::MEDIUM {
+                font.weight = FontWeight::MEDIUM;
+            }
+            if reference.kind == crate::host::ReferenceKind::IssueRef {
+                run_color = link_color;
+            }
         }
 
         runs.push(TextRun {
@@ -555,6 +584,44 @@ pub(crate) fn link_at_position<'a>(
         {
             if point_inside_bounds(link_bounds, position) {
                 return Some(link);
+            }
+        }
+    }
+
+    None
+}
+
+/// EXP-261 vendoring: resolve the decorated `@email` / `#IDENT` reference
+/// under a pointer position (mirrors [`link_at_position`]).
+pub(crate) fn reference_at_position(
+    input: &Block,
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    position: Point<Pixels>,
+) -> Option<(crate::host::ReferenceKind, String)> {
+    if input.is_source_raw_mode()
+        || input.display_text().is_empty()
+        || lines.is_empty()
+        || position.y < bounds.top()
+        || position.y >= bounds.bottom()
+    {
+        return None;
+    }
+
+    let decorator = input.environment.reference_decorator.as_ref()?;
+    let text = input.display_text();
+    let align = input.text_align();
+
+    for span in decorator.scan(text) {
+        if span.range.is_empty() {
+            continue;
+        }
+        for span_bounds in
+            range_segment_bounds(lines, bounds, line_height, text, span.range.clone(), align)
+        {
+            if point_inside_bounds(span_bounds, position) {
+                return Some((span.kind, text[span.range.clone()].to_string()));
             }
         }
     }

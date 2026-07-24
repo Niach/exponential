@@ -2551,7 +2551,7 @@ fn build_display_line(
 
 /// `@<email>` occurrences (byte ranges incl. the `@`). The email is
 /// `local@domain.tld` with the web `MENTION_RE` charset.
-fn scan_mentions(line: &str) -> Vec<Range<usize>> {
+pub(crate) fn scan_mentions(line: &str) -> Vec<Range<usize>> {
     let bytes = line.as_bytes();
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -2606,7 +2606,7 @@ fn scan_mentions(line: &str) -> Vec<Range<usize>> {
 
 /// `#IDENTIFIER` occurrences (byte ranges incl. the `#`) — the web
 /// `ISSUE_REF_SOURCE` contract: `(?<![\w#])#([A-Za-z][A-Za-z0-9]*-\d+)(?![\w-])`.
-fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
+pub(crate) fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
     let bytes = line.as_bytes();
     let mut out = Vec::new();
     let mut i = 0usize;

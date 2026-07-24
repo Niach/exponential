@@ -1366,7 +1366,10 @@ impl Block {
 
         // Cmd/Ctrl+click follows a rendered link instead of editing it, so the
         // block is neither focused nor selected; the link opens on mouse-up.
-        if event.modifiers.secondary() && self.pointer_link_hit(event.position).is_some() {
+        if event.modifiers.secondary()
+            && (self.pointer_link_hit(event.position).is_some()
+                || self.pointer_reference_hit(event.position).is_some())
+        {
             self.is_selecting = false;
             cx.stop_propagation();
             return;
@@ -1384,6 +1387,26 @@ impl Block {
             self.move_to(offset, cx);
             cx.emit(BlockEvent::RequestFocus);
         }
+    }
+
+    /// EXP-261 vendoring: resolve a decorated `@email` / `#IDENT` pill under
+    /// the pointer (mirrors [`Self::pointer_link_hit`]).
+    pub(crate) fn pointer_reference_hit(
+        &self,
+        position: Point<Pixels>,
+    ) -> Option<(crate::host::ReferenceKind, String)> {
+        self.last_layout
+            .as_ref()
+            .zip(self.last_bounds)
+            .and_then(|(lines, bounds)| {
+                super::element::reference_at_position(
+                    self,
+                    lines,
+                    bounds,
+                    self.last_line_height,
+                    position,
+                )
+            })
     }
 
     /// Resolve the inline link under a pointer position against the most recent
@@ -1448,6 +1471,16 @@ impl Block {
             && let Some(link) = self.pointer_link_hit(event.position)
         {
             self.open_rendered_link(&link, cx);
+            return;
+        }
+
+        // EXP-261 vendoring: Cmd/Ctrl+click on a decorated reference pill —
+        // the host routes it (issue refs navigate in-app).
+        if event.modifiers.secondary()
+            && let Some((kind, value)) = self.pointer_reference_hit(event.position)
+        {
+            cx.stop_propagation();
+            cx.emit(BlockEvent::RequestOpenReference { kind, value });
             return;
         }
 

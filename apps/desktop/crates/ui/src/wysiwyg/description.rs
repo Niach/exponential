@@ -12,18 +12,18 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     anchored, deferred, div, point, px, App, AppContext as _, ClipboardItem, Context, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
-    Pixels, Point, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
 use gpui_component::ActiveTheme as _;
 use gpui_markdown_editor::{
     ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
-    MarkdownEditorMode, MarkdownEditorOptions,
+    MarkdownEditorMode, MarkdownEditorOptions, ReferenceKind,
 };
 
 use super::images::{
     self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler,
 };
+use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{strip_draft_images, DRAFT_SCHEME};
 use crate::markdown::{download_image, ImageCache, ImageSlot, StagedImage};
 use crate::queries;
@@ -53,6 +53,8 @@ pub struct WysiwygDescription {
     images: Entity<ImageCache>,
     /// State shared with the vendored environment's paste handler + resolver.
     shared: Arc<SharedImageState>,
+    /// Member/issue snapshot behind the reference-pill decorator.
+    refs: Arc<SharedRefState>,
     /// Images staged in create-dialog mode (`draft://` URLs; resolved at
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
@@ -74,6 +76,7 @@ impl WysiwygDescription {
         let transport = queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport));
         let shared = Arc::new(SharedImageState::default());
+        let refs = Arc::new(SharedRefState::default());
         // Resize writes a `?w=` param back into the document — only sensible
         // in detail mode where the image is (or becomes) a real attachment.
         let enable_image_resize = upload_issue.is_some();
@@ -89,6 +92,11 @@ impl WysiwygDescription {
                 state: shared.clone(),
             }));
             environment.enable_image_resize = enable_image_resize;
+            if team_id.is_some() {
+                environment.reference_decorator = Some(Arc::new(WysiwygReferenceDecorator {
+                    state: refs.clone(),
+                }));
+            }
             VendoredEditor::new(
                 initial_markdown,
                 MarkdownEditorOptions {
@@ -125,6 +133,18 @@ impl WysiwygDescription {
                 }
                 MarkdownEditorEvent::ImageResized { src, width } => {
                     this.commit_image_width(src, *width, window, cx);
+                }
+                MarkdownEditorEvent::ReferenceClicked { kind, value } => {
+                    // Issue pills navigate in-app; mention pills are inert
+                    // (block-editor parity).
+                    if *kind == ReferenceKind::IssueRef {
+                        if let Some(team_id) = this.team_id.clone() {
+                            let identifier = value.trim_start_matches('#');
+                            crate::description_editor::open_issue_by_identifier(
+                                &team_id, identifier, window, cx,
+                            );
+                        }
+                    }
                 }
                 MarkdownEditorEvent::Error { message } => {
                     log::warn!("wysiwyg editor error: {message}");
@@ -175,10 +195,13 @@ impl WysiwygDescription {
             shared,
             staged: Vec::new(),
             image_menu: None,
+            refs,
             _subscriptions: subscriptions,
         };
-        // Kick off fetches for images already present in the description.
+        // Kick off fetches for images already present in the description and
+        // seed the reference-pill snapshot.
         this.sync_images(cx);
+        this.sync_refs(cx);
         this
     }
 
@@ -250,6 +273,16 @@ impl WysiwygDescription {
             }
         }
         self.sync_images(cx);
+        self.sync_refs(cx);
+    }
+
+    /// Refresh the member/issue snapshot the pill decorator reads. Runs on
+    /// init and every change — newly synced members/issues decorate on the
+    /// next edit (or reopen).
+    fn sync_refs(&mut self, cx: &mut Context<Self>) {
+        if let Some(team_id) = self.team_id.clone() {
+            refresh_ref_state(&self.refs, &team_id, cx);
+        }
     }
 
     fn spawn_upload(&mut self, staged: StagedImage, window: &mut Window, cx: &mut Context<Self>) {

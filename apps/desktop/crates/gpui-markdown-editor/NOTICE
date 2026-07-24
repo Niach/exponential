@@ -89,6 +89,11 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
   `MarkdownEditorEvent::ImageContextMenuRequested` for a HOST-rendered menu
   instead of the built-in insert menu; new events `ImageContextMenuRequested`
   and `ImageResized` (enum dropped its `Eq` derive for the pixel position).
+- src/host.rs + environment.rs + block element/interactions + editor events:
+  `ReferenceDecorator` seam — the host decorates `@email` / `#IDENT` tokens
+  as pills (render-time only; serialization untouched), with Cmd/Ctrl+click
+  surfacing `MarkdownEditorEvent::ReferenceClicked` (mirrors the link
+  hit-test path).
 - src/theme.rs: `ThemeFonts { ui_family, mono_family }` (upstream hardcoded
   `.SystemUIFont`; code had no monospace); editor/render.rs + block
   element/render read the theme families.

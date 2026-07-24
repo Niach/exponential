@@ -87,4 +87,10 @@ pub enum MarkdownEditorEvent {
         src: String,
         width: f32,
     },
+    /// EXP-261 vendoring: Cmd/Ctrl+click on a decorated `@email` / `#IDENT`
+    /// pill — the host routes it (issue refs navigate in-app).
+    ReferenceClicked {
+        kind: crate::host::ReferenceKind,
+        value: String,
+    },
 }

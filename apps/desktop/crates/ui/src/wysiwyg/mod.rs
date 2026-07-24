@@ -7,6 +7,7 @@
 
 mod description;
 mod images;
+mod refs;
 mod theme_bridge;
 
 pub(crate) use description::{OnSave, WysiwygDescription};

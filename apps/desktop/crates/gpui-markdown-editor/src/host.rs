@@ -32,6 +32,33 @@ pub enum ImageSourceResolution {
     Failed,
 }
 
+/// EXP-261 vendoring: kind of an inline reference decorated by the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferenceKind {
+    /// `@email` member mention.
+    Mention,
+    /// `#IDENT` issue reference.
+    IssueRef,
+}
+
+/// EXP-261 vendoring: a resolved reference span inside a block's visible
+/// text. The host returns only spans that RESOLVE (unknown identifiers stay
+/// plain text — the cross-client contract).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferenceSpan {
+    /// Byte range in the scanned visible text.
+    pub range: std::ops::Range<usize>,
+    pub kind: ReferenceKind,
+}
+
+/// EXP-261 vendoring: host hook decorating `@email` / `#IDENT` tokens as
+/// pills (render-time only — serialization is untouched, the tokens are plain
+/// GFM text). Send + Sync like the other environment hooks; the host backs it
+/// with a snapshot it refreshes on the UI thread.
+pub trait ReferenceDecorator: Send + Sync + 'static {
+    fn scan(&self, text: &str) -> Vec<ReferenceSpan>;
+}
+
 /// EXP-261 vendoring: host hook resolving markdown image sources the default
 /// local/remote classification cannot handle (relative attachment URLs that
 /// need authentication, staged `draft://` bytes). Return `None` to fall back

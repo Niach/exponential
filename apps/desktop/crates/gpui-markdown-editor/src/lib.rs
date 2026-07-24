@@ -16,7 +16,7 @@ pub use editor::Editor as MarkdownEditor;
 pub use environment::MarkdownEditorEnvironment;
 pub use host::{
     ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget,
-    InsertOriginalImagePath, PastedImage,
+    InsertOriginalImagePath, PastedImage, ReferenceDecorator, ReferenceKind, ReferenceSpan,
 };
 pub use strings::I18nStrings as MarkdownEditorStrings;
 pub use theme::{
