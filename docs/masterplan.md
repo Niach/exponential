@@ -37,6 +37,7 @@ below come from it), and decisions locked with Danny on 2026-07-05 (§2).
 - §12 Execution plan (phases P0–P5, packetized for the Opus subagent workflow)
 - §13 Release checklist (manual steps)
 - §14 Do-not-regress contract
+- §15 Actions + IDE streamline (EXP-252 plan — supersedes §7's run-config system)
 
 ---
 
@@ -633,3 +634,166 @@ byte-parity, widget users, model explicitness, deploy realities) **plus**:
    rows.
 7. **Markdown newline fix must not break byte-parity** — Android's parity suite is the lock;
    any serialization change lands with cross-client fixtures.
+
+---
+
+## §15 Actions + IDE streamline (EXP-252 plan)
+
+*2026-07-24. Planned in EXP-252 (plan-only issue; decisions locked with Danny via two
+question rounds). This section is the plan of record for the implementation issue it was
+filed as. It **supersedes §7** (run configs) and parts of §8 (IDE chrome): when implemented,
+§7 gets rewritten as "Actions" and invariants L23/L24 are replaced (see P8). Until then, §7
+remains the shipped state.*
+
+### Design decisions (locked)
+
+1. **Run configs die entirely** — DB table, tRPC router, MCP tools, desktop
+   RunBar/editor/spawn, Trust & Run *selection* (the per-device hash-trust store survives,
+   repurposed for Actions).
+2. **Actions** = markdown prompts that behave like claude commands (deploy, code review,
+   backlog grooming…). Storage: server-only `actions` DB table (tRPC CRUD + 4 MCP tools —
+   the run-config pattern; NEVER Electric-synced, proxy count stays 14).
+3. **Scope**: per-team; optional `repository_id` (nullable, FK set null). With repo → the run
+   executes in the repo's trunk clone on master (autopulled, git auth via
+   `coding::git_credentials::ensure`); without → a scratch dir containing only
+   `.exp-mcp.json`. Default templates are repo-less where possible.
+4. **Secrets**: NONE server-side; v1 ships no secrets feature at all. Actions run as the
+   user on their own device (login env, keychain, ~/keystores, existing CLI auth); CI-side
+   secrets stay in GitHub Actions — an action may trigger workflows. The server and the
+   GitHub App never see any secret.
+5. **Branch model**: the IDE becomes master-only + autopull. The editor is view-only, so
+   changes only ever arrive via PRs (merge or conflict). Delete branch switching,
+   stash-switch, publish, committing, staging, the FlowView branch graph + sweep. Keep a
+   reduced escape hatch (discard / hard-reset to origin/master + retry).
+6. **Desktop chrome**: TopBar removed entirely — board picker flattens into the rail as a
+   Projects icon section; run bar dies with run configs; git bar becomes a headless sync
+   engine with a status badge on the source-control rail icon. Team switching moves to the
+   account menu. The All Issues rail icon is removed (default tool = the active board's
+   issue list). Rail order: Search / [Inbox, Reviews, Support, Actions] / [board icons + "+"]
+   / [Files, Source Control] / spacer / [Settings, Account].
+7. **Source control page**: commit history moves into the sidebar tool column; the main pane
+   is a read-only changes list + diff using the freed space.
+8. **Actions UX**: first-class "Actions" sidebar entry on all four clients — list + ▶ Run
+   (device picker → the existing live steer view). Creator is Claude-primary ("New action" →
+   one-line description → `claude_task_with_mcp` with the actions MCP tools writes the
+   action — the Create-with-Claude pattern) plus a raw md editor for tweaks (web/desktop;
+   mobile is view + run in v1). Default actions ship as TEMPLATES in the New-action flow
+   (never seeded rows): "Code review → file issues", "Label + prioritize all issues",
+   "Draft changelog from recent merges".
+9. **Sessions**: reuse `coding_sessions` — add nullable `action_id` + `action_name` (display
+   snapshot; actions aren't synced so clients can't join). Subject = issue XOR batch XOR
+   action; action rows carry `team_id`, issue/board NULL (the populate triggers guard on
+   `issue_id IS NOT NULL`, so this is the verified batch precedent). Status only
+   running/ended; `contract.json` untouched.
+10. **Steer**: the `start_session` frame gains an action variant; `RemoteStartSubject::Action`;
+    `PrepareRequest::Action` skips worktree/branch/PR and targets the trunk clone or scratch
+    dir. Claude-only v1 (model/effort options). Devices advertise an actions capability in
+    the `online` frame; remote pickers filter on it.
+11. **Trust**: owner-only writes + a per-device trust gate hashed over the action body
+    (trust_store pattern), re-checked at run time against the freshly fetched body; remote
+    starts surface the trust dialog in the foreground window.
+
+### Phases
+
+P1→P3 sequential; P4 parallel to them; P5 needs P1+P4; P6/P7 need P4 (P6's device gating
+needs P5); P8 last.
+
+**P1 — Delete run configs.** Drop `runConfigs` from `packages/db-schema/src/schema.ts`
+(+`selectRunConfigSchema`/`RunConfig`); `migrate:generate` (DROP TABLE); remove its
+`update_updated_at` line from `0001_triggers.sql`. Delete `lib/trpc/run-configs.ts`,
+`lib/run-configs.ts` (+tests), unmount from `api/trpc/$.ts`, remove
+`exponential_run_configs_*` from `lib/mcp/tools.ts` (+tests, scope mapping). Desktop: delete
+`crates/api/src/run_configs.rs`, `crates/coding/src/run_launch.rs` (relocate `shell_cwd` for
+shell tabs; `run_root` is likely redundant with `clone_path` — verify), `crates/ui/src/run_bar.rs`;
+strip `TabKind::Run` (persisted "run" tabs degrade to Shell); trim `trust_store.rs`
+`selected_run_config` but KEEP the hash-trust machinery; keep `claude_task_with_mcp` (delete
+only `create_run_configs_prompt`). Old desktops calling `runConfigs.list` get NOT_FOUND
+(error state, no crash) → min-version bump in P8.
+
+**P2 — Desktop chrome streamline.** Delete `crates/ui/src/top_bar.rs`; Shell drops the child.
+GitBar keeps running unrendered (owned by `RailShared`, driven by rail render + its own
+timer — verified); the real refactor is P3. Rail: `ToolWindow::AllIssues` → `BoardIssues`
+(new default); Projects section = active team's boards as tinted icons + "+" (NewBoard),
+click = `set_active_board` + `activate_tool(BoardIssues)`; rail scrollable; Files/Source
+Control get their own group; "Switch team" submenu in the account menu (existing
+`SwitchTeam` action). Reroute `board_all` (rename `board_active`) — verify the EXP-48
+prev/next switcher (`active_issue_board`, `issue_detail.rs`); fix the `OpenBoard` handler in
+`navigation.rs`. Bump `LAYOUT_VERSION` 6→7. Sync/conflict badge on the SC rail icon (extend
+the existing conflict badge with sticky-error + syncing states; tooltip = "synced Xm ago").
+
+**P3 — Source control master-only + headless TrunkSync.** Gut `git_bar.rs` → `trunk_sync.rs`
+(keep: worker, AUTO_SYNC_INTERVAL timer, focus observer, ff_update path, conflict detection,
+`sync_seq`; delete: Push/Publish modes, checkout, stash-switch, all render fns). Add
+`SyncMode::HardReset` (`scm::hard_reset_to_remote`) as the conflict/dirty escape hatch; keep
+`abort_conflict` + Fix-with-Claude. `source_control.rs`: history (+Load more) moves to the
+sidebar tool column (replacing the branch list); delete `view_branch`/viewing banner,
+staging, commit box, identity save, stash strip; main pane = read-only changes + wider
+`DiffView`. Delete `flow_view.rs`/`flow_lanes.rs`; delete `scm::checkout` paths after
+grepping callers; delete `CheckoutBranch` + related actions. Keep the auto-sync hold-off
+while claude-task tabs are alive (P5 extends it to Action tabs).
+
+**P4 — Actions server + MCP + session plumbing + steer wire.** Schema: `actions` table (id,
+team_id FK cascade, repository_id nullable set-null, name unique-per-team, description, body
+text ≤64KB, sort_order, timestamps) — server-only; `coding_sessions` + `action_id` (FK set
+null) + `action_name` snapshot; add the `actions` `update_updated_at` trigger line; no
+populate-trigger changes; no contract changes. `lib/trpc/actions.ts`: `list` (member) /
+`get` / `create`/`update`/`delete` (owner; repo must belong to the team); MCP
+`exponential_actions_{list,create,update,delete}` + tests. `coding-sessions.ts`: `start`
+exactly-one-of issueId|teamId|actionId (action branch resolves team, writes
+actionId+actionName); `heartbeat` scope gains action fields (client-supplied snapshot; a
+deleted action degrades to a batch-shaped row; action rows always resurrect `running`).
+Shape proxy: append `action_id`,`action_name` to the coding-sessions columns allowlist — a
+one-time shape-identity rotation (benign, small table; land in ONE deploy; old natives drop
+unknown columns safely — verified). Steer: `steer.ts startSession` gains the actionId
+subject (claude-only; model/effort validated; the server passes the resolved repo group like
+batch does — the desktop syncs no repositories); relay `protocol.ts`/`hub.ts`/`index.ts`
+gain the action subject arm; devices advertise `caps: ["actions"]` in `online`, surfaced
+through `myDevices`; old desktops never advertise it, and `remote_start_from_frame` drops
+unknown frames safely.
+
+**P5 — Actions desktop.** `crates/api/src/actions.rs` client; `coding_sessions.rs` action
+start + `HeartbeatScope::Action`. Trust: trust_store action scope (`action:<id>`,
+sha256(body)); dialog before first run / changed body; fetch-fresh-then-hash at run time;
+remote starts foreground the dialog. `TabKind::Action(action_id)`; `PrepareRequest::Action`
+in `launcher.rs`: repo-backed → trunk clone (ensure clone, `git_credentials::ensure`,
+auto_sync before spawn), repo-less → scratch dir `<data_dir>/actions/<id>/`; `.exp-mcp.json`;
+prompt = small preamble (`action_prompt`) + body; `codingSessions.start(actionId)`; spawn
+interactive claude (`--mcp-config .exp-mcp.json --strict-mcp-config`); steer
+publisher/activity attach as usual (verify `attach_publisher` keys off session id, not
+TabKind). Rail `ToolWindow::Actions` + `actions_panel.rs`: team action list, ▶ Run
+(trust-gated), owner Edit/Delete, "New action" → describe-with-Claude (`create_action_prompt`
++ `claude_task_with_mcp`, refetch on exit) or raw editor (name/description/repo picker/body).
+Steer frames: `start_session` action fields + `online` caps; `RemoteStartSubject::Action`;
+`steer_wiring.rs` `remote_action_start` (fetch body via `api::actions::get`, trust gate,
+launch). Extend the auto-sync hold-off to Action tabs.
+
+**P6 — Actions web.** Route `t/$teamSlug/actions/` (agents-page skeleton): card list from
+`trpc.actions.list`; Run via `steer.myDevices` (filtered to actions-capable) →
+`steer.startSession({actionId, deviceId, model?, effort?})` → agent-dock steer viewer once
+the row syncs; live action-runs section; label action rows by `actionName` in
+`use-agents-data`/`issue-coding-rows`/the agents page. New-action dialog: template picker
+(`lib/action-templates.ts` — the 3 defaults) + raw fields (plain Textarea v1); owner-only
+writes. Sidebar + mobile-topbar "Actions" entries.
+
+**P7 — Actions mobile.** iOS: `ActionsApi.swift`, `ActionsListView` + view model, navigation
+case + team-menu entry, run → device picker → existing steer screen; add
+`action_id`/`action_name` to the GRDB entity + sync columns so badges label action runs.
+Android: actions API call + `ActionsScreen.kt` + nav entry; Room entity/migration +
+SyncManager columns for the two new fields; label action rows.
+
+**P8 — Docs, compat, versions.** Rewrite §7 as "Actions"; replace invariants L23/L24 (server-
+only table, owner-only writes, local execution under the user's own device auth with NO
+server secrets, per-device body-hash trust gate — the direct descendant of Trust & Run; the
+action creator becomes the ONE MCP-enabled claude task). Update CLAUDE.md (drop run_configs,
+add Actions). Bump `CLIENT_MIN_VERSION_DESKTOP` (old desktops lose `runConfigs.*` and can't
+run actions); iOS/Android need no min bump (cosmetic degradation only — action rows render
+batch-ish). Deploy the relay before/with web. Changelog entry per the release checklist.
+
+### Verification
+
+Per phase: `bun run migrate:generate && bun run migrate` + re-apply triggers (P1/P4),
+`bun run typecheck`, `bun run test`, `bun run test:steer-relay` (P4), `bun run test:desktop`.
+Grep gates: `run_config|RunConfig` empty post-P1; `AllIssues|TopBar|RunBar` empty post-P2;
+`view_branch|FlowView|stash` empty post-P3. `contract.json` untouched. Shape proxy count
+stays 14. E2E: create an action via the Claude creator, run repo-backed + repo-less,
+remote-start from web with live steer, trust dialog on body edit.
