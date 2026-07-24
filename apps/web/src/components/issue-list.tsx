@@ -175,6 +175,13 @@ export function IssueList({
     })
   }, [groups])
 
+  // An emptied selection (bulk-bar Clear, Esc, external reset) also drops
+  // the shift-range anchor — the next shift-click must not extend a range
+  // from a pre-clear row.
+  useEffect(() => {
+    if (selectedIds.size === 0) setAnchorId(null)
+  }, [selectedIds])
+
   const toggleSelect = (issueId: string, shiftKey: boolean) => {
     const ids = visibleFlatIssues.map((issue) => issue.id)
     const anchorIndex = anchorId ? ids.indexOf(anchorId) : -1
