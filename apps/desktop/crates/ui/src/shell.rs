@@ -193,6 +193,15 @@ impl Shell {
         })
         .detach();
 
+        // ---- EXP-263: enforce the minimum window size ourselves ------------
+        // macOS enforces `window_min_size` natively; on Linux the option is
+        // only a hint the WM/compositor may ignore, so every shell window
+        // clamps itself back to the floor (no-op where the OS enforces it).
+        cx.observe_window_bounds(window, |_, window, cx| {
+            crate::window_size::enforce_min_size(window, cx);
+        })
+        .detach();
+
         // ---- EXP-210: remember the MAIN window's last used size ------------
         // Restore-bounds, not the viewport, so a maximized session saves the
         // pre-maximize size; `load_last_size` feeds the next launch's
