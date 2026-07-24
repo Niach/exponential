@@ -83,6 +83,7 @@ import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -128,6 +129,7 @@ fun IssueDetailScreen(
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+    val missing by viewModel.missing.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
@@ -327,12 +329,31 @@ fun IssueDetailScreen(
         containerColor = Color.Transparent,
     ) { padding ->
         if (issue == null) {
-            Column(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Loading…", color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+            if (missing == MissingIssueState.Unavailable) {
+                Column(
+                    modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Issue not available", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "It may have been deleted, or you may not have access.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = viewModel::retryFetch) { Text("Retry") }
+                        TextButton(onClick = onBack) { Text("Go back") }
+                    }
+                }
+            } else {
+                // Still resolving: sync was kicked and the direct fetch may be
+                // in flight — a spinner, not a dead end.
+                LoadingState(modifier = Modifier.padding(padding))
             }
             return@Scaffold
         }

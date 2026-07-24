@@ -22,7 +22,10 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.data.electric.elapsedTicker
+import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -38,12 +41,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -80,7 +86,7 @@ data class IssueListState(
     val error: String? = null,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class IssueListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -91,6 +97,7 @@ class IssueListViewModel @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
+    private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -183,6 +190,24 @@ class IssueListViewModel @Inject constructor(
     ) { perms, accountId, all ->
         syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
+
+    /**
+     * Drives the "Syncing…" chip: the app is behind the server and working on
+     * it. Debounced asymmetrically — it only appears after half a second of
+     * being behind (a normal poll finishes well inside that, so nothing
+     * flickers), and disappears the instant we're caught up.
+     */
+    val syncingVisible: StateFlow<Boolean> = combine(
+        stats.state,
+        auth.activeAccountId,
+        syncManager.lastKickAt,
+        elapsedTicker(),
+    ) { all, accountId, lastKick, now ->
+        isCatchingUp(all[accountId], lastKick, now)
+    }
+        .distinctUntilChanged()
+        .debounce { visible -> if (visible) 500L else 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * The target board's team issues, newest-first — drives the create
@@ -534,15 +559,18 @@ class IssueListViewModel @Inject constructor(
     }
 
     /**
-     * Triggered by pull-to-refresh. Data is already live via Electric + Room,
-     * so this is just a short spinner so the gesture feels acknowledged.
+     * Triggered by pull-to-refresh: kick every shape loop and hold the spinner
+     * until the core shapes have actually polled (or the timeout wins). The
+     * gesture used to be a 500ms placebo — on the one occasion it matters, a
+     * loop parked in backoff, that was exactly wrong.
      */
     fun refresh() {
         if (_refreshing.value) return
         viewModelScope.launch {
             _refreshing.value = true
             try {
-                delay(500)
+                val accountId = auth.activeAccountId.value ?: return@launch
+                syncManager.refresh(accountId, timeoutMs = 5_000)
             } finally {
                 _refreshing.value = false
             }

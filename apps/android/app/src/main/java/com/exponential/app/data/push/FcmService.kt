@@ -10,6 +10,7 @@ import com.exponential.app.ExponentialApp
 import com.exponential.app.MainActivity
 import com.exponential.app.R
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.electric.SyncManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
@@ -20,6 +21,7 @@ class FcmService : FirebaseMessagingService() {
 
     @Inject lateinit var pushTokenManager: PushTokenManager
     @Inject lateinit var auth: AuthRepository
+    @Inject lateinit var syncManager: SyncManager
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -27,6 +29,11 @@ class FcmService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        // Any push means server state changed; catching up now (rather than at
+        // tap time) is what makes the tapped issue already local when the
+        // detail screen opens.
+        syncManager.kick("push")
+
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "Exponential"
         val body = message.notification?.body ?: data["body"]

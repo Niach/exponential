@@ -323,4 +323,9 @@ data class ElectricOffsetEntity(
     // True once an up-to-date control was seen — only then may polls long-poll
     // with live=true; catch-up polls stay non-live per the Electric protocol.
     @ColumnInfo(name = "is_live") val isLive: Boolean = false,
+    // Set when Electric told us to re-snapshot (409/400 or an inline
+    // must-refetch) and cleared once the snapshot lands. The rows are NOT wiped
+    // when this is set: the next poll requests offset=-1 and prepends the wipe
+    // to its own batch, so the swap is one transaction and the UI never blanks.
+    @ColumnInfo(name = "needs_refetch") val needsRefetch: Boolean = false,
 )
