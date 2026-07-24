@@ -141,6 +141,15 @@ fn footnote_row_top_gap(previous: Option<RenderedRowSpacingInfo>, default_gap: f
     }
 }
 
+/// Width of a top-level render row: the centered fixed column standalone,
+/// the full host slot when embedded (EXP-261 vendoring).
+fn row_width(row: Div, centered_width: Option<f32>) -> Div {
+    match centered_width {
+        Some(width) => row.w(px(width)).max_w(relative(1.0)),
+        None => row.w_full(),
+    }
+}
+
 fn footnote_group_shell(
     children: Vec<AnyElement>,
     theme: &Theme,
@@ -290,13 +299,20 @@ impl Render for Editor {
         let has_overflow = max_scroll_y > 0.5;
 
         // EXP-261 vendoring: embedded editors fill the host slot instead of
-        // centering a fixed column (the untracked viewport is 0 anyway).
+        // centering a fixed column (the untracked viewport is 0 anyway), so
+        // their rows take `w_full` rather than a pixel column width. A fake
+        // huge px width does NOT work here: `max_w(relative(1.0))` cannot
+        // resolve against the indefinite parent in taffy's intrinsic pass, so
+        // every paragraph was measured unwrapped — one line tall — and the row
+        // kept that height while paint wrapped it into three, overlapping the
+        // rows below.
         let centered_width = if self.embedded {
-            // Wider than any real slot; the rows' `max_w(relative(1.0))`
-            // clamps it to the host width.
-            100_000.0
+            None
         } else {
-            Self::centered_column_width(viewport_width, &theme.dimensions)
+            Some(Self::centered_column_width(
+                viewport_width,
+                &theme.dimensions,
+            ))
         };
         let current_scroll_y = (-f32::from(self.scroll_handle.offset().y)).clamp(0.0, max_scroll_y);
         let scrollbar_geometry =
@@ -424,8 +440,7 @@ impl Render for Editor {
                 row_top_gaps.push(top_gap);
                 row_elements.push(
                     div()
-                        .w(px(centered_width))
-                        .max_w(relative(1.0))
+                        .map(|row| row_width(row, centered_width))
                         .flex_shrink_0()
                         .mt(px(top_gap))
                         .flex()
@@ -480,8 +495,7 @@ impl Render for Editor {
                 row_top_gaps.push(top_gap);
                 row_elements.push(
                     div()
-                        .w(px(centered_width))
-                        .max_w(relative(1.0))
+                        .map(|row| row_width(row, centered_width))
                         .flex_shrink_0()
                         .mt(px(top_gap))
                         .child(footnote_group_shell(group_children, &theme, d))
@@ -494,8 +508,7 @@ impl Render for Editor {
 
             let entity = first_visible.entity.clone();
             let row = div()
-                .w(px(centered_width))
-                .max_w(relative(1.0))
+                .map(|row| row_width(row, centered_width))
                 .flex_shrink_0()
                 .mt(px(top_gap))
                 .child(entity.clone());
@@ -653,16 +666,22 @@ impl Render for Editor {
             .id("editor-scroll-inner")
             .flex()
             .flex_col()
-            .items_center()
             .bg(theme.colors.editor_background)
             .when(!self.embedded, |this| {
-                this.flex_grow(1.)
+                // Standalone rows are a fixed-width column centred in the
+                // viewport.
+                this.items_center()
+                    .flex_grow(1.)
                     .h_full()
                     .overflow_y_scroll()
                     .scrollbar_width(px(0.0))
                     .track_scroll(&self.scroll_handle)
             })
-            .when(self.embedded, |this| this.w_full())
+            // EXP-261 vendoring: embedded rows fill the host slot, so they
+            // STRETCH. Centring them would shrink-wrap each row to its content
+            // and centre it — single-line paragraphs would drift to the middle
+            // of the column while wrapped ones stayed flush left.
+            .when(self.embedded, |this| this.w_full().items_stretch())
             .on_hover(cx.listener(Self::on_editor_hover))
             .capture_any_mouse_down(cx.listener(Self::on_editor_capture_mouse_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_editor_mouse_down))
@@ -672,7 +691,9 @@ impl Render for Editor {
             .when(!self.embedded, |this| {
                 this.on_scroll_wheel(cx.listener(Self::on_editor_scroll_wheel))
                     .p(px(d.editor_padding))
-                    .pb(px(d.editor_padding + scroll_trigger_padding + scroll_beyond_bottom))
+                    .pb(px(d.editor_padding
+                        + scroll_trigger_padding
+                        + scroll_beyond_bottom))
             })
             .children(block_rows);
         let scroll_content = if self.view_mode == super::ViewMode::Rendered {

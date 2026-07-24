@@ -257,6 +257,7 @@ impl ExpandedInlineProjection {
         fragments: &[InlineFragment],
         clean_selected: Range<usize>,
         clean_marked: Option<Range<usize>>,
+        expand_focused_links: bool,
     ) -> Option<Self> {
         let clean_len = fragments
             .iter()
@@ -414,11 +415,17 @@ impl ExpandedInlineProjection {
                 }
 
                 let run_clean_range = run_clean_start..run_clean_end;
+                // EXP-261 vendoring: an ordinary `[text](url)` keeps rendering
+                // as a link with the caret inside it (web parity) — its target
+                // is edited through the host toolbar, not by typing over the
+                // expanded source. Reference links and autolinks still expand:
+                // they preserve their source spelling, so hiding it would
+                // leave no way to see or edit them.
                 let expand_link = Self::fragment_is_touched(
                     run_clean_range.clone(),
                     &clean_selected,
                     clean_marked.as_ref(),
-                );
+                ) && (expand_focused_links || link.is_source_preserving());
                 let link_group = expand_link.then_some(link_runs.len());
                 let run_display_start = display_cursor;
                 if expand_link {

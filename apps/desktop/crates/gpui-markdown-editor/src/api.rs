@@ -43,6 +43,50 @@ pub enum EditorCommand {
     SetMode(MarkdownEditorMode),
 }
 
+/// EXP-261 vendoring: the formatting commands a host toolbar drives, mirroring
+/// the web `StaticToolbar`
+/// (`apps/web/src/components/issue-editor/markdown-editor.tsx`). Every one is a
+/// TOGGLE: re-applying the active block kind returns it to a paragraph, and the
+/// inline marks flip off when the whole selection already carries them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FormatCommand {
+    Bold,
+    Italic,
+    Strikethrough,
+    Code,
+    /// CommonMark heading level; the toolbar offers 1–3 like web.
+    Heading(u8),
+    BulletList,
+    OrderedList,
+    TaskList,
+    Quote,
+    /// Point the selection — or the whole link under a collapsed caret — at
+    /// this target; `None` removes the link.
+    Link(Option<String>),
+    ClearFormatting,
+}
+
+/// EXP-261 vendoring: which formats are active at the caret/selection — the
+/// toolbar's pressed-button state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FormatState {
+    pub bold: bool,
+    pub italic: bool,
+    pub strikethrough: bool,
+    pub code: bool,
+    /// Heading level of the focused block, if it is one.
+    pub heading: Option<u8>,
+    pub bullet_list: bool,
+    pub ordered_list: bool,
+    pub task_list: bool,
+    pub quote: bool,
+    /// Whether the selection is non-empty.
+    pub has_selection: bool,
+    /// Target of the link at the caret/selection — the toolbar prefills its
+    /// URL field with it and lights the Link button when it is `Some`.
+    pub link: Option<String>,
+}
+
 /// A selection expressed in UTF-8 byte offsets into `MarkdownEditor::markdown`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceSelection {
@@ -85,7 +129,8 @@ pub enum MarkdownEditorEvent {
     /// new display width (`?w=` URL param) via `rewrite_image_sources`.
     ImageResized {
         src: String,
-        width: f32,
+        /// `None` drops the `?w=` param — the image returns to full width.
+        width: Option<f32>,
     },
     /// EXP-261 vendoring: Cmd/Ctrl+click on a decorated `@email` / `#IDENT`
     /// pill — the host routes it (issue refs navigate in-app).

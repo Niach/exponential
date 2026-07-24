@@ -45,13 +45,11 @@ pub use autocomplete::{
 };
 pub use blocks::{ContentBlock, RichText};
 pub(crate) use editor::{
-    byte_offset_to_position, download_image, placeholder_box, scan_issue_refs, scan_mentions,
-    sniff_format, ImageSlot,
+    attachment_natural_size, byte_offset_to_position, download_image, placeholder_box,
+    scan_issue_refs, scan_mentions, sniff_format, ImageSlot,
 };
 pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
-pub use image_paste::{
-    AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
-};
+pub use image_paste::{AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage};
 pub use parse::markdown_to_blocks;
 pub use serialize::blocks_to_markdown;
 

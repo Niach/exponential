@@ -95,9 +95,20 @@ impl PartialEq for ImageResolvedSource {
 }
 impl Eq for ImageResolvedSource {}
 
+/// EXP-261 vendoring: which edge of the image a resize drag grabbed. The
+/// image is centred in its column, so the left handle moves the width the
+/// other way (web parity — `ResizeDrag.edge` in `lib/markdown-image.tsx`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImageResizeEdge {
+    Left,
+    Right,
+}
+
 /// EXP-261 vendoring: live state of a standalone-image resize drag.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ImageResizeDrag {
+    /// Grabbed edge — decides the sign of the pointer delta.
+    pub(crate) edge: ImageResizeEdge,
     /// Pointer x at drag start (window coordinates).
     pub(crate) start_pointer_x: f32,
     /// Rendered image width at drag start.

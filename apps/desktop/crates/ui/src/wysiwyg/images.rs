@@ -29,6 +29,11 @@ pub(crate) struct SharedImageState {
     /// change event (detail mode uploads them; dialog mode keeps them for
     /// submit).
     pub paste_inbox: Mutex<Vec<StagedImage>>,
+    /// Probed natural `(width, height)` per query-stripped src, mirrored from
+    /// the synced `attachments` rows by the wrapper. The vendored editor sizes
+    /// the picture and clamps resize drags with it — web reads the same synced
+    /// dimensions.
+    pub natural_sizes: Mutex<HashMap<String, (f32, f32)>>,
 }
 
 /// Query-stripped cache key (the `?w=` display width never affects identity —
@@ -48,6 +53,15 @@ pub(crate) struct WysiwygImageResolver {
 }
 
 impl ImageSourceResolver for WysiwygImageResolver {
+    fn natural_size(&self, src: &str) -> Option<(f32, f32)> {
+        self.state
+            .natural_sizes
+            .lock()
+            .ok()?
+            .get(cache_key(src))
+            .copied()
+    }
+
     fn resolve(&self, src: &str) -> Option<ImageSourceResolution> {
         if !is_hosted_src(src) {
             return None;

@@ -362,6 +362,29 @@ impl Editor {
         self.rebuild_image_runtimes(cx);
     }
 
+    /// EXP-261 vendoring: insert a local image file at the caret exactly as a
+    /// paste would — same host `ImagePasteHandler`, same block placement.
+    /// Backs the toolbar's "Insert image" button, which picks files instead of
+    /// pasting them.
+    pub fn insert_image_path(
+        &mut self,
+        path: std::path::PathBuf,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.focused_edit_target(window, cx) else {
+            return;
+        };
+        let (leading, trailing) = block.read_with(cx, |block, _cx| block.paste_image_split());
+        self.handle_paste_image_request(
+            block,
+            &leading,
+            &PastedImageSource::LocalPath(path),
+            &trailing,
+            cx,
+        );
+    }
+
     fn handle_paste_image_request(
         &mut self,
         block: Entity<super::Block>,
@@ -1419,6 +1442,14 @@ impl Editor {
                 cx.emit(MarkdownEditorEvent::ReferenceClicked {
                     kind: *kind,
                     value: value.clone(),
+                });
+            }
+            // EXP-261 vendoring: the image's own `…` button — same host menu
+            // the right-click path opens.
+            BlockEvent::ImageMenuRequested { src, position } => {
+                cx.emit(MarkdownEditorEvent::ImageContextMenuRequested {
+                    src: src.clone(),
+                    position: *position,
                 });
             }
             // EXP-261 vendoring: forward to the host, which persists the

@@ -7,7 +7,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
-use crate::components::ImageResizeDrag;
+use crate::components::{ImageResizeDrag, ImageResizeEdge};
 
 use super::element::{BlockTextElement, CodeLanguageInputElement};
 use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
@@ -22,6 +22,16 @@ use crate::components::{
 };
 use crate::strings::I18nStrings;
 use crate::theme::{Theme, ThemeDimensions};
+
+// EXP-261 vendoring: standalone-image hover controls, sized off the web
+// overlay (`.editor-image-handle` / `.editor-image-menu-trigger`) at the
+// desktop's tighter density.
+const IMAGE_CONTROL_INSET: f32 = 6.0;
+const IMAGE_RESIZE_HANDLE_WIDTH: f32 = 6.0;
+const IMAGE_RESIZE_HANDLE_HEIGHT: f32 = 36.0;
+const IMAGE_MENU_BUTTON_SIZE: f32 = 20.0;
+/// Keeps a resized image big enough to still grab a handle on (web parity).
+const IMAGE_MIN_RESIZE_WIDTH: f32 = 120.0;
 
 // Unicode bullet glyphs for nested list depths.
 const BULLET_FILLED: &str = "\u{2022}";
@@ -446,6 +456,7 @@ impl Block {
         placeholder_height: Pixels,
         theme: &Theme,
         strings: &I18nStrings,
+        overlay: Option<AnyElement>,
     ) -> AnyElement {
         let c = &theme.colors;
         let d = &theme.dimensions;
@@ -460,11 +471,19 @@ impl Block {
 
         // EXP-261 vendoring: resolver-provided states render the shared
         // placeholders; a `?w=` URL param pins the display width
-        // (cross-client contract; the server ignores the param).
+        // (cross-client contract; the server ignores the param). With no
+        // pinned width, the host's natural size sizes the element to the
+        // picture so the overlay controls land on its own edges.
         let display_width = self
             .image_resize_drag
             .map(|drag| drag.current_width)
-            .or_else(|| crate::components::markdown::image::width_param_from_src(&runtime.src));
+            .or_else(|| crate::components::markdown::image::width_param_from_src(&runtime.src))
+            .or_else(|| match max_width {
+                Length::Definite(DefiniteLength::Absolute(AbsoluteLength::Pixels(width))) => {
+                    self.image_display_width(&runtime.src, f32::from(width), f32::from(max_height))
+                }
+                _ => None,
+            });
         let image = match source {
             ImageResolvedSource::Pending => {
                 return render_loading_placeholder(
@@ -515,6 +534,17 @@ impl Block {
             image
         };
 
+        // EXP-261 vendoring: the overlay (resize handles + the `…` menu
+        // button) rides a wrapper that HUGS the image, so the controls sit on
+        // the picture's own edges instead of the full-width block's.
+        let image_box = div()
+            .relative()
+            .flex()
+            .flex_shrink_0()
+            .max_w(relative(1.0))
+            .child(image)
+            .children(overlay);
+
         let mut container = div()
             .w_full()
             .flex()
@@ -522,7 +552,7 @@ impl Block {
             .items_center()
             .justify_center()
             .gap(px(d.image_caption_gap))
-            .child(image);
+            .child(image_box);
 
         if let Some(title) = runtime
             .title
@@ -540,6 +570,215 @@ impl Block {
         }
 
         container.into_any_element()
+    }
+
+    /// EXP-261 vendoring: the hover controls layered over a standalone image —
+    /// a `…` menu button at the top right and a drag handle on each edge,
+    /// mirroring the web node view (`apps/web/src/lib/markdown-image.tsx` and
+    /// its `.editor-image-*` rules). The caller mounts this inside the wrapper
+    /// that hugs the image, so every offset here is relative to the picture.
+    fn render_image_overlay(
+        &self,
+        runtime: &ImageRuntime,
+        max_width: f32,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let drag_active = self.image_resize_drag.is_some();
+        let mut handle_color = c.text_default;
+        handle_color.a = 0.72;
+
+        // Reveal on hover (or while dragging), like the web overlay.
+        let reveal = move |element: Div| {
+            if drag_active {
+                element
+            } else {
+                element
+                    .invisible()
+                    .group_hover("wysiwyg-image", |style| style.visible())
+            }
+        };
+
+        let start_width_hint = self
+            .image_resize_drag
+            .map(|drag| drag.current_width)
+            .or_else(|| crate::components::markdown::image::width_param_from_src(&runtime.src));
+        let handle = |edge: ImageResizeEdge| {
+            let id = ElementId::Name(
+                format!(
+                    "image-resize-{}-{}",
+                    self.record.id,
+                    match edge {
+                        ImageResizeEdge::Left => "l",
+                        ImageResizeEdge::Right => "r",
+                    }
+                )
+                .into(),
+            );
+            reveal(
+                div()
+                    .absolute()
+                    .top(relative(0.5))
+                    .map(|element| match edge {
+                        ImageResizeEdge::Left => element.left(px(IMAGE_CONTROL_INSET)),
+                        ImageResizeEdge::Right => element.right(px(IMAGE_CONTROL_INSET)),
+                    })
+                    .h(px(IMAGE_RESIZE_HANDLE_HEIGHT))
+                    .mt(px(-IMAGE_RESIZE_HANDLE_HEIGHT / 2.0)),
+            )
+            .child(
+                div()
+                    .id(id)
+                    .w(px(IMAGE_RESIZE_HANDLE_WIDTH))
+                    .h_full()
+                    .rounded_full()
+                    .bg(handle_color)
+                    .cursor(CursorStyle::ResizeLeftRight)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |block, event: &MouseDownEvent, _window, cx| {
+                            cx.stop_propagation();
+                            let start_width = start_width_hint.unwrap_or_else(|| {
+                                let probed = block.image_probe_width.get();
+                                if probed > 0.0 { probed } else { max_width }
+                            });
+                            block.image_resize_drag = Some(ImageResizeDrag {
+                                edge,
+                                start_pointer_x: f32::from(event.position.x),
+                                start_width,
+                                current_width: start_width,
+                            });
+                            cx.notify();
+                        }),
+                    ),
+            )
+        };
+
+        let src = runtime.src.clone();
+        let menu_button = reveal(
+            div()
+                .absolute()
+                .top(px(IMAGE_CONTROL_INSET))
+                .right(px(IMAGE_CONTROL_INSET)),
+        )
+        .child(
+            div()
+                .id(ElementId::Name(
+                    format!("image-menu-{}", self.record.id).into(),
+                ))
+                .size(px(IMAGE_MENU_BUTTON_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(2.0))
+                .rounded_full()
+                .border_1()
+                .border_color(c.image_placeholder_border)
+                .bg(c.code_bg)
+                .cursor(CursorStyle::PointingHand)
+                .children((0..3).map(|_| div().size(px(2.5)).rounded_full().bg(c.text_default)))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |_block, event: &MouseDownEvent, _window, cx| {
+                        cx.stop_propagation();
+                        cx.emit(BlockEvent::ImageMenuRequested {
+                            src: src.clone(),
+                            position: event.position,
+                        });
+                    }),
+                ),
+        );
+
+        // Measures the IMAGE, not the block — the drag clamps and the
+        // fallback start width both want the picture's rendered width.
+        let probe = self.image_probe_width.clone();
+        let probe_canvas = canvas(
+            |_, _, _| (),
+            move |bounds, _, _, _| probe.set(f32::from(bounds.size.width)),
+        )
+        .absolute()
+        .size_full();
+
+        div()
+            .absolute()
+            .inset_0()
+            .child(probe_canvas)
+            .child(handle(ImageResizeEdge::Left))
+            .child(handle(ImageResizeEdge::Right))
+            .child(menu_button)
+            .into_any_element()
+    }
+
+    /// Window-level mouse capture for a live resize drag. Mounted on the block
+    /// (not the image) so the pointer may leave the picture mid-drag.
+    fn render_image_drag_canvas(
+        &self,
+        max_width: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        self.image_resize_drag?;
+        let entity = cx.entity().downgrade();
+        Some(
+            canvas(
+                |_, _, _| (),
+                move |_bounds, _, window, _| {
+                    window.on_mouse_event({
+                        let entity = entity.clone();
+                        move |event: &MouseMoveEvent, phase, _window, cx| {
+                            if !phase.bubble() || !event.dragging() {
+                                return;
+                            }
+                            let pointer_x = f32::from(event.position.x);
+                            let _ = entity.update(cx, |block, cx| {
+                                if let Some(drag) = &mut block.image_resize_drag {
+                                    let delta = pointer_x - drag.start_pointer_x;
+                                    // The image is centred, so its left edge
+                                    // moves opposite to the width.
+                                    let raw = match drag.edge {
+                                        ImageResizeEdge::Right => drag.start_width + delta,
+                                        ImageResizeEdge::Left => drag.start_width - delta,
+                                    };
+                                    drag.current_width = raw.clamp(
+                                        IMAGE_MIN_RESIZE_WIDTH,
+                                        max_width.max(IMAGE_MIN_RESIZE_WIDTH),
+                                    );
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    });
+                    window.on_mouse_event({
+                        let entity = entity.clone();
+                        move |_event: &MouseUpEvent, phase, _window, cx| {
+                            if !phase.bubble() {
+                                return;
+                            }
+                            let _ = entity.update(cx, |block, cx| {
+                                if let Some(drag) = block.image_resize_drag.take() {
+                                    if let Some(runtime) = block.image_runtime() {
+                                        // Dragged back out to the full column
+                                        // drops the `?w=` param entirely, so
+                                        // the markdown stays canonical-clean
+                                        // and the image keeps re-flowing with
+                                        // the window (web parity).
+                                        let width = (drag.current_width < max_width - 1.0)
+                                            .then(|| drag.current_width.round());
+                                        cx.emit(BlockEvent::ImageResizeCommitted {
+                                            src: runtime.src.clone(),
+                                            width,
+                                        });
+                                    }
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    });
+                },
+            )
+            .absolute()
+            .size_full(),
+        )
     }
 
     fn render_math_content(&self, theme: &Theme) -> AnyElement {
@@ -1492,6 +1731,7 @@ impl Block {
             px(theme.dimensions.image_root_placeholder_height * zoom),
             theme,
             &strings,
+            None,
         );
         if let Some(bg) = node_style.background {
             div().w_full().bg(bg).child(content).into_any_element()
@@ -1791,6 +2031,7 @@ impl Render for Block {
                         px(d.image_cell_placeholder_height),
                         &theme,
                         &strings,
+                        None,
                     ))
                     .into_any_element();
             }
@@ -1895,6 +2136,21 @@ impl Render for Block {
             let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
             let max_width = px(effective_image_width(self, viewport_width, d));
             if let Some(runtime) = self.image_runtime().cloned() {
+                // A resize may never upscale past the picture's own pixels
+                // (web parity); without a known natural size the column is the
+                // only honest bound.
+                let resize_max = self
+                    .image_display_width(
+                        &runtime.src,
+                        f32::from(max_width),
+                        f32::from(px(d.image_root_max_height)),
+                    )
+                    .unwrap_or_else(|| f32::from(max_width));
+                let overlay = self
+                    .environment
+                    .enable_image_resize
+                    .then(|| self.render_image_overlay(&runtime, resize_max, &theme, cx));
+                let drag_canvas = self.render_image_drag_canvas(resize_max, cx);
                 let content = self.render_image_content(
                     &runtime,
                     max_width.into(),
@@ -1902,126 +2158,13 @@ impl Render for Block {
                     px(d.image_root_placeholder_height),
                     &theme,
                     &strings,
+                    overlay,
                 );
-                if !self.environment.enable_image_resize {
-                    return focused_base.child(content).into_any_element();
-                }
-
-                // EXP-261 vendoring: drag handle writing a `?w=` display
-                // width (EXP-256 parity). Live width previews via
-                // `image_resize_drag`; the final width is committed to the
-                // host as `BlockEvent::ImageResizeCommitted`.
-                let handle_color = c.scrollbar_thumb;
-                let drag_active = self.image_resize_drag.is_some();
-                let start_width_hint = self
-                    .image_resize_drag
-                    .map(|drag| drag.current_width)
-                    .or_else(|| {
-                        crate::components::markdown::image::width_param_from_src(&runtime.src)
-                    });
-                let handle = div()
-                    .absolute()
-                    .right(px(4.0))
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .id(ElementId::Name(
-                                format!("image-resize-{}", self.record.id).into(),
-                            ))
-                            .w(px(6.0))
-                            .h(px(28.0))
-                            .rounded(px(3.0))
-                            .bg(handle_color)
-                            .cursor(CursorStyle::ResizeLeftRight)
-                            .when(!drag_active, |this| {
-                                this.invisible()
-                                    .group_hover("wysiwyg-image", |style| style.visible())
-                            })
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |block, event: &MouseDownEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    let start_width = start_width_hint.unwrap_or_else(|| {
-                                        let probed = block.image_probe_width.get();
-                                        if probed > 0.0 { probed } else { 320.0 }
-                                    });
-                                    block.image_resize_drag = Some(ImageResizeDrag {
-                                        start_pointer_x: f32::from(event.position.x),
-                                        start_width,
-                                        current_width: start_width,
-                                    });
-                                    cx.notify();
-                                }),
-                            ),
-                    );
-
-                let probe = self.image_probe_width.clone();
-                let probe_canvas = canvas(
-                    |_, _, _| (),
-                    move |bounds, _, _, _| probe.set(f32::from(bounds.size.width)),
-                )
-                .absolute()
-                .size_full();
-
-                let drag_canvas = drag_active.then(|| {
-                    let entity = cx.entity().downgrade();
-                    canvas(
-                        |_, _, _| (),
-                        move |_bounds, _, window, _| {
-                            window.on_mouse_event({
-                                let entity = entity.clone();
-                                move |event: &MouseMoveEvent, phase, _window, cx| {
-                                    if !phase.bubble() || !event.dragging() {
-                                        return;
-                                    }
-                                    let pointer_x = f32::from(event.position.x);
-                                    let _ = entity.update(cx, |block, cx| {
-                                        let max = block.image_probe_width.get();
-                                        let max = if max > 0.0 { max } else { f32::MAX };
-                                        if let Some(drag) = &mut block.image_resize_drag {
-                                            drag.current_width = (drag.start_width
-                                                + (pointer_x - drag.start_pointer_x))
-                                                .clamp(80.0, max.max(80.0));
-                                            cx.notify();
-                                        }
-                                    });
-                                }
-                            });
-                            window.on_mouse_event({
-                                let entity = entity.clone();
-                                move |_event: &MouseUpEvent, phase, _window, cx| {
-                                    if !phase.bubble() {
-                                        return;
-                                    }
-                                    let _ = entity.update(cx, |block, cx| {
-                                        if let Some(drag) = block.image_resize_drag.take() {
-                                            if let Some(runtime) = block.image_runtime() {
-                                                cx.emit(BlockEvent::ImageResizeCommitted {
-                                                    src: runtime.src.clone(),
-                                                    width: drag.current_width.round(),
-                                                });
-                                            }
-                                            cx.notify();
-                                        }
-                                    });
-                                }
-                            });
-                        },
-                    )
-                    .absolute()
-                    .size_full()
-                });
-
                 return focused_base
                     .group("wysiwyg-image")
                     .relative()
                     .child(content)
-                    .child(probe_canvas)
                     .children(drag_canvas)
-                    .child(handle)
                     .into_any_element();
             }
         }
@@ -2166,6 +2309,7 @@ impl Render for Block {
                                 px(d.image_root_placeholder_height),
                                 &theme,
                                 &strings,
+                                None,
                             ))
                         } else {
                             div().min_w(px(0.0)).flex_grow(1.).child(
@@ -2261,6 +2405,7 @@ impl Render for Block {
                                     px(d.image_root_placeholder_height),
                                     &theme,
                                     &strings,
+                                    None,
                                 ))
                             } else {
                                 div().min_w(px(0.0)).flex_grow(1.).child(
@@ -2323,6 +2468,7 @@ impl Render for Block {
                                 px(d.image_root_placeholder_height),
                                 &theme,
                                 &strings,
+                                None,
                             ))
                         } else {
                             div().min_w(px(0.0)).flex_grow(1.).child(
@@ -3216,9 +3362,9 @@ fn inline_word_chunks(text: &str, code: bool, has_background: bool) -> Vec<&str>
 
 #[cfg(test)]
 mod tests {
-    use super::{column_axis_gutter_visible, inline_word_chunks};
     #[cfg(feature = "html-native")]
     use super::{HtmlComputedStyle, html_node_visual_style};
+    use super::{column_axis_gutter_visible, inline_word_chunks};
     #[cfg(feature = "html-native")]
     use crate::components::parse_html_document;
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree};

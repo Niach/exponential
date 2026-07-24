@@ -255,18 +255,24 @@ pub(crate) struct EditorImageHooks {
     drag_width: Option<f32>,
 }
 
-/// Natural (probed) pixel width of an own-attachment URL from the synced
-/// `attachments` collection — the resize drag's upper clamp (web reads the
-/// same synced dims).
-fn attachment_natural_width(url: &str, cx: &App) -> Option<f32> {
+/// Natural (probed) pixel size of an own-attachment URL from the synced
+/// `attachments` collection — the resize drag's upper clamp and, in the
+/// WYSIWYG editor, the element's own display size (web reads the same synced
+/// dims).
+pub(crate) fn attachment_natural_size(url: &str, cx: &App) -> Option<(f32, f32)> {
     let id = image_url::attachment_id_from_src(url)?;
-    let attachment = sync::Store::global(cx)
+    let attachment = sync::Store::try_global(cx)?
         .collections()
         .attachments
         .read(cx)
         .get(id)
         .cloned()?;
-    attachment.width.map(|width| width as f32)
+    Some((attachment.width? as f32, attachment.height? as f32))
+}
+
+/// Just the width half of [`attachment_natural_size`].
+fn attachment_natural_width(url: &str, cx: &App) -> Option<f32> {
+    attachment_natural_size(url, cx).map(|(width, _)| width)
 }
 
 /// Download filename: the synced attachment row's `filename`, else the URL's
@@ -330,7 +336,9 @@ pub(crate) fn download_image(
             ))),
             Err(error) => {
                 log::warn!("image download failed for {url}: {error}");
-                Notification::error(SharedString::from(format!("Image download failed: {error}")))
+                Notification::error(SharedString::from(format!(
+                    "Image download failed: {error}"
+                )))
             }
         };
         let _ = handle.update(cx, |_, window, cx| {
@@ -445,8 +453,15 @@ fn render_image_slot(
                             .child(render_image_resize_handle(hooks, false, &group_name))
                     });
             }
-            attach_image_context_menu(wrapper, images, &fetch_url, alt, own_attachment, hooks.as_ref())
-                .into_any_element()
+            attach_image_context_menu(
+                wrapper,
+                images,
+                &fetch_url,
+                alt,
+                own_attachment,
+                hooks.as_ref(),
+            )
+            .into_any_element()
         }
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
         ImageSlot::Failed(_) => placeholder_box(
@@ -516,7 +531,13 @@ fn render_image_resize_handle(
         .absolute()
         .top(gpui::relative(0.5))
         .mt(px(-20.))
-        .map(|el| if left_edge { el.left_1p5() } else { el.right_1p5() })
+        .map(|el| {
+            if left_edge {
+                el.left_1p5()
+            } else {
+                el.right_1p5()
+            }
+        })
         .w(px(6.))
         .h(px(40.))
         .rounded_full()
@@ -1395,9 +1416,7 @@ impl MarkdownEditor {
         let Some(latest) = drag.latest else {
             return;
         };
-        let at_full = drag
-            .natural_width
-            .is_some_and(|natural| latest >= natural);
+        let at_full = drag.natural_width.is_some_and(|natural| latest >= natural);
         let width = (!at_full).then_some(latest as u32);
         let changed = self.blocks.iter_mut().any(|block| match block {
             EditorBlock::Image { id, url, .. } if *id == drag.block_id => {
@@ -1417,9 +1436,11 @@ impl MarkdownEditor {
     }
 
     fn remove_image_by_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(index) = self.blocks.iter().position(
-            |block| matches!(block, EditorBlock::Image { url: u, .. } if u == url),
-        ) else {
+        let Some(index) = self
+            .blocks
+            .iter()
+            .position(|block| matches!(block, EditorBlock::Image { url: u, .. } if u == url))
+        else {
             return;
         };
         self.remove_image_at(index, window, cx);
@@ -1735,7 +1756,11 @@ impl MarkdownEditor {
                     );
                 }
                 EditorBlock::Image {
-                    id, url, alt, bounds, ..
+                    id,
+                    url,
+                    alt,
+                    bounds,
+                    ..
                 } => {
                     let block_id = *id;
                     let hooks = EditorImageHooks {
@@ -2109,38 +2134,30 @@ impl gpui::RenderOnce for MarkdownView {
             Some(width) => div().w(px(width)).max_w_full().child(content),
             None => div().w_full().child(content),
         };
-        div()
-            .w_full()
-            .relative()
-            .child(sized)
-            .child(
-                canvas(
-                    move |bounds, window, _| {
-                        let width = f32::from(bounds.size.width);
-                        let Ok(mut widths) = view_widths().lock() else {
-                            return;
-                        };
-                        if widths.get(&key) != Some(&width) {
-                            widths.insert(key.clone(), width);
-                            window.refresh();
-                        }
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full(),
+        div().w_full().relative().child(sized).child(
+            canvas(
+                move |bounds, window, _| {
+                    let width = f32::from(bounds.size.width);
+                    let Ok(mut widths) = view_widths().lock() else {
+                        return;
+                    };
+                    if widths.get(&key) != Some(&width) {
+                        widths.insert(key.clone(), width);
+                        window.refresh();
+                    }
+                },
+                |_, _, _, _| {},
             )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
     }
 }
 
 /// Line-local marks (byte offsets into the line) for line `index`.
-fn line_marks(
-    content: &super::blocks::RichText,
-    lines: &[&str],
-    index: usize,
-) -> Vec<InlineMark> {
+fn line_marks(content: &super::blocks::RichText, lines: &[&str], index: usize) -> Vec<InlineMark> {
     let mut start = 0usize;
     for line in lines.iter().take(index) {
         start += line.len() + 1;
@@ -2582,9 +2599,7 @@ pub(crate) fn scan_mentions(line: &str) -> Vec<Range<usize>> {
         // Needs a dot + ≥2-alpha TLD (web regex `\.[A-Za-z]{2,}`); trim
         // trailing dots/hyphens that the regex would not consume.
         let mut end = k;
-        while end > domain_start
-            && (bytes[end - 1] == b'.' || bytes[end - 1] == b'-')
-        {
+        while end > domain_start && (bytes[end - 1] == b'.' || bytes[end - 1] == b'-') {
             end -= 1;
         }
         let domain = &domain[..end - domain_start];
@@ -2616,7 +2631,11 @@ pub(crate) fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
             continue;
         }
         // Lookbehind: not a word char or '#'.
-        if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_' || bytes[i - 1] == b'#') {
+        if i > 0
+            && (bytes[i - 1].is_ascii_alphanumeric()
+                || bytes[i - 1] == b'_'
+                || bytes[i - 1] == b'#')
+        {
             i += 1;
             continue;
         }

@@ -27,8 +27,8 @@ use super::{
     parse_standalone_image, resolve_image_source,
 };
 use crate::components::markdown::inline::{
-    InlineFragment, InlineInsertionAttributes, InlineLinkHit, InlineRenderCache, InlineSpan,
-    InlineStyle, InlineTextTree, StyleFlag,
+    InlineFragment, InlineInsertionAttributes, InlineLink, InlineLinkHit, InlineRenderCache,
+    InlineSpan, InlineStyle, InlineTextTree, StyleFlag,
 };
 use crate::components::{
     TableAxisHighlight, TableAxisMarker, TableCellPosition, TableColumnAlignment, TableRuntime,
@@ -44,6 +44,18 @@ pub(crate) enum InlineFormat {
     Italic,
     /// Toggle inline code formatting.
     Code,
+    /// EXP-261 vendoring: toggle strikethrough (`~~`), a toolbar-only format.
+    Strikethrough,
+}
+
+/// The style flag an [`InlineFormat`] toggles.
+fn style_flag_for(format: InlineFormat) -> StyleFlag {
+    match format {
+        InlineFormat::Bold => StyleFlag::Bold,
+        InlineFormat::Italic => StyleFlag::Italic,
+        InlineFormat::Code => StyleFlag::Code,
+        InlineFormat::Strikethrough => StyleFlag::Strikethrough,
+    }
 }
 
 /// Editing semantics for the current block.
@@ -102,6 +114,14 @@ pub struct Block {
     pub(crate) environment: Arc<MarkdownEditorEnvironment>,
     /// EXP-261 vendoring: live image resize drag (standalone images).
     pub(crate) image_resize_drag: Option<super::ImageResizeDrag>,
+    /// EXP-261 vendoring: the inline style ARMED at a collapsed caret — web's
+    /// "stored mark". Toggling bold with nothing selected cannot edit the
+    /// document, so the style is parked here and applied to the next inserted
+    /// text; from then on the caret sits inside a styled fragment and ordinary
+    /// inheritance carries it. The offset anchors it: any caret move (or an
+    /// edit that shifts it) makes the entry stale, so it is silently dropped
+    /// exactly like a ProseMirror stored mark clearing on selection change.
+    pub(crate) pending_inline_style: Option<(usize, InlineStyle)>,
     /// EXP-261 vendoring: painted width of the image slot (drag clamp),
     /// written from the paint phase.
     pub(crate) image_probe_width: std::rc::Rc<std::cell::Cell<f32>>,
@@ -225,6 +245,7 @@ impl Block {
             record,
             environment,
             image_resize_drag: None,
+            pending_inline_style: None,
             image_probe_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             render_cache,
             code_highlight: None,
@@ -877,6 +898,7 @@ impl Block {
             &self.record.title.fragments,
             clean_selected,
             clean_marked,
+            self.environment.expand_focused_links,
         );
         self.refresh_cached_display_text();
     }
@@ -947,6 +969,14 @@ impl Block {
         preferred_x: Option<Pixels>,
     ) {
         let clamped_offset = offset.min(self.visible_len());
+        // EXP-261 vendoring: moving the caret drops any armed style, so it can
+        // never come back to life when the caret later revisits its offset.
+        if self
+            .pending_inline_style
+            .is_some_and(|(anchor, _)| anchor != clamped_offset)
+        {
+            self.pending_inline_style = None;
+        }
         self.selected_range = clamped_offset..clamped_offset;
         self.selection_reversed = false;
         self.vertical_motion_x = preferred_x;
@@ -1388,6 +1418,14 @@ impl Block {
         );
     }
 
+    /// EXP-261 vendoring: the style armed at `offset` by a collapsed-caret
+    /// format toggle, if it is still anchored there.
+    pub(crate) fn armed_inline_style(&self, offset: usize) -> Option<InlineStyle> {
+        self.pending_inline_style
+            .filter(|(anchor, _)| *anchor == offset)
+            .map(|(_, style)| style)
+    }
+
     fn insertion_attributes_for_current_offset(
         &self,
         current_offset: usize,
@@ -1396,6 +1434,21 @@ impl Block {
             return InlineInsertionAttributes::default();
         }
 
+        // An armed style wins over inheritance — that is the whole point of
+        // toggling bold before typing.
+        if let Some(style) = self.armed_inline_style(current_offset) {
+            let mut attributes = self.inherited_insertion_attributes(current_offset);
+            attributes.style = style;
+            // Inline code is a leaf: it never carries a link.
+            if style.code {
+                attributes.link = None;
+            }
+            return attributes;
+        }
+        self.inherited_insertion_attributes(current_offset)
+    }
+
+    fn inherited_insertion_attributes(&self, current_offset: usize) -> InlineInsertionAttributes {
         if self.projection.is_none() {
             return self
                 .record
@@ -1799,6 +1852,158 @@ impl Block {
         self.mark_changed(cx);
     }
 
+    /// EXP-261 vendoring: retarget this block's kind from a toolbar command.
+    /// Re-selecting the current kind falls back to a plain paragraph, so every
+    /// toolbar button toggles (web parity). Structural kinds the toolbar never
+    /// offers (tables, code, callouts, …) are left alone.
+    pub(crate) fn set_block_kind(&mut self, kind: BlockKind, cx: &mut Context<Self>) {
+        if self.uses_raw_text_editing() || self.is_table_cell() {
+            return;
+        }
+        let next = if self.kind() == kind {
+            BlockKind::Paragraph
+        } else {
+            kind
+        };
+        if self.kind() == next {
+            return;
+        }
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.clear_inline_projection();
+        self.record.kind = next;
+        self.record.raw_fallback = None;
+        self.quote_reparse_requested = false;
+        // The editor rebuilds quote-group metadata off `BlockEvent::Changed`,
+        // so a paragraph promoted to a quote lands in a real group.
+        self.mark_changed(cx);
+    }
+
+    /// EXP-261 vendoring: web's "Clear formatting"
+    /// (`unsetAllMarks().clearNodes()`) — strip inline marks and links across
+    /// the selection, drop any armed style, and return the block itself to a
+    /// plain paragraph.
+    pub(crate) fn clear_inline_formatting(&mut self, cx: &mut Context<Self>) {
+        if self.uses_raw_text_editing() {
+            return;
+        }
+        self.pending_inline_style = None;
+        let cleared_marks = if self.selected_range.is_empty() {
+            false
+        } else {
+            let mut next_title = self.record.title.clone();
+            let selection = self.selection_clean_range();
+            if next_title.clear_styles(selection.clone()) {
+                self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                self.apply_title_edit(
+                    next_title,
+                    selection.end,
+                    None,
+                    Some(selection),
+                    Some(self.selection_reversed),
+                    false,
+                    cx,
+                );
+                true
+            } else {
+                false
+            }
+        };
+        // `clearNodes()`: a heading/list/quote also goes back to a paragraph.
+        if self.kind() != BlockKind::Paragraph && !self.is_table_cell() {
+            if !cleared_marks {
+                self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+            }
+            self.clear_inline_projection();
+            self.record.kind = BlockKind::Paragraph;
+            self.record.raw_fallback = None;
+            self.quote_reparse_requested = false;
+            self.mark_changed(cx);
+        }
+    }
+
+    /// EXP-261 vendoring: the visible range a link command applies to — the
+    /// selection, else the whole link run under a collapsed caret
+    /// (ProseMirror's `extendMarkRange`, which web's LinkControl relies on so
+    /// you can retarget a link without selecting its text).
+    fn link_command_range(&self) -> Option<Range<usize>> {
+        if !self.selected_range.is_empty() {
+            return Some(self.selection_clean_range());
+        }
+        self.record.title.link_run_at(self.cursor_offset())
+    }
+
+    /// EXP-261 vendoring: the link target at the caret/selection — what the
+    /// toolbar prefills its URL field with, and what lights the Link button.
+    pub(crate) fn link_at_caret(&self) -> Option<String> {
+        if self.uses_raw_text_editing() {
+            return None;
+        }
+        let range = self.link_command_range()?;
+        self.record
+            .title
+            .link_target_at(range.start)
+            .map(|link| link.raw_target().to_string())
+    }
+
+    /// EXP-261 vendoring: point the selection (or the link run under the
+    /// caret) at `target`, or remove the link when it is `None`.
+    pub(crate) fn set_link(&mut self, target: Option<&str>, cx: &mut Context<Self>) {
+        if self.uses_raw_text_editing() {
+            return;
+        }
+        let Some(range) = self.link_command_range() else {
+            return;
+        };
+        let link = match target.map(str::trim).filter(|target| !target.is_empty()) {
+            Some(destination) => Some(InlineLink::Inline {
+                destination: destination.to_string(),
+                title: None,
+            }),
+            // Removing a link only makes sense on one that exists.
+            None if self.record.title.link_target_at(range.start).is_none() => return,
+            None => None,
+        };
+        let mut next_title = self.record.title.clone();
+        if !next_title.set_link(range.clone(), link) {
+            return;
+        }
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.apply_title_edit(
+            next_title,
+            range.end,
+            None,
+            Some(range),
+            Some(self.selection_reversed),
+            false,
+            cx,
+        );
+    }
+
+    /// EXP-261 vendoring: does this block have a non-empty selection?
+    pub(crate) fn has_selection(&self) -> bool {
+        !self.selected_range.is_empty()
+    }
+
+    /// EXP-261 vendoring: is `format` active for what the user would type or
+    /// restyle right now — across the selection, or at a collapsed caret (its
+    /// armed style, else what it would inherit)?
+    pub(crate) fn inline_format_active(&self, format: InlineFormat) -> bool {
+        if self.uses_raw_text_editing() {
+            return false;
+        }
+        let flag = style_flag_for(format);
+        if self.selected_range.is_empty() {
+            let caret = self.cursor_offset();
+            let style = self
+                .armed_inline_style(caret)
+                .unwrap_or_else(|| self.insertion_attributes_for_current_offset(caret).style);
+            return crate::components::markdown::inline::style_has_flag(style, flag);
+        }
+        self.record
+            .title
+            .style_active(self.selection_clean_range(), flag)
+    }
+
     pub(crate) fn convert_to_separator(&mut self, cx: &mut Context<Self>) {
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.make_separator();
@@ -1850,9 +2055,26 @@ impl Block {
     ///
     /// Serializers later translate these flags back to markers on export.
     pub(crate) fn toggle_inline_format(&mut self, format: InlineFormat, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() || self.uses_raw_text_editing() {
+        if self.uses_raw_text_editing() {
             return;
         }
+        // EXP-261 vendoring: with nothing selected there is no text to restyle,
+        // so arm the style for whatever is typed next (web parity — TipTap's
+        // `toggleBold()` sets a stored mark at a collapsed caret).
+        if self.selected_range.is_empty() {
+            let caret = self.cursor_offset();
+            let current = self
+                .armed_inline_style(caret)
+                .unwrap_or_else(|| self.insertion_attributes_for_current_offset(caret).style);
+            let next = crate::components::markdown::inline::style_with_flag_toggled(
+                current,
+                style_flag_for(format),
+            );
+            self.pending_inline_style = Some((caret, next));
+            cx.notify();
+            return;
+        }
+        self.pending_inline_style = None;
 
         let mut next_title = self.record.title.clone();
         let selection = self.selection_clean_range();
@@ -1860,6 +2082,7 @@ impl Block {
             InlineFormat::Bold => next_title.toggle_bold(selection.clone()),
             InlineFormat::Italic => next_title.toggle_italic(selection.clone()),
             InlineFormat::Code => next_title.toggle_code(selection.clone()),
+            InlineFormat::Strikethrough => next_title.toggle_strikethrough(selection.clone()),
         };
         if !changed {
             return;

@@ -750,13 +750,22 @@ pub enum BlockEvent {
         kind: crate::host::ReferenceKind,
         value: String,
     },
+    /// EXP-261 vendoring: the `…` overlay button on a standalone image was
+    /// clicked; the editor forwards this to the host, which owns the menu.
+    ImageMenuRequested {
+        /// Raw markdown src of the image.
+        src: String,
+        /// Window position to anchor the menu at.
+        position: gpui::Point<gpui::Pixels>,
+    },
     /// EXP-261 vendoring: an image resize drag finished; the editor forwards
     /// this to the host, which persists the width as a `?w=` URL param.
     ImageResizeCommitted {
         /// Raw markdown src of the resized image.
         src: String,
-        /// Final display width in pixels.
-        width: f32,
+        /// Final display width in pixels, or `None` to drop the `?w=` param
+        /// (dragged back out to the full column width).
+        width: Option<f32>,
     },
     /// The user pressed Enter; a new block should be created after this
     /// one with the given trailing text.

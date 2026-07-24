@@ -1,5 +1,8 @@
 //! Reusable GPUI Markdown editor state and controller.
 
+#[cfg(test)]
+mod embedded_layout_tests;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

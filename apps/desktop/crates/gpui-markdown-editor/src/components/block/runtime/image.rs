@@ -66,6 +66,26 @@ impl Block {
         resolve_image_source(src, base_dir)
     }
 
+    /// EXP-261 vendoring: the widest this image may render — its natural width
+    /// when the host knows it, capped by the column budget and by the height
+    /// cap's implied width. `None` = unknown, so the picture keeps filling the
+    /// column and letterboxing.
+    pub(crate) fn image_display_width(
+        &self,
+        src: &str,
+        max_width: f32,
+        max_height: f32,
+    ) -> Option<f32> {
+        let (natural_width, natural_height) = self
+            .environment
+            .image_source_resolver
+            .as_ref()?
+            .natural_size(src)
+            .filter(|(width, height)| *width > 0.0 && *height > 0.0)?;
+        let height_bound = natural_width * (max_height / natural_height);
+        Some(natural_width.min(max_width).min(height_bound))
+    }
+
     /// EXP-261 vendoring: replace image sources in this block's title text
     /// (`](old)` -> `](new)`), used when a staged `draft://` upload resolves
     /// or a resize writes a new `?w=` width. Returns whether anything changed.
@@ -82,7 +102,8 @@ impl Block {
         if next == markdown {
             return false;
         }
-        self.record.set_title(super::InlineTextTree::from_markdown(&next));
+        self.record
+            .set_title(super::InlineTextTree::from_markdown(&next));
         self.sync_render_cache();
         self.sync_image_runtime();
         true

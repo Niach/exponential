@@ -68,6 +68,16 @@ pub trait ReferenceDecorator: Send + Sync + 'static {
 /// runtimes).
 pub trait ImageSourceResolver: Send + Sync + 'static {
     fn resolve(&self, src: &str) -> Option<ImageSourceResolution>;
+
+    /// EXP-261 vendoring: the image's natural pixel size, when the host knows
+    /// it (Exponential syncs probed attachment dimensions). Without it an
+    /// `img` element fills its whole max-width box and letterboxes the picture
+    /// inside, so the overlay controls cannot sit on the picture's edges and a
+    /// resize drag has no honest upper clamp. Default `None` keeps the
+    /// fill-and-letterbox behaviour for hosts that cannot answer.
+    fn natural_size(&self, _src: &str) -> Option<(f32, f32)> {
+        None
+    }
 }
 
 /// Host policy for materializing pasted images.

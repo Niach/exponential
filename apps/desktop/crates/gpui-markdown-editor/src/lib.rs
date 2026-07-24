@@ -20,7 +20,8 @@ pub use host::{
 };
 pub use strings::I18nStrings as MarkdownEditorStrings;
 pub use theme::{
-    Placeholders, Theme as MarkdownEditorTheme, ThemeColors, ThemeDimensions, ThemeTypography,
+    FontWeightDef, Placeholders, Theme as MarkdownEditorTheme, ThemeColors, ThemeDimensions,
+    ThemeTypography,
 };
 pub use theme_config::{
     MarkdownEditorBuiltinTheme, MarkdownEditorThemePack, MarkdownEditorThemePatch,

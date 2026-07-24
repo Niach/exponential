@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use gpui::{App, Hsla};
 use gpui_component::ActiveTheme as _;
-use gpui_markdown_editor::MarkdownEditorTheme;
+use gpui_markdown_editor::{FontWeightDef, MarkdownEditorTheme};
 
 /// Build the vendored editor theme from the current app theme. Call again on
 /// theme changes (the wrapper observes the mode) — presentation only.
@@ -57,7 +57,43 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     theme.fonts.ui_family = app.font_family.to_string();
     theme.fonts.mono_family = app.mono_font_family.to_string();
 
+    apply_typography(&mut theme, f32::from(app.font_size).max(1.0));
+
     Arc::new(theme)
+}
+
+/// Web-parity type scale (`.tiptap-content` in `apps/web/src/styles.css`),
+/// expressed against the app's rem — which gpui-component pins to
+/// `theme.font_size`, i.e. desktop's 13px compact density rather than web's
+/// 16px root. The vendored defaults are absolute pixels tuned for a
+/// full-window 17px editor; left alone they render the description half again
+/// larger than every other surface in the app.
+fn apply_typography(theme: &mut MarkdownEditorTheme, rem: f32) {
+    let t = &mut theme.typography;
+    t.text_size = rem * 0.875;
+    // `text_line_height` is consumed as `rems(..)`, so fold web's
+    // font-size-relative 1.625 into the body's own rem multiple.
+    t.text_line_height = 0.875 * 1.625;
+    t.h1_size = rem * 1.25;
+    t.h2_size = rem * 1.1;
+    t.h3_size = rem;
+    t.h4_size = rem;
+    t.h5_size = rem;
+    t.h6_size = rem;
+    // Web headings are all `font-weight: 600`.
+    t.h1_weight = FontWeightDef::Semibold;
+    t.h2_weight = FontWeightDef::Semibold;
+    t.h3_weight = FontWeightDef::Semibold;
+    t.h4_weight = FontWeightDef::Semibold;
+    t.h5_weight = FontWeightDef::Semibold;
+    t.h6_weight = FontWeightDef::Semibold;
+    t.code_size = rem * 0.8;
+
+    // Web draws no rule under h1/h2 — drop the vendored underline and the
+    // padding that only existed to clear it.
+    let d = &mut theme.dimensions;
+    d.h1_border_width = 0.0;
+    d.h1_padding_bottom = 0.0;
 }
 
 /// [`editor_theme`] with the per-instance empty-document placeholder text

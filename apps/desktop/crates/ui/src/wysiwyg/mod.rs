@@ -9,6 +9,7 @@ mod description;
 mod images;
 mod refs;
 mod theme_bridge;
+mod toolbar;
 
 pub(crate) use description::{OnSave, WysiwygDescription};
 pub(crate) use theme_bridge::editor_theme_with_placeholder;

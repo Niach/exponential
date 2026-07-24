@@ -14,15 +14,14 @@ use gpui::{
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
+use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{notification::Notification, ActiveTheme as _, WindowExt as _};
 use gpui_markdown_editor::{
-    ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
+    FormatCommand, ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
     MarkdownEditorMode, MarkdownEditorOptions, ReferenceKind,
 };
 
-use super::images::{
-    self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler,
-};
+use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler};
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
@@ -53,7 +52,7 @@ struct ActiveCompletion {
 }
 
 pub struct WysiwygDescription {
-    editor: Entity<VendoredEditor>,
+    pub(super) editor: Entity<VendoredEditor>,
     focus_handle: FocusHandle,
     placeholder: SharedString,
     /// Pills + autocomplete scope (the issue's team).
@@ -74,6 +73,11 @@ pub struct WysiwygDescription {
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
     image_menu: Option<ImageMenuState>,
+    /// Open toolbar link editor (the URL field replaces the Link button while
+    /// it is up). `None` = the button is showing. The subscription rides along
+    /// so Enter commits: gpui-component binds Enter to its own `Input` action,
+    /// so the keystroke never reaches this view's key handler.
+    pub(super) link_input: Option<(Entity<InputState>, Subscription)>,
     /// Vendored-editor revision at the last load/save. The vendored engine
     /// NORMALIZES many render-equivalent forms (`_i_`→`*i*`, setext→ATX,
     /// `1)`→`1.`, …), so re-serialized bytes differing from the loaded
@@ -118,6 +122,12 @@ impl WysiwygDescription {
                 state: shared.clone(),
             }));
             environment.enable_image_resize = enable_image_resize;
+            // Images keep their own `…` menu and drag handles; clicking one
+            // must never swap the picture for its markdown source.
+            environment.enable_image_source_editing = false;
+            // Links render as links with the caret inside them; the toolbar's
+            // link control edits the target (web parity).
+            environment.expand_focused_links = false;
             if team_id.is_some() {
                 environment.reference_decorator = Some(Arc::new(WysiwygReferenceDecorator {
                     state: refs.clone(),
@@ -177,8 +187,10 @@ impl WysiwygDescription {
                     log::warn!("wysiwyg editor error: {message}");
                 }
                 MarkdownEditorEvent::SelectionChanged(_) => {
-                    // Caret moves re-anchor or dismiss the popup.
+                    // Caret moves re-anchor or dismiss the popup, and move the
+                    // toolbar's pressed-button state onto the new block.
                     this.refresh_completion(window, cx);
+                    cx.notify();
                 }
                 MarkdownEditorEvent::ModeChanged { .. } => {}
             },
@@ -219,7 +231,8 @@ impl WysiwygDescription {
         // Presentation-only theme refresh on light/dark switches.
         subscriptions.push(cx.observe_global::<gpui_component::Theme>(|this, cx| {
             let theme = super::editor_theme_with_placeholder(cx, this.placeholder.as_ref());
-            this.editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
+            this.editor
+                .update(cx, |editor, cx| editor.set_theme(theme, cx));
         }));
 
         let clean_revision = editor.read(cx).revision();
@@ -234,6 +247,7 @@ impl WysiwygDescription {
             shared,
             staged: Vec::new(),
             image_menu: None,
+            link_input: None,
             clean_revision,
             refs,
             completion_source,
@@ -374,9 +388,7 @@ impl WysiwygDescription {
                     let _ = this.update_in(cx, |this, window, cx| {
                         let real_key = images::cache_key(&uploaded.url).to_string();
                         if let Ok(mut resolutions) = this.shared.resolutions.lock() {
-                            if let Some(existing) =
-                                resolutions.get(&staged.draft_url).cloned()
-                            {
+                            if let Some(existing) = resolutions.get(&staged.draft_url).cloned() {
                                 resolutions.insert(real_key.clone(), existing);
                             }
                         }
@@ -425,12 +437,16 @@ impl WysiwygDescription {
         let markdown = self.markdown(cx);
         let occurrences = crate::attachments_row::extract_image_occurrences(&markdown);
         let mut next: HashMap<String, ImageSourceResolution> = HashMap::new();
+        let mut natural: HashMap<String, (f32, f32)> = HashMap::new();
         for occurrence in &occurrences {
             let src = occurrence.url.as_str();
             if !images::is_hosted_src(src) {
                 continue;
             }
             let key = images::cache_key(src).to_string();
+            if let Some(size) = crate::markdown::attachment_natural_size(src, cx) {
+                natural.insert(key.clone(), size);
+            }
             if next.contains_key(&key) {
                 continue;
             }
@@ -457,6 +473,19 @@ impl WysiwygDescription {
             }
         }
 
+        let sizes_changed = self
+            .shared
+            .natural_sizes
+            .lock()
+            .map(|mut sizes| {
+                if *sizes == natural {
+                    false
+                } else {
+                    *sizes = natural;
+                    true
+                }
+            })
+            .unwrap_or(false);
         let changed = self
             .shared
             .resolutions
@@ -470,7 +499,7 @@ impl WysiwygDescription {
                 }
             })
             .unwrap_or(false);
-        if changed {
+        if changed || sizes_changed {
             self.refresh_editor_environment(cx);
         }
     }
@@ -487,12 +516,12 @@ impl WysiwygDescription {
     fn commit_image_width(
         &mut self,
         src: &str,
-        width: f32,
+        width: Option<f32>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let next_src =
-            crate::markdown::image_url::src_with_width(src, Some(width.max(1.0) as u32));
+            crate::markdown::image_url::src_with_width(src, width.map(|w| w.max(1.0) as u32));
         if next_src == src {
             return;
         }
@@ -520,17 +549,89 @@ impl WysiwygDescription {
         self.save_now(window, cx);
     }
 
+    // -- toolbar link + image ------------------------------------------------
+
+    /// Web parity (`LinkControl.open`): the field opens prefilled with the
+    /// link already under the caret, so retargeting is an edit, not a retype.
+    pub(super) fn open_link_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let existing = self.editor.read(cx).format_state(window, cx).link;
+        let input = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder("https://…");
+            if let Some(existing) = existing {
+                state.set_value(existing, window, cx);
+            }
+            state
+        });
+        let subscription = cx.subscribe_in(&input, window, |this, _input, event, window, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.apply_link(window, cx);
+            }
+        });
+        input.focus_handle(cx).focus(window, cx);
+        self.link_input = Some((input, subscription));
+        cx.notify();
+    }
+
+    pub(super) fn close_link_editor(&mut self, cx: &mut Context<Self>) {
+        self.link_input = None;
+        cx.notify();
+    }
+
+    /// Web parity (`LinkControl.apply`): an empty URL clears the link instead
+    /// of doing nothing.
+    pub(super) fn apply_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((input, _)) = self.link_input.take() else {
+            return;
+        };
+        let target = input.read(cx).value().trim().to_string();
+        let target = (!target.is_empty()).then_some(target);
+        self.editor.update(cx, |editor, cx| {
+            editor.apply_format(FormatCommand::Link(target), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Web parity (`LinkControl.remove`).
+    pub(super) fn remove_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.link_input = None;
+        self.editor.update(cx, |editor, cx| {
+            editor.apply_format(FormatCommand::Link(None), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Toolbar "Insert image": pick files and feed them through the SAME
+    /// materialize path a paste takes, so staging/upload behaves identically.
+    pub(super) fn pick_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Insert".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            this.update_in(cx, |this, window, cx| {
+                for path in paths {
+                    this.editor.update(cx, |editor, cx| {
+                        editor.insert_image_path(path, window, cx);
+                    });
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     // -- autocomplete -------------------------------------------------------
 
     fn refresh_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let had = self.completion.is_some();
         self.completion = None;
         if let Some(source) = self.completion_source.clone() {
-            if let Some(text) = self
-                .editor
-                .read(cx)
-                .focused_text_before_caret(window, cx)
-            {
+            if let Some(text) = self.editor.read(cx).focused_text_before_caret(window, cx) {
                 if let Some(token) = detect_trigger(&text, text.len()) {
                     let items = source.query(token.trigger, &token.query, cx);
                     if !items.is_empty() {
@@ -583,6 +684,28 @@ impl WysiwygDescription {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.image_menu.is_some() && event.keystroke.key.as_str() == "escape" {
+            self.image_menu = None;
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
+        // Web parity: Enter commits the link field, Escape abandons it.
+        if self.link_input.is_some() {
+            match event.keystroke.key.as_str() {
+                "enter" => {
+                    self.apply_link(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "escape" => {
+                    self.close_link_editor(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                _ => {}
+            }
+        }
         if self.completion.is_none() {
             return;
         }
@@ -669,7 +792,10 @@ impl WysiwygDescription {
         Some(
             deferred(
                 anchored()
-                    .position(point(caret.origin.x, caret.origin.y + caret.size.height + px(4.)))
+                    .position(point(
+                        caret.origin.x,
+                        caret.origin.y + caret.size.height + px(4.),
+                    ))
                     .snap_to_window_with_margin(px(8.))
                     .child(list),
             )
@@ -727,18 +853,18 @@ impl WysiwygDescription {
                 }),
             );
         if own_attachment {
-            list = list
-                .child(
-                    item("wysiwyg-image-download", "Download").on_mouse_down(MouseButton::Left, {
-                        let key = key.clone();
-                        let images = images_entity.clone();
-                        cx.listener(move |this, _event, window, cx| {
-                            this.image_menu = None;
-                            download_image(key.clone(), &images, window, cx);
-                            cx.notify();
-                        })
-                    }),
-                );
+            list = list.child(item("wysiwyg-image-download", "Download").on_mouse_down(
+                MouseButton::Left,
+                {
+                    let key = key.clone();
+                    let images = images_entity.clone();
+                    cx.listener(move |this, _event, window, cx| {
+                        this.image_menu = None;
+                        download_image(key.clone(), &images, window, cx);
+                        cx.notify();
+                    })
+                },
+            ));
             if cfg!(target_os = "macos") {
                 list = list.child(item("wysiwyg-image-copy", "Copy image").on_mouse_down(
                     MouseButton::Left,
@@ -788,6 +914,41 @@ impl WysiwygDescription {
                     .snap_to_window_with_margin(px(8.))
                     .child(list),
             )
+            .with_priority(2),
+        )
+    }
+
+    /// Click-anywhere-to-dismiss layer under the open image menu. A plain
+    /// `on_mouse_down` on the wrapper cannot do this job: the editor's blocks
+    /// stop propagation on mouse-down, and clicks outside the description slot
+    /// never reach the wrapper at all.
+    fn render_image_menu_backdrop(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        self.image_menu.as_ref()?;
+        let viewport = window.viewport_size();
+        let dismiss = |this: &mut Self, cx: &mut Context<Self>| {
+            this.image_menu = None;
+            cx.notify();
+        };
+        Some(
+            deferred(
+                anchored().position(point(px(0.), px(0.))).child(
+                    div()
+                        .w(viewport.width)
+                        .h(viewport.height)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _event, _window, cx| dismiss(this, cx)),
+                        )
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, _event, _window, cx| dismiss(this, cx)),
+                        ),
+                ),
+            )
             .with_priority(1),
         )
     }
@@ -801,24 +962,16 @@ impl Focusable for WysiwygDescription {
 
 impl Render for WysiwygDescription {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let menu_open = self.image_menu.is_some();
         let completion_popup = self.render_completion(window, cx);
+        let menu_backdrop = self.render_image_menu_backdrop(window, cx);
         div()
             .w_full()
             .track_focus(&self.focus_handle)
             .capture_key_down(cx.listener(Self::on_key_down_capture))
-            // Any press outside the menu items dismisses the menu.
-            .when(menu_open, |this| {
-                this.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _event, _window, cx| {
-                        this.image_menu = None;
-                        cx.notify();
-                    }),
-                )
-            })
+            .children(self.render_toolbar(window, cx))
             .child(self.editor.clone())
             .children(completion_popup)
+            .children(menu_backdrop)
             .children(self.render_image_menu(cx))
     }
 }
@@ -953,9 +1106,7 @@ mod tests {
     // comrak-canonicalizes, so a table elsewhere in the document reaches the
     // save hook byte-identically instead of being flattened.
     #[gpui::test]
-    async fn save_strips_inline_drafts_and_keeps_tables_byte_identical(
-        cx: &mut TestAppContext,
-    ) {
+    async fn save_strips_inline_drafts_and_keeps_tables_byte_identical(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);

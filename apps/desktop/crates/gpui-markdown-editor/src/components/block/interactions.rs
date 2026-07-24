@@ -16,8 +16,8 @@ use crate::components::{
     BlockDown, BlockUp, BoldSelection, CodeSelection, Copy, Cut, Delete, DeleteBack,
     DismissTransientUi, End, ExitCodeBlock, FocusNext, FocusPrev, Home, IndentBlock,
     ItalicSelection, MoveLeft, MoveRight, Newline, OutdentBlock, Paste, SelectAll, SelectEnd,
-    SelectHome, SelectLeft, SelectRight, WordDeleteBack, WordDeleteForward,
-    WordMoveLeft, WordMoveRight, WordSelectLeft, WordSelectRight,
+    SelectHome, SelectLeft, SelectRight, WordDeleteBack, WordDeleteForward, WordMoveLeft,
+    WordMoveRight, WordSelectLeft, WordSelectRight,
 };
 
 impl Block {
@@ -81,7 +81,7 @@ impl Block {
         )
     }
 
-    fn paste_image_split(&self) -> (InlineTextTree, InlineTextTree) {
+    pub(crate) fn paste_image_split(&self) -> (InlineTextTree, InlineTextTree) {
         let clean_selected = self.selection_clean_range();
         let (leading, tail) = self.record.title.split_at(clean_selected.start);
         let (_, trailing) = tail.split_at(clean_selected.end.saturating_sub(clean_selected.start));
@@ -1349,7 +1349,9 @@ impl Block {
     ) {
         if self.showing_rendered_image() {
             self.is_selecting = false;
-            self.request_image_edit_expansion();
+            if self.environment.enable_image_source_editing {
+                self.request_image_edit_expansion();
+            }
             if self.focus_handle.is_focused(window) {
                 if self.sync_image_focus_state(true) {
                     cx.notify();

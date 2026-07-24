@@ -158,6 +158,84 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
   `.SystemUIFont`; code had no monospace); editor/render.rs + block
   element/render read the theme families.
 
+Embedded-mode row width (EXP-261 — layout-corruption fix)
+- src/editor/render.rs: embedded rows are laid out `w_full` instead of a fake
+  `100_000px` width clamped by `max_w(relative(1.0))`. Taffy cannot resolve
+  that percentage max against an indefinite parent during its intrinsic pass,
+  so every paragraph was MEASURED unwrapped (one line tall) while paint wrapped
+  it at the real width — each block painted over the rows below it. Regression
+  test: src/editor/embedded_layout_tests.rs.
+
+Standalone-image overlay controls (EXP-261 — web parity)
+- src/components/block/render.rs: the hover controls moved off the full-width
+  block onto a wrapper that HUGS the image, and became a `…` menu button at the
+  top right plus a drag handle on EACH edge (`ImageResizeEdge`), mirroring the
+  web node view. The width probe now measures the picture rather than the
+  column, and dragging back out to the full column width commits `None`, which
+  drops the `?w=` param so the markdown stays canonical and the image keeps
+  re-flowing (`BlockEvent::ImageResizeCommitted.width` /
+  `MarkdownEditorEvent::ImageResized.width` are `Option<f32>`). Deliberate
+  deviation from web: the upper clamp is the column budget, not the image's
+  natural width, which this engine never decodes.
+- src/components/block/state.rs + src/editor/events.rs:
+  `BlockEvent::ImageMenuRequested`, forwarded to the host as the existing
+  `MarkdownEditorEvent::ImageContextMenuRequested` (the `…` button and
+  right-click open the same host menu).
+- src/environment.rs + src/components/block/interactions.rs:
+  `enable_image_source_editing` (default true, preserving upstream behavior).
+  With overlay controls present, clicking anywhere in an image block used to
+  swap the picture for its raw `![](...)` markdown, which reads as the image
+  vanishing; hosts that own the controls turn this off.
+
+Host toolbar command surface (EXP-261 — additive API for the static toolbar)
+- src/api.rs: `FormatCommand` (bold / italic / strikethrough / code, H1-H6,
+  bullet / ordered / task list, quote, link, clear formatting) and
+  `FormatState` (the toolbar's pressed-button state).
+- src/editor/window_state.rs: `apply_format`, `format_state`, and the
+  `format_target` fallback — pressing a toolbar button blurs the block, so the
+  last ACTIVE block stands in and is re-focused afterwards; without it every
+  button would no-op on the very click that blurred its target.
+- src/components/block/runtime/mod.rs: `set_block_kind` (toggling — re-picking
+  the active kind returns a paragraph), `clear_inline_formatting`,
+  `inline_format_active`, `has_selection`, and `InlineFormat::Strikethrough`.
+- src/components/markdown/inline.rs: `style_active` and `clear_styles`.
+
+Web-parity toolbar semantics (EXP-261 — the buttons must behave like the web
+`ToolbarActions`/`LinkControl`, not merely exist)
+- src/components/block/runtime/mod.rs: `pending_inline_style` — the style ARMED
+  at a collapsed caret, ProseMirror's "stored mark". Toggling bold with nothing
+  selected has no text to restyle, so the style is parked (anchored to the
+  caret offset) and applied to the next inserted text via
+  `insertion_attributes_for_current_offset`; from there ordinary inheritance
+  carries it. Any caret move drops it, so it can never revive when the caret
+  revisits that offset. `inline_format_active` reports it, so the button lights
+  up before anything is typed. Upstream simply no-opped.
+- src/components/markdown/inline.rs: `link_run_at`, `link_target_at` and
+  `set_link`; src/components/block/runtime/mod.rs: `link_command_range`,
+  `link_at_caret`, `set_link`. Together these are `extendMarkRange('link')` —
+  the link commands act on the selection, else on the whole link run under a
+  bare caret, so a link can be retargeted or removed without selecting its
+  text. `FormatCommand::Link` takes an `Option<String>` (`None` unlinks, which
+  is what web's empty-URL apply does), and `FormatState.link` carries the
+  target so the host can prefill its URL field and light the button.
+- src/components/block/runtime/mod.rs: `clear_inline_formatting` also returns
+  the block to a paragraph — web's "Clear formatting" is
+  `unsetAllMarks().clearNodes()`, so a heading/list/quote goes too.
+- src/environment.rs + src/components/block/runtime/projection.rs +
+  runtime/mod.rs: `expand_focused_links` (default true, preserving upstream).
+  A focused `[text](url)` used to expand into its markdown source so the
+  target could be typed over, which reads as the link vanishing mid-edit; web
+  keeps rendering it as a link and edits the target through the toolbar. With
+  the flag off the inline projection leaves such runs alone. Reference links
+  and autolinks still expand regardless: they preserve their source spelling
+  verbatim, so hiding it would make them uneditable.
+- Tests: `*_exp261` additions in src/components/block/runtime/tests.rs (armed
+  style styles the next typed text, caret movement disarms it, arm+disarm
+  leaves plain text, link set/retarget/remove from a bare caret, clear
+  formatting resets the block kind).
+- src/editor/events.rs: `insert_image_path` — the toolbar's file picker feeds
+  the same `ImagePasteHandler` materialize + placement path as a paste.
+
 gpui API drift fixes (crates.io gpui 0.2.2 snapshot -> zed rev 1d217ee)
 - `.flex_grow()` -> `.flex_grow(1.)` (takes a factor at this rev).
 - `ScrollHandle::max_offset()` returns `Point<Pixels>` -> `.height` became `.y`.

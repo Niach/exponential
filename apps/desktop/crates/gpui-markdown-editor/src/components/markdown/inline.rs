@@ -1021,9 +1021,130 @@ impl InlineTextTree {
         self.toggle_style(range, StyleFlag::Italic)
     }
 
-    #[allow(dead_code)]
     pub fn toggle_strikethrough(&mut self, range: Range<usize>) -> bool {
         self.toggle_style(range, StyleFlag::Strikethrough)
+    }
+
+    /// EXP-261 vendoring: does every fragment in `range` carry `flag`? Drives
+    /// the toolbar's active-state highlighting (the same "all-on means the
+    /// next toggle removes it" rule [`Self::toggle_style`] applies).
+    pub fn style_active(&self, range: Range<usize>, flag: StyleFlag) -> bool {
+        let start = range.start.min(self.visible_len());
+        let end = range.end.min(self.visible_len());
+        if start >= end {
+            return false;
+        }
+        let (_, tail) = self.split_at(start);
+        let (middle, _) = tail.split_at(end - start);
+        !middle.fragments.is_empty()
+            && middle
+                .fragments
+                .iter()
+                .all(|fragment| style_flag_enabled(fragment.style, flag))
+    }
+
+    /// EXP-261 vendoring: the visible range of the link fragment run covering
+    /// `offset`, if any — the analogue of ProseMirror's `extendMarkRange`, so
+    /// retargeting or removing a link works from a bare caret inside it.
+    pub fn link_run_at(&self, offset: usize) -> Option<Range<usize>> {
+        let mut cursor = 0usize;
+        let mut run: Option<(Range<usize>, &InlineLink)> = None;
+        for fragment in &self.fragments {
+            let end = cursor + fragment.text.len();
+            match (&fragment.link, run.take()) {
+                (Some(link), Some((range, previous))) if previous == link => {
+                    run = Some((range.start..end, link));
+                }
+                (Some(link), previous) => {
+                    if let Some((range, _)) = previous
+                        && range.contains(&offset)
+                    {
+                        return Some(range);
+                    }
+                    run = Some((cursor..end, link));
+                }
+                (None, Some((range, _))) => {
+                    if range.contains(&offset) {
+                        return Some(range);
+                    }
+                }
+                (None, None) => {}
+            }
+            cursor = end;
+        }
+        run.map(|(range, _)| range)
+            .filter(|range| range.contains(&offset))
+    }
+
+    /// EXP-261 vendoring: the link carried by the fragment at `offset`.
+    pub fn link_target_at(&self, offset: usize) -> Option<&InlineLink> {
+        let mut cursor = 0usize;
+        for fragment in &self.fragments {
+            let end = cursor + fragment.text.len();
+            if offset < end || (offset == end && fragment.link.is_some()) {
+                return fragment.link.as_ref();
+            }
+            cursor = end;
+        }
+        None
+    }
+
+    /// EXP-261 vendoring: set (or with `None`, remove) the link across
+    /// `range`. Returns whether anything changed.
+    pub fn set_link(&mut self, range: Range<usize>, link: Option<InlineLink>) -> bool {
+        let start = range.start.min(self.visible_len());
+        let end = range.end.min(self.visible_len());
+        if start >= end {
+            return false;
+        }
+        let (before, tail) = self.split_at(start);
+        let (mut middle, after) = tail.split_at(end - start);
+        if middle
+            .fragments
+            .iter()
+            .all(|fragment| fragment.link == link)
+        {
+            return false;
+        }
+        for fragment in &mut middle.fragments {
+            fragment.link = link.clone();
+        }
+        middle.normalize_fragments();
+        let mut next = before;
+        next.append_tree(middle);
+        next.append_tree(after);
+        *self = next;
+        true
+    }
+
+    /// EXP-261 vendoring: strip every inline mark and link across `range` —
+    /// the toolbar's "Clear formatting". Returns whether anything changed.
+    pub fn clear_styles(&mut self, range: Range<usize>) -> bool {
+        let start = range.start.min(self.visible_len());
+        let end = range.end.min(self.visible_len());
+        if start >= end {
+            return false;
+        }
+        let (before, tail) = self.split_at(start);
+        let (mut middle, after) = tail.split_at(end - start);
+        let changed = middle
+            .fragments
+            .iter()
+            .any(|fragment| fragment.style != InlineStyle::default() || fragment.link.is_some());
+        if !changed {
+            return false;
+        }
+        for fragment in &mut middle.fragments {
+            fragment.style = InlineStyle::default();
+            fragment.html_style = None;
+            fragment.link = None;
+        }
+        middle.normalize_fragments();
+        let mut next = before;
+        next.append_tree(middle);
+        next.append_tree(after);
+        *self = next;
+        true
     }
 
     pub fn toggle_code(&mut self, range: Range<usize>) -> bool {
@@ -1436,7 +1557,6 @@ impl NormalizeBuilder {
             math: None,
         });
     }
-
 }
 
 fn flatten_tokens(fragments: &[InlineFragment]) -> Vec<CharToken> {
@@ -2727,7 +2847,11 @@ fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
         '#' => {
             at_line_start && {
                 let run = text[index..].chars().take_while(|&c| c == '#').count();
-                run <= 6 && matches!(text[index..].chars().nth(run), None | Some(' ') | Some('\t'))
+                run <= 6
+                    && matches!(
+                        text[index..].chars().nth(run),
+                        None | Some(' ') | Some('\t')
+                    )
             }
         }
         // EXP-261 vendoring (F1): bullet-list markers (`- ` / `+ ` or a bare
@@ -3141,6 +3265,16 @@ fn longest_star_run(text: &str) -> usize {
         }
     }
     max_run
+}
+
+/// EXP-261 vendoring: read/flip one flag from outside this module — the
+/// caret's armed ("stored mark") style needs both.
+pub(crate) fn style_has_flag(style: InlineStyle, flag: StyleFlag) -> bool {
+    style_flag_enabled(style, flag)
+}
+
+pub(crate) fn style_with_flag_toggled(style: InlineStyle, flag: StyleFlag) -> InlineStyle {
+    set_style_flag(style, flag, !style_flag_enabled(style, flag))
 }
 
 fn style_flag_enabled(style: InlineStyle, flag: StyleFlag) -> bool {
@@ -4077,7 +4211,11 @@ mod tests {
         // EXP-261 vendoring: inline math is excised — `$x$` must parse as an
         // ordinary text fragment and serialize back verbatim.
         let tree = InlineTextTree::from_markdown("price $x$ stays text");
-        assert!(tree.fragments.iter().all(|fragment| fragment.math.is_none()));
+        assert!(
+            tree.fragments
+                .iter()
+                .all(|fragment| fragment.math.is_none())
+        );
         assert_eq!(tree.serialize_markdown(), "price $x$ stays text");
     }
 
@@ -4159,7 +4297,10 @@ mod tests {
         assert!(reparsed.fragments.iter().all(|f| f.link.is_none()));
 
         // A real link still parses and round-trips.
-        assert_serializes_to_fixpoint_exp261("A [link](https://example.com) here", "A [link](https://example.com) here");
+        assert_serializes_to_fixpoint_exp261(
+            "A [link](https://example.com) here",
+            "A [link](https://example.com) here",
+        );
     }
 
     #[test]

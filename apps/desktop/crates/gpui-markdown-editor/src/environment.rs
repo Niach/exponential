@@ -29,6 +29,19 @@ pub struct MarkdownEditorEnvironment {
     /// EXP-261 vendoring: show the drag handle that resizes standalone
     /// images (host persists the width via `MarkdownEditorEvent::ImageResized`).
     pub enable_image_resize: bool,
+    /// EXP-261 vendoring: whether clicking a rendered standalone image swaps
+    /// it for its raw `![](...)` markdown so the caret can edit it. Hosts that
+    /// give images their own overlay controls (menu + resize handles) turn
+    /// this OFF — a click anywhere in the block would otherwise replace the
+    /// picture with source text, which reads as the image having vanished.
+    pub enable_image_source_editing: bool,
+    /// EXP-261 vendoring: whether a focused `[text](url)` expands to its
+    /// markdown source so the target can be typed over. Hosts with a toolbar
+    /// link control turn this OFF, so a link keeps rendering as a link with
+    /// the caret inside it (web parity). Reference links and autolinks expand
+    /// either way — their source spelling is preserved verbatim, so it has to
+    /// stay reachable.
+    pub expand_focused_links: bool,
 }
 
 impl Default for MarkdownEditorEnvironment {
@@ -43,6 +56,8 @@ impl Default for MarkdownEditorEnvironment {
             image_source_resolver: None,
             reference_decorator: None,
             enable_image_resize: false,
+            enable_image_source_editing: true,
+            expand_focused_links: true,
         }
     }
 }

@@ -37,8 +37,8 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    Attachment, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber, Label,
-    Notification, Board, User, Team, TeamInvite, TeamMember,
+    Attachment, Board, CodingSession, Comment, Issue, IssueEvent, IssueLabel, IssueSubscriber,
+    Label, Notification, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -212,7 +212,10 @@ impl<T> Collection<T> {
     /// an empty collection before this is "still syncing", never "no data"
     /// (the empty-snapshot-as-empty-state trap).
     pub fn is_ready(&self) -> bool {
-        matches!(self.phase, ShapeSyncPhase::Live | ShapeSyncPhase::Refetching)
+        matches!(
+            self.phase,
+            ShapeSyncPhase::Live | ShapeSyncPhase::Refetching
+        )
     }
 
     fn set_phase(&mut self, phase: ShapeSyncPhase) {
@@ -247,16 +250,15 @@ impl<T> Collection<T> {
 /// apply, and never takes the batch down.
 pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T)> {
     maps.into_iter()
-        .filter_map(|map| match serde_json::from_value::<T>(Value::Object(map)) {
-            Ok(row) => Some((row.key(), row)),
-            Err(err) => {
-                log::warn!(
-                    "[sync {}] dropping unhydratable row: {err}",
-                    T::spec().name
-                );
-                None
-            }
-        })
+        .filter_map(
+            |map| match serde_json::from_value::<T>(Value::Object(map)) {
+                Ok(row) => Some((row.key(), row)),
+                Err(err) => {
+                    log::warn!("[sync {}] dropping unhydratable row: {err}", T::spec().name);
+                    None
+                }
+            },
+        )
         .collect()
 }
 
@@ -361,12 +363,8 @@ impl Collections {
             "labels" => apply_to(&self.labels, keys, full_replace, sqlite, cx),
             "issue_labels" => apply_to(&self.issue_labels, keys, full_replace, sqlite, cx),
             "users" => apply_to(&self.users, keys, full_replace, sqlite, cx),
-            "team_members" => {
-                apply_to(&self.team_members, keys, full_replace, sqlite, cx)
-            }
-            "team_invites" => {
-                apply_to(&self.team_invites, keys, full_replace, sqlite, cx)
-            }
+            "team_members" => apply_to(&self.team_members, keys, full_replace, sqlite, cx),
+            "team_invites" => apply_to(&self.team_invites, keys, full_replace, sqlite, cx),
             "comments" => apply_to(&self.comments, keys, full_replace, sqlite, cx),
             "attachments" => apply_to(&self.attachments, keys, full_replace, sqlite, cx),
             "notifications" => apply_to(&self.notifications, keys, full_replace, sqlite, cx),
@@ -656,6 +654,12 @@ impl Store {
     /// §3.6 bootstrap sets it before any window opens).
     pub fn global(cx: &App) -> &Self {
         cx.global::<Store>()
+    }
+
+    /// Like [`Self::global`] but `None` before the store is installed —
+    /// headless view tests construct views without a sync store.
+    pub fn try_global(cx: &App) -> Option<&Self> {
+        cx.try_global::<Store>()
     }
 
     /// The shared cross-window state entity. Observe it for re-renders.

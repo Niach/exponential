@@ -6,7 +6,11 @@ use std::sync::Arc;
 use gpui::*;
 
 use super::*;
-use crate::api::{LinkRequest, MarkdownEditorEvent, MarkdownEditorMode, SourceSelection};
+use crate::api::{
+    FormatCommand, FormatState, LinkRequest, MarkdownEditorEvent, MarkdownEditorMode,
+    SourceSelection,
+};
+use crate::components::InlineFormat;
 use crate::environment::MarkdownEditorEnvironment;
 use crate::theme::Theme;
 
@@ -301,6 +305,76 @@ impl Editor {
             }
             block.replace_text_in_visible_range(start..end, replacement, None, false, cx);
         });
+    }
+
+    /// EXP-261 vendoring: the block a toolbar command acts on. Pressing a
+    /// toolbar button moves focus out of the editor, so the last ACTIVE block
+    /// stands in — otherwise every button would no-op on the click that
+    /// blurred the block it was meant to format.
+    fn format_target(&self, window: &Window, cx: &App) -> Option<Entity<Block>> {
+        self.focused_edit_target(window, cx).or_else(|| {
+            self.active_entity_id
+                .and_then(|id| self.focusable_entity_by_id(id))
+        })
+    }
+
+    /// EXP-261 vendoring: apply a host toolbar command to the focused block.
+    /// A no-op when nothing is focused, or when the command needs a selection
+    /// (the inline marks and links) and there is none.
+    pub fn apply_format(
+        &mut self,
+        command: FormatCommand,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.format_target(window, cx) else {
+            return;
+        };
+        // Clicking a toolbar button blurs the block; re-focus it so the caret
+        // (and the selection the command just acted on) comes back.
+        self.focus_block(block.entity_id());
+        block.update(cx, |block, cx| match command {
+            FormatCommand::Bold => block.toggle_inline_format(InlineFormat::Bold, cx),
+            FormatCommand::Italic => block.toggle_inline_format(InlineFormat::Italic, cx),
+            FormatCommand::Strikethrough => {
+                block.toggle_inline_format(InlineFormat::Strikethrough, cx)
+            }
+            FormatCommand::Code => block.toggle_inline_format(InlineFormat::Code, cx),
+            FormatCommand::Heading(level) => block.set_block_kind(BlockKind::Heading { level }, cx),
+            FormatCommand::BulletList => block.set_block_kind(BlockKind::BulletedListItem, cx),
+            FormatCommand::OrderedList => block.set_block_kind(BlockKind::NumberedListItem, cx),
+            FormatCommand::TaskList => {
+                block.set_block_kind(BlockKind::TaskListItem { checked: false }, cx)
+            }
+            FormatCommand::Quote => block.set_block_kind(BlockKind::Quote, cx),
+            FormatCommand::ClearFormatting => block.clear_inline_formatting(cx),
+            FormatCommand::Link(target) => block.set_link(target.as_deref(), cx),
+        });
+    }
+
+    /// EXP-261 vendoring: the toolbar's pressed-button state for the focused
+    /// block. All-false when the editor has no focus.
+    pub fn format_state(&self, window: &Window, cx: &App) -> FormatState {
+        let Some(block) = self.format_target(window, cx) else {
+            return FormatState::default();
+        };
+        let block = block.read(cx);
+        FormatState {
+            bold: block.inline_format_active(InlineFormat::Bold),
+            italic: block.inline_format_active(InlineFormat::Italic),
+            strikethrough: block.inline_format_active(InlineFormat::Strikethrough),
+            code: block.inline_format_active(InlineFormat::Code),
+            heading: match block.kind() {
+                BlockKind::Heading { level } => Some(level),
+                _ => None,
+            },
+            bullet_list: block.kind() == BlockKind::BulletedListItem,
+            ordered_list: block.kind() == BlockKind::NumberedListItem,
+            task_list: block.kind().is_task_list_item(),
+            quote: block.kind() == BlockKind::Quote,
+            has_selection: block.has_selection(),
+            link: block.link_at_caret(),
+        }
     }
 
     /// EXP-261 vendoring: window bounds of the focused block's caret (or

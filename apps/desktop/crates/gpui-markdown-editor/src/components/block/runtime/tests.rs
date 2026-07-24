@@ -10,7 +10,8 @@ use crate::components::markdown::inline::{
 };
 use crate::components::markdown::link::parse_link_reference_definitions;
 use crate::components::{
-    Block, BlockKind, BlockRecord, IndentBlock, Newline, TableCellPosition,
+    Block, BlockKind, BlockRecord, CollapsedCaretAffinity, IndentBlock, InlineFormat, Newline,
+    TableCellPosition,
 };
 use gpui::{
     AppContext, EntityInputHandler, Modifiers, MouseButton, MouseMoveEvent, MouseUpEvent,
@@ -2701,5 +2702,192 @@ async fn typing_destination_into_empty_link_parens_keeps_caret_inside(cx: &mut T
         // Caret stays inside `()`, just before the closing `)`.
         let close = block.display_text().find(')').expect("closing paren");
         assert_eq!(block.selected_range, close..close);
+    });
+}
+
+// -- EXP-261: web-parity toolbar commands ------------------------------------
+
+fn paragraph<'a>(
+    text: &str,
+    cx: &'a mut TestAppContext,
+) -> (gpui::Entity<Block>, &'a mut gpui::VisualTestContext) {
+    cx.add_window_view(|_window, cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::plain(text)),
+        )
+    })
+}
+
+/// Web's `toggleBold()` at a collapsed caret sets a stored mark: nothing is
+/// restyled, but what you type next comes out bold. The engine used to no-op.
+#[gpui::test]
+async fn toggling_format_at_a_collapsed_caret_styles_the_next_typed_text_exp261(
+    cx: &mut TestAppContext,
+) {
+    let (block, cx) = paragraph("ab", cx);
+    cx.update(|window, cx| {
+        block.update(cx, |block, cx| {
+            block.assign_collapsed_selection_offset(2, CollapsedCaretAffinity::Default, None);
+            block.toggle_inline_format(InlineFormat::Bold, cx);
+            // Nothing typed yet, so the document is untouched…
+            assert_eq!(block.record.title.serialize_markdown(), "ab");
+            // …but the button reads as active.
+            assert!(block.inline_format_active(InlineFormat::Bold));
+
+            block.replace_text_in_range(None, "cd", window, cx);
+            assert_eq!(block.record.title.serialize_markdown(), "ab**cd**");
+        });
+    });
+}
+
+/// A stored mark dies on caret movement, exactly like ProseMirror's.
+#[gpui::test]
+async fn moving_the_caret_drops_the_armed_style_exp261(cx: &mut TestAppContext) {
+    let (block, cx) = paragraph("ab", cx);
+    cx.update(|window, cx| {
+        block.update(cx, |block, cx| {
+            block.assign_collapsed_selection_offset(2, CollapsedCaretAffinity::Default, None);
+            block.toggle_inline_format(InlineFormat::Bold, cx);
+            block.assign_collapsed_selection_offset(0, CollapsedCaretAffinity::Default, None);
+            assert!(!block.inline_format_active(InlineFormat::Bold));
+
+            block.replace_text_in_range(None, "z", window, cx);
+            assert_eq!(block.record.title.serialize_markdown(), "zab");
+        });
+    });
+}
+
+/// Toggling twice at the same caret returns to plain text.
+#[gpui::test]
+async fn arming_and_disarming_a_format_leaves_plain_text_exp261(cx: &mut TestAppContext) {
+    let (block, cx) = paragraph("", cx);
+    cx.update(|window, cx| {
+        block.update(cx, |block, cx| {
+            block.toggle_inline_format(InlineFormat::Italic, cx);
+            assert!(block.inline_format_active(InlineFormat::Italic));
+            block.toggle_inline_format(InlineFormat::Italic, cx);
+            assert!(!block.inline_format_active(InlineFormat::Italic));
+
+            block.replace_text_in_range(None, "hi", window, cx);
+            assert_eq!(block.record.title.serialize_markdown(), "hi");
+        });
+    });
+}
+
+/// The link command applies to the selection, then retargets and removes from
+/// a bare caret inside the link (web relies on `extendMarkRange`).
+#[gpui::test]
+async fn link_command_sets_retargets_and_removes_exp261(cx: &mut TestAppContext) {
+    let (block, cx) = paragraph("see docs now", cx);
+    cx.update(|_window, cx| {
+        block.update(cx, |block, cx| {
+            block.selected_range = 4..8;
+            block.set_link(Some("https://a.example"), cx);
+            assert_eq!(
+                block.record.title.serialize_markdown(),
+                "see [docs](https://a.example) now"
+            );
+
+            // Caret inside the anchor text, nothing selected.
+            block.assign_collapsed_selection_offset(6, CollapsedCaretAffinity::Default, None);
+            assert_eq!(block.link_at_caret().as_deref(), Some("https://a.example"));
+
+            block.set_link(Some("https://b.example"), cx);
+            assert_eq!(
+                block.record.title.serialize_markdown(),
+                "see [docs](https://b.example) now"
+            );
+
+            block.assign_collapsed_selection_offset(6, CollapsedCaretAffinity::Default, None);
+            block.set_link(None, cx);
+            assert_eq!(block.record.title.serialize_markdown(), "see docs now");
+            assert_eq!(block.link_at_caret(), None);
+        });
+    });
+}
+
+/// Web's "Clear formatting" is `unsetAllMarks().clearNodes()` — marks AND the
+/// block kind go.
+#[gpui::test]
+async fn clear_formatting_also_returns_the_block_to_a_paragraph_exp261(cx: &mut TestAppContext) {
+    let (block, cx) = cx.add_window_view(|_window, cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Heading { level: 2 },
+                InlineTextTree::from_markdown("**loud** [x](y)"),
+            ),
+        )
+    });
+    cx.update(|_window, cx| {
+        block.update(cx, |block, cx| {
+            block.selected_range = 0..block.record.title.visible_len();
+            block.clear_inline_formatting(cx);
+            assert_eq!(block.kind(), BlockKind::Paragraph);
+            assert_eq!(block.record.title.serialize_markdown(), "loud x");
+        });
+    });
+}
+
+/// Web renders a link as a link no matter where the caret sits; the target is
+/// edited through the toolbar. With `expand_focused_links` off the projection
+/// must therefore leave an inline `[text](url)` alone — but a REFERENCE link
+/// still expands, since its source spelling is preserved verbatim and would
+/// otherwise be unreachable.
+#[gpui::test]
+async fn focused_inline_link_stays_rendered_when_expansion_is_off_exp261(cx: &mut TestAppContext) {
+    let environment = Arc::new(crate::environment::MarkdownEditorEnvironment {
+        expand_focused_links: false,
+        ..Default::default()
+    });
+    let (block, cx) = cx.add_window_view({
+        let environment = environment.clone();
+        move |_window, cx| {
+            Block::with_record_and_environment(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("see [docs](https://example.com) now"),
+                ),
+                environment,
+            )
+        }
+    });
+    cx.update(|_window, cx| {
+        block.update(cx, |block, _cx| {
+            // Caret inside the anchor text.
+            block.assign_collapsed_selection_offset(6, CollapsedCaretAffinity::Default, None);
+            block.sync_inline_projection_for_focus(true);
+            assert_eq!(block.display_text(), "see docs now");
+        });
+    });
+
+    let (reference, cx) = cx.add_window_view(move |_window, cx| {
+        let mut block = Block::with_record_and_environment(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::plain("")),
+            environment,
+        );
+        block.link_reference_definitions =
+            crate::components::markdown::link::parse_link_reference_definitions(
+                "[ref]: https://example.com",
+            )
+            .into();
+        block
+            .record
+            .set_title(InlineTextTree::from_markdown_with_link_references(
+                "see [docs][ref] now",
+                &block.link_reference_definitions,
+            ));
+        block.sync_render_cache();
+        block
+    });
+    cx.update(|_window, cx| {
+        reference.update(cx, |block, _cx| {
+            block.assign_collapsed_selection_offset(6, CollapsedCaretAffinity::Default, None);
+            block.sync_inline_projection_for_focus(true);
+            assert_eq!(block.display_text(), "see [docs][ref] now");
+        });
     });
 }
