@@ -1,0 +1,1 @@
+Duplicate label names are now rejected with a clear message, and pre-existing duplicates were merged automatically.

@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-labels-and-ide-polish`,
+    date: `2026-07-24`,
+    title: `No more duplicate labels, dialogs that fit your phone`,
+    summary: `Duplicate label names are blocked (existing ones merged), dialogs go full-screen on mobile, and the desktop IDE gets link copying and a full-width diff view.`,
+    body: `- **One label per name** — creating a label whose name already exists in the team (regardless of casing) is now rejected with a clear message on every client, and pre-existing duplicates were merged automatically.
+- **Dialogs on mobile** — every web dialog now opens as a full-screen page on small screens, and the Start-coding dialog got a two-column layout that finally fits without double scrollbars.
+- **Desktop IDE polish** — copy a link to any issue from its header, start coding straight from the properties sidebar, and see inline images in descriptions just like on the web.
+- **Full-width diffs** — the desktop Source Control view drops the per-file column so commit diffs get the whole pane.`,
+  },
+  {
     id: `2026-07-actions`,
     date: `2026-07-24`,
     title: `Actions: reusable AI commands for your team`,
