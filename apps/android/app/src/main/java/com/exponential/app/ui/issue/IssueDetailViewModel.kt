@@ -368,6 +368,15 @@ class IssueDetailViewModel @Inject constructor(
         _moveError.value = null
     }
 
+    // Surfaced when an inline label create fails (snackbar in the screen) —
+    // e.g. the duplicate-name CONFLICT (EXP-254).
+    private val _labelError = MutableStateFlow<String?>(null)
+    val labelError: StateFlow<String?> = _labelError
+
+    fun consumeLabelError() {
+        _labelError.value = null
+    }
+
     /**
      * Move the issue to [boardId] via `issues.move` (EXP-57). The issue
      * keeps its id (this screen observes by id, so it stays live) but gets a
@@ -688,6 +697,10 @@ class IssueDetailViewModel @Inject constructor(
                         IssueLabelEntity(issueId = issueId, labelId = label.id, teamId = teamId)
                     )
                 }
+            }.onFailure { t ->
+                // Surface the server reject (e.g. the duplicate-name CONFLICT,
+                // EXP-254) — otherwise the sheet just closes and nothing happens.
+                _labelError.value = trpcErrorMessage(t, "Couldn't create the label")
             }
         }
     }

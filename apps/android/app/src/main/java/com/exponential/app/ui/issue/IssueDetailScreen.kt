@@ -192,6 +192,16 @@ fun IssueDetailScreen(
         }
     }
 
+    // Surface a failed inline label create (EXP-254 duplicate-name CONFLICT) —
+    // otherwise the label sheet closes and nothing happens.
+    val labelError by viewModel.labelError.collectAsStateWithLifecycle()
+    LaunchedEffect(labelError) {
+        labelError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeLabelError()
+        }
+    }
+
     // Remote-start feedback (EXP-240 — the inline captions left with the card's
     // start strip): failures surface as a snackbar; a batch send points at the
     // Agents tab (the single-issue send keeps spinning in the start circle

@@ -50,8 +50,16 @@ pub struct LabelsPane {
     new_name: Entity<InputState>,
     new_color: String,
     submitting: bool,
+    /// Inline error under the create form (duplicate name / server reject).
+    create_error: Option<String>,
+    /// (label id, message) — inline error under a row whose rename failed.
+    row_error: Option<(String, String)>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// Web `A label with this name already exists.` — shown for the local
+/// duplicate pre-check on create and rename (EXP-254).
+const DUPLICATE_NAME_MESSAGE: &str = "A label with this name already exists.";
 
 impl LabelsPane {
     pub fn new(
@@ -64,8 +72,11 @@ impl LabelsPane {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe_in(&nav, window, |this, _, window, cx| {
-                // Team switch: per-row inputs belong to the old scope.
+                // Team switch: per-row inputs (and any inline errors) belong
+                // to the old scope.
                 this.confirming_delete = None;
+                this.create_error = None;
+                this.row_error = None;
                 this.sync_inputs(window, cx);
                 cx.notify();
             }),
@@ -77,7 +88,12 @@ impl LabelsPane {
             cx.subscribe_in(&new_name, window, |this, _, event: &InputEvent, _, cx| {
                 match event {
                     InputEvent::PressEnter { .. } => this.create(cx),
-                    InputEvent::Change => cx.notify(),
+                    InputEvent::Change => {
+                        // Typing clears a stale server error (the live
+                        // duplicate check re-derives in render).
+                        this.create_error = None;
+                        cx.notify();
+                    }
                     _ => {}
                 }
             }),
@@ -92,10 +108,21 @@ impl LabelsPane {
             new_name,
             new_color: LABEL_COLORS[6].to_string(),
             submitting: false,
+            create_error: None,
+            row_error: None,
             _subscriptions: subscriptions,
         };
         this.sync_inputs(window, cx);
         this
+    }
+
+    /// Web `isDuplicateName`: another label in the team already has this name
+    /// (case-insensitive, matching the server's (team_id, lower(name)) unique).
+    fn is_duplicate_name(&self, name: &str, exclude_id: Option<&str>, cx: &App) -> bool {
+        let needle = name.trim().to_lowercase();
+        self.scoped_labels(cx).iter().any(|label| {
+            Some(label.id.as_str()) != exclude_id && label.name.trim().to_lowercase() == needle
+        })
     }
 
     /// The team's labels, `sortOrder` then name (web `orderBy`).
@@ -141,8 +168,22 @@ impl LabelsPane {
                 &input,
                 window,
                 move |this, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                        this.persist_name(&label_id, window, cx);
+                    match event {
+                        InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                            this.persist_name(&label_id, window, cx);
+                        }
+                        InputEvent::Change => {
+                            // Typing clears the row's stale duplicate error.
+                            if this
+                                .row_error
+                                .as_ref()
+                                .is_some_and(|(id, _)| id == &label_id)
+                            {
+                                this.row_error = None;
+                                cx.notify();
+                            }
+                        }
+                        _ => {}
                     }
                 },
             );
@@ -173,8 +214,19 @@ impl LabelsPane {
         if typed.is_empty() || typed == label.name {
             let name = label.name.clone();
             input.update(cx, |state, cx| state.set_value(name, window, cx));
+            self.row_error = None;
+            cx.notify();
             return;
         }
+        // Web `persistName` duplicate pre-check: keep the typed name so the
+        // user can fix it, show the inline error, skip the mutation (the
+        // server enforces the same unique either way — EXP-254).
+        if self.is_duplicate_name(&typed, Some(label_id), cx) {
+            self.row_error = Some((label_id.to_string(), DUPLICATE_NAME_MESSAGE.to_string()));
+            cx.notify();
+            return;
+        }
+        self.row_error = None;
         let team_id = label.team_id.clone();
         let label_id = label_id.to_string();
         spawn_trpc(cx, "labels.update(name)", move |trpc| {
@@ -190,7 +242,7 @@ impl LabelsPane {
             return;
         };
         let name = self.new_name.read(cx).value().trim().to_string();
-        if name.is_empty() {
+        if name.is_empty() || self.is_duplicate_name(&name, None, cx) {
             return;
         }
         let color = self.new_color.clone();
@@ -199,6 +251,7 @@ impl LabelsPane {
         };
 
         self.submitting = true;
+        self.create_error = None;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -212,6 +265,12 @@ impl LabelsPane {
                 this.submitting = false;
                 if let Err(err) = &result {
                     log::warn!("[ui] labels.create failed: {err}");
+                    // Server reject (e.g. the duplicate-name CONFLICT racing
+                    // a not-yet-synced label) — show its clean message inline.
+                    this.create_error = Some(match err {
+                        api::ApiError::Http { message, .. } => message.clone(),
+                        other => other.to_string(),
+                    });
                 } else {
                     this.creating = false;
                     this.reset_form();
@@ -230,6 +289,7 @@ impl LabelsPane {
             .map(|d| d.subsec_nanos() as usize)
             .unwrap_or(0);
         self.new_color = LABEL_COLORS[nanos % LABEL_COLORS.len()].to_string();
+        self.create_error = None;
     }
 
     fn render_label_row(&self, label: &Label, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -363,7 +423,22 @@ impl LabelsPane {
             );
         }
 
-        row
+        // Web LabelRow: the error line renders under the row (inside its
+        // border box on web; a stacked line here).
+        let error = self
+            .row_error
+            .as_ref()
+            .filter(|(id, _)| id == &label.id)
+            .map(|(_, message)| message.clone());
+        v_flex().gap_1().child(row).when_some(error, |col, message| {
+            col.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().danger)
+                    .px_1()
+                    .child(SharedString::from(message)),
+            )
+        })
     }
 }
 
@@ -398,6 +473,14 @@ impl Render for LabelsPane {
 
         if self.creating {
             let name = self.new_name.read(cx).value().trim().to_string();
+            // Web `newNameIsDuplicate`: live check against the synced labels;
+            // the message shows and Create disables before any round-trip.
+            let duplicate = !name.is_empty() && self.is_duplicate_name(&name, None, cx);
+            let form_error = if duplicate {
+                Some(DUPLICATE_NAME_MESSAGE.to_string())
+            } else {
+                self.create_error.clone()
+            };
             let entity = cx.entity();
             body = body.child(
                 v_flex()
@@ -407,6 +490,14 @@ impl Render for LabelsPane {
                     .border_1()
                     .border_color(cx.theme().border)
                     .child(Input::new(&self.new_name).small())
+                    .when_some(form_error, |col, message| {
+                        col.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().danger)
+                                .child(SharedString::from(message)),
+                        )
+                    })
                     .child(
                         v_flex()
                             .gap_1p5()
@@ -441,7 +532,7 @@ impl Render for LabelsPane {
                                     } else {
                                         "Create label"
                                     })
-                                    .disabled(name.is_empty() || self.submitting)
+                                    .disabled(name.is_empty() || self.submitting || duplicate)
                                     .loading(self.submitting)
                                     .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                             )
