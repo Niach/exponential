@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-desktop-wysiwyg-editor`,
+    date: `2026-07-24`,
+    title: `A real editor for issue descriptions on desktop`,
+    summary: `The desktop app now edits descriptions as formatted text — headings, lists, tables and images render as you type, instead of raw markdown.`,
+    body: `- **WYSIWYG descriptions** — the desktop editor shows your formatting live while you type: headings, bold and italics, bullet, numbered and task lists, quotes, code blocks, links, tables, and inline images.
+- **Images inline** — paste a screenshot straight into a description and it uploads in the background; drag its corner to resize, or right-click to open, download, copy or delete it.
+- **@ and # as you type** — mentioning a teammate or linking another issue offers suggestions from the first character, and both render as pills you can click.
+- **Your text stays your text** — descriptions written on web, iPhone or Android now survive a desktop open untouched, down to the byte.`,
+  },
+  {
     id: `2026-07-labels-and-ide-polish`,
     date: `2026-07-24`,
     title: `No more duplicate labels, dialogs that fit your phone`,
