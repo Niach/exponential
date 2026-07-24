@@ -36,8 +36,9 @@ pub enum FileStatus {
 }
 
 /// A single changed path in the trunk working tree. `staged` reflects whether
-/// the change is in the index (the checkbox state in the Source Control
-/// screen — `git add` / `git restore --staged`).
+/// the change is in the index — reported only; the IDE is view-only (EXP-253),
+/// so there is no staging affordance and nothing here calls `git add` /
+/// `git restore --staged`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
     /// Repo-relative path (the new path for renames).

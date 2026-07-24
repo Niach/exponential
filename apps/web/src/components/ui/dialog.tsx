@@ -69,7 +69,11 @@ function DialogContent({
           // width — otherwise one long nowrap line (e.g. an issue title in a
           // picker row) inflates the track's min-content and every child
           // renders wider than the panel (EXP-178).
-          `fixed inset-0 z-50 grid w-full content-start grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border`,
+          // sm:w-[calc(100%-2rem)] keeps the 1rem side gutter the old
+          // unprefixed max-w-[calc(100%-2rem)] used to give, without sitting in
+          // the max-w-* tailwind-merge group — so a caller's sm:max-w-* still
+          // caps the panel instead of dropping the gutter.
+          `fixed inset-0 z-50 grid w-full content-start grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border`,
           className
         )}
         {...props}
