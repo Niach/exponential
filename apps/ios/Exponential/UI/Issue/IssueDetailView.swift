@@ -53,6 +53,33 @@ struct IssueDetailView: View {
         .glassRow()
     }
 
+    // Shown once the bounded load clock gives up (EXP-264): the issue is
+    // either still syncing or genuinely out of reach — say so, and offer
+    // another attempt instead of an endless spinner.
+    private func unavailableState(vm: IssueDetailViewModel) -> some View {
+        VStack(spacing: 12) {
+            Text("This issue isn't available yet")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text("It may still be syncing, or you may not have access to it.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .multilineTextAlignment(.center)
+            Button {
+                vm.retryLoad()
+            } label: {
+                Text("Try again")
+                    .font(.callout)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+            .glassButton()
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -324,6 +351,11 @@ struct IssueDetailView: View {
                         }
                     }
                 }
+            } else if let vm = viewModel, vm.loadTimedOut {
+                // The row never arrived: it may be outside this account's
+                // synced scope entirely (EXP-264 — an endless spinner used to
+                // be the only answer here).
+                unavailableState(vm: vm)
             } else {
                 ProgressView().tint(.white)
             }

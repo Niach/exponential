@@ -259,16 +259,41 @@ app.post(`/send`, async (c) => {
   const { tokens, notification, data } = parsed.data
   const messaging = getMessaging(firebase)
 
+  // Android is DATA-ONLY (EXP-264). A top-level `notification` block makes the
+  // Android FCM SDK render the tray entry itself and SKIP onMessageReceived
+  // whenever the app is backgrounded or killed — exactly the cases where the
+  // app most needs the wake-up to sync and prefetch the issue behind the
+  // notification, so taps landed on blank screens. Without it every message is
+  // delivered to the service, which builds the same tray entry AND kicks sync.
+  //
+  // The title/body copy into `data` happens HERE rather than in the web app so
+  // it is atomic with going data-only: no deploy-order window where a relay
+  // dropped the notification block while the caller still only sent it there.
+  // Android builds predating this already read data["title"]/data["body"]
+  // (FcmService falls back to them), so no CLIENT_MIN_VERSION bump is needed.
+  //
+  // iOS is unaffected: the explicit apns block below is the whole wire payload
+  // for APNs, so visible alerts stay byte-identical.
+  //
+  // Deliberately NOT set: `collapseKey` (it would drop distinct
+  // per-notification payloads — the clients already coalesce per issue) and a
+  // custom `ttl` (the FCM default is right for user-facing notifications).
+  const dataWithDisplay = {
+    title: notification.title,
+    ...(notification.body !== undefined ? { body: notification.body } : {}),
+    // Caller-supplied keys win: an explicit data.title from the web app is
+    // more specific than the display copy above.
+    ...data,
+  }
+
   let response
   try {
     response = await withDeadline(
       messaging.sendEachForMulticast({
         tokens,
-        notification: { title: notification.title, body: notification.body },
-        data,
+        data: dataWithDisplay,
         android: {
           priority: `high`,
-          notification: { channelId: `issues_default` },
         },
         apns: {
           headers: { "apns-priority": `10` },

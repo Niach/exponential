@@ -12,13 +12,17 @@ import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 
-const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
-  () => ({
-    resolveSession: vi.fn(),
-    prepareElectricUrl: vi.fn(),
-    proxyElectricRequest: vi.fn(),
-  })
-)
+const {
+  resolveSession,
+  prepareElectricUrl,
+  proxyElectricRequest,
+  SessionResolveError,
+} = vi.hoisted(() => ({
+  resolveSession: vi.fn(),
+  prepareElectricUrl: vi.fn(),
+  proxyElectricRequest: vi.fn(),
+  SessionResolveError: class SessionResolveError extends Error {},
+}))
 
 // The real shape proxies resolve their scope through team-membership; keep
 // the pure clause builders (andClauses/buildWhereClause) real and only stub the
@@ -30,6 +34,7 @@ const membership = vi.hoisted(() => ({
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSession,
+  SessionResolveError,
 }))
 
 vi.mock(`@/lib/electric-proxy`, () => ({
@@ -112,6 +117,40 @@ describe(`shape route handler`, () => {
 
     expect(response.status).toBe(401)
     expect(proxyElectricRequest).not.toHaveBeenCalled()
+  })
+
+  it(`answers 503 (not 401) when the session lookup itself fails`, async () => {
+    resolveSession.mockRejectedValue(new SessionResolveError(`db down`))
+
+    const handler = createShapeRouteHandler({
+      table: `issues`,
+      getWhere: async () => `"team_id" = 'w-1'`,
+    })
+
+    // EXP-264: a DB blip must not masquerade as a bad token — native sync
+    // engines treat 401 as "sign out / stop retrying".
+    const response = await handler({
+      request: new Request(`https://example.com/api/shapes/issues`, {
+        headers: { authorization: `Bearer good-token` },
+      }),
+    })
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get(`retry-after`)).toBe(`5`)
+    expect(response.headers.get(`cache-control`)).toBe(`no-store`)
+    expect(proxyElectricRequest).not.toHaveBeenCalled()
+  })
+
+  it(`rethrows a non-session error from resolveSession`, async () => {
+    resolveSession.mockRejectedValue(new Error(`boom`))
+
+    const handler = createShapeRouteHandler({ table: `issues` })
+
+    await expect(
+      handler({
+        request: new Request(`https://example.com/api/shapes/issues`),
+      })
+    ).rejects.toThrow(`boom`)
   })
 
   it(`keeps the anonymous fallback for cookie-only requests with a dead session`, async () => {

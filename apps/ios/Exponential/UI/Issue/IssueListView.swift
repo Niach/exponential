@@ -119,7 +119,8 @@ struct IssueListView: View {
                     issuesApi: deps.issuesApi,
                     boardsApi: deps.boardsApi,
                     labelsApi: deps.labelsApi,
-                    auth: deps.auth
+                    auth: deps.auth,
+                    syncManager: deps.syncManager
                 )
                 viewModel = vm
                 vm.startObserving()

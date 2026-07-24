@@ -141,6 +141,7 @@ fun IssueListScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
+    val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
@@ -251,6 +252,18 @@ fun IssueListScreen(
                         CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
                     }
                 }
+            }
+
+            // Sync activity, pinned in the same strip (EXP-264): shown while
+            // the core shapes are behind, so a list that hasn't caught up
+            // reads as "working on it" instead of as the truth.
+            if (syncingVisible) {
+                GlobalSyncChip(
+                    visible = true,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(vertical = 4.dp),
+                )
             }
 
             // In-flow start feedback + selection bar, pinned above the list

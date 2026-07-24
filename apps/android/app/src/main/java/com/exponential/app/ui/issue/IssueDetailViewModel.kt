@@ -3,6 +3,7 @@ package com.exponential.app.ui.issue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
@@ -26,6 +27,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
@@ -51,12 +53,14 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class IssueDetailState(
     val issue: IssueEntity? = null,
@@ -66,6 +70,13 @@ data class IssueDetailState(
     val users: List<UserEntity> = emptyList(),
     val assignee: UserEntity? = null,
 )
+
+/**
+ * What to show while the issue isn't in the local cache. [Loading] is the
+ * honest default (a push tap can beat sync by seconds); [Unavailable] is
+ * reached only after the direct fetch failed — deleted, or not ours.
+ */
+enum class MissingIssueState { Loading, Unavailable }
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
@@ -81,6 +92,7 @@ class IssueDetailViewModel @Inject constructor(
     private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
+    private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -475,7 +487,70 @@ class IssueDetailViewModel @Inject constructor(
     private val _repoName = MutableStateFlow<String?>(null)
     val repoName: StateFlow<String?> = _repoName
 
+    // Why the issue isn't on screen yet. Only consulted while the issue is
+    // null; a bare "Loading…" that never resolved was the blank screen a push
+    // tap landed on before the row synced (EXP-264).
+    private val _missing = MutableStateFlow(MissingIssueState.Loading)
+    val missing: StateFlow<MissingIssueState> = _missing
+
+    /**
+     * Make the issue exist locally, one way or another: kick sync (the row is
+     * usually mid-flight), and if it hasn't landed shortly, read it straight
+     * from the server and write it into Room. The Room insert — rather than a
+     * screen-local copy — is deliberate: it's idempotent with sync (same PK,
+     * REPLACE), it survives navigation, and it lights up every derived flow
+     * (labels, timeline, share URL) with no parallel code path.
+     */
+    private suspend fun fetchIfAbsent() {
+        if (issueId.isEmpty()) {
+            _missing.value = MissingIssueState.Unavailable
+            return
+        }
+        _missing.value = MissingIssueState.Loading
+        syncManager.kick("issue-detail")
+        if (withTimeoutOrNull(SYNC_WAIT_MS) { issueFlow.filterNotNull().first() } != null) return
+
+        val accountId = auth.activeAccountId.value
+        if (accountId == null) {
+            _missing.value = MissingIssueState.Unavailable
+            return
+        }
+        try {
+            val result = issuesApi.get(accountId, issueId)
+            val db = holder.database(forAccountId = accountId)
+            db.withTransaction {
+                db.issueDao().upsert(result.issue)
+                for (labelId in result.labelIds) {
+                    db.issueLabelDao().upsert(
+                        IssueLabelEntity(
+                            issueId = result.issue.id,
+                            labelId = labelId,
+                            teamId = result.teamId,
+                            boardId = result.issue.boardId,
+                        )
+                    )
+                }
+            }
+            // The write only helps if this screen observes that id (it does for
+            // every real entry point); anything else would spin forever.
+            if (withTimeoutOrNull(LOCAL_WRITE_WAIT_MS) { issueFlow.filterNotNull().first() } == null) {
+                _missing.value = MissingIssueState.Unavailable
+            }
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (t: Throwable) {
+            android.util.Log.w("IssueDetailViewModel", "issues.get failed for $issueId: ${t.message}")
+            _missing.value = MissingIssueState.Unavailable
+        }
+    }
+
+    /** "Retry" on the unavailable state — same path, from the top. */
+    fun retryFetch() {
+        viewModelScope.launch { fetchIfAbsent() }
+    }
+
     init {
+        viewModelScope.launch { fetchIfAbsent() }
         // Opening an issue clears its inbox notifications (EXP-92) — push taps
         // and app links never pass through the inbox's own mark-read.
         // Fire-and-forget; also tolerates older self-hosted servers without
@@ -752,6 +827,14 @@ private val descriptionFlushScope = CoroutineScope(SupervisorJob() + Dispatchers
 
 private const val DESCRIPTION_SAVE_ATTEMPTS = 3
 private const val DESCRIPTION_SAVE_RETRY_DELAY_MS = 500L
+
+// How long a kicked sync gets to deliver the issue before we fetch it directly
+// — long enough for a round-trip on mobile data, short enough that the fetch
+// still beats the user's patience.
+private const val SYNC_WAIT_MS = 1_500L
+// A local Room write notifies its flows in milliseconds; this only bounds the
+// pathological case where the fetched row isn't the one this screen observes.
+private const val LOCAL_WRITE_WAIT_MS = 1_000L
 
 // Process-wide cache of a team's repos (server-only, no Electric shape).
 // Keyed by "accountId:teamId"; the create-board picker and this chip both

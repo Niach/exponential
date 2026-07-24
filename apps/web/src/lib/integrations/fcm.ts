@@ -27,6 +27,15 @@ export type FcmPayload = {
   data: Record<string, string>
 }
 
+// One push recipient. Its optional `data` is merged OVER the shared payload
+// data for this user only — it carries the keys that differ per recipient
+// while everything else stays shared (EXP-264: the recipient's own
+// notificationId, so a tapped push can mark exactly that inbox row read).
+export type FcmRecipient = {
+  userId: string
+  data?: Record<string, string>
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 // The relay (and FCM multicast) accept at most 500 tokens per request.
@@ -40,25 +49,30 @@ const RELAY_TIMEOUT_MS = 10_000
 const RELAY_CONCURRENCY = 8
 
 /**
- * Push one payload to every listed user's devices. Tokens are fetched in ONE
- * query and grouped per user; the relay POSTs stay per-user (each recipient's
- * `data.userId` differs so multi-account clients can route the tap), but run
- * through a small worker pool with a per-request timeout so a slow or wedged
- * relay can never pin more than RELAY_CONCURRENCY fetch-pool slots. Individual
- * request failures are logged and never throw.
+ * Push one payload to every listed recipient's devices. Tokens are fetched in
+ * ONE query and grouped per user; the relay POSTs stay per-user (each
+ * recipient's `data` differs — at minimum the userId, so multi-account clients
+ * can route the tap), but run through a small worker pool with a per-request
+ * timeout so a slow or wedged relay can never pin more than RELAY_CONCURRENCY
+ * fetch-pool slots. Individual request failures are logged and never throw.
  */
 export async function sendToUsers(
-  userIds: string[],
+  recipients: FcmRecipient[],
   payload: FcmPayload
 ): Promise<void> {
   const url = getRelayUrl()
   if (!url) return
-  if (userIds.length === 0) return
+  if (recipients.length === 0) return
+
+  const dataByUser = new Map<string, Record<string, string> | undefined>()
+  for (const recipient of recipients) {
+    dataByUser.set(recipient.userId, recipient.data)
+  }
 
   const rows = await db
     .select({ userId: fcmTokens.userId, token: fcmTokens.token })
     .from(fcmTokens)
-    .where(inArray(fcmTokens.userId, userIds))
+    .where(inArray(fcmTokens.userId, [...dataByUser.keys()]))
   if (rows.length === 0) return
 
   const tokensByUser = new Map<string, string[]>()
@@ -98,10 +112,16 @@ export async function sendToUsers(
           body: JSON.stringify({
             tokens: req.tokens,
             notification: { title: payload.title, body: payload.body },
-            // The recipient's user id rides along so multi-account clients can
-            // route a tapped notification into the signed-in account it belongs
-            // to instead of whichever account happens to be active.
-            data: { ...payload.data, userId: req.userId },
+            // Shared payload data first, then this recipient's own keys. The
+            // user id is written LAST so per-recipient data can never clobber
+            // it: it rides along so multi-account clients can route a tapped
+            // notification into the signed-in account it belongs to instead of
+            // whichever account happens to be active.
+            data: {
+              ...payload.data,
+              ...dataByUser.get(req.userId),
+              userId: req.userId,
+            },
           }),
         })
 

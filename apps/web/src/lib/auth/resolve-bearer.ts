@@ -15,9 +15,11 @@ type Session = Awaited<ReturnType<typeof auth.api.getSession>>
 // - Keys are sha256 hashes of the credential headers, so no raw bearer
 //   secrets are retained in long-lived memory. The cookie cannot influence
 //   the result (it is stripped on every miss), so token-only keying is sound.
-// - `retain` drops null resolutions: dead/revoked tokens and transient
-//   getSession errors (normalized to null below) are never cached, keeping
-//   the shape-route 401 path semantics unchanged.
+// - `retain` drops null resolutions, so a dead/revoked token is never cached
+//   and the shape-route 401 path semantics stay unchanged. A getSession
+//   FAILURE is a rejected promise (SessionResolveError, below) — TtlPromiseCache
+//   evicts rejected entries on settle, so a transient DB blip is never cached
+//   either; both cost exactly one lookup per call.
 // - The cached Session object is SHARED across callers — treat it as
 //   read-only (all current callers do).
 // - Revocation bound: revokePersonalApiKey / account deletion clear the cache
@@ -56,10 +58,20 @@ export async function resolveSession(request: Request): Promise<Session> {
   return sessionCache.get(cacheKey, () => getSessionBearerOnly(request))
 }
 
+// Thrown when the session lookup itself FAILED (DB down, auth backend blip) —
+// as opposed to resolving cleanly to "no session", which stays a null return.
+// Callers must keep the two apart: swallowing a failure as null makes a
+// transient outage look like a bad credential, and a native client answered
+// 401 stops retrying and enters its unauthorized backoff (EXP-264).
+export class SessionResolveError extends Error {}
+
 async function getSessionBearerOnly(request: Request): Promise<Session> {
-  const session = await auth.api
-    .getSession({ headers: bearerOnlyHeaders(request) })
-    .catch(() => null)
+  let session: Session
+  try {
+    session = await auth.api.getSession({ headers: bearerOnlyHeaders(request) })
+  } catch (err) {
+    throw new SessionResolveError(`Session lookup failed`, { cause: err })
+  }
   return session?.user ? session : null
 }
 

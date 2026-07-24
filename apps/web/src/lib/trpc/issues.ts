@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
 import {
   attachments,
   codingSessions,
@@ -13,7 +13,7 @@ import {
   notifications,
   boards,
 } from "@/db/schema"
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import {
   resolveTeamAccess,
   assertAssigneeInTeam,
@@ -22,6 +22,7 @@ import {
   getIssueTeamContext,
   getBoardTeamId,
   getSoleHumanMemberId,
+  getUserTeamIds,
 } from "@/lib/team-membership"
 import {
   closePullRequest,
@@ -73,6 +74,41 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 function repoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
   return match ? match[1] : null
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Resolve a human identifier ("EXP-42") to its issue UUID, scoped to the
+// caller's teams and excluding trashed boards. Identifiers are stored
+// uppercase; the lookup is case-insensitive. Identifier collisions are
+// possible — across teams AND within one (nothing enforces per-team prefix
+// uniqueness; boards' only composite unique is (team_id, slug)) — so the
+// newest match wins, deterministically. Deliberately a duplicate of the MCP
+// layer's resolveIssueId (lib/mcp/tools.ts) rather than a shared helper: that
+// one additionally intersects the connection's OAuth grant.
+async function resolveIssueIdentifier(
+  db: Context[`db`],
+  userId: string,
+  identifier: string
+): Promise<string> {
+  const teamIds = await getUserTeamIds(userId)
+  if (teamIds.length > 0) {
+    const [row] = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(
+        and(
+          inArray(issues.teamId, teamIds),
+          isNull(issues.boardDeletedAt),
+          eq(issues.identifier, identifier.toUpperCase())
+        )
+      )
+      .orderBy(desc(issues.createdAt))
+      .limit(1)
+    if (row) return row.id
+  }
+  throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
 }
 
 type Tx = Parameters<
@@ -1265,6 +1301,83 @@ export const issuesRouter = router({
               ? err.message
               : `Failed to load changes from GitHub`,
         })
+      }
+    }),
+
+  // Point read of ONE issue by row UUID or human identifier ("EXP-42").
+  // EXP-264: the Electric issues shape is the normal delivery path, but a
+  // client can be asked to show an issue it has not synced yet — a push tap on
+  // a brand-new issue lands on a blank screen until the shape catches up. This
+  // is the fallback that fills that row in. Comments are deliberately absent:
+  // they arrive through the comments shape.
+  get: authedProcedure
+    .input(z.object({ id: z.string().trim().min(1).max(64) }))
+    .query(async ({ ctx, input }) => {
+      const issueId = UUID_RE.test(input.id)
+        ? input.id
+        : await resolveIssueIdentifier(ctx.db, ctx.session.user.id, input.id)
+
+      // Membership is the gate (like every read since EXP-180): a foreign-team
+      // UUID probe gets FORBIDDEN, a missing or trashed-board issue NOT_FOUND.
+      const { teamId } = await assertIssueAccess(
+        ctx.session.user.id,
+        issueId,
+        `read`
+      )
+
+      const [issue] = await ctx.db
+        .select({
+          // EXACTLY the issues shape's server-pinned column allowlist
+          // (routes/api/shapes/issues.ts ISSUE_COLUMNS) so a client can merge
+          // this row into its synced store verbatim. Keep the two lists in
+          // step; the REV2-5 scoping columns (team_id, board_deleted_at) are
+          // excluded from both — teamId rides top-level below instead.
+          id: issues.id,
+          boardId: issues.boardId,
+          number: issues.number,
+          identifier: issues.identifier,
+          title: issues.title,
+          description: issues.description,
+          status: issues.status,
+          priority: issues.priority,
+          assigneeId: issues.assigneeId,
+          creatorId: issues.creatorId,
+          source: issues.source,
+          dueDate: issues.dueDate,
+          dueTime: issues.dueTime,
+          endTime: issues.endTime,
+          sortOrder: issues.sortOrder,
+          completedAt: issues.completedAt,
+          archivedAt: issues.archivedAt,
+          duplicateOfId: issues.duplicateOfId,
+          prUrl: issues.prUrl,
+          prNumber: issues.prNumber,
+          prState: issues.prState,
+          branch: issues.branch,
+          prMergedAt: issues.prMergedAt,
+          createdAt: issues.createdAt,
+          updatedAt: issues.updatedAt,
+        })
+        .from(issues)
+        .where(eq(issues.id, issueId))
+        .limit(1)
+
+      if (!issue) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+      }
+
+      const labelRows = await ctx.db
+        .select({ labelId: issueLabels.labelId })
+        .from(issueLabels)
+        .where(eq(issueLabels.issueId, issueId))
+
+      return {
+        issue,
+        labelIds: labelRows.map((row) => row.labelId),
+        // Top-level, NOT a field of `issue`: clients need it to write the
+        // denormalized team_id their local issue_labels rows carry, and it is
+        // not part of the synced issue row.
+        teamId,
       }
     }),
 

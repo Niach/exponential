@@ -41,6 +41,31 @@ internal fun syncBannerFor(
     return if ((membersShape?.consecutiveErrors ?: 0) > 0) SyncBanner.Stalled else SyncBanner.Syncing
 }
 
+/**
+ * Slim "Syncing…" chip: the app is behind the server and catching up. An
+ * indicator, not a banner — it says nothing is wrong, so it stays small and
+ * unobtrusive and never pushes content around for long (see
+ * IssueListViewModel.syncingVisible for when it shows).
+ */
+@Composable
+fun GlobalSyncChip(visible: Boolean, modifier: Modifier = Modifier) {
+    if (!visible) return
+    Row(
+        modifier = modifier
+            .glassRow()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+        Text(
+            "Syncing…",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+    }
+}
+
 /** Slim glass row rendered above issue content while [banner] is not [SyncBanner.None]. */
 @Composable
 fun SyncBannerRow(banner: SyncBanner, modifier: Modifier = Modifier) {

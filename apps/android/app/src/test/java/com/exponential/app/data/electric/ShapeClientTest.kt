@@ -47,11 +47,21 @@ class ShapeClientTest {
         override suspend fun get(shape: String): ElectricOffsetEntity? = map[shape]
         override fun observeIsLive(shape: String): Flow<Boolean?> = flowOf(map[shape]?.isLive)
         override suspend fun upsert(item: ElectricOffsetEntity) { map[item.shape] = item }
-        override suspend fun deleteShape(shape: String) { map.remove(shape) }
         override suspend fun clear() { map.clear() }
     }
 
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+
+    /**
+     * Stand-in for SystemClock.elapsedRealtime, which is a constant 0 under
+     * `unitTests.isReturnDefaultValues` — the kick freshness window needs a
+     * clock the test can move.
+     */
+    private class FakeClock(start: Long = 10_000L) : () -> Long {
+        private val now = java.util.concurrent.atomic.AtomicLong(start)
+        override fun invoke(): Long = now.get()
+        fun advance(ms: Long) { now.addAndGet(ms) }
+    }
 
     private fun shapeHeaders(handle: String = "h1", offset: String = "0_0") = headersOf(
         "electric-handle" to listOf(handle),
@@ -72,6 +82,9 @@ class ShapeClientTest {
         onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
         onSuccess: () -> Unit = {},
         onReset: suspend () -> Unit = {},
+        // A real advancing clock by default, so kicks behave as in production;
+        // the freshness test swaps in a clock it can hold still.
+        nowMs: () -> Long = { System.currentTimeMillis() },
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> io.ktor.client.request.HttpResponseData,
     ): ShapeClient<Row> {
         val engine = MockEngine { request -> handler(request) }
@@ -89,6 +102,7 @@ class ShapeClientTest {
             onError = onError,
             onSuccess = onSuccess,
             onReset = onReset,
+            nowMs = nowMs,
         )
     }
 
@@ -146,8 +160,94 @@ class ShapeClientTest {
         assertNotNull("run() must exit on real cancellation", joined)
     }
 
+    /**
+     * The must-refetch reaction (EXP-264): a 409/400 only MARKS the shape —
+     * the rows and the offset row survive, and no MustRefetch reaches the
+     * apply layer yet. The next poll re-snapshots and carries the wipe at the
+     * head of its own batch, so SyncManager's single transaction turns the
+     * refetch into an atomic swap instead of "empty for a second".
+     */
+    private fun assertMarksRefetchInsteadOfWiping(status: HttpStatusCode, body: String) = runBlocking {
+        val dao = FakeOffsetDao()
+        dao.map["rows"] = ElectricOffsetEntity(shape = "rows", handle = "stale", offset = "5_1", isLive = true)
+        val batches = CopyOnWriteArrayList<List<ShapeMessage<Row>>>()
+        val requests = CopyOnWriteArrayList<io.ktor.http.Url>()
+        val markerAfterFirst = java.util.concurrent.atomic.AtomicReference<ElectricOffsetEntity?>()
+        val batchesAfterFirst = java.util.concurrent.atomic.AtomicInteger(-1)
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = { batches.add(it) },
+            handler = { request ->
+                requests.add(request.url)
+                if (requests.size == 1) {
+                    respond(body, status, headersOf("electric-handle" to listOf("h2")))
+                } else {
+                    // Snapshot the reaction to the reset BEFORE answering.
+                    if (requests.size == 2) {
+                        markerAfterFirst.set(dao.map["rows"])
+                        batchesAfterFirst.set(batches.size)
+                    }
+                    respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+                }
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (batches.flatten().none { it is ShapeMessage.Insert }) {
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        job.cancel()
+        job.join()
+
+        // Nothing was applied in reaction to the reset — in particular no
+        // MustRefetch, which would have emptied the table on its own.
+        assertEquals(0, batchesAfterFirst.get())
+        // The cursor row stays, flagged for a refetch and pointing at -1.
+        val marker = markerAfterFirst.get()
+        assertNotNull("the offset row must survive the reset", marker)
+        assertTrue(marker!!.needsRefetch)
+        assertEquals("-1", marker.offset)
+        assertEquals("h2", marker.handle)
+        assertFalse(marker.isLive)
+
+        // The follow-up poll is a snapshot that carries the rotated handle.
+        val second = requests[1]
+        assertEquals("-1", second.parameters["offset"])
+        assertEquals("h2", second.parameters["handle"])
+        assertFalse(second.parameters.contains("live"))
+
+        // …and its batch wipes and repopulates in one go.
+        val refetchBatch = batches.first()
+        assertEquals(ShapeMessage.MustRefetch, refetchBatch.first())
+        assertTrue(refetchBatch.any { it is ShapeMessage.Insert })
+
+        // The refetch is over: fresh cursor, flag cleared, live re-earned.
+        assertEquals("h1", dao.map["rows"]?.handle)
+        assertEquals(false, dao.map["rows"]?.needsRefetch)
+        assertEquals(true, dao.map["rows"]?.isLive)
+    }
+
     @Test
-    fun badRequestResetsTheShapeLikeMustRefetch() = runBlocking {
+    fun badRequestMarksAnAtomicRefetch() {
+        // Electric's deterministic definition error (e.g. "shape definition and
+        // handle do not match" after a where-clause rotation under a persisted
+        // handle).
+        assertMarksRefetchInsteadOfWiping(HttpStatusCode.BadRequest, "definition mismatch")
+    }
+
+    @Test
+    fun conflictMarksAnAtomicRefetch() {
+        assertMarksRefetchInsteadOfWiping(
+            HttpStatusCode.Conflict,
+            """[{"headers":{"control":"must-refetch"}}]""",
+        )
+    }
+
+    @Test
+    fun inlineMustRefetchMarksTheShapeInsteadOfForwardingTheWipe() = runBlocking {
         val dao = FakeOffsetDao()
         dao.map["rows"] = ElectricOffsetEntity(shape = "rows", handle = "stale", offset = "5_1", isLive = true)
         val batches = CopyOnWriteArrayList<List<ShapeMessage<Row>>>()
@@ -159,10 +259,12 @@ class ShapeClientTest {
             handler = { request ->
                 requests.add(request.url)
                 if (requests.size == 1) {
-                    // Electric's deterministic definition error (e.g. "shape
-                    // definition and handle do not match" after a where-clause
-                    // rotation under a persisted handle).
-                    respond("definition mismatch", HttpStatusCode.BadRequest)
+                    // A must-refetch inside a 200 body.
+                    respond(
+                        """[{"headers":{"control":"must-refetch"}}]""",
+                        HttpStatusCode.OK,
+                        shapeHeaders(),
+                    )
                 } else {
                     respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
                 }
@@ -178,49 +280,137 @@ class ShapeClientTest {
         job.cancel()
         job.join()
 
-        // First reaction to the 400: cursor dropped + MustRefetch (table wipe).
-        assertEquals(listOf<ShapeMessage<Row>>(ShapeMessage.MustRefetch), batches.first())
-        // The follow-up poll is a fresh initial snapshot: offset=-1, no handle.
-        val second = requests[1]
-        assertEquals("-1", second.parameters["offset"])
-        assertNull(second.parameters["handle"])
-        assertFalse(second.parameters.contains("live"))
-        // And the snapshot lands + the cursor is re-established.
-        assertTrue(batches.flatten().any { it is ShapeMessage.Insert })
-        assertEquals("h1", dao.map["rows"]?.handle)
+        // The bare wipe never reached the apply layer; the first batch is the
+        // refetch snapshot, wipe included.
+        assertEquals(ShapeMessage.MustRefetch, batches.first().first())
+        assertTrue(batches.first().any { it is ShapeMessage.Insert })
+        assertEquals("-1", requests[1].parameters["offset"])
     }
 
     @Test
-    fun conflictResetsTheShape() = runBlocking {
+    fun kickInterruptsABackoffWaitAndResetsIt() = runBlocking {
         val dao = FakeOffsetDao()
-        dao.map["rows"] = ElectricOffsetEntity(shape = "rows", handle = "stale", offset = "5_1", isLive = true)
-        val batches = CopyOnWriteArrayList<List<ShapeMessage<Row>>>()
-        var calls = 0
+        val clock = FakeClock()
+        val requestAt = CopyOnWriteArrayList<Long>()
+        val errors = CopyOnWriteArrayList<String?>()
 
         val shapeClient = client(
             dao = dao,
-            onMessages = { batches.add(it) },
+            onMessages = {},
+            nowMs = clock,
+            onError = { _, message, _ -> errors.add(message) },
             handler = {
-                calls++
-                if (calls == 1) {
-                    respond("""[{"headers":{"control":"must-refetch"}}]""", HttpStatusCode.Conflict)
-                } else {
-                    respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+                requestAt.add(System.currentTimeMillis())
+                respond("boom", HttpStatusCode.InternalServerError)
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        // Three failures grow the backoff to a 2s wait (500 → 1000 → 2000).
+        withTimeout(10_000) {
+            while (errors.size < 3) kotlinx.coroutines.delay(10)
+        }
+        // Construction seeds the freshness window (a fresh client's first poll
+        // is imminent by definition) — step past it so the kick isn't dropped.
+        clock.advance(KICK_FRESHNESS_MS + 1)
+        val kickedAt = System.currentTimeMillis()
+        shapeClient.kick()
+        withTimeout(10_000) {
+            while (requestAt.size < 4) kotlinx.coroutines.delay(10)
+        }
+        val afterKick = requestAt[3] - kickedAt
+        // …and the backoff is back at its floor, so the NEXT retry is quick
+        // too (it would be a 4s wait had the kick only skipped one round).
+        withTimeout(10_000) {
+            while (requestAt.size < 5) kotlinx.coroutines.delay(10)
+        }
+        val afterReset = requestAt[4] - requestAt[3]
+        job.cancel()
+        job.join()
+
+        assertTrue("kick must cut the 2s backoff short (was ${afterKick}ms)", afterKick < 1_000)
+        assertTrue("backoff must reset to its floor (was ${afterReset}ms)", afterReset < 1_500)
+    }
+
+    @Test
+    fun kickCancelsAnInFlightPollAndRepollsWithoutAnError() = runBlocking {
+        val dao = FakeOffsetDao()
+        val clock = FakeClock()
+        val started = CopyOnWriteArrayList<Int>()
+        val errors = CopyOnWriteArrayList<String?>()
+        val applied = CopyOnWriteArrayList<ShapeMessage<Row>>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = { applied.addAll(it) },
+            nowMs = clock,
+            onError = { _, message, _ -> errors.add(message) },
+            handler = {
+                started.add(started.size + 1)
+                if (started.size == 1) {
+                    // A live long-poll holding open with nothing to say.
+                    kotlinx.coroutines.delay(30_000)
                 }
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
             },
         )
 
         val job = launch { shapeClient.run() }
         withTimeout(10_000) {
-            while (batches.flatten().none { it is ShapeMessage.Insert }) {
-                kotlinx.coroutines.delay(20)
-            }
+            while (started.isEmpty()) kotlinx.coroutines.delay(10)
+        }
+        // Step past the construction-seeded freshness window so the kick lands.
+        clock.advance(KICK_FRESHNESS_MS + 1)
+        shapeClient.kick()
+        withTimeout(10_000) {
+            while (applied.none { it is ShapeMessage.Insert }) kotlinx.coroutines.delay(10)
         }
         job.cancel()
         job.join()
 
-        assertEquals(listOf<ShapeMessage<Row>>(ShapeMessage.MustRefetch), batches.first())
-        assertTrue(batches.flatten().any { it is ShapeMessage.Insert })
+        assertTrue("the kicked poll must be re-issued", started.size >= 2)
+        // An interrupted poll is not a failure — it must not touch the shape's
+        // error health or its diagnostics row.
+        assertTrue("a kick must not report an error, got $errors", errors.isEmpty())
+    }
+
+    @Test
+    fun kickIsANoOpRightAfterASuccessfulPoll() = runBlocking {
+        val dao = FakeOffsetDao()
+        val clock = FakeClock()
+        val started = CopyOnWriteArrayList<Int>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            nowMs = clock,
+            handler = {
+                started.add(started.size + 1)
+                // Everything after the first poll is an idle live hold.
+                if (started.size > 1) kotlinx.coroutines.delay(30_000)
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        // Wait for the first poll to succeed and the second (live) one to start.
+        withTimeout(10_000) {
+            while (started.size < 2) kotlinx.coroutines.delay(10)
+        }
+
+        // The live hold IS the freshest state available, so this kick is dropped.
+        shapeClient.kick()
+        kotlinx.coroutines.delay(300)
+        assertEquals("a kick inside the freshness window must not re-poll", 2, started.size)
+
+        // Past the window it takes effect again.
+        clock.advance(KICK_FRESHNESS_MS + 1)
+        shapeClient.kick()
+        withTimeout(10_000) {
+            while (started.size < 3) kotlinx.coroutines.delay(10)
+        }
+        job.cancel()
+        job.join()
     }
 
     @Test
@@ -229,6 +419,8 @@ class ShapeClientTest {
         var requestTimeout: Long? = null
         var socketTimeout: Long? = null
 
+        var connectTimeout: Long? = null
+
         val shapeClient = client(
             dao = dao,
             onMessages = {},
@@ -236,6 +428,7 @@ class ShapeClientTest {
                 val config = request.getCapabilityOrNull(HttpTimeoutCapability)
                 requestTimeout = config?.requestTimeoutMillis
                 socketTimeout = config?.socketTimeoutMillis
+                connectTimeout = config?.connectTimeoutMillis
                 respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
             },
         )
@@ -253,5 +446,9 @@ class ShapeClientTest {
         // case per long-poll-canary.md; desktop asserts >= 75s the same way).
         assertTrue("request timeout must exceed the live hold", requestTimeout!! >= 75_000)
         assertTrue("socket timeout must exceed the live hold", socketTimeout!! >= 75_000)
+        // Connect is set EXPLICITLY: a per-request timeout block replaces the
+        // whole config, so leaving it out kept the client-wide 10s — the ~10s
+        // of stale content on app open (EXP-264).
+        assertEquals(5_000L, connectTimeout)
     }
 }

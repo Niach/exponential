@@ -69,6 +69,23 @@ data class MoveIssueInput(
 @Serializable
 data class IssueResult(val issue: IssueEntity)
 
+/** `issues.get` input — a UUID or an identifier like `EXP-42`. */
+@Serializable
+data class GetIssueInput(val id: String)
+
+/**
+ * `issues.get` (EXP-264): the direct read that backs an issue the local
+ * Electric cache doesn't have yet — a push tap for a row that hasn't synced.
+ * `teamId` is TOP-LEVEL (not on the issue), and carries the scope needed to
+ * write the label joins locally.
+ */
+@Serializable
+data class IssueGetResult(
+    val issue: IssueEntity,
+    @SerialName("labelIds") val labelIds: List<String> = emptyList(),
+    @SerialName("teamId") val teamId: String,
+)
+
 @Serializable
 data class SearchIssuesInput(
     @SerialName("teamId") val teamId: String,
@@ -100,6 +117,20 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CreateIssueInput.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
+
+    /**
+     * Fetch one issue directly, bypassing sync. Throws NOT_FOUND for an
+     * unknown/trashed issue and FORBIDDEN when the caller isn't a member —
+     * both surface as a [TrpcException] the caller renders as "not available".
+     */
+    suspend fun get(accountId: String, idOrIdentifier: String): IssueGetResult =
+        trpc.query(
+            accountId,
+            path = "issues.get",
+            input = GetIssueInput(idOrIdentifier),
+            inputSerializer = GetIssueInput.serializer(),
+            outputSerializer = IssueGetResult.serializer(),
+        )
 
     suspend fun update(accountId: String, input: UpdateIssueInput): IssueEntity =
         trpc.mutation(

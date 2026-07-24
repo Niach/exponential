@@ -106,9 +106,14 @@ import androidx.room.RoomDatabase
     //      linkage on the coding-sessions shape (an action run's row is
     //      batch-shaped with action_name labeling it); actions run labels.
     //      Additive columns; destructive fallback wipes + resyncs.
+    // v27 (EXP-264): electric_offsets.needs_refetch — the must-refetch marker
+    //      that replaced "wipe the table now, snapshot later" with an atomic
+    //      swap (stale rows stay visible until the refetch batch replaces
+    //      them). Local bookkeeping only, no shape change; destructive fallback
+    //      wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 26,
+    version = 27,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -3,6 +3,9 @@ package com.exponential.app
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import com.exponential.app.data.auth.AuthRepository
@@ -40,6 +43,17 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         }
         syncManager.start()
         pushTokenManager.start()
+        // Coming back to the foreground, the shape loops may be parked in a
+        // stale backoff or holding a socket the radio killed while we were
+        // away — that was the ~10s of stale content on open (EXP-264). Kick
+        // them so the first thing the user sees is current. On a cold launch
+        // this fires immediately after start(), where the freshness window
+        // makes it a harmless no-op.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                syncManager.kick("app-foreground")
+            }
+        })
     }
 
     // One-shot: AccountStore has re-keyed accounts to per-user ids by now. The

@@ -1,5 +1,9 @@
 package com.exponential.app.data.electric
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.os.SystemClock
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
@@ -19,16 +23,24 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -44,10 +56,33 @@ class SyncManager @Inject constructor(
     private val client: HttpClient,
     private val json: Json,
     private val stats: SyncStats,
+    @ApplicationContext private val context: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
-    private val pipelines = mutableMapOf<String, List<Job>>()
+
+    /** One account's 14 shape loops, plus the clients a [kick] has to reach. */
+    private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
+
+    private val pipelines = mutableMapOf<String, Pipeline>()
+
+    // elapsedRealtime of the last kick that actually went out (0 = none yet).
+    // The "Syncing…" chip measures shape freshness against this.
+    private val _lastKickAt = MutableStateFlow(0L)
+    val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
+
+    // Debounce gate for unforced kicks: foreground + network-available +
+    // several pushes can land within the same second, and 14 shapes each
+    // dropping a live connection per trigger is a real cost.
+    private val lastKickGate = AtomicLong(0L)
+
+    // registerDefaultNetworkCallback replays the CURRENT network immediately —
+    // but ONLY when a default network exists at registration time. Seeded in
+    // registerNetworkCallback: false (skip the next onAvailable, it's the
+    // replay) when online at registration, true when offline — else an offline
+    // cold start would discard the first REAL connectivity-restored callback,
+    // the exact transition this callback exists to catch.
+    private val sawFirstNetworkCallback = AtomicBoolean(false)
     // Throttles the Logcat line for dropped columns to once per (account, shape,
     // column-set) — the diagnostics Set already dedupes for the UI.
     private val loggedDroppedColumns = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -71,6 +106,79 @@ class SyncManager @Inject constructor(
                 .distinctUntilChanged()
                 .collect { signedIn -> reconcile(signedIn) }
         }
+        registerNetworkCallback()
+    }
+
+    /**
+     * A returning network is the other half of the foreground kick: coming back
+     * from a dead radio, the parked loops are sitting on sockets that will only
+     * fail when their timeout expires. Kick them the moment connectivity is
+     * back instead.
+     */
+    private fun registerNetworkCallback() {
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return
+        // Some OEM builds throw TooManyRequestsException here; losing the
+        // network kick is survivable, crashing at startup is not.
+        runCatching {
+            // The registration replay only happens when a default network
+            // exists RIGHT NOW; offline, the first onAvailable is already the
+            // real offline→online transition and must not be swallowed.
+            sawFirstNetworkCallback.set(manager.activeNetwork == null)
+            manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                // Binder thread — ShapeClient.kick is thread-safe by design.
+                override fun onAvailable(network: Network) {
+                    if (!sawFirstNetworkCallback.getAndSet(true)) return
+                    kick("network-available")
+                }
+            })
+        }.onFailure {
+            android.util.Log.w("SyncManager", "network callback not registered: ${it.message}")
+        }
+    }
+
+    /**
+     * Poll every shape of every account NOW (see [ShapeClient.kick]) —
+     * app foreground, a returning network, an arriving push, a pull-to-refresh.
+     * Unforced calls are debounced to one per [KICK_DEBOUNCE_MS]; [force]
+     * bypasses that for user-initiated refreshes, which must never silently do
+     * nothing.
+     */
+    fun kick(reason: String, force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force) {
+            val previous = lastKickGate.get()
+            if (now - previous < KICK_DEBOUNCE_MS) return
+            if (!lastKickGate.compareAndSet(previous, now)) return
+        } else {
+            lastKickGate.set(now)
+        }
+        android.util.Log.i("SyncManager", "kick($reason)")
+        _lastKickAt.value = now
+        val clients = synchronized(lock) { pipelines.values.flatMap { it.clients } }
+        clients.forEach { it.kick() }
+    }
+
+    /**
+     * Kick, then wait until every core shape of [accountId] has completed a
+     * poll (or [timeoutMs] elapses). Returns true when the account is known
+     * caught up — the pull-to-refresh spinner runs exactly this long.
+     *
+     * Shapes whose kick was suppressed as redundant already polled within
+     * [KICK_FRESHNESS_MS] of t0, which is why the comparison allows that much
+     * slack: on a healthy app this resolves immediately instead of hanging for
+     * the full timeout.
+     */
+    suspend fun refresh(accountId: String, timeoutMs: Long = 5_000): Boolean {
+        val t0 = SystemClock.elapsedRealtime()
+        kick("refresh", force = true)
+        return withTimeoutOrNull(timeoutMs) {
+            stats.state.first { all ->
+                val shapes = all[accountId]
+                CORE_SHAPES.all { name ->
+                    (shapes?.get(name)?.lastSuccessAtMs ?: 0L) >= t0 - KICK_FRESHNESS_MS
+                }
+            }
+        } != null
     }
 
     /// Sign out a specific account: cancel its pipeline. The Room cache stays
@@ -104,7 +212,7 @@ class SyncManager @Inject constructor(
 
             // Cancel pipelines for accounts no longer signed in.
             for (accountId in running - signedIn) {
-                pipelines.remove(accountId)?.forEach { it.cancel() }
+                pipelines.remove(accountId)?.jobs?.forEach { it.cancel() }
                 stats.clearAccount(accountId)
                 android.util.Log.i("SyncManager", "Cancelled shape pipeline for $accountId")
             }
@@ -119,13 +227,13 @@ class SyncManager @Inject constructor(
     }
 
     private suspend fun cancelPipeline(accountId: String) {
-        val jobs = synchronized(lock) { pipelines.remove(accountId) ?: emptyList() }
-        jobs.forEach { it.cancel() }
+        val pipeline = synchronized(lock) { pipelines.remove(accountId) }
+        pipeline?.jobs?.forEach { it.cancel() }
     }
 
     // MARK: - Per-account shape launch
 
-    private fun launchPipeline(accountId: String, db: ExponentialDatabase): List<Job> {
+    private fun launchPipeline(accountId: String, db: ExponentialDatabase): Pipeline {
         // Threaded into every shape so each one reports phase/rows/errors to the
         // Sync Diagnostics screen.
         fun reporter(shape: String) = ShapeReporter(
@@ -166,7 +274,7 @@ class SyncManager @Inject constructor(
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
 
-        return listOf(
+        val shapes = listOf(
             launchShape(
                 shape = "teams", path = "/api/shapes/teams", tableName = "teams",
                 serializer = TeamEntity.serializer(),
@@ -308,6 +416,7 @@ class SyncManager @Inject constructor(
                 onRefetch = { codingSessionDao.clear() },
             ),
         )
+        return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })
     }
 
     private fun <T : Any> launchShape(
@@ -324,7 +433,7 @@ class SyncManager @Inject constructor(
         onUpdate: suspend (T) -> Unit,
         onDelete: suspend (T) -> Unit,
         onRefetch: suspend () -> Unit,
-    ): Job {
+    ): Pair<Job, ShapeClient<*>> {
         val shapeClient = ShapeClient(
             client = client,
             baseUrlProvider = baseUrl,
@@ -340,10 +449,22 @@ class SyncManager @Inject constructor(
             onSuccess = reporter.onSuccess,
             onDecodeDrop = { reporter.onDecodeDrop() },
             onRecovering = reporter.onRecovering,
-            // Auto-recovery: wipe this shape's offset + rows so the next poll
-            // refetches a fresh snapshot (the same atomic step the 409
-            // must-refetch path takes). Kept in one transaction.
-            onReset = { db.withTransaction { onRefetch(); offsetDao.deleteShape(shape) } },
+            // Auto-recovery: mark the shape for a refetch so the next poll
+            // pulls a fresh snapshot (the same marker the 409/400 path writes).
+            // The rows stay until that snapshot's batch replaces them in one
+            // transaction — a local schema drift must not blank the UI first.
+            onReset = {
+                val saved = offsetDao.get(shape)
+                offsetDao.upsert(
+                    com.exponential.app.data.db.ElectricOffsetEntity(
+                        shape = shape,
+                        handle = saved?.handle ?: "",
+                        offset = INITIAL_OFFSET,
+                        isLive = false,
+                        needsRefetch = true,
+                    )
+                )
+            },
             onMessages = { messages ->
                 // Apply each long-poll batch in one transaction (parity with iOS
                 // applyBatch) so a batch is an atomic write and the concurrent
@@ -370,9 +491,13 @@ class SyncManager @Inject constructor(
                 }
             },
         )
-        return scope.launch { shapeClient.run() }
+        return scope.launch { shapeClient.run() } to shapeClient
     }
 }
+
+// One unforced kick per second at most: app-foreground, network-available and a
+// burst of pushes routinely coincide, and each kick drops 14 live long-polls.
+private const val KICK_DEBOUNCE_MS = 1_000L
 
 /** Per-shape diagnostics callbacks passed from [SyncManager] into [ShapeClient]. */
 private class ShapeReporter(

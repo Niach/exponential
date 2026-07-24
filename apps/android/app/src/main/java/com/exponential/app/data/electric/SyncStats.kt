@@ -1,5 +1,6 @@
 package com.exponential.app.data.electric
 
+import android.os.SystemClock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,10 @@ class SyncStats @Inject constructor() {
         // Rows dropped because a full-row payload failed to decode — benign, the
         // row re-syncs on the next refetch.
         val decodeDrops: Int = 0,
+        // elapsedRealtime of the last successful poll (0 = never). Read by
+        // SyncManager.refresh and the "Syncing…" chip to tell "this shape has
+        // caught up since the kick" from "it is still behind".
+        val lastSuccessAtMs: Long = 0L,
     )
 
     // Mark a shape "unauthorized" once a requireAuth shape has failed auth this
@@ -107,13 +112,18 @@ class SyncStats @Inject constructor() {
      * [errorCount] is intentionally left intact; only the live-health signals
      * ([consecutiveErrors], [lastError], [recovering], and the "unauthorized"
      * phase) are reset.
+     *
+     * [ShapeStatus.lastSuccessAtMs] is stamped on EVERY call, including the
+     * already-healthy fast path — a refresh waits on that timestamp moving, so
+     * a shape that was healthy all along must still report that it just polled.
      */
     fun clearError(accountId: String, shape: String) =
         mutate(accountId, shape) {
+            val now = SystemClock.elapsedRealtime()
             if (it.consecutiveErrors == 0 && it.phase != "unauthorized" &&
                 it.lastError == null && !it.recovering
             ) {
-                return@mutate it
+                return@mutate it.copy(lastSuccessAtMs = now)
             }
             it.copy(
                 consecutiveErrors = 0,
@@ -121,6 +131,7 @@ class SyncStats @Inject constructor() {
                 lastError = null,
                 schemaError = false,
                 recovering = false,
+                lastSuccessAtMs = now,
             )
         }
 

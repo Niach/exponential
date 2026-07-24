@@ -280,6 +280,62 @@ public struct SearchIssueHit: Decodable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Point read (issues.get)
+
+public struct GetIssueInput: Encodable, Sendable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+/// One issue row read straight from the server (EXP-264) — the fallback for a
+/// screen asked to show an issue the Electric shape hasn't delivered yet (a
+/// push tap on a brand-new issue, a deep link into a board this account is
+/// still syncing). The field list mirrors the issues shape's server-pinned
+/// column allowlist EXACTLY, so the row can be merged into the local store
+/// verbatim; `entity()` does that mapping. Timestamps arrive as ISO strings
+/// (tRPC JSON-stringifies Dates) rather than the Postgres text the wire
+/// protocol carries — WireTimestamps parses both, and the synced row
+/// overwrites this one the moment it lands.
+public struct FetchedIssue: Decodable, Sendable {
+    public let id: String
+    public let boardId: String
+    public let number: Int?
+    public let identifier: String?
+    public let title: String
+    public let description: String?
+    public let status: String
+    public let priority: String
+    public let assigneeId: String?
+    public let creatorId: String?
+    public let source: String?
+    public let dueDate: String?
+    public let dueTime: String?
+    public let endTime: String?
+    public let sortOrder: Double?
+    public let completedAt: String?
+    public let archivedAt: String?
+    public let duplicateOfId: String?
+    public let prUrl: String?
+    public let prNumber: Int?
+    public let prState: String?
+    public let branch: String?
+    public let prMergedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+}
+
+/// `issues.get`'s envelope. `teamId` is TOP-LEVEL, not a field of the issue:
+/// it isn't part of the synced row, but the local `issue_labels` rows carry it
+/// denormalized, so writing the labels needs it.
+public struct IssueGetResult: Decodable, Sendable {
+    public let issue: FetchedIssue
+    public let labelIds: [String]
+    public let teamId: String
+}
+
 // MARK: - API
 
 public final class IssuesApi: Sendable {
@@ -354,6 +410,21 @@ public final class IssuesApi: Sendable {
             accountId: accountId,
             path: "issues.search",
             input: SearchIssuesInput(teamId: teamId, query: query, limit: limit)
+        )
+    }
+
+    /// Point-read ONE issue by row id or human identifier ("EXP-42"), for
+    /// screens that must show an issue before sync delivers it (EXP-264).
+    /// `issues.get` is a `.query`, so this takes the same GET-with-input
+    /// helper `prFiles`/`search` use. Throws NOT_FOUND for an unknown or
+    /// trashed issue, FORBIDDEN for a non-member — and plain HTTP 404 against
+    /// an older server that has no such procedure, so callers must treat any
+    /// error as "not available" rather than a failure worth surfacing.
+    public func get(accountId: String, id: String) async throws -> IssueGetResult {
+        try await trpc.query(
+            accountId: accountId,
+            path: "issues.get",
+            input: GetIssueInput(id: id)
         )
     }
 }

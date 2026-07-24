@@ -327,8 +327,9 @@ interface ElectricOffsetDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ElectricOffsetEntity)
 
-    @Query("DELETE FROM electric_offsets WHERE shape = :shape")
-    suspend fun deleteShape(shape: String)
+    // No per-shape delete: dropping the cursor is how a refetch used to start,
+    // and it blanked the table until the snapshot landed. A refetch is now
+    // requested by upserting the row with needs_refetch = true (EXP-264).
 
     @Query("DELETE FROM electric_offsets")
     suspend fun clear()
