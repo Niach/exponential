@@ -1,5 +1,4 @@
-• Multi-select refinements — picking several issues at once is faster and more predictable, and bulk edits now apply in one go
-• Reworked review screen — merging and closing a pull request moved into a bottom action bar, and big diffs open collapsed so they load instantly
-• Steering that reconnects — the live agent terminal recovers from a dropped connection on its own instead of stranding you on a dead screen
-• Issue list alignment — identifiers line up in My Issues and search the way they do on a board
+• Actions — your team's reusable AI commands: browse them in the new Actions tab and run one on any online desktop straight from your phone
+• Pick the model and effort for an action run, then hop into the live session as the desktop picks it up
+• Cleaner issue list — the selection bar and filters moved in-flow, and rows keep their size when you enter selection mode
 • Various stability and consistency fixes
