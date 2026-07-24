@@ -263,6 +263,53 @@ impl Editor {
         }
     }
 
+    /// EXP-261 vendoring: visible text of the focused block up to the caret —
+    /// the host's autocomplete trigger detection input. `None` without a
+    /// focused block or while a selection is active.
+    pub fn focused_text_before_caret(&self, window: &Window, cx: &App) -> Option<String> {
+        let block = self.focused_edit_target(window, cx)?;
+        let block = block.read(cx);
+        if !block.selected_range.is_empty() {
+            return None;
+        }
+        let text = block.display_text();
+        let offset = block.cursor_offset().min(text.len());
+        text.get(..offset).map(|before| before.to_string())
+    }
+
+    /// EXP-261 vendoring: replace the `bytes_back` bytes before the caret in
+    /// the focused block with `replacement`, through the normal typed-edit
+    /// path (undo-coalesced, projection-safe) — autocomplete acceptance.
+    pub fn replace_text_before_caret(
+        &mut self,
+        bytes_back: usize,
+        replacement: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.focused_edit_target(window, cx) else {
+            return;
+        };
+        block.update(cx, |block, cx| {
+            if !block.selected_range.is_empty() {
+                return;
+            }
+            let end = block.cursor_offset().min(block.display_text().len());
+            let start = end.saturating_sub(bytes_back);
+            if !block.display_text().is_char_boundary(start) {
+                return;
+            }
+            block.replace_text_in_visible_range(start..end, replacement, None, false, cx);
+        });
+    }
+
+    /// EXP-261 vendoring: window bounds of the focused block's caret (or
+    /// active range) — the host's autocomplete popup anchor.
+    pub fn caret_viewport_bounds(&self, window: &Window, cx: &App) -> Option<gpui::Bounds<Pixels>> {
+        let block = self.focused_edit_target(window, cx)?;
+        block.read(cx).active_range_or_cursor_bounds()
+    }
+
     /// EXP-261 vendoring: move keyboard focus to the first focusable block on
     /// the next frame (`apply_pending_focus` completes it during render).
     pub fn focus_first_block(&mut self, cx: &mut Context<Self>) {

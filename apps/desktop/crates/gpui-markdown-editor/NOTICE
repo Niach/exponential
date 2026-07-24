@@ -94,6 +94,9 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
   as pills (render-time only; serialization untouched), with Cmd/Ctrl+click
   surfacing `MarkdownEditorEvent::ReferenceClicked` (mirrors the link
   hit-test path).
+- src/editor/window_state.rs: caret accessors for host autocomplete —
+  `focused_text_before_caret`, `replace_text_before_caret` (typed-edit path),
+  `caret_viewport_bounds`.
 - src/theme.rs: `ThemeFonts { ui_family, mono_family }` (upstream hardcoded
   `.SystemUIFont`; code had no monospace); editor/render.rs + block
   element/render read the theme families.

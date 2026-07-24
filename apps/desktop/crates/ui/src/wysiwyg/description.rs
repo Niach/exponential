@@ -25,7 +25,10 @@ use super::images::{
 };
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{strip_draft_images, DRAFT_SCHEME};
-use crate::markdown::{download_image, ImageCache, ImageSlot, StagedImage};
+use crate::markdown::{
+    detect_trigger, download_image, store_completion_source, CompletionItem, CompletionSource,
+    ImageCache, ImageSlot, StagedImage,
+};
 use crate::queries;
 
 /// Save hook: current markdown at save time (same shape as
@@ -37,6 +40,16 @@ pub(crate) type OnSave = Rc<dyn Fn(String, &mut Window, &mut App)>;
 struct ImageMenuState {
     src: String,
     position: Point<Pixels>,
+}
+
+/// An active `@`/`#` completion (host-rendered popup over the vendored
+/// caret; §4.6 parity with the block editor).
+struct ActiveCompletion {
+    /// Byte length of the pending token (trigger char + query) — what
+    /// acceptance replaces before the caret.
+    token_len: usize,
+    items: Vec<CompletionItem>,
+    selected: usize,
 }
 
 pub struct WysiwygDescription {
@@ -55,6 +68,8 @@ pub struct WysiwygDescription {
     shared: Arc<SharedImageState>,
     /// Member/issue snapshot behind the reference-pill decorator.
     refs: Arc<SharedRefState>,
+    completion_source: Option<Rc<dyn CompletionSource>>,
+    completion: Option<ActiveCompletion>,
     /// Images staged in create-dialog mode (`draft://` URLs; resolved at
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
@@ -77,6 +92,9 @@ impl WysiwygDescription {
         let images = cx.new(|_| ImageCache::new(transport));
         let shared = Arc::new(SharedImageState::default());
         let refs = Arc::new(SharedRefState::default());
+        let completion_source: Option<Rc<dyn CompletionSource>> = team_id
+            .clone()
+            .map(|team_id| store_completion_source(team_id) as Rc<dyn CompletionSource>);
         // Resize writes a `?w=` param back into the document — only sensible
         // in detail mode where the image is (or becomes) a real attachment.
         let enable_image_resize = upload_issue.is_some();
@@ -117,6 +135,7 @@ impl WysiwygDescription {
             |this, _editor, event: &MarkdownEditorEvent, window, cx| match event {
                 MarkdownEditorEvent::Changed { .. } => {
                     this.after_change(window, cx);
+                    this.refresh_completion(window, cx);
                     cx.notify();
                 }
                 MarkdownEditorEvent::OpenLinkRequested(request) => {
@@ -149,8 +168,11 @@ impl WysiwygDescription {
                 MarkdownEditorEvent::Error { message } => {
                     log::warn!("wysiwyg editor error: {message}");
                 }
-                MarkdownEditorEvent::ModeChanged { .. }
-                | MarkdownEditorEvent::SelectionChanged(_) => {}
+                MarkdownEditorEvent::SelectionChanged(_) => {
+                    // Caret moves re-anchor or dismiss the popup.
+                    this.refresh_completion(window, cx);
+                }
+                MarkdownEditorEvent::ModeChanged { .. } => {}
             },
         ));
 
@@ -196,6 +218,8 @@ impl WysiwygDescription {
             staged: Vec::new(),
             image_menu: None,
             refs,
+            completion_source,
+            completion: None,
             _subscriptions: subscriptions,
         };
         // Kick off fetches for images already present in the description and
@@ -452,6 +476,163 @@ impl WysiwygDescription {
         self.save_now(window, cx);
     }
 
+    // -- autocomplete -------------------------------------------------------
+
+    fn refresh_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let had = self.completion.is_some();
+        self.completion = None;
+        if let Some(source) = self.completion_source.clone() {
+            if let Some(text) = self
+                .editor
+                .read(cx)
+                .focused_text_before_caret(window, cx)
+            {
+                if let Some(token) = detect_trigger(&text, text.len()) {
+                    let items = source.query(token.trigger, &token.query, cx);
+                    if !items.is_empty() {
+                        self.completion = Some(ActiveCompletion {
+                            token_len: text.len() - token.start,
+                            items,
+                            selected: 0,
+                        });
+                    }
+                }
+            }
+        }
+        if had || self.completion.is_some() {
+            cx.notify();
+        }
+    }
+
+    fn accept_completion(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(completion) = self.completion.take() else {
+            return;
+        };
+        let Some(item) = completion.items.get(index) else {
+            return;
+        };
+        // Insert the canonical interchange form plus the same trailing space
+        // the block editor adds.
+        let replacement = format!("{} ", item.insert);
+        self.editor.update(cx, |editor, cx| {
+            editor.replace_text_before_caret(completion.token_len, &replacement, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn move_completion(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(completion) = self.completion.as_mut() {
+            let len = completion.items.len() as isize;
+            if len > 0 {
+                completion.selected =
+                    (completion.selected as isize + delta).rem_euclid(len) as usize;
+                cx.notify();
+            }
+        }
+    }
+
+    /// Capture-phase keys while the popup is open — runs BEFORE the vendored
+    /// editor's own capture handlers (this wrapper is its ancestor).
+    fn on_key_down_capture(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.completion.is_none() {
+            return;
+        }
+        match event.keystroke.key.as_str() {
+            "up" => {
+                self.move_completion(-1, cx);
+                cx.stop_propagation();
+            }
+            "down" => {
+                self.move_completion(1, cx);
+                cx.stop_propagation();
+            }
+            "enter" | "tab" => {
+                let selected = self
+                    .completion
+                    .as_ref()
+                    .map(|completion| completion.selected)
+                    .unwrap_or(0);
+                self.accept_completion(selected, window, cx);
+                cx.stop_propagation();
+            }
+            "escape" => {
+                self.completion = None;
+                cx.notify();
+                cx.stop_propagation();
+            }
+            _ => {}
+        }
+    }
+
+    fn render_completion(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        let completion = self.completion.as_ref()?;
+        let caret = self.editor.read(cx).caret_viewport_bounds(window, cx)?;
+        let theme = cx.theme();
+        let selected = completion.selected;
+        let list = div()
+            .flex()
+            .flex_col()
+            .min_w(px(260.))
+            .max_w(px(380.))
+            .p_1()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
+            .shadow_md()
+            .children(completion.items.iter().enumerate().map(|(index, item)| {
+                let is_selected = index == selected;
+                div()
+                    .id(gpui::ElementId::from(("wysiwyg-completion-item", index)))
+                    .w_full()
+                    .flex()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .when(is_selected, |el| el.bg(theme.accent))
+                    .hover(|el| el.bg(theme.accent))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _event, window, cx| {
+                            this.accept_completion(index, window, cx);
+                        }),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(SharedString::from(item.label.to_string())),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .overflow_hidden()
+                            .child(SharedString::from(item.detail.to_string())),
+                    )
+            }));
+        Some(
+            deferred(
+                anchored()
+                    .position(point(caret.origin.x, caret.origin.y + caret.size.height + px(4.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(list),
+            )
+            .with_priority(1),
+        )
+    }
+
     // -- image context menu -------------------------------------------------
 
     fn render_image_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
@@ -575,11 +756,13 @@ impl Focusable for WysiwygDescription {
 }
 
 impl Render for WysiwygDescription {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let menu_open = self.image_menu.is_some();
+        let completion_popup = self.render_completion(window, cx);
         div()
             .w_full()
             .track_focus(&self.focus_handle)
+            .capture_key_down(cx.listener(Self::on_key_down_capture))
             // Any press outside the menu items dismisses the menu.
             .when(menu_open, |this| {
                 this.on_mouse_down(
@@ -591,6 +774,7 @@ impl Render for WysiwygDescription {
                 )
             })
             .child(self.editor.clone())
+            .children(completion_popup)
             .children(self.render_image_menu(cx))
     }
 }
