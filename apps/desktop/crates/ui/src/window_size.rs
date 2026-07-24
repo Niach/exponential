@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context as _, Result};
-use gpui::{px, size, Pixels, Size};
+use gpui::{px, size, App, Pixels, Size, Window};
 use serde::{Deserialize, Serialize};
 
 /// Minimum shell-window content size (EXP-210: layouts break below 800×600).
@@ -45,6 +45,30 @@ pub(crate) fn app_data_dir() -> Option<PathBuf> {
 
 fn size_file() -> Option<PathBuf> {
     Some(app_data_dir()?.join("window-size.json"))
+}
+
+/// Re-assert [`MIN_SIZE`] on a live window (EXP-263). macOS enforces the
+/// `window_min_size` option natively, but on Linux it is advisory only —
+/// X11 window managers may ignore (or mis-scale) the WM_NORMAL_HINTS and
+/// Wayland compositors are free to configure any size, which gpui applies
+/// blindly — so shell windows clamp themselves back whenever a resize
+/// lands below the floor. Fullscreen/maximized frames are the
+/// compositor's size, never fought.
+pub fn enforce_min_size(window: &mut Window, cx: &mut App) {
+    if window.is_fullscreen() || window.is_maximized() {
+        return;
+    }
+    let current = window.viewport_size();
+    if current.width >= MIN_SIZE.width && current.height >= MIN_SIZE.height {
+        return;
+    }
+    let clamped = size(
+        current.width.max(MIN_SIZE.width),
+        current.height.max(MIN_SIZE.height),
+    );
+    // Deferred: resizing from inside a bounds observer would re-enter the
+    // platform resize path mid-dispatch.
+    window.defer(cx, move |window, _cx| window.resize(clamped));
 }
 
 /// The persisted last-used size, clamped to [`MIN_SIZE`]; `None` on first
