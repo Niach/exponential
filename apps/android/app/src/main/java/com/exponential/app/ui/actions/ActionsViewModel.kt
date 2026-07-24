@@ -161,7 +161,10 @@ class ActionsViewModel @Inject constructor(
                 steerApi.startActionSession(accountId, action.id, device.deviceId, model, effort)
                 _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
                 watchForStartedRun(action.id, auth.userId.value)
-                delay(30_000)
+                // Keep the Sent caption for the whole watch deadline (iOS
+                // parity) — a slow desktop pickup can still navigate late,
+                // and a captionless late jump reads as a glitch.
+                delay(180_000)
                 if (_runState.value is ActionRunState.Sent) {
                     _runState.value = ActionRunState.Idle
                 }
