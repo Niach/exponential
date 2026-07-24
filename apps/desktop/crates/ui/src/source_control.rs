@@ -1,12 +1,14 @@
 //! Source Control screen (masterplan v4 §4.4, EXP-253 master-only rework) —
 //! trunk-only and READ-ONLY: the shared diff renderer full-width (EXP-258:
-//! the per-file changes column is gone — a dirty tree shows its COMBINED
-//! working diff, every file at once, behind a slim count/discard strip),
-//! plus (in conflict mode) the rebase/merge banner with "Fix conflicts with
-//! Claude" / "Open terminal" / "Abort". The IDE neither stages, commits nor
-//! pushes anymore — the editor is view-only, changes arrive via PRs, and the
-//! trunk is kept fresh by the headless [`crate::trunk_sync`] engine. The ONE
-//! write affordance is the escape hatch: discard local changes via
+//! the per-file changes column is gone — the trunk is expected always clean,
+//! so the pane shows commit diffs from the sidebar History, and a dirty tree
+//! is an ANOMALY that only surfaces a slim count/discard strip), plus (in
+//! conflict mode) the rebase/merge banner with "Fix conflicts with Claude" /
+//! "Open terminal" / "Abort" (EXP-259 will auto-resolve conflicts via the
+//! action system). The IDE neither stages, commits nor pushes anymore — the
+//! editor is view-only, changes arrive via PRs, and the trunk is kept fresh
+//! by the headless [`crate::trunk_sync`] engine. The ONE write affordance is
+//! the escape hatch: discard local changes via
 //! [`crate::trunk_sync::TrunkSync::hard_reset`] (reset to origin/<default>),
 //! behind an explicit confirm.
 //!
@@ -60,11 +62,8 @@ const HISTORY_PAGE: usize = 200;
 /// What the diff pane is showing.
 #[derive(Clone)]
 enum Selection {
-    /// Nothing to show — clean tree, no commit picked (placeholder).
+    /// No commit picked yet (placeholder).
     None,
-    /// The combined working-tree diff, every changed file at once (EXP-258:
-    /// the default whenever the tree is dirty — the changes column is gone).
-    WorkingAll,
     /// One conflicted file's marker diff (conflict-banner chip).
     ConflictFile,
     /// A history commit (`git show`) — the sidebar history list carries
@@ -305,7 +304,6 @@ impl SourceControlView {
                 {
                     this.selection = Selection::None;
                 }
-                this.sync_working_pane(cx);
                 cx.notify();
             });
         })
@@ -313,65 +311,6 @@ impl SourceControlView {
     }
 
     // -- diff pane ----------------------------------------------------------
-
-    /// Keep the pane on the combined working diff whenever nothing else is
-    /// explicitly selected (EXP-258: with the changes column gone, the
-    /// working-tree diff IS the default view of a dirty tree).
-    fn sync_working_pane(&mut self, cx: &mut gpui::Context<Self>) {
-        if matches!(
-            self.selection,
-            Selection::Commit | Selection::ConflictFile
-        ) {
-            return;
-        }
-        let dirty = self
-            .status
-            .as_ref()
-            .is_some_and(|status| !status.changes.is_empty());
-        if dirty {
-            self.show_working_all(cx);
-        } else {
-            self.selection = Selection::None;
-        }
-    }
-
-    /// Load the combined working-tree diff (every changed file) into the pane.
-    fn show_working_all(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        // Skip the loading flash on refreshes of an already-shown working
-        // diff — the freshly built rows swap in atomically.
-        if !matches!(self.selection, Selection::WorkingAll) {
-            self.diff.update(cx, |diff, cx| diff.set_loading(cx));
-        }
-        self.selection = Selection::WorkingAll;
-        let clone = scope.clone_dir.clone();
-        self.diff_generation += 1;
-        let generation = self.diff_generation;
-        // Clone the highlight theme up front so the Tree-sitter row build runs
-        // on the background executor alongside the git call — only the cheap
-        // `set_prepared` swap touches the foreground (mirrors `DiffView::fetch`).
-        let theme = cx.theme().highlight_theme.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    scm::working_diff_all(&clone).map(|files| build_scm_diff(&files, &theme))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.diff_generation != generation {
-                    return;
-                }
-                this.diff.update(cx, |diff, cx| match result {
-                    Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
-                });
-            });
-        })
-        .detach();
-    }
 
     /// A conflict-banner chip: one conflicted file's marker diff.
     fn select_conflict_file(&mut self, path: String, cx: &mut gpui::Context<Self>) {
@@ -382,7 +321,9 @@ impl SourceControlView {
         let clone = scope.clone_dir.clone();
         self.diff_generation += 1;
         let generation = self.diff_generation;
-        // Background build, same contract as `show_working_all`.
+        // Clone the highlight theme up front so the Tree-sitter row build runs
+        // on the background executor alongside the git call — only the cheap
+        // `set_prepared` swap touches the foreground (mirrors `DiffView::fetch`).
         let theme = cx.theme().highlight_theme.clone();
         self.diff.update(cx, |diff, cx| diff.set_loading(cx));
         cx.spawn(async move |this, cx| {
@@ -414,7 +355,7 @@ impl SourceControlView {
         let clone = scope.clone_dir.clone();
         self.diff_generation += 1;
         let generation = self.diff_generation;
-        // Build the diff rows on the background executor (see `show_working_all`).
+        // Build the diff rows on the background executor (see `select_conflict_file`).
         let theme = cx.theme().highlight_theme.clone();
         self.diff.update(cx, |diff, cx| diff.set_loading(cx));
         cx.spawn(async move |this, cx| {
@@ -696,11 +637,7 @@ impl SourceControlView {
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(if self.status.is_some() {
-                    "No changes — the working tree is clean. Select a commit from History to view its diff."
-                } else {
-                    "Loading…"
-                })
+                .child("Select a commit from History to view its diff.")
                 .into_any_element(),
             // The definite height (`flex_1` + `min_h_0` in the column) is
             // load-bearing: without it the DiffView's virtual list resolves
@@ -765,16 +702,14 @@ impl SourceControlView {
         // mutable cx borrows of the render calls below.
         let border = theme.border;
         let muted = theme.muted_foreground;
-        let showing_working = matches!(self.selection, Selection::WorkingAll);
 
         gpui_component::v_flex()
             .flex_1()
             .min_h_0()
-            // All that's left of the old changes column (EXP-258 — the diff
-            // gets the full pane): one slim strip with the change count, a
-            // way back from a commit view, and the discard escape hatch —
-            // the ONE write affordance (a conflicted tree gets it in the
-            // banner instead).
+            // A dirty tree is an ANOMALY (view-only editor, PRs merge
+            // cleanly) — no changes UI, just a slim strip with the count and
+            // the discard escape hatch, the ONE write affordance (a
+            // conflicted tree gets it in the banner instead).
             .when(changed > 0 && self.conflict.is_none(), |this| {
                 this.child(
                     gpui_component::h_flex()
@@ -788,43 +723,20 @@ impl SourceControlView {
                         .child(
                             div().text_xs().text_color(muted).child(SharedString::from(
                                 if changed == 1 {
-                                    "1 changed file".to_string()
+                                    "1 changed file in the working tree".to_string()
                                 } else {
-                                    format!("{changed} changed files")
+                                    format!("{changed} changed files in the working tree")
                                 },
                             )),
                         )
                         .child(
-                            gpui_component::h_flex()
-                                .gap_2()
-                                .when(!showing_working, |this| {
-                                    this.child(
-                                        Button::new("scm-view-changes")
-                                            .ghost()
-                                            .xsmall()
-                                            .label("View changes")
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                // Supersedes the sidebar's commit
-                                                // selection (and clears it so
-                                                // re-picking the same commit
-                                                // re-fires).
-                                                crate::sidebar::select_sc_commit(
-                                                    window, cx, None,
-                                                );
-                                                this.seen_commit = None;
-                                                this.show_working_all(cx);
-                                            })),
-                                    )
-                                })
-                                .child(
-                                    Button::new("scm-hard-reset")
-                                        .xsmall()
-                                        .label("Discard changes & reset…")
-                                        .disabled(self.busy.is_some())
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.prompt_hard_reset(window, cx);
-                                        })),
-                                ),
+                            Button::new("scm-hard-reset")
+                                .xsmall()
+                                .label("Discard changes & reset…")
+                                .disabled(self.busy.is_some())
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.prompt_hard_reset(window, cx);
+                                })),
                         ),
                 )
             })
@@ -852,12 +764,11 @@ impl Render for SourceControlView {
             self.seen_commit = want.clone();
             match want {
                 Some(hash) => self.select_commit(hash, cx),
-                // Deselected out from under us (scope change) — fall back to
-                // the working diff / placeholder.
+                // Deselected out from under us (scope change) — back to the
+                // placeholder.
                 None => {
                     if matches!(self.selection, Selection::Commit) {
                         self.selection = Selection::None;
-                        self.sync_working_pane(cx);
                     }
                 }
             }
