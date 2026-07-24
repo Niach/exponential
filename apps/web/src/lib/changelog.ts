@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-desktop-editor-toolbar`,
+    date: `2026-07-25`,
+    title: `A formatting toolbar for desktop descriptions`,
+    summary: `The desktop description editor gains the same formatting toolbar as the web, and text and images finally lay out properly.`,
+    body: `- **Formatting toolbar** — headings, bold, italic, strikethrough, code, links, quotes, bullet, numbered and task lists, clear formatting and insert image, all sitting above the description exactly as on the web. Press a button with nothing selected and the next thing you type comes out formatted.
+- **Links stay links** — putting the cursor inside a link no longer turns it back into raw markdown; edit its address from the toolbar instead.
+- **Readable descriptions** — text is sized to match the rest of the app, and wrapped paragraphs no longer overlap the ones below them.
+- **Image controls on the image** — a "…" menu at the picture's corner and a drag handle on each of its edges, instead of controls stranded at the far side of the column. Dragging back to full width clears the custom size again.`,
+  },
+  {
     id: `2026-07-desktop-wysiwyg-editor`,
     date: `2026-07-24`,
     title: `A real editor for issue descriptions on desktop`,
