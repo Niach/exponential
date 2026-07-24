@@ -137,7 +137,7 @@ export function CreateBoardDialog({
           onOpenChange(next)
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[26rem]">
+        <DialogContent className="sm:max-w-[26rem]">
           <DialogHeader>
             <DialogTitle>Create board</DialogTitle>
           </DialogHeader>

@@ -383,7 +383,7 @@ export function IssueEditorDialogShell({
     <Dialog open={open} onOpenChange={guardedOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[40rem] p-0 gap-0 flex max-h-[85vh] flex-col"
+        className="sm:max-w-[40rem] p-0 gap-0 flex sm:max-h-[85vh] flex-col"
         data-testid={dialogTestId}
         aria-describedby={undefined}
         onEscapeKeyDown={(event) => {

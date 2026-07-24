@@ -58,11 +58,18 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
+          // Below `sm` every dialog is a full-screen page (EXP-255): inset-0,
+          // no rounding/border, scrolling itself when the content is taller
+          // than the viewport (content-start keeps auto rows from stretching
+          // across the full height). From `sm` up it is the centered panel,
+          // capped to the viewport and scrolling on overflow. Callers that
+          // reposition or re-cap the panel must sm:-prefix those classes so
+          // they compose with (and tailwind-merge away) the sm: base here.
           // grid-cols-[minmax(0,1fr)]: cap the single track at the container
           // width — otherwise one long nowrap line (e.g. an issue title in a
           // picker row) inflates the track's min-content and every child
           // renders wider than the panel (EXP-178).
-          `fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] grid-cols-[minmax(0,1fr)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg`,
+          `fixed inset-0 z-50 grid w-full content-start grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border`,
           className
         )}
         {...props}

@@ -99,15 +99,9 @@ function modesForChoice(
   return [choice]
 }
 
-export function TeamWidgetSection({
-  team,
-}: {
-  team: Team
-}) {
+export function TeamWidgetSection({ team }: { team: Team }) {
   const teamId = team.id
-  const boards = useTeamBoards(teamId).filter(
-    (board) => !board.archivedAt
-  )
+  const boards = useTeamBoards(teamId).filter((board) => !board.archivedAt)
   const [widgets, setWidgets] = useState<WidgetList>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -230,8 +224,7 @@ export function TeamWidgetSection({
         setSnippetTarget({
           ...created,
           boardName:
-            boards.find((board) => board.id === created.boardId)
-              ?.name ?? null,
+            boards.find((board) => board.id === created.boardId)?.name ?? null,
           submissionCount: 0,
         })
       }
@@ -424,7 +417,7 @@ export function TeamWidgetSection({
         </CardContent>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>
                 {editTarget ? `Edit widget` : `New widget`}
@@ -473,10 +466,7 @@ export function TeamWidgetSection({
               {needsBoard && (
                 <div className="space-y-2">
                   <Label>Feedback board</Label>
-                  <Select
-                    value={formBoardId}
-                    onValueChange={setFormBoardId}
-                  >
+                  <Select value={formBoardId} onValueChange={setFormBoardId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a board" />
                     </SelectTrigger>
@@ -603,7 +593,7 @@ export function TeamWidgetSection({
           open={snippetTarget !== null}
           onOpenChange={(open) => !open && setSnippetTarget(null)}
         >
-          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+          <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>Embed snippet</DialogTitle>
               <DialogDescription>

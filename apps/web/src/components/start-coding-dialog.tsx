@@ -400,16 +400,19 @@ export function StartCodingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* max-h + scrolling BODY row: the header/footer (and the absolute X
-          button) stay anchored while only the middle section scrolls — an
-          overflow on DialogContent itself would carry the X off-screen. */}
-      <DialogContent className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)_auto] gap-3 sm:max-w-md">
+      {/* The header/footer rows stay anchored while only the middle BODY row
+          works with the height budget. On mobile the dialog is a full-screen
+          page (EXP-255 — the ui/dialog base) and the body stacks vertically,
+          scrolling as one region; from `sm` up the body splits into two
+          columns — issue picker left, launch options right — where ONLY the
+          issue list scrolls, so the dialog never shows nested scrollbars. */}
+      <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] gap-3 sm:max-h-[85dvh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Start coding</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 overflow-y-auto">
-          <div className="space-y-2">
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
+          <div className="flex min-h-0 flex-col gap-2">
             <Label>Issues</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -420,7 +423,7 @@ export function StartCodingDialog({
                 className="h-9 pl-8"
               />
             </div>
-            <div className="max-h-44 overflow-y-auto rounded-md border border-border">
+            <div className="max-h-44 overflow-y-auto rounded-md border border-border sm:max-h-none sm:min-h-32 sm:flex-1">
               {pickerRows.length === 0 ? (
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {search.trim()
@@ -486,166 +489,172 @@ export function StartCodingDialog({
             )}
           </div>
 
-          {devices.length > 1 && (
-            <div className="space-y-2">
-              <Label htmlFor="start-coding-device">Desktop</Label>
-              <Select
-                value={device?.deviceId ?? ``}
-                onValueChange={setDeviceId}
-              >
-                <SelectTrigger id="start-coding-device" className="w-full">
-                  <SelectValue placeholder="Select a desktop" />
-                </SelectTrigger>
-                <SelectContent>
-                  {devices.map((candidate) => (
-                    <SelectItem
-                      key={candidate.deviceId}
-                      value={candidate.deviceId}
-                    >
-                      {candidate.deviceLabel || candidate.deviceId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {availableAgents.length > 1 && (
-            <div className="space-y-2">
-              <Label>Agent</Label>
-              <Tabs value={agent} onValueChange={switchAgent}>
-                <TabsList className="w-full">
-                  {availableAgents.map((value) => {
-                    const AgentIcon = AGENT_ICONS[value]
-                    return (
-                      <TabsTrigger key={value} value={value} className="flex-1">
-                        {AgentIcon && <AgentIcon className="size-3.5" />}
-                        {AGENT_LABELS[value] ?? value}
-                      </TabsTrigger>
-                    )
-                  })}
-                </TabsList>
-              </Tabs>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="start-coding-model">Model</Label>
-              <Select
-                value={model === `` ? CLI_DEFAULT_MODEL : model}
-                onValueChange={(value) => {
-                  markTouched()
-                  setModel(value === CLI_DEFAULT_MODEL ? `` : value)
-                }}
-              >
-                <SelectTrigger id="start-coding-model" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {agentAllowsBlankModel(agent) && (
-                    <SelectItem value={CLI_DEFAULT_MODEL}>
+          <div className="flex min-h-0 flex-col gap-3 sm:overflow-y-auto">
+            {devices.length > 1 && (
+              <div className="space-y-2">
+                <Label htmlFor="start-coding-device">Desktop</Label>
+                <Select
+                  value={device?.deviceId ?? ``}
+                  onValueChange={setDeviceId}
+                >
+                  <SelectTrigger id="start-coding-device" className="w-full">
+                    <SelectValue placeholder="Select a desktop" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {devices.map((candidate) => (
+                      <SelectItem
+                        key={candidate.deviceId}
+                        value={candidate.deviceId}
+                      >
+                        {candidate.deviceLabel || candidate.deviceId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {availableAgents.length > 1 && (
+              <div className="space-y-2">
+                <Label>Agent</Label>
+                <Tabs value={agent} onValueChange={switchAgent}>
+                  <TabsList className="w-full">
+                    {availableAgents.map((value) => {
+                      const AgentIcon = AGENT_ICONS[value]
+                      return (
+                        <TabsTrigger
+                          key={value}
+                          value={value}
+                          className="flex-1"
+                        >
+                          {AgentIcon && <AgentIcon className="size-3.5" />}
+                          {AGENT_LABELS[value] ?? value}
+                        </TabsTrigger>
+                      )
+                    })}
+                  </TabsList>
+                </Tabs>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="start-coding-model">Model</Label>
+                <Select
+                  value={model === `` ? CLI_DEFAULT_MODEL : model}
+                  onValueChange={(value) => {
+                    markTouched()
+                    setModel(value === CLI_DEFAULT_MODEL ? `` : value)
+                  }}
+                >
+                  <SelectTrigger id="start-coding-model" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agentAllowsBlankModel(agent) && (
+                      <SelectItem value={CLI_DEFAULT_MODEL}>
+                        CLI default
+                      </SelectItem>
+                    )}
+                    {agentModelValues(agent).map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {modelLabel(value)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="start-coding-effort">
+                  {agent === `pi`
+                    ? `Thinking`
+                    : agent === `codex`
+                      ? `Reasoning`
+                      : `Effort`}
+                </Label>
+                <Select
+                  value={effortValue}
+                  onValueChange={(value) => {
+                    markTouched()
+                    setEffortValue(value)
+                  }}
+                  disabled={ultracode && agentSupportsUltracode(agent)}
+                >
+                  <SelectTrigger id="start-coding-effort" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={CLI_DEFAULT_EFFORT}>
                       CLI default
                     </SelectItem>
-                  )}
-                  {agentModelValues(agent).map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {modelLabel(value)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {agentEffortValues(agent).map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {effortLabel(value)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="start-coding-effort">
-                {agent === `pi`
-                  ? `Thinking`
-                  : agent === `codex`
-                    ? `Reasoning`
-                    : `Effort`}
-              </Label>
-              <Select
-                value={effortValue}
-                onValueChange={(value) => {
-                  markTouched()
-                  setEffortValue(value)
-                }}
-                disabled={ultracode && agentSupportsUltracode(agent)}
-              >
-                <SelectTrigger id="start-coding-effort" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={CLI_DEFAULT_EFFORT}>
-                    CLI default
-                  </SelectItem>
-                  {agentEffortValues(agent).map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {effortLabel(value)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {(agentSupportsUltracode(agent) ||
+              agentSupportsPlanMode(agent) ||
+              agentSupportsSkipPermissions(agent)) && (
+              <div className="space-y-2">
+                {agentSupportsUltracode(agent) && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="start-coding-ultracode"
+                      checked={ultracode}
+                      onCheckedChange={(value) => {
+                        markTouched()
+                        setUltracode(value === true)
+                      }}
+                    />
+                    <Label
+                      htmlFor="start-coding-ultracode"
+                      className="font-normal"
+                    >
+                      Dynamic workflows (ultracode)
+                    </Label>
+                  </div>
+                )}
+                {agentSupportsPlanMode(agent) && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="start-coding-plan-mode"
+                      checked={planMode}
+                      onCheckedChange={(value) => {
+                        markTouched()
+                        setPlanMode(value === true)
+                      }}
+                    />
+                    <Label
+                      htmlFor="start-coding-plan-mode"
+                      className="font-normal"
+                    >
+                      Plan mode
+                    </Label>
+                  </div>
+                )}
+                {agentSupportsSkipPermissions(agent) && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="start-coding-skip-permissions"
+                      checked={skipPermissions}
+                      onCheckedChange={(value) => {
+                        markTouched()
+                        setSkipPermissions(value === true)
+                      }}
+                    />
+                    <Label
+                      htmlFor="start-coding-skip-permissions"
+                      className="font-normal"
+                    >
+                      Skip permissions
+                    </Label>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {(agentSupportsUltracode(agent) ||
-            agentSupportsPlanMode(agent) ||
-            agentSupportsSkipPermissions(agent)) && (
-            <div className="space-y-2">
-              {agentSupportsUltracode(agent) && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="start-coding-ultracode"
-                    checked={ultracode}
-                    onCheckedChange={(value) => {
-                      markTouched()
-                      setUltracode(value === true)
-                    }}
-                  />
-                  <Label
-                    htmlFor="start-coding-ultracode"
-                    className="font-normal"
-                  >
-                    Dynamic workflows (ultracode)
-                  </Label>
-                </div>
-              )}
-              {agentSupportsPlanMode(agent) && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="start-coding-plan-mode"
-                    checked={planMode}
-                    onCheckedChange={(value) => {
-                      markTouched()
-                      setPlanMode(value === true)
-                    }}
-                  />
-                  <Label
-                    htmlFor="start-coding-plan-mode"
-                    className="font-normal"
-                  >
-                    Plan mode
-                  </Label>
-                </div>
-              )}
-              {agentSupportsSkipPermissions(agent) && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="start-coding-skip-permissions"
-                    checked={skipPermissions}
-                    onCheckedChange={(value) => {
-                      markTouched()
-                      setSkipPermissions(value === true)
-                    }}
-                  />
-                  <Label
-                    htmlFor="start-coding-skip-permissions"
-                    className="font-normal"
-                  >
-                    Skip permissions
-                  </Label>
-                </div>
-              )}
-            </div>
-          )}
         </div>
         <DialogFooter>
           <Button

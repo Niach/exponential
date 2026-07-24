@@ -52,7 +52,7 @@ export function IssuePickerDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[15%] translate-y-0 p-0 gap-0 flex max-h-[60vh] flex-col overflow-hidden sm:max-w-lg"
+        className="p-0 gap-0 flex flex-col overflow-hidden sm:top-[15%] sm:max-h-[60vh] sm:translate-y-0 sm:max-w-lg"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">
