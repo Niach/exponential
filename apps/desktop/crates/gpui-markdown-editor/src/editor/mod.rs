@@ -44,6 +44,9 @@ pub struct Editor {
     pub(crate) view_mode: ViewMode,
     environment: Arc<MarkdownEditorEnvironment>,
     history_limit: usize,
+    /// EXP-261 vendoring: embedded auto-height mode (see
+    /// [`MarkdownEditorOptions::embedded`]).
+    pub(crate) embedded: bool,
     revision: u64,
     pending_focus: Option<EntityId>,
     active_entity_id: Option<EntityId>,
@@ -187,6 +190,12 @@ impl Editor {
             options.history_limit,
             cx,
         );
+        if options.embedded {
+            editor.embedded = true;
+            // Embedded editors must not steal focus on mount.
+            editor.pending_focus = None;
+            editor.pending_scroll_active_block_into_view = false;
+        }
         if mode == MarkdownEditorMode::Source {
             editor.toggle_view_mode(cx);
         }
@@ -244,6 +253,7 @@ impl Editor {
             view_mode: ViewMode::Rendered,
             environment,
             history_limit,
+            embedded: false,
             revision: 0,
             pending_focus,
             active_entity_id: pending_focus,

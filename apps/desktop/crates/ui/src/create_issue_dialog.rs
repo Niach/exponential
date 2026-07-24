@@ -48,7 +48,8 @@ use domain::{IssuePriority, IssueStatus};
 use crate::actions::NewIssue;
 use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
-use crate::markdown::{self, MarkdownEditor};
+use crate::markdown::{self};
+use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window, navigate, Screen};
 use crate::queries;
 
@@ -124,7 +125,7 @@ pub struct CreateIssueDialogView {
     title: Entity<InputState>,
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
     /// stay `draft://` blocks until submit resolves them.
-    description: Entity<MarkdownEditor>,
+    description: Entity<WysiwygDescription>,
     status: IssueStatus,
     default_status: IssueStatus,
     priority: IssuePriority,
@@ -158,11 +159,12 @@ impl CreateIssueDialogView {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Issue title"));
         // Shared configured-editor constructor (§4.5): completion + pills
         // scoped to this team, upload staged (`upload_issue = None`).
-        let description = crate::description_editor::build_editor(
+        let description = crate::description_editor::build_wysiwyg_editor(
             Some(team_id.clone()),
             None,
             "Add description...",
             "",
+            None,
             window,
             cx,
         );

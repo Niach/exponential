@@ -2,6 +2,7 @@
 
 use std::time::{Duration, Instant};
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use super::Editor;
@@ -11,7 +12,7 @@ use crate::theme::{Theme, ThemeDimensions};
 /// Rows within this many pixels of the viewport stay mounted.
 const RENDER_OVERDRAW_PX: f32 = 800.0;
 
-fn editor_text_font() -> Font {
+fn editor_text_font(family: &str) -> Font {
     // FontFallbacks is internally `Arc<Vec<String>>` — building it once
     // per process and Arc-cloning per render is the right shape, since
     // editor_text_font() is called from Editor::render on every frame.
@@ -21,7 +22,9 @@ fn editor_text_font() -> Font {
             FontFallbacks::from_fonts(tibetan_font_fallbacks_for_target_os(std::env::consts::OS))
         })
         .clone();
-    let mut font = font(".SystemUIFont");
+    // EXP-261 vendoring: family comes from the theme (upstream hardcoded
+    // `.SystemUIFont`).
+    let mut font = font(family);
     font.fallbacks = Some(fallbacks);
     font
 }
@@ -259,12 +262,18 @@ impl Editor {
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_focus(window, cx);
-        self.apply_pending_scroll_into_view(window, cx);
+        // EXP-261 vendoring: in embedded mode the HOST owns scrolling — the
+        // internal scroll handle is untracked and all offset math is skipped.
+        if !self.embedded {
+            self.apply_pending_scroll_into_view(window, cx);
+        }
         self.last_selection_snapshot = self.capture_source_selection_snapshot(cx);
 
         let viewport_bounds = self.scroll_handle.bounds();
         let viewport_size = viewport_bounds.size;
-        self.sync_scroll_viewport(viewport_size, cx);
+        if !self.embedded {
+            self.sync_scroll_viewport(viewport_size, cx);
+        }
 
         let theme = self.environment.theme.clone();
 
@@ -280,7 +289,15 @@ impl Render for Editor {
         let viewport_width = f32::from(viewport_bounds.size.width.max(px(1.0)));
         let has_overflow = max_scroll_y > 0.5;
 
-        let centered_width = Self::centered_column_width(viewport_width, &theme.dimensions);
+        // EXP-261 vendoring: embedded editors fill the host slot instead of
+        // centering a fixed column (the untracked viewport is 0 anyway).
+        let centered_width = if self.embedded {
+            // Wider than any real slot; the rows' `max_w(relative(1.0))`
+            // clamps it to the host width.
+            100_000.0
+        } else {
+            Self::centered_column_width(viewport_width, &theme.dimensions)
+        };
         let current_scroll_y = (-f32::from(self.scroll_handle.offset().y)).clamp(0.0, max_scroll_y);
         let scrollbar_geometry =
             Self::scrollbar_geometry(viewport_height, max_scroll_y, current_scroll_y);
@@ -579,13 +596,25 @@ impl Render for Editor {
             self.row_stride_cache.retain(|id, _| live.contains(id));
         }
 
-        let render_window = Self::rendered_window(
-            &strides,
-            current_scroll_y,
-            viewport_height,
-            RENDER_OVERDRAW_PX,
-            focus_row,
-        );
+        // EXP-261 vendoring: embedded mode mounts every row — descriptions
+        // are short and the host scroll container clips; windowing math would
+        // otherwise run against a zero-sized untracked viewport.
+        let render_window = if self.embedded {
+            super::RenderWindow {
+                run_start: 0,
+                run_end: row_first_ids.len(),
+                top_h: 0.0,
+                bottom_h: 0.0,
+            }
+        } else {
+            Self::rendered_window(
+                &strides,
+                current_scroll_y,
+                viewport_height,
+                RENDER_OVERDRAW_PX,
+                focus_row,
+            )
+        };
         self.prev_render_window = Some((render_window.run_start, render_window.run_end));
 
         // The first mounted row re-applies its `mt`, so drop it from the top
@@ -624,24 +653,27 @@ impl Render for Editor {
             .id("editor-scroll-inner")
             .flex()
             .flex_col()
-            .flex_grow(1.)
-            .h_full()
             .items_center()
             .bg(theme.colors.editor_background)
-            .overflow_y_scroll()
-            .scrollbar_width(px(0.0))
-            .track_scroll(&self.scroll_handle)
+            .when(!self.embedded, |this| {
+                this.flex_grow(1.)
+                    .h_full()
+                    .overflow_y_scroll()
+                    .scrollbar_width(px(0.0))
+                    .track_scroll(&self.scroll_handle)
+            })
+            .when(self.embedded, |this| this.w_full())
             .on_hover(cx.listener(Self::on_editor_hover))
             .capture_any_mouse_down(cx.listener(Self::on_editor_capture_mouse_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_editor_mouse_down))
             .on_mouse_move(cx.listener(Self::on_editor_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
-            .on_scroll_wheel(cx.listener(Self::on_editor_scroll_wheel))
-            .p(px(d.editor_padding))
-            .pb(px(d.editor_padding
-                + scroll_trigger_padding
-                + scroll_beyond_bottom))
+            .when(!self.embedded, |this| {
+                this.on_scroll_wheel(cx.listener(Self::on_editor_scroll_wheel))
+                    .p(px(d.editor_padding))
+                    .pb(px(d.editor_padding + scroll_trigger_padding + scroll_beyond_bottom))
+            })
             .children(block_rows);
         let scroll_content = if self.view_mode == super::ViewMode::Rendered {
             scroll_content.on_mouse_down(
@@ -655,8 +687,7 @@ impl Render for Editor {
         let content_area = div()
             .id("editor-scroll")
             .w_full()
-            .h_full()
-            .flex_1()
+            .when(!self.embedded, |this| this.h_full().flex_1())
             .min_w(px(0.0))
             .bg(theme.colors.editor_background)
             .relative()
@@ -741,12 +772,12 @@ impl Render for Editor {
 
         let base = div()
             .w_full()
-            .h_full()
+            .when(!self.embedded, |this| this.h_full())
             .flex()
             .flex_col()
             .relative()
             .bg(theme.colors.editor_background)
-            .font(editor_text_font())
+            .font(editor_text_font(&theme.fonts.ui_family))
             .on_modifiers_changed(move |event, window, _| {
                 if event.modifiers.secondary() != follow_modifier_active {
                     window.refresh();

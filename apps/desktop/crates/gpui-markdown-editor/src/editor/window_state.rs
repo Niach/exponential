@@ -224,6 +224,14 @@ impl Editor {
         cx.notify();
     }
 
+    /// EXP-261 vendoring: move keyboard focus to the first focusable block on
+    /// the next frame (`apply_pending_focus` completes it during render).
+    pub fn focus_first_block(&mut self, cx: &mut Context<Self>) {
+        self.pending_focus = self.first_focusable_entity_id(cx);
+        self.active_entity_id = self.pending_focus;
+        cx.notify();
+    }
+
     pub fn replace_markdown(&mut self, markdown: impl Into<String>, cx: &mut Context<Self>) {
         let normalized = markdown.into().replace("\r\n", "\n").replace('\r', "\n");
         let mut roots = if self.view_mode == ViewMode::Source {

@@ -60,6 +60,7 @@ fn build_text_runs(
     link_color: Hsla,
     code_bg: Hsla,
     show_inline_code_backgrounds: bool,
+    mono_family: &SharedString,
 ) -> Vec<TextRun> {
     let spans = input.inline_spans();
     let mut boundaries = vec![0, display_text.len()];
@@ -107,6 +108,10 @@ fn build_text_runs(
         }
         if inline_style.italic {
             font.style = FontStyle::Italic;
+        }
+        // EXP-261 vendoring: inline code renders in the monospace family.
+        if inline_style.code {
+            font.family = mono_family.clone();
         }
 
         let mut run_color = if is_link || is_footnote {
@@ -908,7 +913,7 @@ impl Element for BlockTextElement {
             (shared_text, style.color)
         };
 
-        let run = TextRun {
+        let mut run = TextRun {
             len: display_text.len(),
             font: style.font(),
             color: text_color,
@@ -916,6 +921,11 @@ impl Element for BlockTextElement {
             underline: None,
             strikethrough: None,
         };
+        // EXP-261 vendoring: code blocks render in the theme's monospace
+        // family (upstream had no mono stack at all).
+        if !is_placeholder && input.kind().is_code_block() {
+            run.font.family = SharedString::from(theme.fonts.mono_family.clone());
+        }
 
         let runs: Vec<TextRun> = if !is_placeholder {
             if input.kind().is_code_block() {
@@ -935,6 +945,7 @@ impl Element for BlockTextElement {
                     theme.colors.text_link,
                     theme.colors.code_bg,
                     show_inline_code_backgrounds,
+                    &SharedString::from(theme.fonts.mono_family.clone()),
                 )
             }
         } else {
@@ -1538,6 +1549,7 @@ mod tests {
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
+                &SharedString::from(".SystemUIFont"),
             );
             let marked_run = runs.last().expect("styled text should create a final run");
 

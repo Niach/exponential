@@ -1073,6 +1073,27 @@ impl<'de> Deserialize<'de> for ThemeDimensions {
 
 /// Top-level theme combining colors, dimensions, typography and placeholders.
 ///
+/// Font families for the editor surface (EXP-261 vendoring addition — the
+/// upstream hardcoded `.SystemUIFont` everywhere and had no monospace stack).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeFonts {
+    /// UI/body font family.
+    pub ui_family: String,
+    /// Monospace family for inline code and code blocks.
+    pub mono_family: String,
+}
+
+impl Default for ThemeFonts {
+    fn default() -> Self {
+        // Upstream behavior preserved: system UI font everywhere. The host
+        // is expected to override both families (theme bridge).
+        Self {
+            ui_family: ".SystemUIFont".into(),
+            mono_family: ".SystemUIFont".into(),
+        }
+    }
+}
+
 /// Can be deserialized from JSON, allowing users to ship custom theme files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -1081,6 +1102,9 @@ pub struct Theme {
     pub dimensions: ThemeDimensions,
     pub typography: ThemeTypography,
     pub placeholders: Placeholders,
+    /// EXP-261 vendoring addition; absent in serialized theme packs.
+    #[serde(default)]
+    pub fonts: ThemeFonts,
 }
 
 #[allow(unused)]
@@ -1324,6 +1348,7 @@ impl Theme {
             placeholders: Placeholders {
                 empty_editing: String::new(),
             },
+            fonts: ThemeFonts::default(),
         }
     }
 
@@ -1428,6 +1453,7 @@ impl Theme {
             dimensions: base.dimensions,
             typography: base.typography,
             placeholders: base.placeholders,
+            fonts: base.fonts,
         }
     }
 

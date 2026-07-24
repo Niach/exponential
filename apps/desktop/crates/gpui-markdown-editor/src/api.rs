@@ -15,6 +15,12 @@ pub struct MarkdownEditorOptions {
     pub mode: MarkdownEditorMode,
     pub environment: crate::environment::MarkdownEditorEnvironment,
     pub history_limit: usize,
+    /// EXP-261 vendoring: embedded auto-height mode — the editor renders at
+    /// natural content height inside a host-owned scroll container: no
+    /// internal scrolling/scrollbar, no row virtualization, full-width rows,
+    /// and no focus-steal on mount (focus arrives via click or
+    /// [`crate::MarkdownEditor::focus_first_block`]).
+    pub embedded: bool,
 }
 
 impl Default for MarkdownEditorOptions {
@@ -23,6 +29,7 @@ impl Default for MarkdownEditorOptions {
             mode: MarkdownEditorMode::Rendered,
             environment: crate::environment::MarkdownEditorEnvironment::default(),
             history_limit: 200,
+            embedded: false,
         }
     }
 }

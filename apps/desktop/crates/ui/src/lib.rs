@@ -47,6 +47,7 @@ mod join_team;
 mod login;
 pub mod markdown;
 mod mention_input;
+mod wysiwyg;
 mod navigation;
 mod oauth;
 mod pr_diff;
