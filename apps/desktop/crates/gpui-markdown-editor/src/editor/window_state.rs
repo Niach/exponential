@@ -224,6 +224,45 @@ impl Editor {
         cx.notify();
     }
 
+    /// EXP-261 vendoring: replace image sources across the document
+    /// (`](old)` -> `](new)`) without a full reimport — used when a staged
+    /// `draft://` upload resolves to its attachment URL and when a resize
+    /// writes a new `?w=` display width. Emits `Changed` when anything moved.
+    pub fn rewrite_image_sources(
+        &mut self,
+        replacements: &std::collections::HashMap<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if replacements.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        let mut seen = HashSet::new();
+        for visible in self.document.visible_blocks().to_vec() {
+            if seen.insert(visible.entity.entity_id()) {
+                visible.entity.update(cx, |block, cx| {
+                    if block.rewrite_image_sources_in_title(replacements) {
+                        changed = true;
+                        cx.notify();
+                    }
+                });
+            }
+        }
+        for binding in self.table_cells.values() {
+            if seen.insert(binding.cell.entity_id()) {
+                binding.cell.update(cx, |block, cx| {
+                    if block.rewrite_image_sources_in_title(replacements) {
+                        changed = true;
+                        cx.notify();
+                    }
+                });
+            }
+        }
+        if changed {
+            self.mark_dirty(cx);
+        }
+    }
+
     /// EXP-261 vendoring: move keyboard focus to the first focusable block on
     /// the next frame (`apply_pending_focus` completes it during render).
     pub fn focus_first_block(&mut self, cx: &mut Context<Self>) {

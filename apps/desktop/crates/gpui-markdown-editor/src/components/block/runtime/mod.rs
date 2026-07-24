@@ -100,6 +100,11 @@ impl EventEmitter<BlockEvent> for Block {}
 pub struct Block {
     pub record: BlockRecord,
     pub(crate) environment: Arc<MarkdownEditorEnvironment>,
+    /// EXP-261 vendoring: live image resize drag (standalone images).
+    pub(crate) image_resize_drag: Option<super::ImageResizeDrag>,
+    /// EXP-261 vendoring: painted width of the image slot (drag clamp),
+    /// written from the paint phase.
+    pub(crate) image_probe_width: std::rc::Rc<std::cell::Cell<f32>>,
     pub(crate) render_cache: InlineRenderCache,
     code_highlight: Option<CodeHighlightResult>,
     pub children: Vec<Entity<Block>>,
@@ -219,6 +224,8 @@ impl Block {
         let mut block = Self {
             record,
             environment,
+            image_resize_drag: None,
+            image_probe_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             render_cache,
             code_highlight: None,
             children: Vec::new(),

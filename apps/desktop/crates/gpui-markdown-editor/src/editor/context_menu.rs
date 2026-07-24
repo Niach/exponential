@@ -224,6 +224,18 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
+        // EXP-261 vendoring: a standalone image delegates its context menu to
+        // the HOST (view/download/copy-link/delete live host-side).
+        if let Some(block) = self.focusable_entity_by_id(entity_id) {
+            let image_src = block.read(cx).image_runtime().map(|runtime| runtime.src.clone());
+            if let Some(src) = image_src {
+                cx.emit(crate::api::MarkdownEditorEvent::ImageContextMenuRequested {
+                    src,
+                    position: event.position,
+                });
+                return;
+            }
+        }
         // Right-clicking inside a table cell, or any block where inserting a
         // table makes no sense (code, math, etc.), offers no insert menu.
         if self.table_cell_binding(entity_id).is_some() {

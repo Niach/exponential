@@ -229,7 +229,7 @@ impl ImageCache {
 
 /// Magic-byte sniff with a mime fallback (attachment bytes may be any of the
 /// accepted types; gpui decodes per declared format).
-fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
+pub(crate) fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         gpui::ImageFormat::Png
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -295,7 +295,12 @@ fn attachment_download_filename(url: &str, cx: &App) -> String {
 /// EXP-256 "Download": native save dialog (defaulting to the OS downloads
 /// dir) → background fetch through the auth-gated transport → disk, with a
 /// window notification either way.
-fn download_image(url: String, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) {
+pub(crate) fn download_image(
+    url: String,
+    images: &Entity<ImageCache>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(transport) = images.read(cx).transport() else {
         return;
     };

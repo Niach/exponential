@@ -3064,8 +3064,8 @@ fn can_close_emphasis(tokens: &[CharToken], index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        InlineFragment, InlineInsertionAttributes, InlineLinkHit, InlineMathDelimiter,
-        InlineScript, InlineStyle, InlineTextTree, LinkReferenceDefinitions, StyleFlag,
+        InlineFragment, InlineInsertionAttributes, InlineLinkHit, InlineScript, InlineStyle,
+        InlineTextTree, LinkReferenceDefinitions, StyleFlag,
     };
     use crate::components::HtmlCssColor;
 

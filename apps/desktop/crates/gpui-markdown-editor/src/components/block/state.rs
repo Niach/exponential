@@ -736,6 +736,14 @@ pub enum BlockEvent {
     /// The block's content or kind changed; the editor should mark the
     /// document dirty and optionally scroll to keep the block visible.
     Changed,
+    /// EXP-261 vendoring: an image resize drag finished; the editor forwards
+    /// this to the host, which persists the width as a `?w=` URL param.
+    ImageResizeCommitted {
+        /// Raw markdown src of the resized image.
+        src: String,
+        /// Final display width in pixels.
+        width: f32,
+    },
     /// The user pressed Enter; a new block should be created after this
     /// one with the given trailing text.
     RequestNewline {

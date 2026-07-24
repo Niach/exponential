@@ -68,12 +68,58 @@ pub(crate) struct ResolvedImageTarget {
 }
 
 /// Concrete image source after local-path or remote-URL classification.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) enum ImageResolvedSource {
     /// Filesystem path resolved relative to the current document, when possible.
     Local(PathBuf),
     /// HTTP(S) image URL handled by GPUI's HTTP client.
     Remote(SharedUri),
+    /// EXP-261 vendoring: decoded bytes from the host's ImageSourceResolver.
+    Decoded(std::sync::Arc<gpui::Image>),
+    /// EXP-261 vendoring: the host resolver is still fetching.
+    Pending,
+    /// EXP-261 vendoring: the host resolver failed to fetch.
+    Failed,
+}
+
+impl PartialEq for ImageResolvedSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Local(a), Self::Local(b)) => a == b,
+            (Self::Remote(a), Self::Remote(b)) => a == b,
+            (Self::Decoded(a), Self::Decoded(b)) => std::sync::Arc::ptr_eq(a, b),
+            (Self::Pending, Self::Pending) | (Self::Failed, Self::Failed) => true,
+            _ => false,
+        }
+    }
+}
+impl Eq for ImageResolvedSource {}
+
+/// EXP-261 vendoring: live state of a standalone-image resize drag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ImageResizeDrag {
+    /// Pointer x at drag start (window coordinates).
+    pub(crate) start_pointer_x: f32,
+    /// Rendered image width at drag start.
+    pub(crate) start_width: f32,
+    /// Current (live-preview) width.
+    pub(crate) current_width: f32,
+}
+
+/// EXP-261 vendoring: display-width hint carried on the image URL as a `?w=`
+/// query param (cross-client contract — the server ignores it; clients render
+/// at that width). Mirrors the host's `widthParamFromSrc`.
+pub(crate) fn width_param_from_src(src: &str) -> Option<f32> {
+    let query = src.split_once('?')?.1;
+    let query = query.split('#').next().unwrap_or(query);
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        if key == "w" {
+            let width: f32 = value.parse().ok()?;
+            return (width > 0.0).then_some(width);
+        }
+    }
+    None
 }
 
 impl ImageSyntax {

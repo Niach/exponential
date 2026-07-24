@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::host::{ImagePasteHandler, default_image_paste_handler};
+use crate::host::{ImagePasteHandler, ImageSourceResolver, default_image_paste_handler};
 use crate::strings::I18nStrings;
 use crate::theme::Theme;
 
@@ -18,6 +18,12 @@ pub struct MarkdownEditorEnvironment {
     pub show_source_line_numbers: bool,
     pub show_table_headers: bool,
     pub image_paste_handler: Arc<dyn ImagePasteHandler>,
+    /// EXP-261 vendoring: optional host hook for image-source resolution
+    /// (authenticated attachment fetching, staged paste bytes).
+    pub image_source_resolver: Option<Arc<dyn ImageSourceResolver>>,
+    /// EXP-261 vendoring: show the drag handle that resizes standalone
+    /// images (host persists the width via `MarkdownEditorEvent::ImageResized`).
+    pub enable_image_resize: bool,
 }
 
 impl Default for MarkdownEditorEnvironment {
@@ -29,6 +35,8 @@ impl Default for MarkdownEditorEnvironment {
             show_source_line_numbers: true,
             show_table_headers: true,
             image_paste_handler: default_image_paste_handler(),
+            image_source_resolver: None,
+            enable_image_resize: false,
         }
     }
 }

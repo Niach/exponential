@@ -20,6 +20,29 @@ pub struct ImageTarget {
     pub source: String,
 }
 
+/// EXP-261 vendoring: how a markdown image `src` resolves for display when a
+/// host [`ImageSourceResolver`] is installed.
+#[derive(Clone)]
+pub enum ImageSourceResolution {
+    /// Decoded image bytes ready to render (the host's authenticated cache).
+    Decoded(Arc<gpui::Image>),
+    /// The host is still fetching the bytes — render a loading placeholder.
+    Pending,
+    /// The fetch failed — render the unavailable placeholder.
+    Failed,
+}
+
+/// EXP-261 vendoring: host hook resolving markdown image sources the default
+/// local/remote classification cannot handle (relative attachment URLs that
+/// need authentication, staged `draft://` bytes). Return `None` to fall back
+/// to the default resolution. Send + Sync so it can ride the shared editor
+/// environment; the host keeps the backing state in a mutex it refreshes from
+/// the UI thread (repaint via `set_environment`, which rebuilds image
+/// runtimes).
+pub trait ImageSourceResolver: Send + Sync + 'static {
+    fn resolve(&self, src: &str) -> Option<ImageSourceResolution>;
+}
+
 /// Host policy for materializing pasted images.
 ///
 /// Implementations may copy files or persist clipboard bytes. This operation is

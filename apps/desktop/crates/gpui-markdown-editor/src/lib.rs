@@ -14,7 +14,10 @@ pub use actions::*;
 pub use api::*;
 pub use editor::Editor as MarkdownEditor;
 pub use environment::MarkdownEditorEnvironment;
-pub use host::{ImagePasteHandler, ImageTarget, InsertOriginalImagePath, PastedImage};
+pub use host::{
+    ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget,
+    InsertOriginalImagePath, PastedImage,
+};
 pub use strings::I18nStrings as MarkdownEditorStrings;
 pub use theme::{
     Placeholders, Theme as MarkdownEditorTheme, ThemeColors, ThemeDimensions, ThemeTypography,

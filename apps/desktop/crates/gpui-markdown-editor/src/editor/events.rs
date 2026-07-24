@@ -1413,6 +1413,14 @@ impl Editor {
             .unwrap_or(0);
 
         match event {
+            // EXP-261 vendoring: forward to the host, which persists the
+            // width as a `?w=` URL param via `rewrite_image_sources`.
+            BlockEvent::ImageResizeCommitted { src, width } => {
+                cx.emit(MarkdownEditorEvent::ImageResized {
+                    src: src.clone(),
+                    width: *width,
+                });
+            }
             BlockEvent::Changed => {
                 let should_restart_numbered_list = block.update(cx, |block, _cx| {
                     block.take_numbered_list_restart_requested()

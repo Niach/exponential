@@ -44,7 +44,7 @@ pub use autocomplete::{
     PendingToken,
 };
 pub use blocks::{ContentBlock, RichText};
-pub(crate) use editor::{byte_offset_to_position, placeholder_box, ImageSlot};
+pub(crate) use editor::{byte_offset_to_position, download_image, placeholder_box, sniff_format, ImageSlot};
 pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{
     AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,

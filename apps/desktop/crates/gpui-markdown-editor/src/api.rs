@@ -58,7 +58,7 @@ pub struct LinkRequest {
 }
 
 /// Observable events emitted across the component boundary.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MarkdownEditorEvent {
     /// The document changed. The text is intentionally omitted to avoid a full
     /// serialization allocation on every keystroke.
@@ -72,5 +72,19 @@ pub enum MarkdownEditorEvent {
     OpenLinkRequested(LinkRequest),
     Error {
         message: String,
+    },
+    /// EXP-261 vendoring: right-click on a standalone image — the HOST renders
+    /// the context menu (view/download/copy-link/delete live host-side).
+    ImageContextMenuRequested {
+        /// Raw markdown `src` of the image (may carry a `?w=` display width).
+        src: String,
+        /// Window position of the triggering mouse event.
+        position: gpui::Point<gpui::Pixels>,
+    },
+    /// EXP-261 vendoring: an image resize drag finished; the host persists the
+    /// new display width (`?w=` URL param) via `rewrite_image_sources`.
+    ImageResized {
+        src: String,
+        width: f32,
     },
 }

@@ -6,6 +6,7 @@
 //! `description_editor.rs::install`.
 
 mod description;
+mod images;
 mod theme_bridge;
 
 pub(crate) use description::{OnSave, WysiwygDescription};

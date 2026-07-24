@@ -36,12 +36,56 @@ impl Block {
             alt: syntax.alt.clone(),
             src: resolved_target.src.clone(),
             title: resolved_target.title.clone(),
-            resolved_source: resolve_image_source(&resolved_target.src, base_dir),
+            resolved_source: self.resolve_image_source_with_env(&resolved_target.src, base_dir),
         })
     }
 
     pub(crate) fn image_runtime_for_syntax(&self, syntax: ImageSyntax) -> Option<ImageRuntime> {
         self.compute_image_runtime(self.image_base_dir.as_deref(), syntax)
+    }
+
+    /// EXP-261 vendoring: consult the host's ImageSourceResolver before the
+    /// default local/remote classification (relative attachment URLs would
+    /// otherwise be treated as filesystem paths).
+    pub(crate) fn resolve_image_source_with_env(
+        &self,
+        src: &str,
+        base_dir: Option<&Path>,
+    ) -> ImageResolvedSource {
+        if let Some(resolver) = self.environment.image_source_resolver.as_ref()
+            && let Some(resolution) = resolver.resolve(src)
+        {
+            return match resolution {
+                crate::host::ImageSourceResolution::Decoded(image) => {
+                    ImageResolvedSource::Decoded(image)
+                }
+                crate::host::ImageSourceResolution::Pending => ImageResolvedSource::Pending,
+                crate::host::ImageSourceResolution::Failed => ImageResolvedSource::Failed,
+            };
+        }
+        resolve_image_source(src, base_dir)
+    }
+
+    /// EXP-261 vendoring: replace image sources in this block's title text
+    /// (`](old)` -> `](new)`), used when a staged `draft://` upload resolves
+    /// or a resize writes a new `?w=` width. Returns whether anything changed.
+    pub(crate) fn rewrite_image_sources_in_title(
+        &mut self,
+        replacements: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        let markdown = self.record.title.serialize_markdown();
+        let mut next = markdown.clone();
+        for (from, to) in replacements {
+            next = next.replace(&format!("]({from})"), &format!("]({to})"));
+            next = next.replace(&format!("]({from} "), &format!("]({to} "));
+        }
+        if next == markdown {
+            return false;
+        }
+        self.record.set_title(super::InlineTextTree::from_markdown(&next));
+        self.sync_render_cache();
+        self.sync_image_runtime();
+        true
     }
 
     pub(crate) fn image_base_dir(&self) -> Option<&Path> {
