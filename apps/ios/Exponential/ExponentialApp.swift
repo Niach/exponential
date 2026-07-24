@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct ExponentialApp: App {
     @State private var dependencies = AppDependencies()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
@@ -20,6 +21,19 @@ struct ExponentialApp: App {
             AppNavigator()
                 .environment(dependencies)
                 .preferredColorScheme(.dark)
+                // A suspension leaves every shape long-poll either parked on
+                // escalated backoff (up to 30s) or holding a socket that won't
+                // fail until the 90s request timeout, so a returning user can
+                // stare at stale data for a minute. Restart the pipelines on
+                // the way back in — no wipe, same reconnect-on-.active idiom
+                // AgentSessionView uses for its steer socket.
+                .onChange(of: scenePhase) { _, newPhase in
+                    switch newPhase {
+                    case .background: dependencies.syncManager.sceneDidEnterBackground()
+                    case .active: dependencies.syncManager.sceneDidBecomeActive()
+                    default: break
+                    }
+                }
         }
     }
 }

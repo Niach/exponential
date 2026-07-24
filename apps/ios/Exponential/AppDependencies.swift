@@ -13,6 +13,9 @@ final class AppDependencies: @unchecked Sendable {
     let trpc: TrpcClient
     let db: DatabaseManager
     let syncManager: SyncManager
+    // Kicks the shape pipelines when connectivity comes back (EXP-264) — the
+    // connectivity half of the wake kick the scene phase drives.
+    let networkPathWatcher: NetworkPathWatcher
     let deepLinkBus: DeepLinkBus
 
     // API services
@@ -99,6 +102,7 @@ final class AppDependencies: @unchecked Sendable {
             }
         }
         let syncManager = SyncManager(auth: auth, db: db)
+        let networkPathWatcher = NetworkPathWatcher(syncManager: syncManager)
         let deepLinkBus = DeepLinkBus()
 
         self.keychain = keychain
@@ -108,6 +112,7 @@ final class AppDependencies: @unchecked Sendable {
         self.trpc = trpc
         self.db = db
         self.syncManager = syncManager
+        self.networkPathWatcher = networkPathWatcher
         self.deepLinkBus = deepLinkBus
 
         // API services
@@ -140,6 +145,9 @@ final class AppDependencies: @unchecked Sendable {
         // the active account's file before relaunching shapes, so writes never land
         // on the previous account's database.
         syncManager.start()
+        // Watches for the offline → online edge and restarts the pipelines
+        // there, so a recovered connection doesn't wait out a 30s backoff.
+        networkPathWatcher.start()
         notificationDelegate.setup()
         // Reconcile loop: registers the FCM token for every signed-in account,
         // so logins/switches after the Messaging callback still get pushes.

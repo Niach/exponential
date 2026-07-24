@@ -23,6 +23,23 @@ public final class SyncManager: @unchecked Sendable {
     // relaunch the pipeline and overwrite `pipelines[accountId]`, orphaning
     // 14 uncancellable shape Tasks (duplicate long-polls racing the wipe).
     private var resyncing: Set<String> = []
+    // When the scene last left the foreground, and when the last all-account
+    // restart ran. Both lock-guarded like everything else here: the scene
+    // callbacks arrive on the main actor while the restart itself runs off it.
+    private var enteredBackgroundAt: Date?
+    private var lastRestartAllAt: Date?
+
+    /// How long the app must have been backgrounded before returning to the
+    /// foreground is worth a pipeline restart. Short suspensions keep their
+    /// sockets alive and cost nothing to ride out; the payoff is REAL
+    /// suspensions, where every shape comes back either parked on escalated
+    /// backoff (up to 30s) or holding a zombie socket that won't fail until the
+    /// 90s request timeout.
+    private static let minBackgroundForRestart: TimeInterval = 10
+    /// Floor between all-account restarts. Waking up and regaining the network
+    /// co-fire on resume (the path monitor reports the transition just as the
+    /// scene activates) — collapse the pair into one restart.
+    private static let restartAllFloor: TimeInterval = 5
 
     public init(auth: AuthRepository, db: DatabaseManager) {
         self.auth = auth
@@ -112,7 +129,7 @@ public final class SyncManager: @unchecked Sendable {
     /// 409s each rotated shape and the client refetches atomically via the
     /// needs_refetch path, so the new team appears in seconds. This is
     /// the iOS analog of the web join gate's hard reload.
-    public func restartPipeline(accountId: String) async {
+    public func restartPipeline(accountId: String, reason: String = "membership change") async {
         // Reuse the resync guard: a concurrent resync/restart would relaunch
         // the pipeline over this one and orphan 14 uncancellable shape Tasks.
         let alreadyBusy = lock.withLock { !resyncing.insert(accountId).inserted }
@@ -128,8 +145,59 @@ public final class SyncManager: @unchecked Sendable {
         try? await Task.sleep(for: .milliseconds(250))
         guard auth.accounts.first(where: { $0.id == accountId })?.token != nil,
               let pool = try? db.pool(forAccountId: accountId) else { return }
-        SyncDebug.shared.log("[restart] relaunching pipeline (membership change)")
+        SyncDebug.shared.log("[restart] relaunching pipeline (\(reason))")
         launchPipeline(accountId: accountId, pool: pool)
+    }
+
+    // MARK: - Wake / connectivity kicks (EXP-264)
+
+    /// The scene left the foreground. Stamping the moment (rather than
+    /// restarting on every return) is what lets `sceneDidBecomeActive` tell a
+    /// real suspension from a permission-alert flicker.
+    public func sceneDidEnterBackground() {
+        lock.withLock { enteredBackgroundAt = Date() }
+    }
+
+    /// The scene became active again. Reads AND clears the background stamp: a
+    /// nil stamp means a cold launch (or an `.inactive`-only flip that never
+    /// reached `.background`), where the pipelines are already fresh and a
+    /// restart would only throw away the snapshot that is landing.
+    public func sceneDidBecomeActive() {
+        let backgroundedAt = lock.withLock { () -> Date? in
+            let stamp = enteredBackgroundAt
+            enteredBackgroundAt = nil
+            return stamp
+        }
+        guard let backgroundedAt,
+              Date().timeIntervalSince(backgroundedAt) >= Self.minBackgroundForRestart
+        else { return }
+        Task { [weak self] in
+            await self?.restartAllPipelines(reason: "app became active")
+        }
+    }
+
+    /// Cancel + relaunch EVERY signed-in account's pipeline without wiping
+    /// anything — the multi-account form of `restartPipeline`, for events that
+    /// invalidate every account's sockets at once (waking up, regaining the
+    /// network). Serial on purpose: each account's restart drains its own
+    /// in-flight batch write before relaunching.
+    public func restartAllPipelines(reason: String) async {
+        let allowed = lock.withLock { () -> Bool in
+            if let last = lastRestartAllAt, Date().timeIntervalSince(last) < Self.restartAllFloor {
+                return false
+            }
+            lastRestartAllAt = Date()
+            return true
+        }
+        guard allowed else {
+            SyncDebug.shared.log("[restart-all] skipped (\(reason)) — one just ran")
+            return
+        }
+        SyncDebug.shared.log("[restart-all] \(reason)")
+        // Same source of truth as `reconcile()`: accounts holding a token.
+        for accountId in auth.accounts.filter({ $0.token != nil }).map(\.id) {
+            await restartPipeline(accountId: accountId, reason: reason)
+        }
     }
 
     /// Wait up to ~5s for the active account's teams shape to land its

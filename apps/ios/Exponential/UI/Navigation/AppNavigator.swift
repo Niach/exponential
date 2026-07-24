@@ -194,13 +194,20 @@ struct AppNavigator: View {
                 return
             }
             // Cold launch / brand-new issue: the row may simply not have
-            // synced yet — one sync pass, then retry before giving up.
+            // synced yet — one sync pass, then a bounded poll before giving
+            // up. Opening the link activated the scene, so the wake kick has
+            // just restarted the pipelines and a fresh row typically lands
+            // within a couple of seconds. Worst case this adds ~4s before the
+            // Safari bounce, on a path that was already failing.
             await deps.syncManager.initialSync()
-            if let hit = resolve() {
-                deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
-            } else {
-                deps.deepLinkBus.openExternal(url)
+            for _ in 0..<8 {
+                if let hit = resolve() {
+                    deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
             }
+            deps.deepLinkBus.openExternal(url)
         }
     }
 }

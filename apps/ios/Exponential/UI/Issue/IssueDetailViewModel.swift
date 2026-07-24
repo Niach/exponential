@@ -31,6 +31,11 @@ final class IssueDetailViewModel {
     var mentionMembers: [MentionMember] {
         users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
+    /// True once the bounded load clock ran out with no issue row — the view
+    /// swaps its spinner for a real explanation plus a retry (EXP-264: a push
+    /// tap or deep link to a row outside this account's synced scope used to
+    /// spin forever).
+    var loadTimedOut = false
     var editingTitle: String = ""
     /// Single source of truth for the description editor (blocks + pending images).
     let editor = IssueEditorModel()
@@ -76,6 +81,7 @@ final class IssueDetailViewModel {
     private var observationTask: Task<Void, Never>?
     private var autosaveTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
+    private var fallbackTask: Task<Void, Never>?
     // Raw observed running-session rows — cached so the liveness ticker can
     // re-apply the staleness filter between sync deltas (EXP-153).
     private var observedSessions: [CodingSessionEntity] = []
@@ -130,6 +136,9 @@ final class IssueDetailViewModel {
     }
 
     func startObserving() {
+        // The by-id observation below only ever fires for a row that IS local,
+        // so an issue outside the synced scope needs its own bounded clock.
+        startFallbackClock()
         // GRDB only re-fires on writes — a minute clock re-applies the
         // staleness filter so a phantom session's steer panel clears once its
         // liveness window elapses without any sync delta (EXP-153).
@@ -278,6 +287,73 @@ final class IssueDetailViewModel {
         autosaveTask = nil
         livenessTask?.cancel()
         livenessTask = nil
+        fallbackTask?.cancel()
+        fallbackTask = nil
+    }
+
+    // MARK: - Bounded loading (EXP-264)
+
+    /// Two-stage clock for an issue that isn't in the local store: after 2s
+    /// ask the server for the row directly, and 6s after that stop pretending
+    /// and show the unavailable state. The first wait is deliberate — a push
+    /// tap activates the scene, which restarts every pipeline, so the row very
+    /// often arrives on its own without a request.
+    private func startFallbackClock() {
+        fallbackTask?.cancel()
+        fallbackTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            if self.issue == nil {
+                // Fired, not awaited: the fetch rides the shared URLSession's
+                // 30s request budget, and awaiting it inline stretched this
+                // clock's promised 8s bound to ~38s on a black-holed
+                // connection. A fetch that completes after the timeout state
+                // showed still writes the row, and the observation swaps the
+                // screen to content.
+                Task { [weak self] in
+                    await self?.fetchIssueFallback()
+                }
+            }
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            if self.issue == nil {
+                self.loadTimedOut = true
+            }
+        }
+    }
+
+    /// "Try again" from the timed-out state: back to the spinner and run the
+    /// whole clock again, fresh server read included.
+    func retryLoad() {
+        loadTimedOut = false
+        startFallbackClock()
+    }
+
+    /// One-shot server read for an issue sync hasn't delivered (a push tap on
+    /// a brand-new issue, a deep link into a board still syncing). The row is
+    /// written into GRDB so the existing observation picks it up exactly like
+    /// a synced one; comments, timeline events and every later edit still
+    /// arrive through Electric as usual.
+    ///
+    /// Every failure is swallowed: an older self-hosted server has no
+    /// `issues.get` at all, and a genuine NOT_FOUND/FORBIDDEN is the same
+    /// answer as silence — the timeout state below explains it.
+    private func fetchIssueFallback() async {
+        guard let result = try? await issuesApi.get(accountId: accountId, id: issueId),
+              let pool = try? db.pool(forAccountId: accountId) else { return }
+        let entity = result.issue.entity()
+        let labelRows = result.labelIds.map {
+            IssueLabelEntity(issueId: entity.id, labelId: $0, teamId: result.teamId)
+        }
+        try? await pool.write { gdb in
+            // Never clobber a synced row: sync is the source of truth and may
+            // have landed while this request was in flight.
+            guard try IssueEntity.fetchOne(gdb, key: entity.id) == nil else { return }
+            try entity.save(gdb)
+            for row in labelRows {
+                try row.save(gdb)
+            }
+        }
     }
 
     // Heartbeat-stale rows render as absent — mirroring the server sweep's
