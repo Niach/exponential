@@ -37,6 +37,12 @@ pub struct CodingSession {
     pub user_id: Option<String>,
     #[serde(default)]
     pub device_label: Option<String>,
+    /// Action-scoped rows (EXP-253): the `actions` row id + display-name
+    /// snapshot; both NULL on issue/batch rows.
+    #[serde(default)]
+    pub action_id: Option<String>,
+    #[serde(default)]
+    pub action_name: Option<String>,
     /// `running` | `ended` (contract enum `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,
@@ -68,6 +74,14 @@ struct StartBatchInput<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartActionInput<'a> {
+    action_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_label: Option<&'a str>,
+}
+
+#[derive(Serialize)]
 struct SessionIdInput<'a> {
     id: &'a str,
 }
@@ -76,11 +90,16 @@ struct SessionIdInput<'a> {
 /// that finds the row swept (laptop suspend outlived the server's staleness
 /// window) re-creates it server-side under the SAME id, restoring the badge
 /// and steerability. Exactly one of `issue_id`/`team_id` is set —
-/// `start`'s own invariant.
+/// `start`'s own invariant. An ACTION scope (EXP-253) is `team_id` PLUS
+/// `action_id`/`action_name`: the team rides along so a deleted action still
+/// resurrects the row batch-shaped, and the name is the client-held display
+/// snapshot the re-created row keeps.
 #[derive(Clone, Debug)]
 pub struct HeartbeatScope {
     pub issue_id: Option<String>,
     pub team_id: Option<String>,
+    pub action_id: Option<String>,
+    pub action_name: Option<String>,
     pub device_label: Option<String>,
 }
 
@@ -92,6 +111,10 @@ struct HeartbeatInput<'a> {
     issue_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action_name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
 }
@@ -132,6 +155,25 @@ pub fn start_batch(
         "codingSessions.start",
         &StartBatchInput {
             team_id,
+            device_label,
+        },
+    )?;
+    Ok(envelope.session)
+}
+
+/// `codingSessions.start` for an ACTION-scoped session (EXP-253): the
+/// server resolves the action → team, snapshots `action_name`, and inserts
+/// a batch-shaped row (`issue_id`/`board_id` NULL) carrying `action_id`.
+/// Same 412 semantics as [`start`].
+pub fn start_action(
+    trpc: &TrpcClient,
+    action_id: &str,
+    device_label: Option<&str>,
+) -> Result<CodingSession, ApiError> {
+    let envelope: SessionEnvelope = trpc.mutation(
+        "codingSessions.start",
+        &StartActionInput {
+            action_id,
             device_label,
         },
     )?;
@@ -189,6 +231,8 @@ pub fn heartbeat(
             id,
             issue_id: scope.and_then(|scope| scope.issue_id.as_deref()),
             team_id: scope.and_then(|scope| scope.team_id.as_deref()),
+            action_id: scope.and_then(|scope| scope.action_id.as_deref()),
+            action_name: scope.and_then(|scope| scope.action_name.as_deref()),
             device_label: scope.and_then(|scope| scope.device_label.as_deref()),
         },
     )?;
@@ -282,6 +326,8 @@ mod tests {
         let scope = HeartbeatScope {
             issue_id: Some("issue-1".to_string()),
             team_id: None,
+            action_id: None,
+            action_name: None,
             device_label: Some("testbox".to_string()),
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
@@ -296,11 +342,51 @@ mod tests {
         let scope = HeartbeatScope {
             issue_id: None,
             team_id: Some("ws-1".to_string()),
+            action_id: None,
+            action_name: None,
             device_label: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"sess-1","teamId":"ws-1"}"#));
+    }
+
+    #[test]
+    fn start_action_posts_action_id_and_decodes_the_action_row() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-a","issueId":null,"teamId":"ws-1",
+                "actionId":"act-1","actionName":"Code review",
+                "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
+        );
+        let session = start_action(&client(&base), "act-1", Some("testbox")).unwrap();
+        assert_eq!(session.id, "sess-a");
+        assert_eq!(session.action_id.as_deref(), Some("act-1"));
+        assert_eq!(session.action_name.as_deref(), Some("Code review"));
+        assert_eq!(session.issue_id, None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
+        assert!(request.ends_with(r#"{"actionId":"act-1","deviceLabel":"testbox"}"#));
+    }
+
+    #[test]
+    fn heartbeat_posts_action_scope_with_team_and_snapshot() {
+        // EXP-253: the action scope carries teamId (deleted-action degrade)
+        // + the client-held name snapshot alongside actionId.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: None,
+            team_id: Some("ws-1".to_string()),
+            action_id: Some("act-1".to_string()),
+            action_name: Some("Code review".to_string()),
+            device_label: None,
+        };
+        assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review"}"#
+        ));
     }
 
     #[test]

@@ -178,6 +178,10 @@ export interface SteerDevice {
   /** EXP-201: agent CLIs the device advertised (`claude`/`codex`/`pi`).
    * Absent from an old relay ⇒ treat as claude-only. */
   agents?: string[]
+  /** EXP-253: feature capabilities the device advertised (`actions`).
+   * Absent (old desktop/relay) ⇒ none — action starts are strictly gated
+   * on this, unlike the lenient agents fallback. */
+  caps?: string[]
 }
 
 /** GET /devices/:userId — online desktops for the "Start on my desktop" picker. */
@@ -234,12 +238,16 @@ export interface SteerStartRepo {
 }
 
 /**
- * The subject of a remote start: either a single issue (wire-unchanged) or a
- * batch of issues sharing one team + repo group. Exactly one form.
+ * The subject of a remote start: a single issue (wire-unchanged), a batch of
+ * issues sharing one team + repo group, or an action (EXP-253 — the name is
+ * a display snapshot so the desktop can title the tab/trust dialog before
+ * its own `actions.get` resolves; `repo` is absent for repo-less actions).
+ * Exactly one form.
  */
 export type SteerStartSubject =
   | { issueId: string }
   | { issueIds: string[]; teamId: string; repo: SteerStartRepo }
+  | { actionId: string; actionName: string; teamId: string; repo?: SteerStartRepo }
 
 /** POST /start — route a remote start to the device's control socket.
  * Undefined option fields are dropped by JSON.stringify — never sent. */

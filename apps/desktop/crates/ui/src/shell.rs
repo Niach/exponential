@@ -39,7 +39,7 @@ use sync::{SessionPhase, Store};
 use crate::{
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
     screens::ScreensPanel, sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel,
-    top_bar::TopBar, update::{self, UpdatePhase, UpdateState},
+    update::{self, UpdatePhase, UpdateState},
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -57,7 +57,10 @@ use crate::{
 /// v6: the left dock is GONE — the sidebar moved inside the center panel's
 ///     resizable split so the bottom terminal dock spans beneath it; a
 ///     persisted left dock would render a second, dead sidebar.
-const LAYOUT_VERSION: usize = 6;
+/// v7: the top bar is GONE (EXP-253) — boards moved into the rail as icon
+///     entries and the git bar became the headless trunk-sync engine; the
+///     freed header height changes every persisted pane size.
+const LAYOUT_VERSION: usize = 7;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -78,9 +81,6 @@ pub struct Shell {
     /// (so the bottom terminal dock spans everything right of it and lines
     /// up with the rail's terminal toggle).
     rail: Entity<RailView>,
-    /// The full-width header above rail + dock area: board picker,
-    /// breadcrumbs, run widget, git cluster.
-    top_bar: Entity<TopBar>,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -211,16 +211,13 @@ impl Shell {
             .detach();
         }
 
-        // The rail and top bar live OUTSIDE the dock area; the top bar's run
-        // widget drives launches through this weak handle. Built after the
-        // fixed chrome so the dock already exists.
+        // The rail lives OUTSIDE the dock area. Built after the fixed chrome
+        // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
-        let top_bar = cx.new(|cx| TopBar::new(dock_area.downgrade(), window, cx));
 
         Self {
             dock_area,
             rail,
-            top_bar,
             login,
             ordinal,
             last_saved: None,
@@ -429,37 +426,23 @@ impl Render for Shell {
         // surface — including `AuthExpired`, the dead-token
         // routing (login screen, never an empty board).
         let session = Store::global(cx).session(cx);
-        // Synced shell = full-width top bar above everything, then rail +
-        // dock area — the bottom terminal dock spans the full width right of
-        // the rail (beneath the sidebar, which lives inside the center split).
+        // Synced shell = rail + dock area, no header (EXP-253 removed the top
+        // bar) — the bottom terminal dock spans the full width right of the
+        // rail (beneath the sidebar, which lives inside the center split).
         let content: gpui::AnyElement = match session {
             // `.h_full()` on the dock wrapper is load-bearing: without a
             // definite height the dock area collapses (same flex-child rule
             // as the source-control diff pane).
-            SessionPhase::Synced { .. } => v_flex()
+            SessionPhase::Synced { .. } => h_flex()
                 .size_full()
-                // The explicit w_full wrapper pins the bar to the window
-                // width — an entity child alone can end up content-sized
-                // (the same flex-child rule as the dock wrapper below).
+                .min_h_0()
+                .child(self.rail.clone())
                 .child(
                     div()
-                        .w_full()
-                        .flex_shrink_0()
-                        .child(self.top_bar.clone()),
-                )
-                .child(
-                    h_flex()
-                        .w_full()
                         .flex_1()
-                        .min_h_0()
-                        .child(self.rail.clone())
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .h_full()
-                                .child(self.dock_area.clone()),
-                        ),
+                        .min_w_0()
+                        .h_full()
+                        .child(self.dock_area.clone()),
                 )
                 .into_any_element(),
             _ => self.login.clone().into_any_element(),

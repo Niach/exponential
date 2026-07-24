@@ -302,6 +302,20 @@
       "when": 1784675606508,
       "tag": "0042_sparkling_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1784855812820,
+      "tag": "0043_redundant_nightmare",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1784855823738,
+      "tag": "0044_shallow_ezekiel_stane",
+      "breakpoints": true
     }
   ]
 }

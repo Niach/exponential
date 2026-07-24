@@ -286,7 +286,7 @@ mod tests {
         let (base, captured) = one_shot_server(200, MINT_BODY);
         let key = ensure_personal_key(&client(&base), &store, "acct").unwrap();
         assert_eq!(key, "expu_rawsecret123");
-        // Raw key + row id both stashed for later sessions / regenerate.
+        // Raw key + row id both kept for later sessions / regenerate.
         assert_eq!(
             store.get("acct", SecretKind::PersonalApiKey).as_deref(),
             Some("expu_rawsecret123")

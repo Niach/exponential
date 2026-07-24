@@ -32,6 +32,7 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
+pub mod action_prompt;
 pub mod agent;
 pub mod argv;
 pub mod batch_launcher;
@@ -46,7 +47,6 @@ pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
 pub mod prompt;
-pub mod run_launch;
 pub mod scm;
 pub mod settings;
 #[cfg(test)]
@@ -64,9 +64,10 @@ pub use argv::{
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
 };
+pub use action_prompt::render_action_prompt;
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use claude_task::{
-    claude_task, claude_task_with_mcp, create_run_configs_prompt, fix_conflicts_prompt,
+    claude_task, claude_task_with_mcp, create_action_prompt, fix_conflicts_prompt,
     resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
@@ -76,17 +77,19 @@ pub use doctor::{
 };
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
-    FileStatus, StashEntry, StatusSummary, UnifiedHunk,
+    FileStatus, StatusSummary, UnifiedHunk,
 };
 pub use git_credentials::{ensure_repo_auth, ensure_repo_auth_with_margin};
 pub use token_cache::{token_cache, MintedToken, TokenCache};
 pub use trunk_state::TrunkState;
-pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
+pub use git_worktree::{
+    branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
+};
 pub use launcher::{
     default_device_label, end_session_best_effort, prepare, spawn_prepared, spawn_prepared_with,
-    CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees, IssueSeed, IssueSeedFn,
-    LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PrepareRequest, PreparedLaunch,
-    WorktreeProvider,
+    ActionLaunchRequest, CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees,
+    IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared,
+    PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
@@ -95,10 +98,6 @@ pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
     write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
-};
-pub use run_launch::{
-    format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,
-    run_spawn_spec, shell_cwd, PlayState, STOP_GRACE,
 };
 pub use settings::Settings;
 pub use token_refresh::{

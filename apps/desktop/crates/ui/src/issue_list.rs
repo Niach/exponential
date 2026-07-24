@@ -76,7 +76,7 @@ gpui::actions!(
     [
         /// Bulk select (cmd-a/ctrl-a): select every VISIBLE issue row —
         /// filtered, non-collapsed (Linear semantics, web parity).
-        SelectAllIssues,
+        SelectAll,
         /// Bulk select (escape): drop the selection.
         ClearIssueSelection,
     ]
@@ -90,9 +90,9 @@ pub(crate) fn init(cx: &mut App) {
     const BINDING_CONTEXT: &str =
         "IssueList && !Input && !MarkdownEditor && !MentionInput && !Terminal";
     #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-a", SelectAllIssues, Some(BINDING_CONTEXT))]);
+    cx.bind_keys([KeyBinding::new("cmd-a", SelectAll, Some(BINDING_CONTEXT))]);
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-a", SelectAllIssues, Some(BINDING_CONTEXT))]);
+    cx.bind_keys([KeyBinding::new("ctrl-a", SelectAll, Some(BINDING_CONTEXT))]);
     cx.bind_keys([KeyBinding::new("escape", ClearIssueSelection, Some(BINDING_CONTEXT))]);
 }
 
@@ -975,7 +975,7 @@ impl Render for IssueListView {
             .bg(cx.theme().colors.list)
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &SelectAllIssues, _, cx| {
+            .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
                 let ids = this.visible_issue_ids();
                 if ids.is_empty() {
                     return;

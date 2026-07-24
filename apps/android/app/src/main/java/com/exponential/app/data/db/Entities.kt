@@ -221,6 +221,12 @@ data class CodingSessionEntity(
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
+    // Action run linkage (EXP-253): set on a session started from a team
+    // action. action_id nulls if the action is later deleted (server FK SET
+    // NULL) while action_name — a display snapshot — keeps labeling the run.
+    // Both null on ordinary issue/batch sessions.
+    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
+    @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

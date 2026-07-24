@@ -39,6 +39,25 @@ struct AgentsView: View {
         }
         .navigationTitle("Agents")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // Team actions (EXP-253) live behind the Agents surface — the tab bar
+        // is already at capacity (six tabs + compose on a 375pt screen), so
+        // the entry rides the Agents toolbar instead of a seventh tab. NOT
+        // helpdesk-gated.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: AppRoute.actions) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bolt")
+                            .font(.caption)
+                        Text("Actions")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Actions")
+            }
+        }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
@@ -347,12 +366,13 @@ struct AgentsView: View {
         .contentShape(Rectangle())
     }
 
-    /// A batch (multi-issue) run has no linked issue and a nil session issueId —
-    /// label it "Batch run" rather than "Untitled issue". A single-issue session
-    /// whose issue row simply hasn't synced yet still reads "Untitled issue".
+    /// An issueless (nil session issueId) run is an action run when the row
+    /// carries its action_name snapshot (EXP-253), else a batch run — never
+    /// "Untitled issue". A single-issue session whose issue row simply hasn't
+    /// synced yet still reads "Untitled issue".
     private func title(_ row: AgentsViewModel.Row) -> String {
         if row.issue == nil, row.session.issueId == nil {
-            return "Batch run"
+            return row.session.actionName ?? "Batch run"
         }
         return row.issue?.title ?? "Untitled issue"
     }

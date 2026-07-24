@@ -39,6 +39,8 @@ final class AppDependencies: @unchecked Sendable {
     // Remote start + live steer viewer (relay-backed; graceful-off when the
     // instance has no relay configured).
     let steerApi: SteerApi
+    // Team action prompts (EXP-253) — tRPC-only, view + run on mobile.
+    let actionsApi: ActionsApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -127,6 +129,7 @@ final class AppDependencies: @unchecked Sendable {
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)
+        self.actionsApi = ActionsApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

@@ -187,6 +187,14 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                     .collect()
             })
             .await;
+        // EXP-253: the actions capability — advertised only when claude is
+        // usable (actions are Claude-only v1). The web strictly gates action
+        // starts on this, so an incapable desktop is never targeted.
+        let caps: Vec<String> = if agents.iter().any(|agent| agent == "claude") {
+            vec!["actions".to_string()]
+        } else {
+            Vec::new()
+        };
         let _ = cx.update(|cx| {
             // The probe raced a sign-out/switch: starting a socket for a
             // no-longer-active account would leak it past its stop call.
@@ -199,6 +207,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 device_id,
                 device_label,
                 agents,
+                caps,
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
                 let _ = inbox.send(start);
@@ -243,7 +252,50 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
             team_id,
             repo,
         } => remote_batch_start(issue_ids, team_id, repo, &start, cx),
+        steer::RemoteStartSubject::Action {
+            action_id, repo, ..
+        } => remote_action_start(action_id, repo, &start, cx),
     }
+}
+
+/// Relay ACTION start (§08 / EXP-253): the trust-gated runner with the
+/// dialog FOREGROUNDED — an unattended desktop must surface the approval,
+/// never auto-run an untrusted body. The frame's server-resolved repo group
+/// rides through (the desktop syncs no repositories); the fresh body + hash
+/// come from the runner's own `actions.get`. Claude-only v1: model/effort
+/// are honored, everything else is clamped (the server already validated).
+fn remote_action_start(
+    action_id: String,
+    repo: Option<steer::StartRepoGroup>,
+    start: &steer::RemoteStart,
+    cx: &mut App,
+) {
+    // No dedup (batch precedent): each run is its own session; concurrent
+    // repo-backed runs share the trunk cwd exactly like two shell tabs.
+    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+    let options = LaunchOptions::remote(
+        &settings,
+        Some("claude"),
+        start.model.as_deref(),
+        start.effort.as_deref(),
+        None,
+        None,
+        None,
+    );
+    let repo_group = repo.map(|repo| RepoGroup {
+        repository_id: repo.repository_id,
+        full_name: repo.full_name,
+        default_branch: repo.default_branch,
+    });
+    crate::actions_panel::start_action_run(
+        action_id,
+        crate::actions_panel::ActionRepo::Provided(repo_group),
+        options,
+        relay_origin(cx),
+        None,
+        true,
+        cx,
+    );
 }
 
 /// The §08 relay [`LaunchOrigin`] for the signed-in account: the persistent
@@ -263,7 +315,7 @@ fn relay_origin(cx: &App) -> LaunchOrigin {
 /// The first shell window (one with a terminal dock). A relay start can't
 /// host a coding tab on a non-shell window (login), so `None` means no
 /// window is open to run in — the caller logs and drops the start.
-fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
+pub(crate) fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
     cx.windows().into_iter().find(|handle| {
         handle
             .update(cx, |_, window, cx| {
@@ -595,7 +647,8 @@ pub fn attach_publisher(
         // session id only.
         issue_id: match subject {
             coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
-            coding_flow::SessionSubject::Batch(_) => None,
+            coding_flow::SessionSubject::Batch(_)
+            | coding_flow::SessionSubject::Action(_) => None,
         },
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);

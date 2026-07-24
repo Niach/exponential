@@ -273,36 +273,6 @@ pub fn fetch(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
     Ok(())
 }
 
-/// Push the trunk's CHECKED-OUT branch: fetch → auto-rebase onto
-/// `origin/<branch>` if behind → push. The caller reads `branch` fresh from
-/// disk (`trunk_state::read`) so the transport always targets what is
-/// actually checked out. A rebase conflict leaves markers in place and
-/// returns the error (no auto-abort).
-pub fn push(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
-    fetch(clone, url)?;
-    // Local counts only (the fetch above already refreshed origin/<branch>);
-    // a missing upstream ref just means "not behind" → push creates it.
-    let (_ahead, behind) = ahead_behind(clone, branch).unwrap_or((0, 0));
-    if behind > 0 {
-        run_git(
-            Some(clone),
-            &["rebase", "--autostash", &format!("origin/{branch}")],
-            Some(url),
-            "git rebase origin",
-        )?;
-    }
-    run_git(Some(clone), &["push", "origin", branch], Some(url), "git push")?;
-    Ok(())
-}
-
-/// Publish an unpublished branch: `git push -u origin <branch>` (creates the
-/// upstream the git bar's counts and [`auto_sync`] need). Pure transport over
-/// ambient auth, like [`fetch`].
-pub fn publish(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
-    run_git(Some(clone), &["push", "-u", "origin", branch], Some(url), "git push -u")?;
-    Ok(())
-}
-
 /// Fast-forward the checked-out `branch` to `origin/<branch>`:
 /// `git merge --ff-only origin/<branch>`. Local + tokenless (run after a
 /// [`fetch`]), and the ONLY auto-mutation primitive — `--ff-only` is the
@@ -741,87 +711,6 @@ mod tests {
     }
 
     #[test]
-    fn push_pushes_a_fast_forward_of_the_given_branch() {
-        let d = temp_dir("push");
-        let (work, _consumer, bare) = seed_remote(&d.0);
-        write(&work, "w.txt", "w\n");
-        commit_all(&work, "work commit");
-
-        push(&work, "main", &dummy_url()).unwrap();
-
-        // A fresh clone of the bare must see the pushed commit.
-        let verify = d.0.join("verify");
-        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
-        assert!(verify.join("w.txt").exists());
-    }
-
-    #[test]
-    fn push_auto_rebases_when_behind() {
-        let d = temp_dir("pushrebase");
-        let (work, consumer, bare) = seed_remote(&d.0);
-
-        // Consumer advances origin (non-conflicting file).
-        write(&consumer, "c.txt", "c\n");
-        commit_all(&consumer, "consumer commit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-
-        // Work commits on the stale base ⇒ diverged; push must fetch, rebase,
-        // then push.
-        write(&work, "w.txt", "w\n");
-        commit_all(&work, "work commit");
-
-        push(&work, "main", &dummy_url()).unwrap();
-
-        let verify = d.0.join("verify");
-        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), verify.to_str().unwrap()]);
-        assert!(verify.join("w.txt").exists());
-        assert!(verify.join("c.txt").exists());
-        // Linear (rebased) history, not a merge: both commits + base.
-        assert_eq!(crate::scm::log_branch(&verify, None, 0, 10).unwrap().len(), 3);
-    }
-
-    #[test]
-    fn push_conflict_leaves_markers_for_detect() {
-        let d = temp_dir("pushconflict");
-        let (work, consumer, _bare) = seed_remote(&d.0);
-
-        // Both edit the same file ⇒ the pre-push rebase conflicts.
-        write(&consumer, "base.txt", "consumer\n");
-        commit_all(&consumer, "consumer edit");
-        git(&consumer, &["push", "--quiet", "origin", "main"]);
-        write(&work, "base.txt", "work\n");
-        commit_all(&work, "work edit");
-
-        let err = push(&work, "main", &dummy_url()).unwrap_err();
-        assert!(!format!("{err}").contains("ghs_dead"), "token leaked: {err}");
-
-        let conflict = crate::scm::detect_conflict(&work).expect("rebase should be paused");
-        assert_eq!(conflict.kind, crate::scm::ConflictKind::Rebase);
-        assert!(conflict.files.contains(&"base.txt".to_string()));
-
-        crate::scm::abort_conflict(&work, crate::scm::ConflictKind::Rebase).unwrap();
-        assert!(crate::scm::detect_conflict(&work).is_none());
-    }
-
-    #[test]
-    fn publish_creates_the_upstream() {
-        let d = temp_dir("publish");
-        let (work, _consumer, _bare) = seed_remote(&d.0);
-        git(&work, &["checkout", "--quiet", "-b", "feature/x"]);
-        write(&work, "f.txt", "f\n");
-        commit_all(&work, "feature commit");
-
-        let before = crate::scm::status(&work).unwrap();
-        assert_eq!(before.upstream, None);
-
-        publish(&work, "feature/x", &dummy_url()).unwrap();
-
-        let after = crate::scm::status(&work).unwrap();
-        assert_eq!(after.upstream.as_deref(), Some("origin/feature/x"));
-        assert_eq!(ahead_behind(&work, "feature/x").unwrap(), (0, 0));
-    }
-
-    #[test]
     fn ff_update_fast_forwards_and_refuses_diverged() {
         let d = temp_dir("ffupdate");
         let (work, consumer, _bare) = seed_remote(&d.0);
@@ -918,14 +807,21 @@ mod tests {
         let d = temp_dir("autosync-conflict");
         let (work, consumer, _bare) = seed_remote(&d.0);
 
-        // Engage a real rebase conflict (both edit base.txt), via push's
-        // integrate path.
+        // Engage a real rebase conflict (both edit base.txt): fetch the
+        // diverged remote, then rebase onto it — git pauses on the conflict.
         write(&consumer, "base.txt", "consumer\n");
         commit_all(&consumer, "consumer edit");
         git(&consumer, &["push", "--quiet", "origin", "main"]);
         write(&work, "base.txt", "work\n");
         commit_all(&work, "work edit");
-        assert!(push(&work, "main", &dummy_url()).is_err());
+        fetch(&work, &dummy_url()).unwrap();
+        assert!(crate::git_worktree::run_git(
+            Some(&work),
+            &["rebase", "origin/main"],
+            None,
+            "test rebase",
+        )
+        .is_err());
         assert!(crate::scm::detect_conflict(&work).is_some());
 
         assert_eq!(

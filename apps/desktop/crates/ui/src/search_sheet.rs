@@ -49,7 +49,7 @@ use gpui_component::{
 };
 use sync::{SessionPhase, Store};
 
-use coding::run_launch::run_root;
+use coding::clone_path;
 use domain::options::get_issue_status_config;
 use domain::IssueStatus;
 
@@ -378,7 +378,7 @@ impl SearchDelegate {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    let root = run_root(&settings.repos_root_path(), &full_name);
+                    let root = clone_path(&settings.repos_root_path(), &full_name);
                     if !root.join(".git").is_dir() {
                         return None; // not cloned yet — the git bar owns cloning
                     }

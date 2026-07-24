@@ -56,7 +56,8 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
+             "v8_coding_session_action_fields"]
         )
     }
 
@@ -70,7 +71,8 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
+             "v8_coding_session_action_fields"]
         )
     }
 
@@ -112,7 +114,8 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
+             "v8_coding_session_action_fields"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -174,7 +177,8 @@ final class DatabaseMigrationTests: XCTestCase {
             try appliedMigrations(pool),
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
-             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns"]
+             "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
+             "v8_coding_session_action_fields"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -219,6 +223,68 @@ final class DatabaseMigrationTests: XCTestCase {
         let boardCols = try columnNames(pool, "boards")
         XCTAssertFalse(boardCols.contains("github_repo"))
         XCTAssertFalse(boardCols.contains("preview_config"))
+    }
+
+    // v8 (EXP-253 actions): a `-v5` store created before the action columns
+    // existed must gain both via the guarded ALTERs and get its
+    // coding-sessions shape offset reset (the shape key is 'coding-sessions'
+    // WITH A DASH — the proxy route name, not the table name).
+    func testCodingSessionActionFieldsAddedToExistingV5Store() throws {
+        let pool = try makePool("session-action-fields")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v7_drop_board_dead_columns")
+        try pool.write { db in
+            // Hand-build the pre-v8 state: coding_sessions without the action
+            // columns (today's v1 create already declares them — that overlap
+            // is exactly what the guarded ALTERs have to tolerate) + a live
+            // offset row.
+            try db.drop(table: "coding_sessions")
+            try db.create(table: "coding_sessions") { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).indexed()
+                t.column("board_id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("user_id", .text).notNull().indexed()
+                t.column("device_label", .text)
+                t.column("status", .text).notNull().defaults(to: "running")
+                t.column("needs_input", .boolean).notNull().defaults(to: false)
+                t.column("started_at", .text).notNull()
+                t.column("ended_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let sessionCols = try pool.read { db in try db.columns(in: "coding_sessions") }
+        for column in ["action_id", "action_name"] {
+            let added = sessionCols.first { $0.name == column }
+            XCTAssertNotNil(added, "missing column \(column)")
+            XCTAssertFalse(added?.isNotNull ?? true)
+        }
+        // The ALTERs must force a refetch of the coding-sessions shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
     }
 
     // The end-state schema must expose the tables + key columns sync writes to,
@@ -283,6 +349,10 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(sessionIssueId)
         XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
+        // Action run linkage (EXP-253): both nullable ride-alongs exist.
+        let sessionCols = try columnNames(pool, "coding_sessions")
+        XCTAssertTrue(sessionCols.contains("action_id"))
+        XCTAssertTrue(sessionCols.contains("action_name"))
 
         // The public-board columns (and the legacy `type` relic) are gone.
         let boardCols = try columnNames(pool, "boards")

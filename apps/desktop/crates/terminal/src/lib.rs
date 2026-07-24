@@ -39,4 +39,4 @@ pub use pty::{
 };
 pub use read_loop::{spawn_read_loop, CaptureSink, RawSink, SinkSet, Wake};
 pub use session::{ResizeObserver, Terminal};
-pub use tab::{ExitHook, RunConfigId, TabId, TabKind, TabStatus, TerminalTab};
+pub use tab::{ExitHook, TabId, TabKind, TabStatus, TerminalTab};

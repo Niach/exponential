@@ -7,6 +7,9 @@ import GRDB
 enum AppRoute: Hashable {
     case search
     case agents
+    /// Team actions (EXP-253, view + run only) — pushed from the Agents tab's
+    /// toolbar entry; NOT helpdesk-gated.
+    case actions
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     /// Nothing external ever landed on the old inbox route — notification
     /// taps deep-link straight to the issue.
@@ -505,6 +508,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .agents:
             AgentsView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case .actions:
+            ActionsListView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .myWork:
             MyWorkView()

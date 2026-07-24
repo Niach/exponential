@@ -296,6 +296,91 @@ describe(`device presence + remote start`, () => {
     ).toEqual({ ok: false, reason: `device_offline` })
   })
 
+  test(`online advertises capabilities; absent caps default to [] (EXP-253)`, () => {
+    const hub = new Hub()
+    const modern = new FakeSocket()
+    hub.onOpen(modern, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(
+      modern,
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-1`,
+        agents: [`claude`],
+        caps: [`actions`],
+      })
+    )
+    const legacy = new FakeSocket()
+    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(legacy, JSON.stringify({ t: `online`, deviceId: `dev-2` }))
+
+    expect(hub.devicesFor(`owner`)).toMatchObject([
+      { deviceId: `dev-1`, caps: [`actions`] },
+      // Old desktops never advertise ⇒ [] — the web server strictly gates
+      // action starts on the capability, so they are never targeted.
+      { deviceId: `dev-2`, caps: [] },
+    ])
+  })
+
+  test(`startSession routes an action subject as a fat start_session frame (EXP-253)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    const repo = {
+      repositoryId: `repo-1`,
+      fullName: `acme/api`,
+      defaultBranch: `main`,
+    }
+    // Repo-backed action with launch options.
+    const routed = hub.startSession(
+      `owner`,
+      `dev-1`,
+      {
+        actionId: `action-1`,
+        actionName: `Code review`,
+        teamId: `team-1`,
+        repo,
+      },
+      { model: `opus`, effort: `high` }
+    )
+    expect(routed).toEqual({ ok: true })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      repo,
+      model: `opus`,
+      effort: `high`,
+    })
+
+    // Repo-less action: the repo key never reaches the wire, nor do
+    // undefined options.
+    hub.startSession(`owner`, `dev-1`, {
+      actionId: `action-2`,
+      actionName: `Groom backlog`,
+      teamId: `team-1`,
+    })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      actionId: `action-2`,
+      actionName: `Groom backlog`,
+      teamId: `team-1`,
+    })
+  })
+
+  test(`action start to an offline device reports device_offline`, () => {
+    const hub = new Hub()
+    expect(
+      hub.startSession(`owner`, `dev-gone`, {
+        actionId: `action-1`,
+        actionName: `Code review`,
+        teamId: `team-1`,
+      })
+    ).toEqual({ ok: false, reason: `device_offline` })
+  })
+
   test(`same-device reconnect replaces the old socket`, () => {
     const hub = new Hub()
     const first = new FakeSocket()

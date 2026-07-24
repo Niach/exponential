@@ -7,6 +7,7 @@ import {
   List,
   Search,
   SquarePen,
+  Zap,
 } from "lucide-react"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
@@ -146,6 +147,9 @@ export function MobileTabBar({
   const onSupport = Boolean(
     matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
   )
+  const onActions = Boolean(
+    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
+  )
 
   if (!visible) return null
 
@@ -194,6 +198,14 @@ export function MobileTabBar({
             <SupportDot teamId={team?.id} />
           </Link>
         )}
+        <Link
+          to="/t/$teamSlug/actions"
+          params={{ teamSlug }}
+          aria-label="Actions"
+          className={tabClass(onActions)}
+        >
+          <Zap className="size-5" />
+        </Link>
         <Link
           to="/t/$teamSlug/agents"
           params={{ teamSlug }}

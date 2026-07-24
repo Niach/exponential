@@ -1,20 +1,24 @@
-//! Source Control screen (masterplan v4 §4.4) — trunk-only: staged/unstaged
-//! changes list with stage checkboxes, an exp-switch stash-restore strip, commit message + Commit /
-//! Commit & Push, history pane, and (in conflict mode) the rebase/merge
-//! banner with "Fix conflicts with Claude" / "Open terminal" / "Abort". The
-//! working/commit diff renders through the shared `diff.rs` renderer.
+//! Source Control screen (masterplan v4 §4.4, EXP-253 master-only rework) —
+//! trunk-only and READ-ONLY: a changes list + the shared diff renderer, plus
+//! (in conflict mode) the rebase/merge banner with "Fix conflicts with
+//! Claude" / "Open terminal" / "Abort". The IDE neither stages, commits nor
+//! pushes anymore — the editor is view-only, changes arrive via PRs, and the
+//! trunk is kept fresh by the headless [`crate::trunk_sync`] engine. The ONE
+//! write affordance is the escape hatch: discard local changes via
+//! [`crate::trunk_sync::TrunkSync::hard_reset`] (reset to origin/<default>),
+//! behind an explicit confirm.
+//!
+//! Commit HISTORY lives in the sidebar tool column ([`HistoryList`], EXP-253
+//! — it replaced the branch list): clicking a commit selects it on the
+//! shared rail state and opens this screen, which shows the commit's diff.
 //!
 //! Trunk resolution (§4.2 rule 1: trunk-only, no board/issue scope): the
 //! active team's clone. The team's first board (sidebar order)
 //! resolves the backing repo via `repositories.list` (the v4 model —
 //! `boards.repositoryId`); the clone lives at `<repos_root>/<owner>/<name>`.
 //! All git state is derived from disk through [`coding::scm`] (§4.2 rule 3),
-//! so it survives restarts and out-of-band fixes; every read/mutation runs on
-//! the background executor (scm calls block on `git`).
-//!
-//! Commit & Push is the ONE transport path shared with the git bar: token
-//! via [`coding::token_cache`], then [`coding::clone_manager::push`] against
-//! the CHECKED-OUT branch read at spawn time.
+//! so it survives restarts and out-of-band fixes; every read runs on the
+//! background executor (scm calls block on `git`).
 //!
 //! Conflict mode (§4.4): entry/exit is purely `scm::detect_conflict` off disk
 //! (`.git/rebase-merge` / `MERGE_HEAD`), so the banner clears no matter who
@@ -34,35 +38,24 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
-    input::{Input, InputState},
-    ActiveTheme as _, Disableable as _, Sizable as _,
+    dialog::DialogButtonProps,
+    ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
-use coding::clone_manager;
-use coding::scm::{self, CommitInfo, ConflictKind, ConflictState, FileStatus, StatusSummary};
+use coding::scm::{self, CommitInfo, ConflictKind, ConflictState, FileStatus};
 use terminal::TabKind;
 
 use crate::coding_flow::{self, CodingHub};
 use crate::diff::{build_scm_diff, DiffView};
 use crate::navigation::{self, Navigation};
-use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::scroll_pane::v_scroll_pane;
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
-/// Fixed width of the left changes/commit/history column.
+/// Fixed width of the left changes column.
 const LEFT_COL_W: f32 = 360.;
-
-/// Which commit path the identity prompt is gating (§4.4: the one-time inline
-/// prompt runs *before* the pending commit, then continues it).
-#[derive(Clone, Copy)]
-enum CommitKind {
-    Plain,
-    Push,
-}
 
 /// What the right diff pane is showing.
 #[derive(Clone)]
@@ -70,26 +63,25 @@ enum Selection {
     None,
     /// A working-tree file (`git diff [--cached]`); `staged` picks the side.
     Working { path: String, staged: bool },
-    /// A history commit (`git show`).
-    Commit { hash: String },
+    /// A history commit (`git show`) — the sidebar history list carries
+    /// WHICH commit (rail `sc_selected_commit`); this only picks the pane.
+    Commit,
 }
 
-/// Scope-resolution / git-read lifecycle (mirror of the settings/run-bar load
-/// gate — render-time kicks exactly one background job while `Idle`).
+/// Scope-resolution / git-read lifecycle (render-time kicks exactly one
+/// background job while `Idle`).
 enum Load {
     Idle,
     Loading,
     Ready,
 }
 
-/// The resolved trunk clone (§4.2): the active team's backing repo on
-/// disk, plus the ids the push path needs to mint a JIT installation token.
+/// The resolved trunk clone (§4.2): the active team's backing repo on disk.
 #[derive(Clone)]
 struct TrunkScope {
-    repository_id: String,
     /// The server-reported default branch (L30: server-healed, never fabricated
-    /// as `main`). `None` when the API omitted it; used only as the labelling
-    /// fallback for the conflict-fix task when no branch is checked out.
+    /// as `main`). `None` when the API omitted it; the labelling fallback for
+    /// the conflict-fix task when no branch is checked out.
     default_branch: Option<String>,
     clone_dir: PathBuf,
 }
@@ -98,53 +90,38 @@ struct TrunkScope {
 /// [`crate::navigation::Screen::SourceControl`].
 pub struct SourceControlView {
     nav: Entity<Navigation>,
-    /// The shared per-window rail state — carries the sidebar's "view this
-    /// branch's history" selection (no checkout).
+    /// The shared per-window rail state — carries the sidebar history list's
+    /// "show this commit" selection + the trunk-sync engine.
     rail: Entity<crate::sidebar::RailShared>,
-    /// The last git-bar `sync_seq` this view re-read for — the shared bar's
-    /// counter is the freshness signal (EXP-67: an external commit pulled by
-    /// auto-sync must show up in the history pane without closing/reopening
-    /// the screen; the bar itself rides the observer, not a field).
+    /// The last trunk-sync `sync_seq` this view re-read for — the shared
+    /// engine's counter is the freshness signal (EXP-67: an external commit
+    /// pulled by auto-sync must show up without closing/reopening the
+    /// screen).
     seen_sync_seq: u64,
-    /// Scroll positions of the changes / history panes (EXP-67 scrollable
-    /// left column).
+    /// The sidebar history selection this view last applied (`None` = none).
+    seen_commit: Option<String>,
     changes_scroll: ScrollHandle,
-    history_scroll: ScrollHandle,
-    /// The branch whose history is shown (`None` = the checked-out branch,
-    /// including the working-tree changes + commit box).
-    viewing: Option<String>,
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
     /// Right pane — the shared side-by-side renderer (`set_prepared`, §4.4).
     diff: Entity<DiffView>,
-    commit_input: Entity<InputState>,
-    name_input: Entity<InputState>,
-    email_input: Entity<InputState>,
 
-    /// The active team this state belongs to (scope-change reset key).
-    scope_team: Option<String>,
+    /// The active board this state belongs to (scope-change reset key) —
+    /// the SAME scope rule as [`crate::trunk_sync::TrunkSync`] and the
+    /// sidebar [`HistoryList`], so the changes list, the history pane, and
+    /// the hard-reset target can never point at different repos in a
+    /// multi-repo team.
+    scope_board: Option<String>,
     scope_load: Load,
     scope: Option<TrunkScope>,
 
-    status: Option<StatusSummary>,
+    status: Option<scm::StatusSummary>,
     conflict: Option<ConflictState>,
-    /// exp-switch stashes of the CURRENT branch (the D-dialog's escape hatch,
-    /// surfaced as the Restore · Discard strip).
-    stashes: Vec<scm::StashEntry>,
-    history: Vec<CommitInfo>,
-    history_skip: usize,
-    history_has_more: bool,
-    history_loading: bool,
 
     selection: Selection,
-    /// Clone-local `user.name`/`user.email` present (any git config scope).
-    identity_ok: bool,
-    /// The one-time inline identity prompt is open, gating `pending_commit`.
-    show_identity: bool,
-    pending_commit: Option<CommitKind>,
 
-    /// A commit/push/abort/stage op is in flight (buttons show it, disable).
+    /// An abort/reset op is in flight (buttons show it, disable).
     busy: Option<SharedString>,
     error: Option<SharedString>,
     /// Stale-read guards (a superseded refresh / diff load is dropped).
@@ -159,17 +136,9 @@ impl SourceControlView {
         let rail = crate::sidebar::rail_shared_for_window(window, cx);
         let repo_resolver = repo_resolver_for_window(window, cx);
         let diff = cx.new(|cx| DiffView::new(window, cx));
-        let commit_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .rows(3)
-                .placeholder("Commit message…")
-        });
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Your name"));
-        let email_input = cx.new(|cx| InputState::new(window, cx).placeholder("you@example.com"));
 
-        let git_bar = rail.read(cx).git_bar().clone();
-        let seen_sync_seq = git_bar.read(cx).sync_seq();
+        let trunk_sync = rail.read(cx).trunk_sync().clone();
+        let seen_sync_seq = trunk_sync.read(cx).sync_seq();
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -177,13 +146,13 @@ impl SourceControlView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
-            // The sidebar's view-branch selection lives on the rail state.
+            // The sidebar's commit selection lives on the rail state.
             cx.observe(&rail, |_, _, cx| cx.notify()),
-            // Freshness (EXP-67): re-read status/history when a git-bar sync
-            // lands fresh on-disk state (external commits pulled by
-            // auto-sync used to stay invisible until the screen reopened).
-            cx.observe(&git_bar, |this: &mut Self, bar, cx| {
-                let seq = bar.read(cx).sync_seq();
+            // Freshness (EXP-67): re-read status when a trunk-sync pass lands
+            // fresh on-disk state (external commits pulled by auto-sync used
+            // to stay invisible until the screen reopened).
+            cx.observe(&trunk_sync, |this: &mut Self, engine, cx| {
+                let seq = engine.read(cx).sync_seq();
                 if seq != this.seen_sync_seq {
                     this.seen_sync_seq = seq;
                     this.refresh(cx);
@@ -196,28 +165,16 @@ impl SourceControlView {
             nav,
             rail,
             seen_sync_seq,
+            seen_commit: None,
             changes_scroll: ScrollHandle::new(),
-            history_scroll: ScrollHandle::new(),
-            viewing: None,
             repo_resolver,
             diff,
-            commit_input,
-            name_input,
-            email_input,
-            scope_team: None,
+            scope_board: None,
             scope_load: Load::Idle,
             scope: None,
             status: None,
             conflict: None,
-            stashes: Vec::new(),
-            history: Vec::new(),
-            history_skip: 0,
-            history_has_more: false,
-            history_loading: false,
             selection: Selection::None,
-            identity_ok: false,
-            show_identity: false,
-            pending_commit: None,
             busy: None,
             error: None,
             generation: 0,
@@ -234,46 +191,38 @@ impl SourceControlView {
     /// re-notify us when teams/boards sync in.
     fn ensure_scope(&mut self, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
-        // team, shared by all five trunk/IDE surfaces).
+        // team, shared by all trunk/IDE surfaces).
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let team_id = navigation::active_team_id(&self.nav, cx);
-        if team_id.as_deref() != self.scope_team.as_deref() {
-            self.scope_team = team_id.clone();
+        let board_id = navigation::active_board_id(&self.nav, cx);
+        if board_id.as_deref() != self.scope_board.as_deref() {
+            self.scope_board = board_id.clone();
             self.scope = None;
             self.status = None;
             self.conflict = None;
-            self.stashes.clear();
-            self.history.clear();
             self.selection = Selection::None;
             self.error = None;
             self.scope_load = Load::Idle;
+            // A scope change invalidates the sidebar's commit selection —
+            // clearing it also lets the SAME hash re-fire later (the
+            // equality guards would otherwise swallow the re-select).
+            self.seen_commit = None;
+            let rail = self.rail.clone();
+            rail.update(cx, |rail, cx| rail.clear_sc_selected_commit(cx));
         }
         // Re-run while resolving (Idle/Loading) so the resolver's completion is
         // picked up; only `Ready` (scope set or confirmed absent) short-circuits.
         if matches!(self.scope_load, Load::Ready) {
             return;
         }
-        let Some(team_id) = team_id else {
+        let Some(board_id) = board_id else {
             return;
         };
-        let collections = Store::global(cx).collections();
-        if !collections.boards.read(cx).is_ready() {
-            return; // wait for the boards shape (the observer re-fires)
-        }
-        let first_board = collections
-            .boards_in_team(&team_id, cx)
-            .first()
-            .map(|board| board.id.clone());
 
         // Read the shared resolution rather than firing our own network call:
-        // the first board's repo, else the sole team repo (v4 §4.2).
-        match self
-            .repo_resolver
-            .read(cx)
-            .lookup_team_trunk(first_board.as_deref())
-        {
+        // the ACTIVE board's repo — the trunk-sync engine's exact scope.
+        match self.repo_resolver.read(cx).lookup_board(&board_id) {
             RepoLookup::Loading => {
                 // Still resolving — show the "Resolving repository…" state and
                 // wait for the resolver observer to re-render us.
@@ -283,7 +232,6 @@ impl SourceControlView {
                 let repos_root = CodingHub::global(cx).read(cx).settings.repos_root_path();
                 let clone_dir = coding::clone_path(&repos_root, &repo.full_name);
                 self.scope = Some(TrunkScope {
-                    repository_id: repo.repository_id,
                     default_branch: repo.default_branch,
                     clone_dir,
                 });
@@ -302,7 +250,7 @@ impl SourceControlView {
     }
 
     /// Whether the resolved clone exists on disk yet (the auto-clone is the
-    /// git bar's `CloneManager` job — until it lands, the reads would fail).
+    /// trunk-sync engine's job — until it lands, the reads would fail).
     fn clone_ready(&self) -> bool {
         self.scope
             .as_ref()
@@ -311,10 +259,9 @@ impl SourceControlView {
 
     // -- git reads ----------------------------------------------------------
 
-    /// Re-read the whole trunk git state off disk (status + conflict +
-    /// exp-switch stashes + first history page + identity), superseding any
-    /// in-flight read. All git work runs on the background executor. (The
-    /// branch-flow graph lives in the sidebar's [`crate::flow_view`] now.)
+    /// Re-read status + conflict off disk, superseding any in-flight read.
+    /// All git work runs on the background executor. (History lives in the
+    /// sidebar's [`HistoryList`] now.)
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(scope) = self.scope.clone() else {
             return;
@@ -325,34 +272,14 @@ impl SourceControlView {
         self.generation += 1;
         let generation = self.generation;
         let clone = scope.clone_dir.clone();
-        // `Some(branch)` = the sidebar's view-without-checkout selection.
-        let branch = self.viewing.clone();
 
         cx.spawn(async move |this, cx| {
-            let (status, conflict, stashes, history, identity_ok) = cx
+            let (status, conflict) = cx
                 .background_executor()
                 .spawn(async move {
                     let status = scm::status(&clone);
                     let conflict = scm::detect_conflict(&clone);
-                    // exp-switch stashes of the CURRENT branch only — user
-                    // stashes and other branches' stashes stay invisible.
-                    let current_branch = status
-                        .as_ref()
-                        .map(|summary| summary.branch.clone())
-                        .unwrap_or_default();
-                    let stashes: Vec<scm::StashEntry> = scm::stash_list(&clone)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|entry| {
-                            scm::stash_switch_branch(&entry.message)
-                                == Some(current_branch.as_str())
-                        })
-                        .collect();
-                    let history =
-                        scm::log_branch(&clone, branch.as_deref(), 0, HISTORY_PAGE)
-                            .unwrap_or_default();
-                    let identity_ok = identity_configured(&clone);
-                    (status, conflict, stashes, history, identity_ok)
+                    (status, conflict)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -370,43 +297,6 @@ impl SourceControlView {
                     }
                 }
                 this.conflict = conflict;
-                this.stashes = stashes;
-                this.history_skip = history.len();
-                this.history_has_more = history.len() == HISTORY_PAGE;
-                this.history = history;
-                this.identity_ok = identity_ok;
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// History "Load more" (§4.4): append the next page.
-    fn load_more_history(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.history_loading || !self.history_has_more {
-            return;
-        }
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        let clone = scope.clone_dir.clone();
-        let skip = self.history_skip;
-        let branch = self.viewing.clone();
-        self.history_loading = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let page = cx
-                .background_executor()
-                .spawn(async move {
-                    scm::log_branch(&clone, branch.as_deref(), skip, HISTORY_PAGE)
-                        .unwrap_or_default()
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.history_loading = false;
-                this.history_skip += page.len();
-                this.history_has_more = page.len() == HISTORY_PAGE;
-                this.history.extend(page);
                 cx.notify();
             });
         })
@@ -453,7 +343,7 @@ impl SourceControlView {
     }
 
     fn select_commit(&mut self, hash: String, cx: &mut gpui::Context<Self>) {
-        self.selection = Selection::Commit { hash: hash.clone() };
+        self.selection = Selection::Commit;
         let Some(scope) = self.scope.clone() else {
             return;
         };
@@ -478,234 +368,6 @@ impl SourceControlView {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
                     Err(err) => diff.set_error(err.to_string(), cx),
                 });
-            });
-        })
-        .detach();
-    }
-
-    // -- stage / unstage ----------------------------------------------------
-
-    fn toggle_stage(&mut self, path: String, want_staged: bool, cx: &mut gpui::Context<Self>) {
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        let clone = scope.clone_dir.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    if want_staged {
-                        scm::stage(&clone, &path)
-                    } else {
-                        scm::unstage(&clone, &path)
-                    }
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    this.error = Some(format!("{err}").into());
-                }
-                this.refresh(cx);
-            });
-        })
-        .detach();
-    }
-
-    // -- exp-switch stashes ---------------------------------------------------
-
-    /// Restore (`git stash pop`) an exp-switch stash. A pop that conflicts
-    /// leaves the stash in place — git's own behavior; the error surfaces.
-    fn restore_stash(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
-        self.run_stash_op(index, true, cx);
-    }
-
-    /// Discard (`git stash drop`) an exp-switch stash.
-    fn drop_stash(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
-        self.run_stash_op(index, false, cx);
-    }
-
-    fn run_stash_op(&mut self, index: usize, restore: bool, cx: &mut gpui::Context<Self>) {
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        if self.busy.is_some() {
-            return;
-        }
-        let clone = scope.clone_dir.clone();
-        self.busy = Some(if restore { "Restoring stash…".into() } else { "Discarding stash…".into() });
-        self.error = None;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    if restore {
-                        scm::stash_pop(&clone, index)
-                    } else {
-                        scm::stash_drop(&clone, index)
-                    }
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.busy = None;
-                if let Err(err) = result {
-                    this.error = Some(format!("{err}").into());
-                }
-                this.refresh(cx);
-            });
-        })
-        .detach();
-    }
-
-    // -- commit / push ------------------------------------------------------
-
-    fn has_staged(&self) -> bool {
-        self.status
-            .as_ref()
-            .map(|status| status.changes.iter().any(|change| change.staged))
-            .unwrap_or(false)
-    }
-
-    /// Commit entry point (both buttons). Empty-staged / empty-message are
-    /// no-ops; a missing identity opens the one-time inline prompt first
-    /// (§4.4) with the pending commit stashed.
-    fn on_commit(&mut self, push: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.busy.is_some() || !self.has_staged() {
-            return;
-        }
-        let message = self.commit_input.read(cx).value().trim().to_string();
-        if message.is_empty() {
-            self.error = Some("Enter a commit message.".into());
-            cx.notify();
-            return;
-        }
-        if !self.identity_ok {
-            self.pending_commit = Some(if push {
-                CommitKind::Push
-            } else {
-                CommitKind::Plain
-            });
-            self.show_identity = true;
-            self.error = None;
-            cx.notify();
-            return;
-        }
-        self.do_commit(push, message, window, cx);
-    }
-
-    /// Run the commit (and push) off the foreground. Push is the shared
-    /// transport path: token via [`coding::token_cache`], then
-    /// [`clone_manager::push`] against the CHECKED-OUT branch read fresh
-    /// from disk at op time — `self.status` can be stale after a branch
-    /// switch outside this view, and pushing a snapshot branch would
-    /// silently ship nothing (auto-rebase if behind; a conflict leaves
-    /// markers and surfaces as conflict mode on the follow-up refresh).
-    fn do_commit(
-        &mut self,
-        push: bool,
-        message: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        let trpc = if push { queries::trpc_client(cx) } else { None };
-        let clone = scope.clone_dir.clone();
-        let repository_id = scope.repository_id.clone();
-        self.busy = Some(if push {
-            "Committing and pushing…".into()
-        } else {
-            "Committing…".into()
-        });
-        self.error = None;
-        cx.notify();
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    scm::commit(&clone, &message).map_err(|err| err.to_string())?;
-                    if push {
-                        // Fresh read — every transport op targets the branch
-                        // the disk reports (git_bar's run_sync_worker rule).
-                        let branch = coding::trunk_state::read(&clone)
-                            .map(|state| state.branch)
-                            .unwrap_or_default();
-                        if branch.is_empty() || branch.starts_with('(') {
-                            return Err("No branch checked out.".to_string());
-                        }
-                        let trpc = trpc.ok_or_else(|| "Not signed in.".to_string())?;
-                        // Cached-or-fresh mint + ambient-auth install on the
-                        // clone (EXP-73), then pure-transport push.
-                        let minted = coding::ensure_repo_auth(&trpc, &repository_id, &clone)
-                            .map_err(|err| err.to_string())?;
-                        clone_manager::push(&clone, &branch, &minted.url)
-                            .map_err(|err| err.to_string())?;
-                    }
-                    Ok::<(), String>(())
-                })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.busy = None;
-                match result {
-                    Ok(()) => {
-                        this.commit_input
-                            .update(cx, |state, cx| state.set_value("", window, cx));
-                        this.error = None;
-                    }
-                    Err(err) => this.error = Some(err.into()),
-                }
-                this.refresh(cx);
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Identity prompt confirm (§4.4): write `user.name`/`user.email` to the
-    /// **clone-local** config, then continue the stashed commit.
-    fn save_identity(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let name = self.name_input.read(cx).value().trim().to_string();
-        let email = self.email_input.read(cx).value().trim().to_string();
-        if name.is_empty() || email.is_empty() {
-            self.error = Some("Enter a name and email.".into());
-            cx.notify();
-            return;
-        }
-        let Some(scope) = self.scope.clone() else {
-            return;
-        };
-        let clone = scope.clone_dir.clone();
-        let kind = self.pending_commit.take();
-        let message = self.commit_input.read(cx).value().trim().to_string();
-        self.show_identity = false;
-        self.busy = Some("Saving identity…".into());
-        self.error = None;
-        cx.notify();
-        cx.spawn_in(window, async move |this, cx| {
-            let write = cx
-                .background_executor()
-                .spawn(async move {
-                    scm::config_set_local(&clone, "user.name", &name)
-                        .map_err(|err| err.to_string())?;
-                    scm::config_set_local(&clone, "user.email", &email)
-                        .map_err(|err| err.to_string())?;
-                    Ok::<(), String>(())
-                })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.busy = None;
-                match write {
-                    Ok(()) => {
-                        this.identity_ok = true;
-                        let push = matches!(kind, Some(CommitKind::Push));
-                        this.do_commit(push, message, window, cx);
-                    }
-                    Err(err) => {
-                        this.error = Some(err.into());
-                        cx.notify();
-                    }
-                }
             });
         })
         .detach();
@@ -798,64 +460,60 @@ impl SourceControlView {
         .detach();
     }
 
-    // -- render -------------------------------------------------------------
-
-    /// The exp-switch stash strip (above the changes list): makes the
-    /// dirty-switch dialog's stash visible and undoable — Restore pops it,
-    /// Discard drops it. Only stashes tagged for the CURRENT branch show.
-    fn render_stash_strip(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
-        if self.stashes.is_empty() {
-            return None;
-        }
-        let theme = cx.theme();
-        let mut strip = gpui_component::v_flex().flex_shrink_0().gap_1().p_2().border_b_1()
-            .border_color(theme.border)
-            .bg(theme.accent.opacity(0.2));
-        for entry in &self.stashes {
-            let index = entry.index;
-            strip = strip.child(
-                gpui_component::h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(theme.foreground)
-                            .child("Stashed changes from a branch switch"),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("stash-restore-{index}")))
-                            .ghost()
-                            .xsmall()
-                            .label("Restore")
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.restore_stash(index, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("stash-discard-{index}")))
-                            .ghost()
-                            .xsmall()
-                            .label("Discard")
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.drop_stash(index, cx);
-                            })),
-                    ),
-            );
-        }
-        Some(strip)
+    /// The EXP-253 escape hatch, behind an explicit confirm: abort any
+    /// rebase/merge, fetch, and `reset --hard origin/<default>` via the
+    /// shared trunk-sync engine. Discards local TRACKED changes; untracked
+    /// files survive.
+    fn prompt_hard_reset(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let branch = self
+            .scope
+            .as_ref()
+            .and_then(|scope| scope.default_branch.clone())
+            .or_else(|| {
+                self.status
+                    .as_ref()
+                    .map(|status| status.branch.clone())
+                    .filter(|branch| !branch.is_empty())
+            })
+            .unwrap_or_else(|| "the remote branch".to_string());
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let this = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let trunk_sync = trunk_sync.clone();
+            let this = this.clone();
+            alert
+                .confirm()
+                .overlay_closable(true)
+                .close_button(true)
+                .width(px(416.))
+                .title("Discard local changes?")
+                .description(SharedString::from(format!(
+                    "This resets the trunk to origin/{branch}, discarding all \
+                     local tracked changes and aborting any paused rebase or \
+                     merge. Untracked files are kept. This cannot be undone."
+                )))
+                .button_props(
+                    DialogButtonProps::default().ok_text("Discard changes & reset"),
+                )
+                .on_ok(move |_, _, cx| {
+                    trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
+                    if let Some(this) = this.upgrade() {
+                        this.update(cx, |this, cx| {
+                            this.selection = Selection::None;
+                            this.error = None;
+                            cx.notify();
+                        });
+                    }
+                    true
+                })
+        });
     }
+
+    // -- render -------------------------------------------------------------
 
     fn render_changes(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let changes = self.status.as_ref().map(|s| s.changes.as_slice()).unwrap_or(&[]);
-        let staged: Vec<_> = changes.iter().filter(|c| c.staged).collect();
-        let unstaged: Vec<_> = changes.iter().filter(|c| !c.staged).collect();
 
         v_scroll_pane(
             "scm-changes",
@@ -863,23 +521,15 @@ impl SourceControlView {
             gpui_component::v_flex()
                 .p_2()
                 .gap_1()
-                .when(!staged.is_empty(), |this| {
-                    this.child(self.group_header(format!("Staged ({})", staged.len()), cx))
+                .when(!changes.is_empty(), |this| {
+                    this.child(self.group_header(format!("Changes ({})", changes.len()), cx))
                         .children(
-                            staged
+                            changes
                                 .iter()
-                                .map(|change| self.change_row(change, true, cx)),
+                                .map(|change| self.change_row(change, cx)),
                         )
                 })
-                .when(!unstaged.is_empty(), |this| {
-                    this.child(self.group_header(format!("Changes ({})", unstaged.len()), cx))
-                        .children(
-                            unstaged
-                                .iter()
-                                .map(|change| self.change_row(change, false, cx)),
-                        )
-                })
-                .when(staged.is_empty() && unstaged.is_empty(), |this| {
+                .when(changes.is_empty(), |this| {
                     this.child(
                         div()
                             .py_2()
@@ -905,21 +555,21 @@ impl SourceControlView {
             .child(label.into())
     }
 
+    /// One read-only changed-file row (EXP-253: no stage checkbox — the
+    /// staged flag only picks which diff side to show).
     fn change_row(
         &self,
         change: &scm::FileChange,
-        staged: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
         let (glyph, color) = status_glyph(change.status, cx);
+        let staged = change.staged;
         let path = change.path.clone();
         let selected = matches!(
             &self.selection,
             Selection::Working { path: p, staged: s } if *p == change.path && *s == staged
         );
-        let this = cx.entity().downgrade();
-        let checkbox_path = change.path.clone();
         let row_path = change.path.clone();
 
         gpui_component::h_flex()
@@ -938,21 +588,6 @@ impl SourceControlView {
             .hover(|this| this.bg(theme.accent.opacity(0.3)))
             .cursor_pointer()
             .child(
-                Checkbox::new(SharedString::from(format!(
-                    "scm-stage-{}-{}",
-                    if staged { "s" } else { "u" },
-                    change.path
-                )))
-                .checked(staged)
-                .on_click(move |checked, _window, cx| {
-                    let path = checkbox_path.clone();
-                    let want_staged = *checked;
-                    if let Some(this) = this.upgrade() {
-                        this.update(cx, |this, cx| this.toggle_stage(path, want_staged, cx));
-                    }
-                }),
-            )
-            .child(
                 div()
                     .w(px(14.))
                     .flex_shrink_0()
@@ -970,161 +605,19 @@ impl SourceControlView {
                     .text_color(theme.foreground)
                     .child(SharedString::from(path)),
             )
-            .on_click(cx.listener(move |this, _, _window, cx| {
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // A manual file pick supersedes the sidebar's commit
+                // selection (and clears it so re-picking the same commit
+                // re-fires).
+                crate::sidebar::select_sc_commit(window, cx, None);
+                this.seen_commit = None;
                 this.select_working(row_path.clone(), staged, cx);
             }))
     }
 
-    fn render_commit_box(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let can_commit = self.has_staged() && self.busy.is_none();
-        gpui_component::v_flex()
-            .flex_shrink_0()
-            .gap_2()
-            .p_2()
-            .border_t_1()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(Input::new(&self.commit_input).small())
-            .when(self.show_identity, |this| {
-                this.child(
-                    gpui_component::v_flex()
-                        .gap_1()
-                        .p_2()
-                        .rounded(theme.radius)
-                        .border_1()
-                        .border_color(theme.border)
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child("Set the author for commits in this repository:"),
-                        )
-                        .child(Input::new(&self.name_input).small())
-                        .child(Input::new(&self.email_input).small())
-                        .child(
-                            Button::new("scm-identity-save")
-                                .primary()
-                                .small()
-                                .label("Save & commit")
-                                .disabled(self.busy.is_some())
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.save_identity(window, cx);
-                                })),
-                        ),
-                )
-            })
-            .child(
-                gpui_component::h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("scm-commit")
-                            .small()
-                            .label("Commit")
-                            .disabled(!can_commit)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.on_commit(false, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("scm-commit-push")
-                            .primary()
-                            .small()
-                            .label("Commit & Push")
-                            .disabled(!can_commit)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.on_commit(true, window, cx);
-                            })),
-                    )
-                    .when_some(self.busy.clone(), |this, busy| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(busy),
-                        )
-                    }),
-            )
-    }
-
-    fn render_history(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        v_scroll_pane(
-            "scm-history",
-            &self.history_scroll,
-            gpui_component::v_flex()
-                .p_2()
-                .gap_0p5()
-                .child(self.group_header("History", cx))
-                .children(
-                    self.history
-                        .iter()
-                        .map(|commit| self.commit_row(commit, cx)),
-                )
-                .when(self.history.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .py_2()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("No commits yet."),
-                    )
-                })
-                .when(self.history_has_more, |this| {
-                    this.child(
-                        Button::new("scm-history-more")
-                            .ghost()
-                            .xsmall()
-                            .label(if self.history_loading {
-                                "Loading…"
-                            } else {
-                                "Load more"
-                            })
-                            .disabled(self.history_loading)
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.load_more_history(cx);
-                            })),
-                    )
-                }),
-        )
-    }
-
-    fn commit_row(&self, commit: &CommitInfo, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let selected = matches!(&self.selection, Selection::Commit { hash } if *hash == commit.hash);
-        let hash = commit.hash.clone();
-        let meta = format!("{} · {}", commit.author, commit.relative_time);
-        gpui_component::v_flex()
-            .id(SharedString::from(format!("scm-commit-{}", commit.hash)))
-            .w_full()
-            .gap_0p5()
-            .px_1()
-            .py_1()
-            .rounded(theme.radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
-            .cursor_pointer()
-            .child(
-                div()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(commit.subject.clone())),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(SharedString::from(meta)),
-            )
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                this.select_commit(hash.clone(), cx);
-            }))
-    }
-
     /// The §4.4 conflict banner (leads the screen while a rebase/merge is
-    /// paused). Conflicted-file chips open their marker diff; the three
-    /// actions are Fix-with-Claude / Open-terminal / Abort.
+    /// paused). Conflicted-file chips open their marker diff; the actions
+    /// are Fix-with-Claude / Open-terminal / Abort / the reset hatch.
     fn render_conflict_banner(
         &self,
         conflict: &ConflictState,
@@ -1207,6 +700,15 @@ impl SourceControlView {
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.abort_conflict(cx);
                             })),
+                    )
+                    .child(
+                        Button::new("scm-conflict-reset")
+                            .small()
+                            .label("Discard & reset…")
+                            .disabled(self.busy.is_some())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.prompt_hard_reset(window, cx);
+                            })),
                     ),
             )
     }
@@ -1223,7 +725,7 @@ impl SourceControlView {
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("Select a file or commit to view its diff.")
+                .child("Select a file or a commit from History to view its diff.")
                 .into_any_element(),
             // `.h_full()` is load-bearing: without a definite height the
             // DiffView's virtual list resolves to zero height and renders
@@ -1262,7 +764,7 @@ impl SourceControlView {
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .child(
-                    "No repository connected to this team — connect one in team settings.",
+                    "No repository linked to this board — link one in team settings.",
                 )
                 .into_any_element();
         }
@@ -1279,32 +781,41 @@ impl SourceControlView {
                 .into_any_element();
         }
 
-        // Viewing another branch's history (sidebar selection, no checkout):
-        // the working-tree changes + commit box are the CURRENT branch's and
-        // would mislead — show the banner + that branch's history only.
-        // The flow graph lives in the SIDEBAR tool window ([`crate::flow_view`])
-        // — the left column here stays changes/commit/history at full height.
-        let left = if let Some(branch) = self.viewing.clone() {
-            gpui_component::v_flex()
-                .w(px(LEFT_COL_W))
-                .flex_shrink_0()
-                .h_full()
-                .border_r_1()
-                .border_color(theme.border)
-                .child(self.render_viewing_banner(&branch, cx))
-                .child(self.render_history(cx))
-        } else {
-            gpui_component::v_flex()
-                .w(px(LEFT_COL_W))
-                .flex_shrink_0()
-                .h_full()
-                .border_r_1()
-                .border_color(theme.border)
-                .when_some(self.render_stash_strip(cx), |this, strip| this.child(strip))
-                .child(self.render_changes(cx))
-                .child(self.render_commit_box(cx))
-                .child(self.render_history(cx))
-        };
+        let dirty = self
+            .status
+            .as_ref()
+            .map(|status| !status.changes.is_empty())
+            .unwrap_or(false);
+        // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
+        // mutable cx borrows of the render calls below.
+        let border = theme.border;
+        let left = gpui_component::v_flex()
+            .w(px(LEFT_COL_W))
+            .flex_shrink_0()
+            .h_full()
+            .border_r_1()
+            .border_color(border)
+            .child(self.render_changes(cx))
+            // The escape hatch for a dirty tree (a conflicted tree gets it
+            // in the banner instead): the ONE write affordance left.
+            .when(dirty && self.conflict.is_none(), |this| {
+                this.child(
+                    gpui_component::h_flex()
+                        .flex_shrink_0()
+                        .p_2()
+                        .border_t_1()
+                        .border_color(border)
+                        .child(
+                            Button::new("scm-hard-reset")
+                                .small()
+                                .label("Discard changes & reset…")
+                                .disabled(self.busy.is_some())
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.prompt_hard_reset(window, cx);
+                                })),
+                        ),
+                )
+            });
 
         gpui_component::h_flex()
             .flex_1()
@@ -1312,42 +823,6 @@ impl SourceControlView {
             .child(left)
             .child(self.render_diff_pane(cx))
             .into_any_element()
-    }
-
-    /// The "history of another branch" strip: what is shown + the way back.
-    fn render_viewing_banner(
-        &self,
-        branch: &str,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-        gpui_component::h_flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .border_b_1()
-            .border_color(theme.border)
-            .bg(theme.muted.opacity(0.3))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(format!("\u{2387} {branch}"))),
-            )
-            .child(
-                Button::new("scm-view-current")
-                    .ghost()
-                    .xsmall()
-                    .label("Back to current")
-                    .on_click(|_, window, cx| {
-                        crate::sidebar::set_view_branch(window, cx, None);
-                    }),
-            )
     }
 }
 
@@ -1360,18 +835,17 @@ impl Focusable for SourceControlView {
 impl Render for SourceControlView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_scope(cx);
-        // Follow the sidebar's view-branch selection: a change resets the
-        // selection + reloads history for that branch (no checkout).
-        let view = self.rail.read(cx).view_branch().map(str::to_string);
-        if view != self.viewing {
-            self.viewing = view;
-            self.selection = Selection::None;
-            self.history.clear();
-            self.history_skip = 0;
-            self.history_has_more = false;
-            self.history_scroll
-                .set_offset(gpui::point(px(0.), px(0.)));
-            self.refresh(cx);
+        // Follow the sidebar history list's commit selection.
+        let want = self
+            .rail
+            .read(cx)
+            .sc_selected_commit()
+            .map(str::to_string);
+        if want != self.seen_commit {
+            self.seen_commit = want.clone();
+            if let Some(hash) = want {
+                self.select_commit(hash, cx);
+            }
         }
         let theme = cx.theme();
         let conflict = self.conflict.clone();
@@ -1398,19 +872,6 @@ impl Render for SourceControlView {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Git identity (§4.4 one-time prompt) — reads/writes through the scm config
-// wrappers; the decision of WHEN to prompt stays a UI concern.
-// ---------------------------------------------------------------------------
-
-/// True when both `user.name` and `user.email` resolve in ANY git config
-/// scope for the clone (§4.4: identity comes from the user's global config;
-/// the prompt only appears when unset).
-fn identity_configured(clone: &std::path::Path) -> bool {
-    !scm::config_get(clone, "user.name").is_empty()
-        && !scm::config_get(clone, "user.email").is_empty()
-}
-
 /// Status glyph + color for a change row (M/A/D/R/? — §4.4 changes list).
 fn status_glyph(status: FileStatus, cx: &App) -> (&'static str, gpui::Hsla) {
     let theme = cx.theme();
@@ -1420,5 +881,239 @@ fn status_glyph(status: FileStatus, cx: &App) -> (&'static str, gpui::Hsla) {
         FileStatus::Deleted => ("D", theme.red),
         FileStatus::Renamed => ("R", theme.blue),
         FileStatus::Untracked => ("?", theme.muted_foreground),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HistoryList — the sidebar Source Control tool window (EXP-253: it replaced
+// the branch list / flow graph)
+// ---------------------------------------------------------------------------
+
+/// The trunk's commit history in the sidebar tool column. Scope comes from
+/// the shared [`crate::trunk_sync::TrunkSync`] engine (the active board's
+/// clone — the same scope the old branch list followed); a fresh sync
+/// (`sync_seq`) re-reads the first page. Clicking a commit selects it on the
+/// shared rail state and opens the Source Control screen, which shows its
+/// diff.
+pub struct HistoryList {
+    rail: Entity<crate::sidebar::RailShared>,
+    scroll: ScrollHandle,
+    /// The clone the loaded history belongs to (scope-change reset key).
+    seen_clone: Option<PathBuf>,
+    /// The last trunk-sync `sync_seq` this list re-read for.
+    seen_sync_seq: u64,
+    history: Vec<CommitInfo>,
+    history_skip: usize,
+    history_has_more: bool,
+    history_loading: bool,
+    /// Stale-read guard (a superseded refresh is dropped).
+    generation: u64,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl HistoryList {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let rail = crate::sidebar::rail_shared_for_window(window, cx);
+        let trunk_sync = rail.read(cx).trunk_sync().clone();
+        let subscriptions = vec![
+            // Selection highlight + scope both live on the rail state.
+            cx.observe(&rail, |_, _, cx| cx.notify()),
+            cx.observe(&trunk_sync, |_, _, cx| cx.notify()),
+        ];
+        Self {
+            rail,
+            scroll: ScrollHandle::new(),
+            seen_clone: None,
+            seen_sync_seq: 0,
+            history: Vec::new(),
+            history_skip: 0,
+            history_has_more: false,
+            history_loading: false,
+            generation: 0,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// Render-time freshness gate: reset + reload on a clone change, reload
+    /// the first page on a fresh sync.
+    fn ensure_fresh(&mut self, cx: &mut gpui::Context<Self>) {
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let engine = trunk_sync.read(cx);
+        let clone = engine.clone_dir();
+        let seq = engine.sync_seq();
+        if clone != self.seen_clone {
+            self.seen_clone = clone.clone();
+            self.seen_sync_seq = seq;
+            self.history.clear();
+            self.history_skip = 0;
+            self.history_has_more = false;
+            self.generation += 1;
+            if clone.is_some() {
+                self.refresh(cx);
+            }
+            return;
+        }
+        if seq != self.seen_sync_seq {
+            self.seen_sync_seq = seq;
+            self.refresh(cx);
+        }
+    }
+
+    /// (Re)load the first history page for the current clone.
+    fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(clone) = self.seen_clone.clone() else {
+            return;
+        };
+        self.generation += 1;
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let page = cx
+                .background_executor()
+                .spawn(async move {
+                    scm::log_branch(&clone, None, 0, HISTORY_PAGE).unwrap_or_default()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                this.history_skip = page.len();
+                this.history_has_more = page.len() == HISTORY_PAGE;
+                this.history = page;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// History "Load more" (§4.4): append the next page.
+    fn load_more(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.history_loading || !self.history_has_more {
+            return;
+        }
+        let Some(clone) = self.seen_clone.clone() else {
+            return;
+        };
+        let skip = self.history_skip;
+        let generation = self.generation;
+        self.history_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let page = cx
+                .background_executor()
+                .spawn(async move {
+                    scm::log_branch(&clone, None, skip, HISTORY_PAGE).unwrap_or_default()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.history_loading = false;
+                if this.generation != generation {
+                    return;
+                }
+                this.history_skip += page.len();
+                this.history_has_more = page.len() == HISTORY_PAGE;
+                this.history.extend(page);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn commit_row(&self, commit: &CommitInfo, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let selected = self
+            .rail
+            .read(cx)
+            .sc_selected_commit()
+            .is_some_and(|hash| hash == commit.hash);
+        let hash = commit.hash.clone();
+        let meta = format!("{} · {}", commit.author, commit.relative_time);
+        gpui_component::v_flex()
+            .id(SharedString::from(format!("hist-commit-{}", commit.hash)))
+            .w_full()
+            .gap_0p5()
+            .px_1()
+            .py_1()
+            .rounded(theme.radius)
+            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .cursor_pointer()
+            .child(
+                div()
+                    .text_xs()
+                    .truncate()
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(commit.subject.clone())),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(meta)),
+            )
+            .on_click(cx.listener(move |_, _, window, cx| {
+                crate::sidebar::select_sc_commit(window, cx, Some(hash.clone()));
+                // Opens/refocuses the Source Control screen, which follows
+                // the selection.
+                crate::sidebar::activate_tool(
+                    window,
+                    cx,
+                    crate::sidebar::ToolWindow::SourceControl,
+                );
+            }))
+    }
+}
+
+impl Render for HistoryList {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.ensure_fresh(cx);
+        let muted = cx.theme().muted_foreground;
+        let no_clone = self.seen_clone.is_none();
+        v_scroll_pane(
+            "hist-scroll",
+            &self.scroll,
+            gpui_component::v_flex()
+                .p_2()
+                .gap_0p5()
+                .when(no_clone, |this| {
+                    this.child(
+                        div()
+                            .py_2()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("No repository resolved yet."),
+                    )
+                })
+                .children(
+                    self.history
+                        .iter()
+                        .map(|commit| self.commit_row(commit, cx)),
+                )
+                .when(!no_clone && self.history.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .py_2()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("No commits yet."),
+                    )
+                })
+                .when(self.history_has_more, |this| {
+                    this.child(
+                        Button::new("hist-more")
+                            .ghost()
+                            .xsmall()
+                            .label(if self.history_loading {
+                                "Loading…"
+                            } else {
+                                "Load more"
+                            })
+                            .disabled(self.history_loading)
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.load_more(cx);
+                            })),
+                    )
+                }),
+        )
     }
 }

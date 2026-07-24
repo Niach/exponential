@@ -362,7 +362,7 @@ impl CreateBoardDialogView {
                         crate::sidebar::activate_tool(
                             window,
                             cx,
-                            crate::sidebar::ToolWindow::AllIssues,
+                            crate::sidebar::ToolWindow::BoardIssues,
                         );
                     });
                 }

@@ -258,7 +258,8 @@ fn wait_for(what: &str, predicate: impl Fn() -> bool) {
 fn issue_of(start: &steer::RemoteStart) -> Option<&str> {
     match &start.subject {
         steer::RemoteStartSubject::Issue(id) => Some(id.as_str()),
-        steer::RemoteStartSubject::Batch { .. } => None,
+        steer::RemoteStartSubject::Batch { .. }
+        | steer::RemoteStartSubject::Action { .. } => None,
     }
 }
 
@@ -419,6 +420,7 @@ fn full_protocol_flow_against_the_real_relay() {
         &runtime,
         DeviceIdentity {
             agents: vec![],
+            caps: vec![],
             device_id: "device-int-1".to_string(),
             device_label: "IntTestBox".to_string(),
         },

@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { codingSessions, issues } from "@/db/schema"
+import { actions, codingSessions, issues } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -10,9 +10,12 @@ import {
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
-// Two subjects: issue-scoped (issueId) or batch-scoped (teamId — the
+// Three subjects: issue-scoped (issueId), batch-scoped (teamId — the
 // desktop multi-issue batch orchestrator; issue_id/board_id stay NULL, the
-// populate triggers no-op on NULL issue_id). Exactly one of the two.
+// populate triggers no-op on NULL issue_id), or action-scoped (actionId —
+// EXP-253: batch-shaped plus action_id + the action_name display snapshot;
+// actions are server-only so clients label rows off the snapshot).
+// Exactly one of the three.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
 export const codingSessionsRouter = router({
@@ -22,16 +25,56 @@ export const codingSessionsRouter = router({
         .object({
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
+          actionId: z.string().uuid().optional(),
           deviceLabel: z.string().max(255).optional(),
         })
         .refine(
-          (value) => Boolean(value.issueId) !== Boolean(value.teamId),
+          (value) =>
+            [value.issueId, value.teamId, value.actionId].filter(Boolean)
+              .length === 1,
           {
-            message: `Exactly one of issueId/teamId is required`,
+            message: `Exactly one of issueId/teamId/actionId is required`,
           }
         )
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.actionId) {
+        // Action run: every member may run a team action (running is a
+        // member affordance; only WRITES are owner-gated). The name is
+        // snapshotted server-side so the row outlives the action row.
+        const [action] = await ctx.db
+          .select({
+            id: actions.id,
+            teamId: actions.teamId,
+            name: actions.name,
+          })
+          .from(actions)
+          .where(eq(actions.id, input.actionId))
+          .limit(1)
+        if (!action) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Action not found`,
+          })
+        }
+        await assertTeamMember(ctx.session.user.id, action.teamId)
+
+        const [session] = await ctx.db
+          .insert(codingSessions)
+          .values({
+            // Batch-shaped: no issue/board — team_id written directly.
+            teamId: action.teamId,
+            actionId: action.id,
+            actionName: action.name,
+            userId: ctx.session.user.id,
+            deviceLabel: input.deviceLabel ?? null,
+            status: `running`,
+          })
+          .returning()
+
+        return { session }
+      }
+
       if (input.issueId) {
         const issueCtx = await getIssueTeamContext(input.issueId)
         await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
@@ -98,11 +141,21 @@ export const codingSessionsRouter = router({
           // The row's original start scope — enables re-create-on-missing.
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
+          // Action scope (EXP-253) rides WITH teamId so a deleted action
+          // still lets the row resurrect batch-shaped; actionName is the
+          // client-held snapshot (the action may be gone by resurrect time).
+          actionId: z.string().uuid().optional(),
+          actionName: z.string().max(255).optional(),
           deviceLabel: z.string().max(255).optional(),
         })
         .refine((value) => !(value.issueId && value.teamId), {
           message: `At most one of issueId/teamId`,
         })
+        .refine(
+          (value) =>
+            !value.actionId || (Boolean(value.teamId) && !value.issueId),
+          { message: `actionId requires teamId and excludes issueId` }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
@@ -140,13 +193,34 @@ export const codingSessionsRouter = router({
             })
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
+            // Action rows re-create from the client snapshot. If the action
+            // was deleted meanwhile, a dangling-FK insert would 23503 —
+            // pre-check and degrade: action_id NULL, actionName kept
+            // (exactly the shape FK SET NULL leaves on live rows). The
+            // pre-check races a concurrent delete; that lands in the catch
+            // below and the next ping self-heals. The action must also
+            // belong to the claimed team (the same derivation `start`
+            // enforces) — a cross-team actionId degrades to NULL instead of
+            // planting a cross-tenant FK reference in the synced row.
+            let actionId: string | null = null
+            if (input.actionId) {
+              const [action] = await ctx.db
+                .select({ id: actions.id, teamId: actions.teamId })
+                .from(actions)
+                .where(eq(actions.id, input.actionId))
+                .limit(1)
+              actionId =
+                action && action.teamId === input.teamId ? action.id : null
+            }
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               teamId: input.teamId!,
+              actionId,
+              actionName: input.actionId ? (input.actionName ?? null) : null,
               userId: ctx.session.user.id,
               deviceLabel: input.deviceLabel ?? null,
-              // Batch rows have no issue to re-derive review state from —
-              // a resurrected batch session degrades to `running` (badge
+              // Batch/action rows have no issue to re-derive review state
+              // from — a resurrected session degrades to `running` (badge
               // label only; rare suspend edge, never kills anything).
               status: `running`,
             })

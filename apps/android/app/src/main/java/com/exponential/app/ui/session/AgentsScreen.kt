@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartToy
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +73,7 @@ import com.exponential.app.ui.theme.glassRow
 fun AgentsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
+    onOpenActions: () -> Unit,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,12 +94,37 @@ fun AgentsScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "Agents",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Agents",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                // Team actions (EXP-253) live behind the Agents surface — the
+                // bottom bar is already at capacity (six tabs + compose on a
+                // 360dp screen), so the entry rides the Agents header instead
+                // of a seventh tab. NOT helpdesk-gated.
+                TextButton(onClick = onOpenActions, modifier = Modifier.testTag("open-actions")) {
+                    Icon(
+                        Icons.Filled.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Actions",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            }
             // No steer and nothing running → the full empty state (no devices
             // section to anchor a compact caption).
             if (!steerOn && state.rows.isEmpty()) {
@@ -321,12 +349,13 @@ private fun AgentSessionRow(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    // A batch run spans issues and carries no issue_id — name it
-                    // as such rather than "not synced". Keep the not-yet-synced
-                    // case for an issue-scoped session whose issue hasn't landed.
+                    // An issueless run is an action run when the row carries
+                    // its action_name snapshot (EXP-253), else a batch run —
+                    // never "not synced". Keep the not-yet-synced case for an
+                    // issue-scoped session whose issue hasn't landed.
                     when {
                         issue != null -> issue.title
-                        session.issueId == null -> "Batch run"
+                        session.issueId == null -> session.actionName ?: "Batch run"
                         else -> "Issue not synced yet"
                     },
                     style = MaterialTheme.typography.bodyMedium,

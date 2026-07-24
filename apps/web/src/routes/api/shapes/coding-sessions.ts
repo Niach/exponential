@@ -7,11 +7,18 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist — excludes the REV2-5 `board_deleted_at`
 // trash mirror (server-only; the where clause filters on it).
+// `action_id`/`action_name` were appended for EXP-253 — a ONE-TIME shape-
+// identity rotation (benign: small table, full resync; land in one deploy).
+// Old native builds drop unknown columns safely (verified: iOS filters to
+// its SQLite schema, Android ignoreUnknownKeys + partial-plan filter,
+// desktop serde non-strict).
 const CODING_SESSION_COLUMNS = [
   `id`,
   `issue_id`,
   `team_id`,
   `board_id`,
+  `action_id`,
+  `action_name`,
   `user_id`,
   `device_label`,
   `status`,

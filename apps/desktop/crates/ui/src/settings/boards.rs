@@ -13,9 +13,6 @@
 //! mutation's Electric echo updates the row), so this pane needs no
 //! optimistic state; a rejected retarget surfaces as an inline error.
 //!
-//! The §7.3 run-targets editor (DB `run_configs`) plugs into this pane when
-//! the IDE track lands it — its CRUD + Trust gate is §07-owned; this file
-//! deliberately does not stub it.
 
 use gpui::{
     div, px, ElementId, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -179,7 +176,7 @@ impl BoardsPane {
     ) {
         // Alert dialog, not a plain dialog: only AlertDialog renders the
         // button_props ok/cancel footer — a plain Dialog shows title/body
-        // and NO buttons (EXP-181; the git-bar stash confirm hit the same).
+        // and NO buttons (EXP-181).
         window.open_alert_dialog(cx, move |alert, _, _| {
             let name = board_name.clone();
             let board_id = board_id.clone();

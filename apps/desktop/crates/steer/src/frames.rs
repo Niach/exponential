@@ -69,6 +69,10 @@ pub enum ClientFrame<'a> {
         /// `["claude"]`.
         #[serde(skip_serializing_if = "Option::is_none")]
         agents: Option<&'a [String]>,
+        /// EXP-253: feature capabilities (`actions`) — remote Run-action
+        /// pickers strictly gate on it (absent = no action launch path).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        caps: Option<&'a [String]>,
     },
     #[serde(rename_all = "camelCase")]
     Hello {
@@ -209,14 +213,20 @@ pub enum ServerFrame {
     },
     #[serde(rename_all = "camelCase")]
     StartSession {
-        /// Exactly one of `issue_id` / `issue_ids` is set on a conforming
-        /// frame (guarded in `control_channel::remote_start_from_frame`): a
-        /// single-issue start carries `issue_id`; a batch start (EXP-106)
-        /// carries `issue_ids` + `team_id` + `repo`.
+        /// Exactly one of `issue_id` / `issue_ids` / `action_id` is set on
+        /// a conforming frame (guarded in
+        /// `control_channel::remote_start_from_frame`): a single-issue start
+        /// carries `issue_id`; a batch start (EXP-106) carries `issue_ids` +
+        /// `team_id` + `repo`; an action start (EXP-253) carries `action_id`
+        /// + `action_name` + `team_id` (+ `repo` when repo-backed).
         #[serde(default)]
         issue_id: Option<String>,
         #[serde(default)]
         issue_ids: Option<Vec<String>>,
+        #[serde(default)]
+        action_id: Option<String>,
+        #[serde(default)]
+        action_name: Option<String>,
         #[serde(default)]
         team_id: Option<String>,
         #[serde(default)]
@@ -278,6 +288,7 @@ mod tests {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
                 agents: None,
+                caps: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook"}"#
@@ -287,6 +298,7 @@ mod tests {
                 device_id: "dev-1",
                 device_label: None,
                 agents: None,
+                caps: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
@@ -298,9 +310,22 @@ mod tests {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
                 agents: Some(&agents),
+                caps: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"]}"#
+        );
+        // EXP-253: the capability advertisement rides `caps`.
+        let caps = vec!["actions".to_string()];
+        assert_eq!(
+            ClientFrame::Online {
+                device_id: "dev-1",
+                device_label: Some("MacBook"),
+                agents: Some(&agents),
+                caps: Some(&caps),
+            }
+            .to_json(),
+            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"],"caps":["actions"]}"#
         );
     }
 
@@ -509,6 +534,7 @@ mod tests {
                     device_id: "d",
                     device_label: None,
                     agents: None,
+                    caps: None,
                 },
                 "online",
             ),
@@ -579,6 +605,8 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: Some("issue-9".into()),
                 issue_ids: None,
+                action_id: None,
+                action_name: None,
                 team_id: None,
                 repo: None,
                 agent: None,
@@ -603,6 +631,8 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: Some("issue-9".into()),
                 issue_ids: None,
+                action_id: None,
+                action_name: None,
                 team_id: None,
                 repo: None,
                 agent: Some("codex".into()),
@@ -626,6 +656,8 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: None,
                 issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
+                action_id: None,
+                action_name: None,
                 team_id: Some("ws-7".into()),
                 repo: Some(StartRepoGroup {
                     repository_id: "repo-1".into(),
@@ -643,6 +675,36 @@ mod tests {
     }
 
     #[test]
+    fn start_session_deserializes_action_frame() {
+        // EXP-253 action start: actionId + actionName + teamId (+ repo when
+        // repo-backed), model/effort options.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","actionId":"act-1","actionName":"Code review","teamId":"ws-7","repo":{"repositoryId":"repo-1","fullName":"acme/api","defaultBranch":"main"},"model":"opus","effort":"high"}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: None,
+                issue_ids: None,
+                action_id: Some("act-1".into()),
+                action_name: Some("Code review".into()),
+                team_id: Some("ws-7".into()),
+                repo: Some(StartRepoGroup {
+                    repository_id: "repo-1".into(),
+                    full_name: "acme/api".into(),
+                    default_branch: "main".into(),
+                }),
+                agent: None,
+                model: Some("opus".into()),
+                effort: Some("high".into()),
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: None,
+            }
+        );
+    }
+
+    #[test]
     fn start_session_deserializes_batch_frame_without_options() {
         // A batch start from a client that sends no EXP-149 options — every
         // option arrives None, the subject fields stay populated.
@@ -654,6 +716,8 @@ mod tests {
             ServerFrame::StartSession {
                 issue_id: None,
                 issue_ids: Some(vec!["issue-1".into(), "issue-2".into()]),
+                action_id: None,
+                action_name: None,
                 team_id: Some("ws-7".into()),
                 repo: Some(StartRepoGroup {
                     repository_id: "repo-1".into(),
