@@ -1,21 +1,14 @@
-//! The issue-detail attachment strip (masterplan-v3 §4.2; web reference:
+//! Attachment-chip helpers for the create-issue dialog (web reference:
 //! `apps/web/src/components/issue-editor/attachment-rail.tsx` +
 //! `lib/storage/issue-attachments.ts`).
 //!
-//! Web derives the rail from the **description markdown's image
-//! occurrences** (`extractMarkdownImageOccurrences`), renders one chip per
-//! occurrence, and always shows the trailing **"N images"** count — even at
-//! zero. This module mirrors that: [`extract_image_occurrences`] is the
-//! Rust port of the web's `markdownImagePattern` scan, and the strip renders
-//! unconditionally under the description (web `px-4 py-3 border-t`).
-//!
-//! Desktop v1 chips are compact (image glyph + label) rather than bitmap
-//! thumbnails — fetching bitmaps needs authenticated `/api/attachments/{id}`
-//! requests, which belong to the §4.5 editor's image pipeline; the rail
-//! upgrades when that lands. Upload/removal entry points live with the
-//! editor on the detail screen (§4.5 one-upload-path rule); the create
-//! dialog's rail (create_issue_dialog.rs) reuses [`image_chip`] with a
-//! remove ✕ exactly like web.
+//! [`extract_image_occurrences`] is the Rust port of the web's
+//! `markdownImagePattern` scan over a description markdown; the create
+//! dialog's rail (create_issue_dialog.rs) renders one [`image_chip`] per
+//! occurrence with a remove ✕ exactly like web. The issue-detail strip that
+//! used to render these chips under the description is gone (EXP-256 —
+//! removed on web too): the description editor's image blocks are the one
+//! attachment surface on the detail screen.
 
 use gpui::{
     div, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString,
@@ -25,7 +18,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
-use sync::Store;
 
 use crate::icons::ExpIcon;
 
@@ -144,62 +136,6 @@ pub(crate) fn image_count_label(count: usize) -> String {
     }
 }
 
-/// The detail strip, derived from the issue's description markdown exactly
-/// like web (always rendered — "0 images" included). `None` only when the
-/// issue row itself is gone from the synced collection.
-///
-/// EXP-33: a quiet, GitHub-like strip — borderless soft chips, no
-/// boxes-in-boxes. No separator of its own (EXP-67): the old top border cut
-/// across the description editor's rounded corner; the timeline below draws
-/// the one dividing line.
-pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
-    let description = Store::global(cx)
-        .collections()
-        .issues
-        .read(cx)
-        .get(issue_id)?
-        .description
-        .clone()
-        .unwrap_or_default();
-    let occurrences = extract_image_occurrences(&description);
-
-    Some(
-        h_flex()
-            .w_full()
-            .px_4()
-            .py_2p5()
-            .gap_2()
-            .items_center()
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1p5()
-                    .overflow_hidden()
-                    .children(occurrences.iter().enumerate().map(|(ix, occurrence)| {
-                        // Detail chips carry no remove ✕ in v1: removal edits
-                        // the description markdown, which is the §4.5
-                        // editor's job. Clicking opens the in-app image
-                        // preview (EXP-33).
-                        image_chip(
-                            ElementId::from(("attachment-chip", ix)),
-                            occurrence_label(occurrence, ix),
-                            &occurrence.url,
-                            None,
-                            cx,
-                        )
-                    })),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(image_count_label(occurrences.len()))),
-            ),
-    )
-}
-
 /// Remove-✕ handler of one chip (element id + click callback).
 pub(crate) type ChipRemove = (
     SharedString,
@@ -249,7 +185,10 @@ pub(crate) fn image_chip(
         );
 
     if openable {
-        let url = url.to_string();
+        // Query-stripped: the lightbox always shows full size (a `?w=` src
+        // is a display-width hint, and stripping keeps the ImageCache keyed
+        // on one canonical URL per attachment).
+        let url = crate::markdown::image_url::strip_query(url).to_string();
         row = row
             .cursor_pointer()
             .hover(|el| el.bg(cx.theme().secondary))

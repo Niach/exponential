@@ -47,7 +47,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -1017,6 +1017,20 @@ impl StartCodingControl {
         }
     }
 
+    /// Whether the control renders anything at all: an issue is set AND its
+    /// board is repo-backed (or not yet synced — never hide on a sync race).
+    /// The properties panel gates its "Agent" group label on this so an empty
+    /// control never leaves an orphaned section header.
+    pub fn is_visible(&self, cx: &App) -> bool {
+        let Some(issue_id) = self.issue_id.as_deref() else {
+            return false;
+        };
+        match issue_board(issue_id, cx) {
+            Some(board) => board.repository_id.is_some(),
+            None => true,
+        }
+    }
+
     /// The disabled reason right now, `None` when the button may launch
     /// (repo non-null AND doctor green — `git` plus ANY usable agent;
     /// the launch path re-gates on the SELECTED agent).
@@ -1070,18 +1084,16 @@ impl CodingHub {
 
 impl Render for StartCodingControl {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // Coding gates purely on repository presence: a repo-less board
+        // shows NO Start-coding affordance, while any repo-backed board
+        // keeps the button. Hidden here before the probe so it never fetches
+        // (`is_visible` is the same gate the panel's group label uses).
+        if !self.is_visible(cx) {
+            return div().into_any_element();
+        }
         let Some(issue_id) = self.issue_id.clone() else {
             return div().into_any_element();
         };
-        // Coding gates purely on repository presence: a repo-less board
-        // shows NO Start-coding affordance, while any repo-backed board
-        // keeps the button. Hidden here before the probe so it never fetches.
-        let board = issue_board(&issue_id, cx);
-        if let Some(board) = &board {
-            if board.repository_id.is_none() {
-                return div().into_any_element();
-            }
-        }
         // Lazy kicks: the hub (doctor) exists once anything coding renders;
         // the probe follows the current issue.
         let _ = CodingHub::global(cx);
@@ -1122,10 +1134,11 @@ impl Render for StartCodingControl {
                 queries::CodingSessionDisplay::Done => (theme::tokens::BLUE, "Done"),
                 queries::CodingSessionDisplay::Running => (theme::tokens::GREEN, "Coding…"),
             };
-            return h_flex()
-                .flex_shrink_0()
-                .gap_1()
-                .items_center()
+            // Sidebar layout (EXP-256, web "Agent" group): status line above
+            // a full-width outline Stop.
+            return v_flex()
+                .w_full()
+                .gap_2()
                 .child(
                     h_flex()
                         .gap_1p5()
@@ -1137,8 +1150,9 @@ impl Render for StartCodingControl {
                 )
                 .child(
                     Button::new("stop-coding")
-                        .ghost()
-                        .xsmall()
+                        .outline()
+                        .small()
+                        .w_full()
                         .icon(Icon::new(IconName::CircleX).text_color(cx.theme().danger))
                         .label("Stop")
                         .tooltip("Stop the coding session (ends it for every client)")
@@ -1147,11 +1161,14 @@ impl Render for StartCodingControl {
                 .into_any_element();
         }
 
+        // Sidebar layout (EXP-256, web "Agent" group): a full-width outline
+        // button; the repo-less retry sits beside it as a compact icon.
         let disabled = self.disabled_reason(cx);
-        let mut row = h_flex().flex_shrink_0().gap_0p5().items_center();
+        let mut row = h_flex().w_full().gap_1().items_center();
         let button = Button::new("start-coding")
-            .ghost()
-            .xsmall()
+            .outline()
+            .small()
+            .flex_1()
             .icon(Icon::new(IconName::Play).text_color(if disabled.is_some() {
                 cx.theme().muted_foreground
             } else {

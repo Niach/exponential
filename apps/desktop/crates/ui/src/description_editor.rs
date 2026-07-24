@@ -124,6 +124,9 @@ impl SeamEditor {
             // links) until the user clicks in to edit — web parity (EXP-161).
             // The create dialog keeps the always-editable surface.
             editor.set_preview_when_blurred(true);
+            // …and edit mode stays chrome-less (EXP-256): no border card, no
+            // horizontal padding shift when clicking into the description.
+            editor.set_chrome(false);
             let cell = current.clone();
             editor.set_on_change(move |markdown, _, _| {
                 *cell.borrow_mut() = markdown.to_string();

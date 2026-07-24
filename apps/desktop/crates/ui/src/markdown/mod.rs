@@ -32,6 +32,7 @@ pub mod autocomplete;
 pub mod blocks;
 mod editor;
 pub mod image_paste;
+pub(crate) mod image_url;
 pub mod parse;
 pub mod serialize;
 mod toolbar;

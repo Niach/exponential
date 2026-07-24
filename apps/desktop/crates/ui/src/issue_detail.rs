@@ -30,7 +30,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, FocusHandle, Focusable as _, FontWeight,
+    div, px, App, AppContext as _, ClipboardItem, Entity, FocusHandle, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
@@ -49,14 +49,14 @@ use sync::Store;
 use domain::rows::Issue;
 
 use crate::actions::{NextIssue, PrevIssue};
-use crate::coding_flow::{window_terminal_manager, CodingHub, LocalSessions, StartCodingControl};
+use crate::coding_flow::{window_terminal_manager, CodingHub, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, navigate, replace_screen, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
-use crate::{attachments_row, comments};
+use crate::comments;
 
 /// The detail root's key context (terminal-dock pattern: `key_context` +
 /// `track_focus` + `on_action`, bindings scoped via [`init`]).
@@ -195,6 +195,11 @@ pub struct IssueDetailView {
     last_saved_description: Rc<RefCell<String>>,
     /// Subscribe-toggle in-flight flag (web `busy`).
     subscribe_busy: bool,
+    /// Copy-link feedback: the header button shows a check for ~1.5s after a
+    /// copy (web `linkCopied`). The seq guards the disarm timer against a
+    /// re-click racing an older timer (the sidebar's merge-confirm pattern).
+    link_copied: bool,
+    link_copied_seq: u64,
     /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
     /// driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
@@ -217,7 +222,7 @@ impl IssueDetailView {
                 .submit_on_enter(true)
         });
         let start_coding = cx.new(StartCodingControl::new);
-        let properties = cx.new(|cx| PropertiesPanel::new(window, cx));
+        let properties = cx.new(|cx| PropertiesPanel::new(start_coding.clone(), window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
 
         let mut subscriptions = Vec::new();
@@ -271,6 +276,8 @@ impl IssueDetailView {
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
             subscribe_busy: false,
+            link_copied: false,
+            link_copied_seq: 0,
             start_coding,
             properties,
             timeline,
@@ -324,6 +331,7 @@ impl IssueDetailView {
         self.synced_title = String::new();
         *self.last_saved_description.borrow_mut() = String::new();
         self.subscribe_busy = false;
+        self.link_copied = false;
         // Back to the top: the scroll offset belongs to the PREVIOUS issue
         // (gpui keys scroll state by element id and this view is shared) —
         // without this the new issue opens mid-scroll with its title hidden.
@@ -670,6 +678,47 @@ impl IssueDetailView {
 
     // -- header pieces -----------------------------------------------------------
 
+    /// Web `Copy link to issue` (issue-detail-view.tsx header): a Link icon
+    /// that copies the full web URL and flips to a check for ~1.5s.
+    fn render_copy_link(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let url = issue_web_url(issue, cx);
+        let icon = if self.link_copied {
+            Icon::from(ExpIcon::Check).text_color(cx.theme().primary)
+        } else {
+            Icon::from(ExpIcon::Link).text_color(cx.theme().muted_foreground)
+        };
+        Button::new("copy-issue-link")
+            .ghost()
+            .xsmall()
+            .icon(icon)
+            .disabled(url.is_none())
+            .tooltip(if self.link_copied {
+                "Link copied"
+            } else {
+                "Copy link to issue"
+            })
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                let Some(url) = url.clone() else { return };
+                cx.write_to_clipboard(ClipboardItem::new_string(url));
+                this.link_copied = true;
+                this.link_copied_seq += 1;
+                let seq = this.link_copied_seq;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(1500))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.link_copied_seq == seq && this.link_copied {
+                            this.link_copied = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+                cx.notify();
+            }))
+    }
+
     /// The detail's ONE header row (EXP-67 — the former separate tab strip
     /// merged in to save vertical space): the actions right-aligned. The
     /// §4.8 Details · Changes segments are gone (EXP-179 — web dropped its
@@ -697,24 +746,13 @@ impl IssueDetailView {
 
         row = row.child(div().flex_1().min_w_0());
 
-        // Right cluster: the EXP-48 "N / total" prev/next switcher (hidden
-        // when the issue isn't in the active list's filtered ordering), then
-        // the Start-coding affordance (§7.1 — play, or "Coding…"+stop while
-        // OUR session runs), coding-now pill, subscribe toggle, actions
-        // menu. The pill is skipped while a LOCAL session runs — the control
-        // already shows the live indicator, and the synced pill would double
-        // it as soon as the Electric echo lands.
+        // Right cluster (web header order): the EXP-48 "N / total" prev/next
+        // switcher (hidden when the issue isn't in the active list's filtered
+        // ordering), copy-link, subscribe toggle, actions menu. The
+        // Start-coding affordance + coding-now pill moved into the properties
+        // panel's "Agent" group (EXP-256, web parity).
         row = row.children(self.render_switcher(issue, cx));
-        row = row.child(self.start_coding.clone());
-        let local_running = LocalSessions::global(cx)
-            .read(cx)
-            .get(&issue.id)
-            .is_some();
-        if !local_running {
-            if let Some(pill) = coding_now_pill(&issue.id, cx) {
-                row = row.child(pill);
-            }
-        }
+        row = row.child(self.render_copy_link(issue, cx));
         row = row.child(self.render_subscribe_toggle(issue, cx));
         row = row.child(self.render_actions_menu(issue, cx));
         row
@@ -1020,13 +1058,10 @@ impl IssueDetailView {
                     .h_auto(),
             );
 
-        let mut column = v_flex()
+        let column = v_flex()
             .child(title)
             .child(self.render_description(issue, window, cx));
 
-        if let Some(rail) = attachments_row::attachments_row(&issue.id, cx) {
-            column = column.child(rail);
-        }
         // The timeline sits OUTSIDE the centered column: its top border runs
         // full-bleed across the detail body (EXP-67 — one line splitting the
         // description+images section from the comment section); the
@@ -1334,6 +1369,22 @@ fn session_running(issue_id: &str, cx: &App) -> bool {
         })
 }
 
+/// The issue's full web URL — `{instance}/t/{team}/boards/{board}/issues/{id}`
+/// (the web copy-link button's exact shape). `None` while signed out or before
+/// the board/team rows (or their slugs) have synced.
+fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
+    let account = queries::active_account(cx)?;
+    let collections = Store::global(cx).collections();
+    let board = collections.boards.read(cx).get(&issue.board_id).cloned()?;
+    let board_slug = board.slug?;
+    let team_slug = collections.teams.read(cx).get(&board.team_id).cloned()?.slug?;
+    Some(format!(
+        "{}/t/{team_slug}/boards/{board_slug}/issues/{}",
+        account.instance_url.trim_end_matches('/'),
+        issue.identifier
+    ))
+}
+
 /// Everything the actions-menu "Update from main" click needs, resolved at
 /// render time (menus must not read `self`).
 #[derive(Clone)]
@@ -1379,7 +1430,7 @@ fn update_from_main(ctx: &UpdateFromMainContext, window: &mut Window, cx: &mut A
 /// "ready for review" (the in_review issue-status tint), done BLUE once the
 /// PR merges, needs-input YELLOW while the agent waits on a plan-approval /
 /// question picker.
-fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
+pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let collections = Store::global(cx).collections();
     let now = chrono::Utc::now().timestamp();
     let session = collections

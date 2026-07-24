@@ -41,6 +41,7 @@ use domain::options::{
 };
 use domain::rows::{Issue, Label, Board, User};
 
+use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, ExpIcon};
 use crate::queries;
 
@@ -52,11 +53,19 @@ const PANEL_WIDTH: f32 = 240.;
 pub struct PropertiesPanel {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
+    /// The detail view's Start-coding control, rendered here as the "Agent"
+    /// group (EXP-256, web parity — the entity stays owned by the detail
+    /// view, which also reads its `resolved_repo` for the actions menu).
+    start_coding: Entity<StartCodingControl>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl PropertiesPanel {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(
+        start_coding: Entity<StartCodingControl>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
 
         let mut subscriptions = Vec::new();
@@ -83,12 +92,17 @@ impl PropertiesPanel {
                 cx.notify();
             },
         ));
+        // The Agent group's coding-now pill follows the synced sessions; its
+        // skip-while-local guard follows the local registry.
+        let local_sessions = LocalSessions::global(cx);
         for subscription in [
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            cx.observe(&local_sessions, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -96,6 +110,7 @@ impl PropertiesPanel {
         Self {
             issue_id: None,
             due_calendar,
+            start_coding,
             _subscriptions: subscriptions,
         }
     }
@@ -478,6 +493,24 @@ impl PropertiesPanel {
         )
     }
 
+    /// The "Agent" group body (EXP-256, web `issue-coding-rows.tsx` sidebar
+    /// variant): the synced coding-now pill above the full-width
+    /// Start-coding/Stop control. The pill is skipped while a LOCAL session
+    /// runs — the control already shows the live indicator, and the synced
+    /// pill would double it as soon as the Electric echo lands.
+    fn agent_control(&self, issue: &Issue, cx: &App) -> impl IntoElement {
+        let local_running = LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
+            .unwrap_or(false);
+        let mut column = v_flex().w_full().gap_2();
+        if !local_running {
+            if let Some(pill) = crate::issue_detail::coding_now_pill(&issue.id, cx) {
+                column = column.child(pill);
+            }
+        }
+        column.child(self.start_coding.clone())
+    }
+
     fn board_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
         let board: Board = Store::global(cx)
             .collections()
@@ -553,6 +586,11 @@ impl Render for PropertiesPanel {
             })
             .when_some(self.origin_chip(&issue, cx), |panel, chip| {
                 panel.child(property_group("Origin", chip, cx))
+            })
+            // Web places Agent last; gate on the control's own visibility so
+            // a repo-less board never shows an orphaned group label.
+            .when(self.start_coding.read(cx).is_visible(cx), |panel| {
+                panel.child(property_group("Agent", self.agent_control(&issue, cx), cx))
             })
     }
 }
