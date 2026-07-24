@@ -6,7 +6,7 @@
 //! - [`RailView`] — a 44px icon-only strip owned by the `Shell` shell and
 //!   rendered OUTSIDE the `DockArea`, full height below the top bar. Top: the
 //!   Search action, then the tool-window selectors — **Inbox / My Issues /
-//!   All Issues / Reviews** (mini issue lists; Reviews carries a
+//!   Board Issues / Reviews** (mini issue lists; Reviews carries a
 //!   dot while open PRs exist) and **Files / Source Control** (Source Control carries
 //!   an amber badge in conflict mode and opens the changes
 //!   screen immediately). The active tool's icon is tinted with the active
@@ -45,10 +45,10 @@ use gpui_component::{
 use sync::Store;
 
 
-use crate::actions::{CreateTeam, JoinTeam, OpenSettings, SignOut};
+use crate::actions::{CreateTeam, JoinTeam, OpenSettings, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
-use crate::git_bar::GitBar;
+use crate::trunk_sync::TrunkSync;
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
@@ -74,8 +74,9 @@ pub(crate) enum ToolWindow {
     /// to me across the team) — ONE rail entry, mirroring mobile's segmented
     /// My Work screen. The active tab is [`RailShared::inbox_tab`].
     Inbox,
-    /// Every issue in the team (mini list).
-    AllIssues,
+    /// The active board's issue list (mini list) — the default tool.
+    /// Selected via the rail's Projects board icons (no icon of its own).
+    BoardIssues,
     /// Open pull requests across the team: issue-linked ones grouped by
     /// board, plus GitHub-listed PRs not linked to any issue grouped by
     /// repo — both with an inline squash-merge action (server-side via the
@@ -85,6 +86,9 @@ pub(crate) enum ToolWindow {
     /// polled). The rail icon renders only while the active team's synced
     /// `helpdesk_enabled` flag is on.
     Support,
+    /// The team's reusable action prompts (EXP-253 — server-only tRPC data,
+    /// fetched on open; runs are trust-gated claude sessions).
+    Actions,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -109,60 +113,69 @@ pub(crate) struct RailShared {
     tool: ToolWindow,
     /// The Inbox tool window's active tab (EXP-186).
     inbox_tab: InboxTab,
-    /// The trunk git chrome (rendered by the top bar). Driven every rail
-    /// render so the §4.1 auto-clone lifecycle and the rail's conflict badge
+    /// The headless trunk-sync engine (EXP-253 — nothing renders it; the
+    /// rail paints a status badge off its state). Driven every rail render
+    /// so the §4.1 auto-clone lifecycle and the rail's sync/conflict badge
     /// stay live regardless of the visible screen.
-    git_bar: Entity<GitBar>,
+    git_bar: Entity<TrunkSync>,
     file_tree: Entity<crate::file_tree::FileTreeView>,
-    /// The "All Issues" tool window's board (filter bar + grouped list,
+    /// The Board Issues tool window's board (filter bar + grouped list,
     /// scoped to the active board). Shared here — not on `SidebarPanel` —
     /// so the issue detail's prev/next switcher (EXP-48) can read the same
     /// query + filter state the visible list applies.
-    board_all: Entity<BoardView>,
+    board_active: Entity<BoardView>,
     /// The "My Issues" board (assignee == me across the team).
     board_my: Entity<BoardView>,
-    /// The branch whose HISTORY the Source Control screen shows — a sidebar
-    /// branch row selects it WITHOUT checking out (`None` = the checked-out
-    /// branch, working tree included).
-    view_branch: Option<String>,
+    /// The commit the Source Control screen's diff pane shows — the sidebar
+    /// history list selects it (EXP-253; `None` = nothing selected).
+    sc_selected_commit: Option<String>,
 }
 
 impl RailShared {
-    /// The shared trunk git chrome — the top bar renders it.
-    pub(crate) fn git_bar(&self) -> &Entity<GitBar> {
+    /// The shared headless trunk-sync engine.
+    pub(crate) fn trunk_sync(&self) -> &Entity<TrunkSync> {
         &self.git_bar
     }
 
-    /// The Source Control screen's history scope (`None` = current branch).
-    pub(crate) fn view_branch(&self) -> Option<&str> {
-        self.view_branch.as_deref()
+    /// The sidebar history list's commit selection (EXP-253).
+    pub(crate) fn sc_selected_commit(&self) -> Option<&str> {
+        self.sc_selected_commit.as_deref()
+    }
+
+    /// Drop the commit selection (a Source Control scope change invalidated
+    /// it).
+    pub(crate) fn clear_sc_selected_commit(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.sc_selected_commit.is_some() {
+            self.sc_selected_commit = None;
+            cx.notify();
+        }
     }
 
     /// The issue list whose ordering the detail's prev/next switcher follows
     /// (EXP-48): the My Issues board while the Inbox tool window shows its
-    /// My Issues tab, the All Issues board otherwise (it is the window's
+    /// My Issues tab, the active board's list otherwise (it is the window's
     /// persistent issue list).
     pub(crate) fn active_issue_board(&self) -> &Entity<BoardView> {
         match (self.tool, self.inbox_tab) {
             (ToolWindow::Inbox, InboxTab::MyIssues) => &self.board_my,
-            _ => &self.board_all,
+            _ => &self.board_active,
         }
     }
 
     /// Both issue boards (the detail view observes them so the EXP-48
     /// counter re-renders on filter changes).
     pub(crate) fn issue_boards(&self) -> [&Entity<BoardView>; 2] {
-        [&self.board_all, &self.board_my]
+        [&self.board_active, &self.board_my]
     }
 }
 
-/// Point the Source Control screen at `branch`'s history (no checkout);
-/// `None` returns to the checked-out branch.
-pub(crate) fn set_view_branch(window: &mut Window, cx: &mut App, branch: Option<String>) {
+/// Point the Source Control screen's diff pane at `commit` (EXP-253 — the
+/// sidebar history list's click target); `None` clears the selection.
+pub(crate) fn select_sc_commit(window: &mut Window, cx: &mut App, commit: Option<String>) {
     let shared = rail_shared_for_window(window, cx);
     shared.update(cx, |shared, cx| {
-        if shared.view_branch != branch {
-            shared.view_branch = branch;
+        if shared.sc_selected_commit != commit {
+            shared.sc_selected_commit = commit;
             cx.notify();
         }
     });
@@ -187,19 +200,19 @@ pub(crate) fn rail_shared_for_window(
     {
         return existing;
     }
-    let git_bar = cx.new(|cx| GitBar::new(window, cx));
+    let git_bar = cx.new(|cx| TrunkSync::new(window, cx));
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
-    let board_all = cx.new(|cx| BoardView::new(window, cx));
+    let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
     let shared = cx.new(|_| RailShared {
-        // Issues-first default: the All Issues list is the board.
-        tool: ToolWindow::AllIssues,
+        // Issues-first default: the active board's issue list.
+        tool: ToolWindow::BoardIssues,
         inbox_tab: InboxTab::Inbox,
         git_bar,
         file_tree,
-        board_all,
+        board_active,
         board_my,
-        view_branch: None,
+        sc_selected_commit: None,
     });
     cx.default_global::<RailRegistry>()
         .by_window
@@ -315,6 +328,9 @@ pub struct RailView {
     shared: Entity<RailShared>,
     /// The branch as of the last render — a checkout refreshes the file tree.
     last_branch: Option<String>,
+    /// Scroll position of the rail's middle zone (tools + board icons) —
+    /// small windows with many boards must not push Settings/Account off.
+    rail_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -327,10 +343,11 @@ impl RailView {
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // Conflict badge follows the git bar's trunk state.
+            // Sync/conflict badge follows the trunk engine's state.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // The Reviews dot is a live read over issues ⨝ boards.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            // Board icons + the Reviews dot follow the boards collection.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // The Support icon gates on the team row's helpdesk_enabled flag.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
@@ -341,6 +358,7 @@ impl RailView {
             nav,
             shared,
             last_branch: None,
+            rail_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -354,7 +372,7 @@ impl RailView {
         id: &'static str,
         icon: Icon,
         tool: ToolWindow,
-        tooltip: &'static str,
+        tooltip: impl Into<SharedString>,
         badge: Option<Hsla>,
         accent: Hsla,
         cx: &mut gpui::Context<Self>,
@@ -403,14 +421,28 @@ impl RailView {
     }
 
     /// The account button — ALWAYS the rail's very bottom element. Its
-    /// dropdown holds the account-level actions (EXP-69: team switching
-    /// lives in the top bar's merged board picker now, and account
-    /// deletion is web/mobile-only).
+    /// dropdown holds the account-level actions plus team switching
+    /// (EXP-253: the top bar's merged board picker is gone — the rail shows
+    /// only the ACTIVE team's boards, so other teams are reached here; a
+    /// board-less team stays reachable too).
     fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let who: SharedString = crate::queries::active_account(cx)
             .map(|account| SharedString::from(account.email.clone()))
             .unwrap_or_else(|| "Not signed in".into());
         let label = who.clone();
+
+        // Captured snapshot for the lazy menu builder (overlay renders must
+        // not read `self`): every team, checked on the active one.
+        let active_team = active_team_id(&self.nav, cx);
+        let teams: Vec<(String, String, bool)> = Store::global(cx)
+            .collections()
+            .teams_sorted(cx)
+            .into_iter()
+            .map(|team| {
+                let active = Some(team.id.as_str()) == active_team.as_deref();
+                (team.id, team.name, active)
+            })
+            .collect();
 
         Button::new("rail-account")
             .ghost()
@@ -418,18 +450,85 @@ impl RailView {
             .icon(IconName::CircleUser)
             .tooltip(who)
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
-                menu.label(label.clone())
+                let mut menu = menu
+                    .label(label.clone())
                     .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
                     .menu_with_icon(
                         "Notifications",
                         IconName::Bell,
                         Box::new(crate::actions::OpenAccount),
-                    )
+                    );
+                // "Switch team" section — flat checked rows (the menu builder
+                // has no submenus); shown only with somewhere to switch to.
+                if teams.len() > 1 {
+                    menu = menu.separator().label("Switch team");
+                    for (id, name, active) in &teams {
+                        menu = menu.menu_with_check(
+                            SharedString::from(name.clone()),
+                            *active,
+                            Box::new(SwitchTeam {
+                                team_id: id.clone(),
+                            }),
+                        );
+                    }
+                }
+                menu.separator()
                     .menu_with_icon("New team", IconName::Plus, Box::new(CreateTeam))
                     .menu_with_icon("Join team", IconName::User, Box::new(JoinTeam))
                     .separator()
                     .menu("Sign out", Box::new(SignOut))
             })
+    }
+
+    /// One Projects board icon: the board's glyph tinted with its color,
+    /// selected while it is the active board AND the Board Issues tool is
+    /// up. Click = set the active board + activate Board Issues — a DIRECT
+    /// listener call (EXP-17: rail buttons dispatching App-global actions
+    /// from inside the window update silently no-op).
+    fn rail_board_icon(
+        &self,
+        index: usize,
+        board: &domain::rows::Board,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let shared = self.shared.read(cx);
+        let active_board = active_board_id(&self.nav, cx);
+        let active = shared.tool == ToolWindow::BoardIssues
+            && active_board.as_deref() == Some(board.id.as_str());
+        let tint = board
+            .color
+            .as_deref()
+            .and_then(parse_hex_color)
+            .unwrap_or_else(|| cx.theme().muted_foreground);
+        let icon = crate::icons::board_icon(board).text_color(tint);
+        let board_id = board.id.clone();
+        div()
+            .relative()
+            .child(
+                Button::new(("rail-board", index))
+                    .ghost()
+                    .small()
+                    .icon(icon)
+                    .selected(active)
+                    .tooltip(SharedString::from(board.name.clone()))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        crate::navigation::set_active_board(window, cx, board_id.clone());
+                        activate_tool(window, cx, ToolWindow::BoardIssues);
+                    })),
+            )
+            .when(active, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .left(px(-6.))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(tint),
+                )
+            })
+            .into_any_element()
     }
 
     fn divider(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -489,6 +588,62 @@ impl Render for RailView {
                 cx,
             )
         });
+
+        // Projects section (EXP-253 — the top-bar board picker flattened into
+        // the rail): the ACTIVE team's boards as tinted icons + "+".
+        let active_team = active_team_id(&self.nav, cx);
+        let boards = active_team
+            .as_deref()
+            .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
+            .unwrap_or_default();
+        let board_icons: Vec<gpui::AnyElement> = boards
+            .iter()
+            .enumerate()
+            .map(|(index, board)| self.rail_board_icon(index, board, cx))
+            .collect();
+        let new_board = active_team.clone().map(|team_id| {
+            Button::new("rail-new-board")
+                .ghost()
+                .small()
+                .icon(IconName::Plus)
+                .tooltip("New board")
+                // Direct call (EXP-17): rail buttons must not dispatch
+                // App-global actions.
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    crate::create_board_dialog::open(window, cx, team_id.clone());
+                }))
+        });
+
+        // Source Control badge (EXP-253 — the git bar is headless now, this
+        // badge is its whole rail presence): conflict beats sticky error
+        // beats syncing; the tooltip carries the "synced Xm ago" stamp.
+        let sc_badge = if conflict {
+            Some(cx.theme().warning)
+        } else if git_bar.read(cx).sync_error().is_some() {
+            Some(cx.theme().danger)
+        } else if git_bar.read(cx).is_syncing() {
+            Some(cx.theme().muted_foreground)
+        } else {
+            None
+        };
+        let sc_tooltip: SharedString = if let Some(percent) =
+            git_bar.read(cx).clone_progress()
+        {
+            format!("Source Control — cloning… {percent}%").into()
+        } else {
+            match git_bar.read(cx).last_synced() {
+                Some(at) => {
+                    let (short, _) = crate::trunk_sync::synced_ago_labels(at.elapsed());
+                    if short.as_ref() == "now" {
+                        "Source Control — synced just now".into()
+                    } else {
+                        format!("Source Control — synced {short} ago").into()
+                    }
+                }
+                None => "Source Control".into(),
+            }
+        };
+
         v_flex()
             .w(px(RAIL_W))
             .flex_shrink_0()
@@ -518,59 +673,71 @@ impl Render for RailView {
                     })),
             )
             .child(self.divider(cx))
-            // Issue tool windows — Inbox (with its My Issues tab, EXP-186)
-            // on top, then All Issues.
-            .child(self.rail_tool_icon(
-                "rail-inbox",
-                Icon::new(IconName::Inbox),
-                ToolWindow::Inbox,
-                "Inbox",
-                None,
-                accent,
-                cx,
+            // Middle zone — scrollable so many boards never push the pinned
+            // Settings/Account off small windows. Rail order (EXP-253):
+            // [Inbox, Reviews, Support, Actions] / boards + "+" /
+            // [Files, Source Control].
+            .child(crate::scroll_pane::v_scroll_pane(
+                "rail-scroll",
+                &self.rail_scroll,
+                v_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1()
+                    .child(self.rail_tool_icon(
+                        "rail-inbox",
+                        Icon::new(IconName::Inbox),
+                        ToolWindow::Inbox,
+                        "Inbox",
+                        None,
+                        accent,
+                        cx,
+                    ))
+                    .child(self.rail_tool_icon(
+                        "rail-reviews",
+                        Icon::from(ExpIcon::GitPullRequest),
+                        ToolWindow::Reviews,
+                        "Reviews",
+                        // Review green (EXP-214): open PRs are "stuff to do",
+                        // colored like the in_review issue status.
+                        has_reviews.then(|| theme::tokens::GREEN.to_hsla()),
+                        accent,
+                        cx,
+                    ))
+                    .children(support_icon)
+                    .child(self.rail_tool_icon(
+                        "rail-actions",
+                        Icon::from(ExpIcon::Zap),
+                        ToolWindow::Actions,
+                        "Actions",
+                        None,
+                        accent,
+                        cx,
+                    ))
+                    .child(self.divider(cx))
+                    .children(board_icons)
+                    .children(new_board)
+                    .child(self.divider(cx))
+                    // Repo tool windows.
+                    .child(self.rail_tool_icon(
+                        "rail-files",
+                        Icon::new(IconName::Folder),
+                        ToolWindow::Files,
+                        "Files",
+                        None,
+                        accent,
+                        cx,
+                    ))
+                    .child(self.rail_tool_icon(
+                        "rail-source-control",
+                        Icon::from(ExpIcon::GitMerge),
+                        ToolWindow::SourceControl,
+                        sc_tooltip,
+                        sc_badge,
+                        accent,
+                        cx,
+                    )),
             ))
-            .child(self.rail_tool_icon(
-                "rail-all-issues",
-                Icon::from(ExpIcon::ListTodo),
-                ToolWindow::AllIssues,
-                "All Issues",
-                None,
-                accent,
-                cx,
-            ))
-            .child(self.rail_tool_icon(
-                "rail-reviews",
-                Icon::from(ExpIcon::GitPullRequest),
-                ToolWindow::Reviews,
-                "Reviews",
-                // Review green (EXP-214): open PRs are "stuff to do",
-                // colored like the in_review issue status.
-                has_reviews.then(|| theme::tokens::GREEN.to_hsla()),
-                accent,
-                cx,
-            ))
-            .children(support_icon)
-            .child(self.divider(cx))
-            // Repo tool windows.
-            .child(self.rail_tool_icon(
-                "rail-files",
-                Icon::new(IconName::Folder),
-                ToolWindow::Files,
-                "Files",
-                None,
-                accent,
-                cx,
-            ))
-            .child(self.rail_tool_icon(
-                "rail-source-control",
-                Icon::from(ExpIcon::GitMerge),
-                ToolWindow::SourceControl,
-                "Source Control",
-                conflict.then(|| cx.theme().warning),
-                accent,
-                cx,
-            ))
-            .child(div().flex_1())
             .child(
                 Button::new("rail-settings")
                     .ghost()
@@ -600,20 +767,19 @@ impl Render for RailView {
 pub struct SidebarPanel {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
-    /// The "All Issues" tool window — the full board (filter bar with
+    /// The Board Issues tool window — the full board (filter bar with
     /// All/Active/Backlog tabs + New Issue + the grouped virtualized list
     /// with inline status/priority menus), scoped to the active board.
     /// Lives in [`RailShared`] (EXP-48 — the detail switcher reads it too).
-    board_all: Entity<BoardView>,
+    board_active: Entity<BoardView>,
     /// The "My Issues" tool window — same board pinned to assignee == me
     /// (also shared via [`RailShared`]).
     board_my: Entity<BoardView>,
-    /// The Source Control tool window's branch-flow graph (replaced the flat
-    /// branch list — [`crate::flow_view`]).
-    flow: Entity<crate::flow_view::FlowView>,
-    /// Scroll position of the flow graph's lane list (EXP-67: the full
-    /// uncapped list scrolls instead of collapsing behind "+N more").
-    flow_scroll: ScrollHandle,
+    /// The Source Control tool window's commit history (EXP-253 — it
+    /// replaced the branch flow graph; master-only IDE).
+    history: Entity<crate::source_control::HistoryList>,
+    /// The Actions tool window (EXP-253).
+    actions_panel: Entity<crate::actions_panel::ActionsPanel>,
     /// Two-click merge/close confirm: the armed row's key — an issue id,
     /// `close:<issue id>` for the issue row's close-without-merge button
     /// (see [`close_pr_key`]), or `repo#number` for an unlinked pull (see
@@ -720,9 +886,10 @@ impl SidebarPanel {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
-        let board_all = shared.read(cx).board_all.clone();
+        let board_active = shared.read(cx).board_active.clone();
         let board_my = shared.read(cx).board_my.clone();
-        let flow = cx.new(|cx| crate::flow_view::FlowView::new(window, cx));
+        let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
+        let actions_panel = cx.new(|cx| crate::actions_panel::ActionsPanel::new(window, cx));
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let subscriptions = vec![
@@ -739,7 +906,7 @@ impl SidebarPanel {
             // Start↔Stop flip rides the process-global LocalSessions registry.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
-            // Branch list + syncing state ride the shared git bar.
+            // Sync state rides the shared trunk-sync engine.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -748,7 +915,7 @@ impl SidebarPanel {
         Self {
             nav,
             shared,
-            board_all,
+            board_active,
             board_my,
             review_arm: None,
             review_arm_seq: 0,
@@ -762,8 +929,8 @@ impl SidebarPanel {
             support_key: None,
             support_seq: 0,
             support_poll_seq: 0,
-            flow,
-            flow_scroll: ScrollHandle::new(),
+            history,
+            actions_panel,
             _subscriptions: subscriptions,
         }
     }
@@ -1235,20 +1402,20 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// *All Issues* tool window: the board view, relocated — filter bar
+    /// *Board Issues* tool window: the board view, relocated — filter bar
     /// (All/Active/Backlog tabs, filter popover, New Issue) + the grouped
     /// virtualized list with inline status/priority menus.
-    fn render_all_issues_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_board_issues_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let query = match active_board_id(&self.nav, cx) {
             Some(board_id) => IssueQuery::Board { board_id },
             None => IssueQuery::None,
         };
-        self.board_all.update(cx, |board, cx| board.set_query(query, cx));
+        self.board_active.update(cx, |board, cx| board.set_query(query, cx));
         div()
             .flex_1()
             .min_h_0()
             .min_w_0()
-            .child(self.board_all.clone())
+            .child(self.board_active.clone())
             .into_any_element()
     }
 
@@ -2327,63 +2494,68 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    // -- Source Control tool window --------------------------------------------
+    // -- Actions tool window ----------------------------------------------------
 
-    /// *Source Control* tool window: the trunk's local branches (from the
-    /// shared git bar — refreshed with every trunk read), current one
-    /// checked. Clicking a row VIEWS that branch's history in the changes
-    /// screen — never a checkout (that stays on the git bar's branch chip,
-    /// the one dirty-switch dialog surface).
-    fn render_source_control_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let git_bar = self.shared.read(cx).git_bar.clone();
-        // The sweep button (EXP-93) only lights up when merged lanes exist —
-        // the candidate probe is the same cheap pure join the flow renders
-        // from (no git cost).
-        let sweepable = self
-            .flow
-            .update(cx, |flow, cx| !flow.sweep_candidates(cx).is_empty());
-        let sweep_busy = self.flow.read(cx).is_busy();
-        let flow = self.flow.clone();
-        let header = self
-            .tool_header(Icon::from(ExpIcon::GitMerge), "Source Control", cx)
-            .child(
-                Button::new("branches-sweep")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::BrushCleaning))
-                    .tooltip(
-                        "Sweep merged branches — delete their worktrees and local \
-                         branches (worktrees with uncommitted changes are skipped)…",
-                    )
-                    .disabled(!sweepable || sweep_busy)
-                    .on_click(move |_, window, cx| {
-                        flow.update(cx, |flow, cx| flow.prompt_sweep_merged(window, cx));
-                    }),
-            )
-            .child(
-                Button::new("branches-refresh")
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::from(ExpIcon::Repeat))
-                    .tooltip("Refresh")
-                    .on_click(move |_, _, cx| {
-                        git_bar.update(cx, |bar, cx| bar.refresh(cx));
-                    }),
-            );
-
-        // The branch-flow graph replaced the flat branch list — one surface
-        // for "what hangs off what", with view-on-click and hover-delete
-        // ([`crate::flow_view`]).
+    /// *Actions* tool window (EXP-253): the team's reusable prompts —
+    /// [`crate::actions_panel::ActionsPanel`] owns the list + creators.
+    fn render_actions_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let header = self.tool_header(Icon::from(ExpIcon::Zap), "Actions", cx);
         v_flex()
             .flex_1()
             .min_h_0()
             .min_w_0()
             .child(header)
-            .child(crate::scroll_pane::v_scroll_pane(
-                "flow-scroll",
-                &self.flow_scroll,
-                self.flow.clone(),
-            ))
+            // Sized wrapper — the flex-child rule for entity children.
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .child(self.actions_panel.clone()),
+            )
+            .into_any_element()
+    }
+
+    // -- Source Control tool window --------------------------------------------
+
+    /// *Source Control* tool window (EXP-253 master-only): the trunk's
+    /// commit history ([`crate::source_control::HistoryList`] — it replaced
+    /// the branch flow graph). Clicking a commit shows its diff in the
+    /// changes screen; there is no branch switching anymore.
+    fn render_source_control_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let trunk_sync = self.shared.read(cx).trunk_sync().clone();
+        let header = self
+            .tool_header(Icon::from(ExpIcon::GitMerge), "Source Control", cx)
+            .child(
+                Button::new("history-refresh")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::from(ExpIcon::Repeat))
+                    .tooltip("Check for updates")
+                    .on_click(move |_, _, cx| {
+                        trunk_sync.update(cx, |engine, cx| engine.refresh(cx));
+                    }),
+            );
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            // The explicit sized wrapper is load-bearing for entity children
+            // (same flex-child rule as the shell's dock wrapper); flex column
+            // so the list's own flex_1 scroll pane resolves to this height.
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .child(self.history.clone()),
+            )
             .into_any_element()
     }
 }
@@ -2411,9 +2583,10 @@ impl Render for SidebarPanel {
             .border_color(cx.theme().sidebar_border)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
-                ToolWindow::AllIssues => self.render_all_issues_tool(cx),
+                ToolWindow::BoardIssues => self.render_board_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
                 ToolWindow::Support => self.render_support_tool(cx),
+                ToolWindow::Actions => self.render_actions_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

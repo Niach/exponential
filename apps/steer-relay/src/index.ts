@@ -127,9 +127,10 @@ app.get(`/devices/:userId`, (c) =>
 app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 
 // Remote "Start on my desktop": route to the device's control socket. The
-// subject is EITHER a single issueId (wire-unchanged) or a batch group
-// (issueIds + teamId + repo, all resolved server-side — the desktop syncs
-// no repositories). Launch-option VALUES (EXP-149) and the batch fields pass
+// subject is a single issueId (wire-unchanged), a batch group (issueIds +
+// teamId + repo), or an action run (actionId + actionName + teamId +
+// optional repo — EXP-253); all resolved server-side — the desktop syncs
+// no repositories. Launch-option VALUES (EXP-149) and the subject fields pass
 // through untouched — the web server already validated them, the relay stays a
 // dumb pipe — but their TYPES/SHAPES are pinned here: a mistyped field would
 // fail the desktop's serde parse and silently drop the whole frame after
@@ -145,16 +146,44 @@ app.post(`/start`, async (c) => {
     return c.json({ error: `Bad request` }, 400)
   }
 
-  // Explicit XOR on key presence: single issueId, or the batch trio — never
-  // both, never neither.
+  // Explicit exactly-one on key presence: single issueId, the batch trio, or
+  // the action subject — never more than one, never none.
   const hasIssueId = body ? `issueId` in body : false
   const hasIssueIds = body ? `issueIds` in body : false
+  const hasActionId = body ? `actionId` in body : false
+  const subjectCount = [hasIssueId, hasIssueIds, hasActionId].filter(
+    Boolean
+  ).length
   let subject: StartSubject
-  if (hasIssueId && !hasIssueIds) {
+  if (subjectCount !== 1) {
+    return c.json({ error: `Bad request` }, 400)
+  } else if (hasIssueId) {
     const issueId = asString(body?.issueId)
     if (!issueId) return c.json({ error: `Bad request` }, 400)
     subject = { issueId }
-  } else if (hasIssueIds && !hasIssueId) {
+  } else if (hasActionId) {
+    const actionId = asString(body?.actionId)
+    const actionName = asString(body?.actionName)
+    const teamId = asString(body?.teamId)
+    if (
+      !actionId ||
+      actionId.length > 128 ||
+      !actionName ||
+      actionName.length > 255 ||
+      !teamId ||
+      teamId.length > 128
+    ) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+    // repo is OPTIONAL (repo-less actions) — but a PRESENT repo key must
+    // parse, else 400 (a malformed repo would drop the frame desktop-side).
+    let repo: StartRepoGroup | undefined
+    if (body && `repo` in body) {
+      repo = asStartRepo(body.repo)
+      if (!repo) return c.json({ error: `Bad request` }, 400)
+    }
+    subject = { actionId, actionName, teamId, ...(repo ? { repo } : {}) }
+  } else {
     const issueIds = asStringArray(body?.issueIds)
     const teamId = asString(body?.teamId)
     const repo = asStartRepo(body?.repo)
@@ -162,8 +191,6 @@ app.post(`/start`, async (c) => {
       return c.json({ error: `Bad request` }, 400)
     }
     subject = { issueIds, teamId, repo }
-  } else {
-    return c.json({ error: `Bad request` }, 400)
   }
 
   const options: StartSessionOptions = {

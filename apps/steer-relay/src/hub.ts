@@ -17,10 +17,12 @@ import {
   type StartSessionOptions,
 } from "./protocol"
 
-// A remote start's subject: a single issue (wire-unchanged) or a batch group.
+// A remote start's subject: a single issue (wire-unchanged), a batch group,
+// or an action run (EXP-253 — repo absent for repo-less actions).
 export type StartSubject =
   | { issueId: string }
   | { issueIds: string[]; teamId: string; repo: StartRepoGroup }
+  | { actionId: string; actionName: string; teamId: string; repo?: StartRepoGroup }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this.
@@ -49,6 +51,10 @@ interface DeviceEntry {
   /** EXP-201: agent CLIs the device advertised in its `online` frame.
    * Absent on old desktops ⇒ defaulted to ["claude"] at store time. */
   agents: string[]
+  /** EXP-253: feature capabilities (`actions`) the device advertised.
+   * Absent on old desktops ⇒ [] — the web server strictly gates action
+   * starts on this. */
+  caps: string[]
 }
 
 interface Room {
@@ -272,6 +278,8 @@ export class Hub {
           // Absent = old desktop that predates the advertisement — it can
           // run exactly what every desktop could before EXP-201: claude.
           agents: msg.agents ?? [`claude`],
+          // Absent = old desktop with no action launch path (EXP-253).
+          caps: msg.caps ?? [],
         })
         return
       }
@@ -512,6 +520,7 @@ export class Hub {
       deviceLabel: entry.deviceLabel,
       connectedAt: entry.connectedAt,
       agents: entry.agents,
+      caps: entry.caps,
     }))
   }
 
@@ -526,8 +535,9 @@ export class Hub {
   }
 
   /** Route a remote "Start on my desktop" to the device's control socket.
-   * `subject` is a single issue (wire-unchanged) or a batch group (issueIds +
-   * teamId + repo). `options` fields are optional launch options
+   * `subject` is a single issue (wire-unchanged), a batch group (issueIds +
+   * teamId + repo), or an action run (actionId + actionName + teamId +
+   * optional repo — EXP-253). `options` fields are optional launch options
    * (EXP-149); undefineds are dropped by JSON.stringify, so an option-less
    * single-issue start stays byte-identical to the pre-options frame. */
   startSession(
@@ -544,13 +554,22 @@ export class Hub {
     const payload: ServerFrame =
       `issueId` in subject
         ? { t: `start_session`, issueId: subject.issueId, ...options }
-        : {
-            t: `start_session`,
-            issueIds: subject.issueIds,
-            teamId: subject.teamId,
-            repo: subject.repo,
-            ...options,
-          }
+        : `actionId` in subject
+          ? {
+              t: `start_session`,
+              actionId: subject.actionId,
+              actionName: subject.actionName,
+              teamId: subject.teamId,
+              ...(subject.repo ? { repo: subject.repo } : {}),
+              ...options,
+            }
+          : {
+              t: `start_session`,
+              issueIds: subject.issueIds,
+              teamId: subject.teamId,
+              repo: subject.repo,
+              ...options,
+            }
     entry.conn.sock.send(frame(payload))
     return { ok: true }
   }

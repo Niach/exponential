@@ -30,7 +30,7 @@ use sync::Store;
 
 use crate::actions::{
     GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
-    OpenSourceControl, SwitchBranch, SwitchTeam, SyncNow,
+    OpenSourceControl, SwitchTeam, SyncNow,
 };
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -552,25 +552,16 @@ pub fn init(cx: &mut App) {
             crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::SourceControl);
         });
     });
-    // Branch chip menu → checkout on the window's shared git bar.
-    cx.on_action(|action: &SwitchBranch, cx| {
-        let branch = action.branch.clone();
-        on_active_window(cx, move |window, cx| {
-            let shared = crate::sidebar::rail_shared_for_window(window, cx);
-            let git_bar = shared.read(cx).git_bar().clone();
-            git_bar.update(cx, |bar, cx| bar.checkout(branch, window, cx));
-        });
-    });
-    // Branch chip menu → manual freshness sync (fetch + ff-only catch-up).
+    // Manual freshness sync (fetch + ff-only catch-up) on the trunk engine.
     cx.on_action(|_: &SyncNow, cx| {
         on_active_window(cx, |window, cx| {
             let shared = crate::sidebar::rail_shared_for_window(window, cx);
-            let git_bar = shared.read(cx).git_bar().clone();
-            git_bar.update(cx, |bar, cx| bar.refresh(cx));
+            let trunk_sync = shared.read(cx).trunk_sync().clone();
+            trunk_sync.update(cx, |engine, cx| engine.refresh(cx));
         });
     });
     // The picker selects a board (scope) and brings up its issue list —
-    // there is no board screen; the All Issues tool window IS the board.
+    // there is no board screen; the Board Issues tool window IS the board.
     cx.on_action(|action: &OpenBoard, cx| {
         let board_id = action.board_id.clone();
         on_active_window(cx, move |window, cx| {
@@ -593,7 +584,7 @@ pub fn init(cx: &mut App) {
                 }
             }
             set_active_board(window, cx, board_id);
-            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::AllIssues);
+            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::BoardIssues);
         });
     });
     cx.on_action(|action: &OpenIssue, cx| {

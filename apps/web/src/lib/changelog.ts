@@ -23,6 +23,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-07-actions`,
+    date: `2026-07-24`,
+    title: `Actions: reusable AI commands for your team`,
+    summary: `Define reusable AI prompts — code review, backlog grooming, changelog drafts — and run them on your desktop from any device.`,
+    body: `- **Actions** — every team gets a library of reusable AI prompts. Create one from a template or let Claude write it from a one-line description, then run it with one click from web, desktop, iOS, or Android — it executes live on your own computer, and you can watch and steer it like any coding session.
+- **Templates included** — a code review that files issues, backlog labeling and prioritization, and changelog drafting.
+- **Safe by design** — actions run only on your own machine under your own accounts and sign-ins, and each device asks you to approve an action's exact instructions before the first run (and again whenever they change). The server never stores secrets.
+- **A leaner desktop IDE** — boards now live as icons in the left rail, the top bar is gone, and source control went master-only with automatic pulls: your local copy quietly tracks the default branch, changes arrive via pull requests, and one button discards local changes if things get tangled.
+- **Run configs retired** — the old per-board terminal commands are replaced by actions.`,
+  },
+  {
     id: `2026-07-batch-select-and-review-ui`,
     date: `2026-07-23`,
     title: `Multi-select everywhere, a cleaner review flow`,

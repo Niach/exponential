@@ -57,13 +57,6 @@ actions!(
     ]
 );
 
-/// Top-bar branch chip menu: check out a local branch on the active
-/// board's trunk clone.
-#[derive(Clone, Action, PartialEq, Eq, Deserialize)]
-#[action(namespace = exp, no_json)]
-pub struct SwitchBranch {
-    pub branch: String,
-}
 
 /// Sidebar board row / anywhere that opens a board view (§4.2).
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]

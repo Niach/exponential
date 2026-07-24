@@ -52,6 +52,10 @@ pub struct DeviceIdentity {
     /// `online` frame so remote pickers only offer them. Empty = omit the
     /// field (the relay then defaults to `["claude"]`).
     pub agents: Vec<String>,
+    /// EXP-253: feature capabilities (`actions`) — advertised in the
+    /// `online` frame; remote Run-action pickers strictly gate on it.
+    /// Empty = omit the field.
+    pub caps: Vec<String>,
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
@@ -79,9 +83,10 @@ impl ControlApi for TrpcControlApi {
     }
 }
 
-/// What an inbound `start_session` (§8.3 #4) works on: a single issue, or a
-/// multi-issue batch (EXP-106). Exactly one variant per conforming frame —
-/// [`remote_start_from_frame`] enforces the invariant.
+/// What an inbound `start_session` (§8.3 #4) works on: a single issue, a
+/// multi-issue batch (EXP-106), or an action run (EXP-253). Exactly one
+/// variant per conforming frame — [`remote_start_from_frame`] enforces the
+/// invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemoteStartSubject {
     /// A single-issue start — the `issueId` frame the phone always sent.
@@ -92,6 +97,15 @@ pub enum RemoteStartSubject {
         issue_ids: Vec<String>,
         team_id: String,
         repo: StartRepoGroup,
+    },
+    /// An action start (EXP-253) — the action id + a display-name snapshot
+    /// (tab/trust-dialog title before the desktop's own `actions.get`
+    /// resolves) + the team; `repo` rides only for repo-backed actions.
+    Action {
+        action_id: String,
+        action_name: String,
+        team_id: String,
+        repo: Option<StartRepoGroup>,
     },
 }
 
@@ -113,12 +127,16 @@ pub struct RemoteStart {
 
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
 /// the exactly-one-subject invariant. `None` — a malformed frame the caller
-/// logs and drops — when: both or neither of `issue_id`/`issue_ids` are set;
-/// `issue_ids` is empty; or a batch frame lacks `team_id` or `repo`.
+/// logs and drops — when: more or fewer than one of
+/// `issue_id`/`issue_ids`/`action_id` is set; `issue_ids` is empty; a batch
+/// frame lacks `team_id` or `repo`; or an action frame lacks `action_name`
+/// or `team_id` (an action's `repo` is optional — repo-less actions).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn remote_start_from_frame(
     issue_id: Option<String>,
     issue_ids: Option<Vec<String>>,
+    action_id: Option<String>,
+    action_name: Option<String>,
     team_id: Option<String>,
     repo: Option<StartRepoGroup>,
     agent: Option<String>,
@@ -128,14 +146,20 @@ pub(crate) fn remote_start_from_frame(
     plan_mode: Option<bool>,
     skip_permissions: Option<bool>,
 ) -> Option<RemoteStart> {
-    let subject = match (issue_id, issue_ids) {
-        (Some(issue_id), None) => RemoteStartSubject::Issue(issue_id),
-        (None, Some(issue_ids)) if !issue_ids.is_empty() => RemoteStartSubject::Batch {
+    let subject = match (issue_id, issue_ids, action_id) {
+        (Some(issue_id), None, None) => RemoteStartSubject::Issue(issue_id),
+        (None, Some(issue_ids), None) if !issue_ids.is_empty() => RemoteStartSubject::Batch {
             issue_ids,
             team_id: team_id?,
             repo: repo?,
         },
-        // Both set, neither set, or an empty batch list → malformed.
+        (None, None, Some(action_id)) => RemoteStartSubject::Action {
+            action_id,
+            action_name: action_name?,
+            team_id: team_id?,
+            repo,
+        },
+        // More/fewer than one subject, or an empty batch list → malformed.
         _ => return None,
     };
     Some(RemoteStart {
@@ -379,6 +403,7 @@ async fn connect_and_listen(
         device_id: &device.device_id,
         device_label: Some(&device.device_label),
         agents: (!device.agents.is_empty()).then_some(device.agents.as_slice()),
+        caps: (!device.caps.is_empty()).then_some(device.caps.as_slice()),
     }
     .to_json();
     if let Err(err) = ws.send(Message::Text(online)).await {
@@ -403,6 +428,8 @@ async fn connect_and_listen(
                     Some(ServerFrame::StartSession {
                         issue_id,
                         issue_ids,
+                        action_id,
+                        action_name,
                         team_id,
                         repo,
                         agent,
@@ -412,8 +439,8 @@ async fn connect_and_listen(
                         plan_mode,
                         skip_permissions,
                     }) => match remote_start_from_frame(
-                        issue_id, issue_ids, team_id, repo, agent, model, effort, ultracode,
-                        plan_mode, skip_permissions,
+                        issue_id, issue_ids, action_id, action_name, team_id, repo, agent,
+                        model, effort, ultracode, plan_mode, skip_permissions,
                     ) {
                         Some(start) => {
                             log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -421,7 +448,8 @@ async fn connect_and_listen(
                         }
                         None => log::warn!(
                             "steer control: malformed start_session — need exactly one of \
-                             issueId/issueIds; batch needs teamId+repo — ignored"
+                             issueId/issueIds/actionId; batch needs teamId+repo, action needs \
+                             actionName+teamId — ignored"
                         ),
                     },
                     Some(other) => {
@@ -484,6 +512,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
                 Some("codex".into()),
                 Some("opus".into()),
                 None,
@@ -507,6 +537,8 @@ mod tests {
             remote_start_from_frame(
                 None,
                 Some(vec!["a".into(), "b".into()]),
+                None,
+                None,
                 Some("ws-7".into()),
                 Some(repo()),
                 None,
@@ -539,6 +571,8 @@ mod tests {
             remote_start_from_frame(
                 Some("issue-9".into()),
                 Some(vec!["a".into()]),
+                None,
+                None,
                 Some("ws-7".into()),
                 Some(repo()),
                 None,
@@ -552,7 +586,9 @@ mod tests {
         );
         // Neither subject set.
         assert_eq!(
-            remote_start_from_frame(None, None, None, None, None, None, None, None, None, None),
+            remote_start_from_frame(
+                None, None, None, None, None, None, None, None, None, None, None, None,
+            ),
             None
         );
         // Empty batch id list.
@@ -560,6 +596,8 @@ mod tests {
             remote_start_from_frame(
                 None,
                 Some(vec![]),
+                None,
+                None,
                 Some("ws-7".into()),
                 Some(repo()),
                 None,
@@ -576,6 +614,8 @@ mod tests {
             remote_start_from_frame(
                 None,
                 Some(vec!["a".into()]),
+                None,
+                None,
                 Some("ws-7".into()),
                 None,
                 None,
@@ -593,7 +633,126 @@ mod tests {
                 None,
                 Some(vec!["a".into()]),
                 None,
+                None,
+                None,
                 Some(repo()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn remote_start_from_frame_maps_the_action_subject() {
+        // Repo-backed action with model/effort.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("act-1".into()),
+                Some("Code review".into()),
+                Some("ws-7".into()),
+                Some(repo()),
+                None,
+                Some("opus".into()),
+                Some("high".into()),
+                None,
+                None,
+                None,
+            ),
+            Some(RemoteStart {
+                subject: RemoteStartSubject::Action {
+                    action_id: "act-1".into(),
+                    action_name: "Code review".into(),
+                    team_id: "ws-7".into(),
+                    repo: Some(repo()),
+                },
+                agent: None,
+                model: Some("opus".into()),
+                effort: Some("high".into()),
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: None,
+            })
+        );
+        // Repo-less action: repo simply absent.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("act-2".into()),
+                Some("Groom".into()),
+                Some("ws-7".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .map(|start| start.subject),
+            Some(RemoteStartSubject::Action {
+                action_id: "act-2".into(),
+                action_name: "Groom".into(),
+                team_id: "ws-7".into(),
+                repo: None,
+            })
+        );
+    }
+
+    #[test]
+    fn remote_start_from_frame_rejects_malformed_action_frames() {
+        // Action + issue set → ambiguous.
+        assert_eq!(
+            remote_start_from_frame(
+                Some("issue-9".into()),
+                None,
+                Some("act-1".into()),
+                Some("Code review".into()),
+                Some("ws-7".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+        // Action missing its name.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("act-1".into()),
+                None,
+                Some("ws-7".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            None
+        );
+        // Action missing the team.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("act-1".into()),
+                Some("Code review".into()),
+                None,
+                None,
                 None,
                 None,
                 None,

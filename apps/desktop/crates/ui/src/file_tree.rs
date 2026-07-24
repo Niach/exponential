@@ -355,7 +355,7 @@ impl FileTreeView {
                 .background_executor()
                 .spawn(async move {
                     let root =
-                        coding::run_launch::run_root(&settings.repos_root_path(), &full_name);
+                        coding::clone_path(&settings.repos_root_path(), &full_name);
                     if !root.join(".git").is_dir() {
                         // Not cloned yet — the git bar's clone job owns that;
                         // the tree shows an empty root until it lands.

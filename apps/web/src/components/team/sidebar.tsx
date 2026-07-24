@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   Shield,
+  Zap,
 } from "lucide-react"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getBoardIcon } from "@/lib/board-icons"
@@ -252,6 +253,14 @@ export function TeamSidebar({
                     <SupportUnreadBadge teamId={team?.id} />
                   </SidebarMenuItem>
                 )}
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
+                      <Zap className="h-4 w-4" />
+                      <span>Actions</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

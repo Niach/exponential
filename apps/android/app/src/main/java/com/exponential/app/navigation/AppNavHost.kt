@@ -42,6 +42,7 @@ import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.issue.ChangesScreen
+import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.session.AgentsScreen
@@ -349,6 +350,16 @@ private fun AuthenticatedNav(
             AgentsScreen(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenActions = { navController.navigate("actions") { launchSingleTop = true } },
+            )
+        }
+        composable("actions") {
+            // Team actions (EXP-253, view + run only) — pushed from the Agents
+            // tab's header entry; NOT helpdesk-gated. A detail-style route
+            // (not in the bottom-bar set), so the bar yields the full height.
+            ActionsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable("personal") {

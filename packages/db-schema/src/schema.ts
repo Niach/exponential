@@ -449,12 +449,15 @@ export const comments = pgTable(
 // EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
-// `issues` (prUrl/prNumber/prState/branch). Two session subjects: issue-scoped
-// (`issue_id` set — one worktree, one issue) and batch-scoped (`issue_id` and
-// `board_id` NULL, `team_id` written directly — the desktop multi-issue
-// batch run). Enforced by the tRPC writer (exactly one of issueId/teamId
-// in the start input). `team_id` is denormalized from issue→board by
-// trigger for issue rows (the populate triggers no-op when issue_id IS NULL).
+// `issues` (prUrl/prNumber/prState/branch). Three session subjects: issue-
+// scoped (`issue_id` set — one worktree, one issue), batch-scoped (`issue_id`
+// and `board_id` NULL, `team_id` written directly — the desktop multi-issue
+// batch run), and action-scoped (EXP-253: like batch but with `action_id` +
+// the `action_name` display snapshot — actions are server-only, never synced,
+// so clients label rows off the snapshot). Enforced by the tRPC writer
+// (exactly one of issueId/teamId/actionId in the start input). `team_id` is
+// denormalized from issue→board by trigger for issue rows (the populate
+// triggers no-op when issue_id IS NULL).
 export const codingSessions = pgTable(
   `coding_sessions`,
   {
@@ -476,6 +479,13 @@ export const codingSessions = pgTable(
     // the shape's static trash predicate; stays NULL on batch rows, which
     // therefore always sync. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    // Action-scoped sessions (EXP-253): the action being run (SET NULL — a
+    // deleted action degrades the row to batch-shaped) plus a display-name
+    // snapshot (actions are server-only, never synced — clients can't join).
+    actionId: uuid(`action_id`).references(() => actions.id, {
+      onDelete: `set null`,
+    }),
+    actionName: varchar(`action_name`, { length: 255 }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity.
     userId: text(`user_id`)
@@ -500,6 +510,7 @@ export const codingSessions = pgTable(
     index(`idx_coding_sessions_team`).on(table.teamId),
     index(`idx_coding_sessions_board`).on(table.boardId),
     index(`idx_coding_sessions_user`).on(table.userId),
+    index(`idx_coding_sessions_action`).on(table.actionId),
   ]
 )
 
@@ -853,41 +864,38 @@ export const repositories = pgTable(
   ]
 )
 
-// Per-board terminal run commands (SERVER-ONLY, tRPC-managed — never an
-// Electric shape; the proxy count stays 14). A run config is just a named
-// argv the desktop apps spawn into a terminal tab (run configs live in the
-// DATABASE, not the repo). SECURITY: because this is DB-stored argv
-// executed locally, desktops MUST keep the per-device Trust & Run
-// commandSetHash prompt and re-hash whenever the fetched config set changes —
-// never auto-run synced values. `team_id` is denormalized from the
-// board server-side on insert (tRPC-only writes, so no trigger needed).
-export const runConfigs = pgTable(
-  `run_configs`,
+// Team action prompts (SERVER-ONLY, tRPC-managed — never an Electric shape;
+// the proxy count stays 14). An action is a named markdown prompt the desktop
+// runs as an interactive claude session on the trunk clone (or a scratch dir
+// when repo-less) — code review, backlog grooming, deploys… SECURITY: this is
+// a DB-stored prompt executed locally, so desktops MUST gate every run behind
+// the per-device body-hash trust prompt (trust_store), re-hashed against the
+// freshly fetched body at run time — never auto-run stored values. Writes are
+// team-owner-only; every member may list/run.
+export const actions = pgTable(
+  `actions`,
   {
     id: uuidPk(),
-    boardId: uuid(`board_id`)
-      .notNull()
-      .references(() => boards.id, { onDelete: `cascade` }),
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
+    // Optional execution context: with a repo the run targets its trunk clone
+    // on the default branch; without one, a scratch dir holding only the MCP
+    // config. SET NULL so disconnecting a repo degrades the action to
+    // repo-less instead of deleting it.
+    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
+      onDelete: `set null`,
+    }),
     name: varchar({ length: 255 }).notNull(),
-    // Program + arguments, spawned as-is (no shell). At least one element.
-    argv: jsonb().$type<string[]>().notNull(),
-    // Working directory relative to the repo root; null = repo root. The
-    // server rejects absolute paths and `..` segments.
-    cwd: text(),
-    // Extra environment. PATH/LD_PRELOAD/DYLD_* are stripped server-side.
-    env: jsonb()
-      .$type<Record<string, string>>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
+    description: text(),
+    // The markdown prompt; ≤64KB enforced by the router zod.
+    body: text().notNull(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.boardId, table.name),
-    index(`idx_run_configs_team`).on(table.teamId),
+    unique().on(table.teamId, table.name),
+    index(`idx_actions_team`).on(table.teamId),
   ]
 )
 
@@ -1269,10 +1277,7 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
 
 export const selectRepositorySchema = createSelectSchema(repositories)
 
-export const selectRunConfigSchema = createSelectSchema(runConfigs, {
-  argv: z.array(z.string()),
-  env: z.record(z.string(), z.string()),
-})
+export const selectActionSchema = createSelectSchema(actions)
 
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),
@@ -1306,7 +1311,7 @@ export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
-export type RunConfig = InferSelectModel<typeof runConfigs>
+export type Action = InferSelectModel<typeof actions>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

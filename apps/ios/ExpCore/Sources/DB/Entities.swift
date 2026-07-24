@@ -365,6 +365,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     public let needsInput: Bool
+    // Action run linkage (EXP-253): set on a session started from a team
+    // action. `actionId` nulls if the action is later deleted (server FK SET
+    // NULL) while `actionName` — a display snapshot — keeps labeling the run.
+    // Both NULL on ordinary issue/batch sessions.
+    public let actionId: String?
+    public let actionName: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -379,6 +385,8 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         deviceLabel: String?,
         status: String,
         needsInput: Bool = false,
+        actionId: String? = nil,
+        actionName: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -392,6 +400,8 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.deviceLabel = deviceLabel
         self.status = status
         self.needsInput = needsInput
+        self.actionId = actionId
+        self.actionName = actionName
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -406,6 +416,8 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case userId = "user_id"
         case deviceLabel = "device_label"
         case needsInput = "needs_input"
+        case actionId = "action_id"
+        case actionName = "action_name"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -428,6 +440,8 @@ extension CodingSessionEntity: Codable {
         deviceLabel = try c.decodeIfPresent(String.self, forKey: .deviceLabel)
         status = try c.decode(String.self, forKey: .status)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
+        actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
+        actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)

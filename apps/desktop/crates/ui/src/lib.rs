@@ -4,7 +4,7 @@
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
 //! `mention_popover`, `filter_bar`/`pills`, `create_issue_dialog`,
 //! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
-//! `account`, `diff_view`, `run_bar`. Lands across Phases 1–5.
+//! `account`, `diff_view`, `actions_panel`. Lands across Phases 1–5.
 //!
 //! Dependency rule (§3.1): lower crates never depend on `ui` (no back-edges).
 //!
@@ -20,6 +20,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod actions;
+mod actions_panel;
 mod active_filter_pills;
 mod attachments_row;
 mod board;
@@ -36,9 +37,6 @@ mod file_tree;
 mod file_viewer;
 mod filter_bar;
 mod filter_popover;
-mod flow_lanes;
-mod flow_view;
-mod git_bar;
 mod github_connect;
 mod icons;
 mod image_preview;
@@ -55,7 +53,6 @@ mod pr_diff;
 mod properties_panel;
 mod queries;
 mod repo_resolver;
-mod run_bar;
 mod screens;
 mod scroll_pane;
 mod search_sheet;
@@ -68,8 +65,8 @@ mod start_coding_dialog;
 pub mod steer_wiring;
 mod support_thread;
 mod terminal_dock;
+mod trunk_sync;
 mod timeline;
-mod top_bar;
 mod undock;
 mod undocked_terminal;
 mod update;

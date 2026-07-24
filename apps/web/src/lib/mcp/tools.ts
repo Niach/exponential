@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  actions,
   attachments,
   codingSessions,
   comments,
@@ -22,7 +23,6 @@ import {
   labels,
   notifications,
   boards,
-  runConfigs,
   users,
   teamInvites,
   teamMembers,
@@ -158,17 +158,14 @@ async function getCommentIssueContext(commentId: string) {
   return getIssueTeamContext(row.issueId)
 }
 
-// Run-config id → its board/team, for grant checks on update/delete.
-async function getRunConfigContext(id: string) {
+// Action id → its team, for grant checks on update/delete.
+async function getActionContext(id: string) {
   const [row] = await db
-    .select({
-      boardId: runConfigs.boardId,
-      teamId: runConfigs.teamId,
-    })
-    .from(runConfigs)
-    .where(eq(runConfigs.id, id))
+    .select({ teamId: actions.teamId })
+    .from(actions)
+    .where(eq(actions.id, id))
     .limit(1)
-  if (!row) throw new Error(`Run config not found`)
+  if (!row) throw new Error(`Action not found`)
   return row
 }
 
@@ -1467,26 +1464,25 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
-  // Run configs (per-board terminal commands)
+  // Actions (per-team reusable prompts, EXP-253)
   // -----------------------------------------------------------------------
 
   server.registerTool(
-    `exponential_run_configs_list`,
+    `exponential_actions_list`,
     {
-      title: `List run configs`,
-      description: `List a board's run configs (named terminal commands: argv, cwd, env). The MCP user must be a member of the board's team.`,
-      inputSchema: { boardId: z.string().uuid() },
+      title: `List actions`,
+      description: `List a team's actions — reusable markdown prompts run as interactive Claude sessions on a member's own desktop (code review, backlog grooming, deploys…). The MCP user must be a member of the team.`,
+      inputSchema: { teamId: z.string().uuid() },
     },
-    async ({ boardId }) => {
+    async ({ teamId }) => {
       try {
-        if (!access.full) {
-          const board = await getBoardTeamId(boardId)
-          assertBoardGranted(access, board.id, board.teamId)
-        }
-        const result = await caller(user, request).runConfigs.list({
-          boardId,
-        })
-        return ok(result.configs)
+        // FULL team grant even for the read: action bodies are locally
+        // executed operational prompts, not board-workflow aux data — a
+        // board-confined OAuth token has no business reading them (the
+        // run_configs precedent confined list the same way).
+        if (!access.full) assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).actions.list({ teamId })
+        return ok(result.actions)
       } catch (e) {
         return err(e)
       }
@@ -1494,26 +1490,23 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_run_configs_create`,
+    `exponential_actions_create`,
     {
-      title: `Create a run config`,
-      description: `Create a named run config for a board. argv is spawned directly (no shell) — argv[0] is the program, the rest are its arguments. cwd (relative to repo root, no "..") and env are optional. Team owner only.`,
+      title: `Create an action`,
+      description: `Create a team action. body is the markdown prompt an interactive Claude session runs locally; repositoryId (optional, from the team's registry) makes the run target that repo's trunk clone — omit it for repo-less actions. Every run is trust-gated per device against the body's hash. Team owner only.`,
       inputSchema: {
-        boardId: z.string().uuid(),
-        name: z.string().min(1).max(120),
-        argv: z.array(z.string()).min(1),
-        cwd: z.string().nullable().optional(),
-        env: z.record(z.string(), z.string()).optional(),
+        teamId: z.string().uuid(),
+        name: z.string().min(1).max(255),
+        description: z.string().nullable().optional(),
+        repositoryId: z.string().uuid().nullable().optional(),
+        body: z.string().min(1),
       },
     },
     async (input) => {
       try {
-        if (!access.full) {
-          const board = await getBoardTeamId(input.boardId)
-          assertBoardGranted(access, board.id, board.teamId)
-        }
-        const result = await caller(user, request).runConfigs.create(input)
-        return ok(result.config)
+        if (!access.full) assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).actions.create(input)
+        return ok(result.action)
       } catch (e) {
         return err(e)
       }
@@ -1521,27 +1514,27 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_run_configs_update`,
+    `exponential_actions_update`,
     {
-      title: `Update a run config`,
-      description: `Update a run config's name, argv, cwd, env, or sortOrder (by its UUID). Pass only the fields you want to change. Team owner only.`,
+      title: `Update an action`,
+      description: `Update an action's name, description, repositoryId, body, or sortOrder (by its UUID). Pass only the fields you want to change. Team owner only.`,
       inputSchema: {
         id: z.string().uuid(),
-        name: z.string().min(1).max(120).optional(),
-        argv: z.array(z.string()).min(1).optional(),
-        cwd: z.string().nullable().optional(),
-        env: z.record(z.string(), z.string()).optional(),
+        name: z.string().min(1).max(255).optional(),
+        description: z.string().nullable().optional(),
+        repositoryId: z.string().uuid().nullable().optional(),
+        body: z.string().min(1).optional(),
         sortOrder: z.number().finite().optional(),
       },
     },
     async (input) => {
       try {
         if (!access.full) {
-          const cfg = await getRunConfigContext(input.id)
-          assertBoardGranted(access, cfg.boardId, cfg.teamId)
+          const action = await getActionContext(input.id)
+          assertTeamFullyGranted(access, action.teamId)
         }
-        const result = await caller(user, request).runConfigs.update(input)
-        return ok(result.config)
+        const result = await caller(user, request).actions.update(input)
+        return ok(result.action)
       } catch (e) {
         return err(e)
       }
@@ -1549,19 +1542,19 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_run_configs_delete`,
+    `exponential_actions_delete`,
     {
-      title: `Delete a run config`,
-      description: `Delete a run config by its UUID. Team owner only.`,
+      title: `Delete an action`,
+      description: `Delete an action by its UUID. Live runs keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
       inputSchema: { id: z.string().uuid() },
     },
     async ({ id }) => {
       try {
         if (!access.full) {
-          const cfg = await getRunConfigContext(id)
-          assertBoardGranted(access, cfg.boardId, cfg.teamId)
+          const action = await getActionContext(id)
+          assertTeamFullyGranted(access, action.teamId)
         }
-        await caller(user, request).runConfigs.delete({ id })
+        await caller(user, request).actions.delete({ id })
         return ok({ ok: true, id })
       } catch (e) {
         return err(e)

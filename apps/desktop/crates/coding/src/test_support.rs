@@ -162,6 +162,7 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
         // No codex rollouts in the fixture: resume tests either inject a
         // fixture root or exercise the no-recorded-session fallback.
         codex_sessions_root: None,
+        data_dir: data_dir.to_path_buf(),
     }
 }
 
@@ -169,5 +170,6 @@ pub(crate) const FOR_ISSUE_OK: &str = r#"{"result":{"data":{"repositoryId":"repo
 pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
 pub(crate) const START_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"}}}}"#;
 pub(crate) const START_BATCH_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-b","issueId":null,"teamId":"ws-1","status":"running"}}}}"#;
+pub(crate) const START_ACTION_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-a","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#;
 pub(crate) const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
 pub(crate) const UPDATE_OK: &str = r#"{"result":{"data":{"issue":{"id":"issue-1","identifier":"EXP-42","status":"in_progress"}}}}"#;

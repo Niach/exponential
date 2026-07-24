@@ -29,7 +29,7 @@ below come from it), and decisions locked with Danny on 2026-07-05 (§2).
 - §4 Web fix wave (EXP-1 duplicates, EXP-5 web enhancements, EXP-7 public board)
 - §5 Feedback widget v2 (EXP-2)
 - §6 GitHub flow & integrations removal (EXP-3, parts of EXP-12)
-- §7 Run configs unification (EXP-4)
+- §7 Actions (EXP-253 — replaced the run-config system)
 - §8 Desktop IDE wave (EXP-8)
 - §9 Mobile wave (EXP-12)
 - §10 MCP completeness (EXP-10)
@@ -69,8 +69,8 @@ v2/v3/v4 locked decisions L1–L18 stay binding except where amended below.
 | L20 | **Tiers**: Free — 1 seat, unlimited projects/repos/coding sessions, 250 MB attachment storage/workspace, no widget. Pro — **$5/seat/mo billed yearly only** ($60/seat/yr), 2 GB/ws, 3 widget configs. Business — **$10/seat/mo, monthly or yearly**, 10 GB/ws, unlimited widgets, priority support, SSO line-item. | |
 | L21 | **Feedback widget (+ helpdesk resolution emails) is Pro+.** SSO/OIDC is a Business *pricing-page line item* this release ("coming soon") — per-workspace SSO does not exist yet (OIDC is instance-level env) and is NOT built now. | |
 | L22 | **Push and remote start/steer stay free on every tier.** The FOUNDING coupon is deleted (Creem dashboard + both UI mentions). | |
-| L23 | **One run-config system.** The `.exponential/config.json` preview-target system (WebTarget/AndroidTarget/IosTarget, `previewConfig.targets`, web "Run Targets" dialog section, desktop discovery promise) is deleted. `run_configs` (DB, per project, argv/cwd/env, Trust & Run) is the only model; **argv-direct spawn stays** (no shell — L8/L5 security posture unchanged); editors present the command as a single line via argv⇄line parsing. Run-config editing is **IDE-only** (web shows no run-config UI). | amends v3 preview-target scope |
-| L24 | **L17 amendment**: the "Create run configs with Claude" task is a `claude_task` **with a scoped `.mcp.json`** (expu_ key, same as coding sessions) so Claude can call the new run-config MCP tools. Still no `coding_sessions` row, no worktree, always visible. All *other* Claude tasks (conflict fixing) remain MCP-less. | |
+| L23 | **One actions system** (EXP-253 — replaced the run-config L23). `run_configs` is deleted end-to-end; `actions` (DB, per team, markdown prompt body ≤64KB, optional repo) is the only model. Execution is an interactive Claude session on the user's OWN device under their own auth — the server stores NO secrets and never executes anything; owner-only writes; per-device `sha256(body)` trust gate (the direct descendant of Trust & Run) re-checked against the freshly fetched body at every run, fail-closed, foregrounded for remote starts. The table is server-only, never Electric-synced (proxy count stays 14). | supersedes the run-config L23 |
+| L24 | **L17 amendment** (EXP-253 revision): the "Describe with Claude" action creator is the ONE `claude_task` **with a scoped `.exp-mcp.json`** (expu_ key) so Claude can call the actions MCP tools. Still no `coding_sessions` row, no worktree, always visible. All *other* Claude tasks (conflict fixing) remain MCP-less. | amends the run-config L24 |
 | L25 | **The Integrations menu dies everywhere** (web account page + nav links, desktop Account pane, iOS, Android). GitHub App install/manage lives solely in **workspace settings → Repositories** (UI already exists there). `github_installations` stays user-scoped in the DB — only the surface moves. | EXP-3/EXP-12 |
 | L26 | ~~**Mobile is a pure companion**: no workspace creation, no project creation (including onboarding — replaced by a "set up on the web" screen), no integrations. Issue creation only inside a project.~~ **SUPERSEDED by L31 (2026-07-07)** — row kept for the record; do not execute its removals. | EXP-12 |
 | L27 | **Duplicate = status interception.** Selecting status `duplicate` anywhere opens the duplicate-search picker; confirming sets `duplicateOfId` (server keeps status in lockstep); cancelling reverts the status control. The standalone "Mark as duplicate…" menu entries are removed. "Unmark duplicate" + the banner stay. The create-issue dialog drops `duplicate` from its status options (creating a new issue as a duplicate is nonsense). | EXP-1 |
@@ -250,28 +250,52 @@ All in `packages/widget` (+ rebuild into `apps/web/public/widget/v1/`):
 
 ---
 
-## §7 Run configs unification (EXP-4, L23/L24)
+## §7 Actions (EXP-253 — supersedes the run-config system, EXP-4)
 
-1. **Delete the preview-target system**: in `packages/db-schema/src/domain.ts:201-375` remove
-   `WebTarget`/`AndroidTarget`/`IosTarget`/`CommandTarget` + `platformValues` + the targets
-   half of `ProjectPreviewConfig`/`ProjectPreviewMirror`; `previewConfig` shrinks to
-   `{ feedbackProjectId }` (still used by widget dogfood wiring — keep the column and the
-   `projects.updatePreviewConfig` proc, simplified). Web: remove the "Run Targets" section +
-   `.exponential/config.json` copy from `project-preview-settings-dialog.tsx:149-181` (dialog
-   becomes "Feedback project" only). Desktop: nothing to delete (discovery was never
-   implemented); drop any lingering mirror parsing of `targets` if present. Delete the repo
-   root `.exponential/config.json`. Contract note: `platformValues` lives in
-   `packages/domain-contract/contract.json` → update + `bun run --filter @exp/domain-contract
-   generate`.
-2. **Run configs stay DB + argv** (L23): desktop `run_configs_editor` (owner-only CRUD,
-   `crates/ui/src/run_bar.rs:735+`) presents the command as a single line (argv⇄line, mirror
-   of `apps/web/src/lib/run-configs.ts` parse/format helpers in Rust). Web keeps NO run-config
-   UI.
-3. **"Create with Claude" button** in the desktop run-configs editor: spawns
-   `coding::claude_task` at the trunk clone with a scoped `.mcp.json` (L24) and a prompt to
-   inspect the repo (README/package.json/Cargo.toml/etc.), propose run configs, and create
-   them via the new `run_configs` MCP tools (§10). Tab kind `ClaudeTask`, visible/steerable,
-   no `coding_sessions` row. Run bar refetches configs when the tab exits.
+*Rewritten by EXP-253 per §15 P8. The §15 plan is the authoritative design
+record; this is the shipped state.*
+
+1. **Run configs are DELETED end-to-end**: the `run_configs` table (DROP
+   migration), `lib/trpc/run-configs.ts` + `lib/run-configs.ts`, the
+   `exponential_run_configs_*` MCP tools, and the desktop RunBar/editor/spawn
+   (`run_bar.rs`, `run_launch.rs`, `api/run_configs.rs`, `TabKind::Run` —
+   persisted "run" tabs restore as plain shells for one release). Old desktops
+   calling `runConfigs.*` get NOT_FOUND (error state, no crash) — covered by
+   the `CLIENT_MIN_VERSION_DESKTOP` bump.
+2. **Actions** are the one model: a server-only `actions` table (per team,
+   `repository_id` nullable SET NULL, unique name per team, markdown `body`
+   ≤64KB) with tRPC CRUD (`actions.list`/`get` member-read,
+   `create`/`update`/`delete` owner-only) and 4 MCP tools
+   (`exponential_actions_{list,create,update,delete}`). NEVER Electric-synced
+   — the proxy count stays 14.
+3. **Execution is local, under the user's own device auth**: the desktop runs
+   an action as an interactive claude session (`--mcp-config .exp-mcp.json
+   --strict-mcp-config`, model/effort options; Claude-only v1) in the repo's
+   trunk clone (autopulled via `coding::git_credentials::ensure` + the
+   trunk-sync engine) or, repo-less, in `<data_dir>/actions/<id>/`. No
+   worktree, no branch, no PR. The server stores NO secrets and never
+   executes anything; CI-side secrets stay in GitHub Actions (an action may
+   trigger workflows).
+4. **The per-device trust gate** (the direct descendant of Trust & Run):
+   every run re-fetches the action and compares `sha256(body)` against the
+   device's `action_trust` record (`run_trust.sqlite`); any drift blocks
+   behind the trust dialog, store errors read as untrusted (fail closed),
+   and remote starts surface the dialog in a foregrounded window.
+5. **Runs are `coding_sessions` rows** (`action_id` SET NULL + the
+   `action_name` display snapshot; issue XOR batch XOR action; status only
+   running/ended) — synced, so every client shows/steers them like any
+   session. Remote start rides the steer rails: devices advertise
+   `caps: ["actions"]` in the `online` frame, `steer.startSession({actionId,
+   deviceId, model?, effort?})` strictly gates on it, and the relay forwards
+   a fat `start_session` frame (actionId + actionName + teamId + optional
+   repo group).
+6. **Creators**: "Describe with Claude" — `claude_task_with_mcp` +
+   `create_action_prompt` with a scoped `.exp-mcp.json` exposing the actions
+   MCP tools (the ONE MCP-enabled claude task, L24) — plus a raw markdown
+   editor (web + desktop; mobile is view + run). The three default actions
+   ship as TEMPLATES in the New-action flow (never seeded rows): "Code
+   review → file issues", "Label + prioritize all issues", "Draft changelog
+   from recent merges".
 
 ---
 
@@ -627,11 +651,13 @@ byte-parity, widget users, model explicitness, deploy realities) **plus**:
    workspaces; the users shape stays members-only.
 4. **No `main` assumptions** (L30): new code paths must consume the healed default branch
    (token or healed row), never a literal.
-5. **argv-direct spawn** for run configs survives the single-line editor UX — the line is
-   parsed to argv, never handed to a shell (L23).
-6. **Claude tasks stay visible**: the run-config task's scoped `.mcp.json` (L24) is the ONLY
-   MCP-enabled task; conflict-fix tasks stay MCP-less; no task ever creates `coding_sessions`
-   rows.
+5. **No shell, no server secrets for actions** (EXP-253 revision of the run-config item): an
+   action's body is a prompt for an interactive agent session run as the signed-in user on
+   their own device; every run is gated by the per-device body-hash trust prompt, fail-closed
+   (L23). The server never stores or injects secrets.
+6. **Claude tasks stay visible**: the action creator's scoped `.exp-mcp.json` (L24) is the
+   ONLY MCP-enabled task; conflict-fix tasks stay MCP-less; no task ever creates
+   `coding_sessions` rows.
 7. **Markdown newline fix must not break byte-parity** — Android's parity suite is the lock;
    any serialization change lands with cross-client fixtures.
 
@@ -641,9 +667,8 @@ byte-parity, widget users, model explicitness, deploy realities) **plus**:
 
 *2026-07-24. Planned in EXP-252 (plan-only issue; decisions locked with Danny via two
 question rounds). This section is the plan of record for the implementation issue it was
-filed as. It **supersedes §7** (run configs) and parts of §8 (IDE chrome): when implemented,
-§7 gets rewritten as "Actions" and invariants L23/L24 are replaced (see P8). Until then, §7
-remains the shipped state.*
+filed as. **Implemented in EXP-253**: §7 was rewritten as "Actions", invariants L23/L24 and
+§14 items 5/6 were replaced accordingly (P8).*
 
 ### Design decisions (locked)
 

@@ -175,12 +175,17 @@ impl CodingHub {
 // LocalSessions — the sessions THIS process launched (§7.5 play↔stop)
 // ---------------------------------------------------------------------------
 
-/// What a local coding session works on: one issue (§7.1) or a multi-issue
-/// batch (one session per batch run, keyed by its batch id).
+/// What a local coding session works on: one issue (§7.1), a multi-issue
+/// batch (one session per batch run, keyed by its batch id), or an action
+/// run (EXP-253 — keyed by its `coding_sessions` ROW id, not the action id:
+/// concurrent runs of the same action are allowed, so the action id is not
+/// unique per session and would let one run's exit tear down another's
+/// bookkeeping).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionSubject {
     Issue(String),
     Batch(String),
+    Action(String),
 }
 
 /// One locally running coding session (a `coding_sessions` row whose child
@@ -205,6 +210,9 @@ pub struct LocalSessions {
     by_issue: HashMap<String, LocalCodingSession>,
     /// Multi-issue batch sessions, keyed by batch id.
     by_batch: HashMap<String, LocalCodingSession>,
+    /// Action runs (EXP-253), keyed by SESSION row id (concurrent runs of
+    /// one action are allowed — the action id is not unique per session).
+    by_action: HashMap<String, LocalCodingSession>,
     /// Keeps the per-session watchers (`TabClosed` + manager release) alive
     /// (keyed by session id; dropped with the entry).
     watchers: HashMap<String, Vec<Subscription>>,
@@ -238,9 +246,14 @@ impl LocalSessions {
     /// — the EXP-102 guard: sweeping/deleting that lane's worktree would
     /// pull the running claude PTY's cwd out from under it.
     pub fn is_branch_live(&self, branch: &str) -> bool {
+        // Action runs carry an empty branch — never match one.
+        if branch.is_empty() {
+            return false;
+        }
         self.by_issue
             .values()
             .chain(self.by_batch.values())
+            .chain(self.by_action.values())
             .any(|session| session.branch == branch)
     }
 
@@ -251,6 +264,7 @@ impl LocalSessions {
         self.by_issue
             .values()
             .chain(self.by_batch.values())
+            .chain(self.by_action.values())
             .find(|session| session.tab == tab)
             .map(|session| session.session_id.as_str())
     }
@@ -262,6 +276,7 @@ impl LocalSessions {
         self.by_issue
             .values()
             .chain(self.by_batch.values())
+            .chain(self.by_action.values())
             .map(|session| session.session_id.clone())
             .collect()
     }
@@ -275,6 +290,7 @@ impl LocalSessions {
             let entry = match subject {
                 SessionSubject::Issue(id) => this.by_issue.remove(id),
                 SessionSubject::Batch(id) => this.by_batch.remove(id),
+                SessionSubject::Action(id) => this.by_action.remove(id),
             };
             if let Some(entry) = &entry {
                 this.watchers.remove(&entry.session_id);
@@ -374,6 +390,9 @@ impl LocalSessions {
                 }
                 SessionSubject::Batch(id) => {
                     this.by_batch.insert(id.clone(), session);
+                }
+                SessionSubject::Action(id) => {
+                    this.by_action.insert(id.clone(), session);
                 }
             }
             cx.notify();
@@ -680,12 +699,13 @@ pub fn build_launch(
     };
     let deps = CodingDeps {
         trpc,
-        token_store: Arc::new(api::token_store::TokenStore::new(data_dir)),
+        token_store: Arc::new(api::token_store::TokenStore::new(data_dir.clone())),
         account_id: account.id,
         settings,
         issue_seed: Arc::new(move |_| Some(seed.clone())),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        data_dir,
     };
     Some((request, deps))
 }
@@ -756,13 +776,21 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
     let settings = hub.read(cx).settings.clone();
     Some(CodingDeps {
         trpc,
-        token_store: Arc::new(api::token_store::TokenStore::new(data_dir)),
+        token_store: Arc::new(api::token_store::TokenStore::new(data_dir.clone())),
         account_id: account.id,
         settings,
         issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        data_dir,
     })
+}
+
+/// [`build_batch_deps`]'s action sibling (EXP-253): the same assembly — the
+/// action's name/body ride the [`coding::ActionLaunchRequest`] itself, so
+/// the issue-seed fn is inert. `None` when signed out.
+pub fn build_action_deps(cx: &mut App) -> Option<CodingDeps> {
+    build_batch_deps(cx)
 }
 
 /// Foreground half of the launch: spawn the prepared Claude tab into THIS
@@ -824,7 +852,10 @@ pub fn spawn_into_window(
             );
             // P9: keep the clone's embedded token fresh for the session's
             // life (released via LocalSessions::remove on either exit path).
-            TokenRefreshers::retain(&clone, &repository_id, cx);
+            // Repo-less action runs have no clone and nothing to refresh.
+            if let Some(repository_id) = &repository_id {
+                TokenRefreshers::retain(&clone, repository_id, cx);
+            }
             LocalSessions::insert(
                 &sessions,
                 LocalCodingSession {

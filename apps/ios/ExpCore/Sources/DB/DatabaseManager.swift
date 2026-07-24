@@ -391,6 +391,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("device_label", .text)
                 t.column("status", .text).notNull().defaults(to: "running")
                 t.column("needs_input", .boolean).notNull().defaults(to: false)
+                // Action run linkage (EXP-253): both NULL on ordinary
+                // issue/batch sessions; action_name outlives a deleted action
+                // (server FK SET NULL keeps the snapshot label).
+                t.column("action_id", .text)
+                t.column("action_name", .text)
                 t.column("started_at", .text).notNull()
                 t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
@@ -602,6 +607,40 @@ public final class DatabaseManager: @unchecked Sendable {
                 try db.alter(table: "boards") { t in
                     t.drop(column: column)
                 }
+            }
+        }
+
+        // v8 (EXP-253 actions): `coding_sessions.action_id` + `action_name`
+        // ride along on the coding-sessions shape — an action run's row is
+        // batch-shaped (issue_id NULL) with action_name labeling it. Additive
+        // ALTERs for stores created before the columns existed; guarded on
+        // column presence so fresh installs (which get them from the v1
+        // create above) converge on the same schema.
+        migrator.registerMigration("v8_coding_session_action_fields") { db in
+            // Table-existence guard (old v3-v6 precedent): migration-fixture
+            // DBs that carry only the minimal schema don't have the table.
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("action_id") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "action_id", .text)
+                }
+            }
+            if !existing.contains("action_name") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "action_name", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the new
+            // columns (mirrors the v2/v3/v4 refetch write). NOTE: the shape
+            // key is 'coding-sessions' WITH A DASH (the proxy route name),
+            // not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
             }
         }
 

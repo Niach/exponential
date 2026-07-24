@@ -450,6 +450,132 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`action remote start routes a fat frame; caps surface; bad shapes are 400 (EXP-253)`, async () => {
+    const desktop = await connect(
+      ticket({ role: `control`, sub: `owner-3`, deviceLabel: `Action Box` })
+    )
+    const desktopIn = collector(desktop)
+    desktop.send(
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-action`,
+        agents: [`claude`],
+        caps: [`actions`],
+      })
+    )
+
+    let devices: { deviceId: string; caps?: string[] }[] = []
+    for (let i = 0; i < 20 && devices.length === 0; i++) {
+      const res = await fetch(`${base}/devices/owner-3`, {
+        headers: { "x-relay-secret": `integration-secret` },
+      })
+      devices = (
+        (await res.json()) as {
+          devices: { deviceId: string; caps?: string[] }[]
+        }
+      ).devices
+      if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
+    }
+    // The capability advertisement surfaces through /devices.
+    expect(devices).toMatchObject([
+      { deviceId: `dev-action`, caps: [`actions`] },
+    ])
+
+    const repo = {
+      repositoryId: `repo-1`,
+      fullName: `acme/api`,
+      defaultBranch: `main`,
+    }
+    const postStart = (body: unknown) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify(body),
+      })
+
+    // Repo-backed action with options.
+    const repoBacked = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      repo,
+      model: `opus`,
+      effort: `high`,
+    })
+    expect(repoBacked.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      repo,
+      model: `opus`,
+      effort: `high`,
+    })
+
+    // Repo-less action: no repo key on the frame at all.
+    const repoLess = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-2`,
+      actionName: `Groom backlog`,
+      teamId: `team-1`,
+    })
+    expect(repoLess.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      actionId: `action-2`,
+      actionName: `Groom backlog`,
+      teamId: `team-1`,
+    })
+
+    // 400 cases.
+    const noTeam = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+    })
+    expect(noTeam.status).toBe(400)
+
+    const noName = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      teamId: `team-1`,
+    })
+    expect(noName.status).toBe(400)
+
+    const dualSubject = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      issueId: `issue-1`,
+    })
+    expect(dualSubject.status).toBe(400)
+
+    // A PRESENT but malformed repo must 400 (a bad repo would silently drop
+    // the frame at the desktop's serde parse).
+    const badRepo = await postStart({
+      userId: `owner-3`,
+      deviceId: `dev-action`,
+      actionId: `action-1`,
+      actionName: `Code review`,
+      teamId: `team-1`,
+      repo: { repositoryId: `repo-1` },
+    })
+    expect(badRepo.status).toBe(400)
+
+    desktop.close()
+  })
+
   // Runs LAST: it deliberately drains the shared failed-auth bucket (no
   // TRUST_PROXY here, so every request keys to the `unknown` fallback), which
   // would 429 any later bad-ticket assertions.

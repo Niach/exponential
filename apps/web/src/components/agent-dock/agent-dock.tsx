@@ -274,8 +274,16 @@ function SessionTitle({
       </Link>
     )
   }
-  // Issueless batch row, or an issue-scoped row whose issue hasn't synced yet.
-  if (!session.issueId) return <span className="font-mono">Batch</span>
+  // Issueless action/batch row, or an issue-scoped row whose issue hasn't
+  // synced yet — action runs keep their name snapshot even if the action
+  // was deleted (EXP-253).
+  if (!session.issueId) {
+    return session.actionName ? (
+      <span className="truncate">{session.actionName}</span>
+    ) : (
+      <span className="font-mono">Batch</span>
+    )
+  }
   return <span className="font-mono">{issue?.identifier ?? `Issue syncing…`}</span>
 }
 
@@ -289,7 +297,8 @@ function DockTab({
   onClick: () => void
 }) {
   const { session, issue } = row
-  const label = issue?.identifier ?? `Batch`
+  // Action runs label their tab with the action-name snapshot (EXP-253).
+  const label = issue?.identifier ?? session.actionName ?? `Batch`
   return (
     <Button
       variant="ghost"
@@ -316,7 +325,7 @@ function DockTab({
       ) : (
         <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
       )}
-      <span className="font-mono">{label}</span>
+      <span className="max-w-[10rem] truncate font-mono">{label}</span>
       {session.deviceLabel && (
         <span className="max-w-[8rem] truncate text-muted-foreground">
           {` · ${session.deviceLabel}`}

@@ -6,7 +6,7 @@
 //! - the sketch's `terminal: Entity<Terminal>` is `view: Entity<TerminalView>`
 //!   here — our foreground owner of a session *is* the `TerminalView` (it
 //!   holds the `Terminal` in an `Rc<RefCell<_>>` and drains its wake channel);
-//! - `title` is split into the kind-default (`claude · EXP-123`, run-config
+//! - `title` is split into the kind-default (`claude · EXP-123`, action
 //!   name, shell basename) and the live OSC title (`AlacTermEvent::Title`,
 //!   §6.6) so a title *reset* falls back to the default instead of blanking.
 
@@ -15,10 +15,6 @@ use crate::pty::ChildExit;
 use gpui::{App, Entity, SharedString, Subscription};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-
-/// A DB `run_configs` row id (§7.3) — plain string here; the `terminal` crate
-/// has no api/DB types (§6.1 dependency rule).
-pub type RunConfigId = String;
 
 /// Stable per-process tab identity (survives index shifts from close/reorder).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,7 +27,8 @@ impl TabId {
     }
 }
 
-/// §6.13's tab kinds (v4 §4.9 adds [`TabKind::ClaudeTask`]).
+/// §6.13's tab kinds (v4 §4.9 adds [`TabKind::ClaudeTask`]; EXP-253 adds
+/// [`TabKind::Action`] and removes the run-config `Run` kind).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabKind {
     /// A Start-coding session (one per `coding_sessions` row, §07 opens it).
@@ -41,9 +38,12 @@ pub enum TabKind {
     /// worktree). Visually behaves like a [`TabKind::Shell`] tab. The
     /// `coding::claude_task` primitive builds its spawn spec.
     ClaudeTask,
-    /// A launched DB run-config (§07's play button; argv-direct, never a
-    /// shell).
-    Run(RunConfigId),
+    /// A running team action (EXP-253): an interactive claude session bound
+    /// to a `coding_sessions` row (steerable like [`TabKind::Claude`]) but
+    /// with no worktree/branch/PR — it runs on the trunk clone or a scratch
+    /// dir. Carries the `actions` row id (plain string; the `terminal` crate
+    /// has no api/DB types — §6.1 dependency rule).
+    Action(String),
     /// A plain "+" terminal (`$SHELL -l`), like any IDE.
     Shell,
 }
@@ -71,10 +71,10 @@ pub struct TerminalTab {
     /// The gpui view owning the live session (element focus + painting).
     pub view: Entity<TerminalView>,
     /// Spawn cwd — persisted for the §6.13 cold-shell restore
-    /// (`{ kind, cwd, run_config_id }`, never scrollback).
+    /// (`{ kind, cwd }`, never scrollback).
     pub cwd: Option<PathBuf>,
     pub(crate) status: TabStatus,
-    /// Kind-default title (shell basename / run-config name / `claude · ID`).
+    /// Kind-default title (shell basename / action name / `claude · ID`).
     pub(crate) default_title: SharedString,
     /// Live OSC 0/2 title (§6.6 `Title`/`ResetTitle`); `None` falls back to
     /// the default.
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn osc_title_without_prefix_passes_through() {
-        // Shell / run tabs carry no prefix — OSC titles land verbatim.
+        // Shell tabs carry no prefix — OSC titles land verbatim.
         assert_eq!(
             decorate_osc_title(None, "vim README.md".into()),
             SharedString::from("vim README.md")

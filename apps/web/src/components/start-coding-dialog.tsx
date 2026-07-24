@@ -57,6 +57,9 @@ export interface SteerDevice {
   connectedAt: number
   /** EXP-201: agent CLIs installed on the device; absent = claude-only. */
   agents?: string[]
+  /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
+   * absent = an older desktop with none. */
+  caps?: string[]
 }
 
 /** Agents the device can run — absent advertisement means claude-only. */

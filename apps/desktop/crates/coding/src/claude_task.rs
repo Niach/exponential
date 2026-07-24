@@ -64,7 +64,7 @@ pub fn claude_task(settings: &Settings, cwd: &Path, prompt: &str, label: &str) -
 }
 
 /// [`claude_task`] plus the scoped MCP config the caller wrote into `cwd` —
-/// the run-configs "Create with Claude" variant (v5 §7.3 / L24, the ONE
+/// the actions "Describe with Claude" creator (EXP-253 / L24, the ONE
 /// MCP-enabled task). The file is passed explicitly (`--mcp-config`, resolved
 /// against the spawn cwd) and connects trusted; its non-`.mcp.json` name
 /// keeps it out of claude's project-approval dialog scan (EXP-98).
@@ -121,23 +121,36 @@ verify the build, then push with `--force-with-lease`."
     )
 }
 
-/// Prompt for the run-configs editor's "Create with Claude" action (v5 §7.3 /
-/// L24): the ONE MCP-enabled Claude task. It runs in the board's trunk clone
-/// alongside a scoped `.exp-mcp.json` that exposes the `exponential_run_configs_*`
-/// MCP tools, and asks Claude to inspect the repo and create run configs for
-/// `board_id`. Unlike the conflict prompts it does NOT touch git — it only
-/// reads the repo and calls the MCP tools.
-pub fn create_run_configs_prompt(board_id: &str) -> String {
+/// Prompt for the actions panel's "Describe with Claude" creator (EXP-253 /
+/// L24): the ONE MCP-enabled Claude task. It runs in a scratch dir alongside
+/// a scoped `.exp-mcp.json` that exposes the `exponential_actions_*` MCP
+/// tools, and asks Claude to author ONE action for `team_id` from the
+/// user's one-line `description` (optionally seeded by a `template` body).
+/// Unlike the conflict prompts it must NOT touch git or files — it only
+/// calls the MCP tools.
+pub fn create_action_prompt(team_id: &str, description: &str, template: Option<&str>) -> String {
+    let template_seed = template
+        .map(|body| {
+            format!(
+                "\n\nUse this template as a starting point, adapting it to the description:\n\
+---\n{body}\n---"
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "Please inspect this repository — its README, package.json, Cargo.toml, Makefile, \
-justfile, docker-compose, and scripts — to learn how it is developed, built, run, \
-tested, and linted. Then create a small set of useful run configurations for the \
-Exponential board with id `{board_id}` using the `exponential_run_configs_create` \
-MCP tool (one per common task, e.g. dev server, build, test, lint). Each config's \
-argv is spawned directly with NO shell, so argv[0] must be the program and the rest \
-its arguments; set cwd (repo-relative, no \"..\") and env only when needed. Call \
-`exponential_run_configs_list` for that board first so you don't create duplicates. \
-Do not commit, push, or change any files — only call the run-config MCP tools."
+        "Please create ONE new action for the Exponential team with id `{team_id}`. An \
+action is a reusable markdown prompt that a team member later runs as an interactive \
+Claude session on their own desktop (the exponential MCP tools are available to that \
+run). The user described the action they want as:\n\n\"{description}\"\n\n\
+Write a clear, focused markdown body for it: state the goal, the concrete steps, \
+which exponential MCP tools to use (e.g. exponential_issues_list / \
+exponential_issues_create / exponential_labels_list), and what to report at the end. \
+Call `exponential_actions_list` for the team first so the name doesn't collide. \
+Leave `repositoryId` unset unless the description clearly needs repository access \
+(then pick the right repo id from `exponential_repositories_list`). Create the \
+action with `exponential_actions_create` (teamId, a short name, a one-line \
+description, the markdown body). Do not commit, push, or change any files — only \
+call the MCP tools.{template_seed}"
     )
 }
 
@@ -202,12 +215,12 @@ mod tests {
 
     #[test]
     fn mcp_task_passes_the_scoped_config_explicitly_and_strictly() {
-        // The ONE MCP-enabled task (run-config creation): the caller-written
+        // The ONE MCP-enabled task (the actions creator): the caller-written
         // `.exp-mcp.json` rides `--mcp-config` (connects trusted; the name is
         // invisible to claude's project-approval scan — EXP-98) with
         // `--strict-mcp-config` so repo-carried MCP config never connects.
         let cwd = PathBuf::from("/repos/acme/web");
-        let task = claude_task_with_mcp(&settings(), &cwd, "make configs", "Create run configs");
+        let task = claude_task_with_mcp(&settings(), &cwd, "make an action", "New action");
         assert_eq!(task.spawn.program, "/opt/homebrew/bin/claude");
         assert_eq!(
             task.spawn.args,
@@ -218,7 +231,7 @@ mod tests {
                 ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
                 "--dangerously-skip-permissions".to_string(),
-                "make configs".to_string(),
+                "make an action".to_string(),
             ]
         );
         assert_eq!(task.spawn.cwd.as_deref(), Some(cwd.as_path()));
@@ -255,17 +268,30 @@ conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent,
     }
 
     #[test]
-    fn create_run_configs_prompt_targets_the_board_and_the_mcp_tools() {
-        let prompt = create_run_configs_prompt("proj-123");
-        // Names the exact board so Claude passes the right boardId.
-        assert!(prompt.contains("proj-123"));
-        // Points at the run-config MCP tools (the scoped .exp-mcp.json exposes them).
-        assert!(prompt.contains("exponential_run_configs_create"));
-        assert!(prompt.contains("exponential_run_configs_list"));
-        // No-shell posture is spelled out for the argv-direct spawner.
-        assert!(prompt.contains("NO shell"));
+    fn create_action_prompt_targets_the_team_and_the_mcp_tools() {
+        let prompt = create_action_prompt("team-123", "review the backlog weekly", None);
+        // Names the exact team so Claude passes the right teamId.
+        assert!(prompt.contains("team-123"));
+        // Carries the user's one-line description verbatim.
+        assert!(prompt.contains("review the backlog weekly"));
+        // Points at the actions MCP tools (the scoped .exp-mcp.json exposes them).
+        assert!(prompt.contains("exponential_actions_create"));
+        assert!(prompt.contains("exponential_actions_list"));
         // Read-only w.r.t. the tree — this task must not commit or push.
         assert!(prompt.contains("Do not commit, push"));
+        // No template → no seed section.
+        assert!(!prompt.contains("starting point"));
+    }
+
+    #[test]
+    fn create_action_prompt_seeds_the_template_body() {
+        let prompt = create_action_prompt(
+            "team-123",
+            "code review",
+            Some("# Code review\nScan the repo."),
+        );
+        assert!(prompt.contains("starting point"));
+        assert!(prompt.contains("# Code review\nScan the repo."));
     }
 
     #[test]

@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { codingSessions } from "@/db/schema"
+import { actions, codingSessions, repositories } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -145,20 +145,23 @@ export const steerRouter = router({
   }),
 
   // Remote "Start on my desktop": route a start command to the chosen online
-  // device's control socket via the relay. Accepts EITHER a single issueId
-  // (wire-unchanged) or issueIds (2..30 → a batch run on one shared branch);
-  // exactly one form. Everything is validated + resolved here — the batch form
-  // carries a server-resolved repo group because the desktop syncs no
-  // repositories, and the relay stays a dumb pipe. The optional launch options
-  // are the client's Start-coding dialog choices (EXP-149) — validated against
-  // the domain-contract value sets here; absent fields mean desktop settings
-  // defaults with plan mode OFF.
+  // device's control socket via the relay. Accepts a single issueId
+  // (wire-unchanged), issueIds (2..30 → a batch run on one shared branch), or
+  // an actionId (EXP-253 — run a team action on the trunk clone / a scratch
+  // dir); exactly one form. Everything is validated + resolved here — the
+  // batch and action forms carry a server-resolved repo group because the
+  // desktop syncs no repositories, and the relay stays a dumb pipe. The
+  // optional launch options are the client's Start-coding dialog choices
+  // (EXP-149) — validated against the domain-contract value sets here; absent
+  // fields mean desktop settings defaults with plan mode OFF. Action runs are
+  // Claude-only v1 and take model/effort only.
   startSession: authedProcedure
     .input(
       z
         .object({
           issueId: z.string().uuid().optional(),
           issueIds: z.array(z.string().uuid()).min(1).max(30).optional(),
+          actionId: z.string().uuid().optional(),
           deviceId: z.string().min(1).max(128),
           agent: z.enum(codingAgentValues).optional(),
           model: z.string().max(64).optional(),
@@ -168,10 +171,32 @@ export const steerRouter = router({
           skipPermissions: z.boolean().optional(),
         })
         .refine(
-          (value) => Boolean(value.issueId) !== Boolean(value.issueIds?.length),
-          { message: `Exactly one of issueId/issueIds is required` }
+          (value) =>
+            [
+              Boolean(value.issueId),
+              Boolean(value.issueIds?.length),
+              Boolean(value.actionId),
+            ].filter(Boolean).length === 1,
+          { message: `Exactly one of issueId/issueIds/actionId is required` }
         )
         .superRefine((value, ctx) => {
+          if (value.actionId) {
+            // Actions are Claude-only v1: model/effort ride, the other
+            // toggles don't (the desktop clamps the same way).
+            if ((value.agent ?? `claude`) !== `claude`) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [`agent`],
+                message: `Actions run on Claude only`,
+              })
+            }
+            if (value.ultracode || value.planMode || value.skipPermissions) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Action runs support model/effort options only`,
+              })
+            }
+          }
           // Per-agent vocabulary (EXP-201): model/effort must come from the
           // (agent ?? claude) contract lists, and the claude-only toggles may
           // not ride a codex/pi start (pi additionally has no permission
@@ -221,6 +246,99 @@ export const steerRouter = router({
         })
       }
       const userId = ctx.session.user.id
+
+      const fetchDevices = async (): Promise<SteerDevice[]> => {
+        try {
+          const { devices } = await relayGetDevices(config, userId)
+          return devices
+        } catch {
+          throw new TRPCError({
+            code: `BAD_GATEWAY`,
+            message: `Steer relay unreachable — try again`,
+          })
+        }
+      }
+
+      // Action run (EXP-253): resolve the action → team + optional repo group,
+      // then require the target device to advertise the `actions` capability —
+      // STRICT, unlike the lenient agents fallback below: an old desktop can
+      // run claude but has no action launch path at all.
+      if (input.actionId) {
+        const { db } = await import(`@/db/connection`)
+        const [action] = await db
+          .select({
+            id: actions.id,
+            teamId: actions.teamId,
+            repositoryId: actions.repositoryId,
+            name: actions.name,
+          })
+          .from(actions)
+          .where(eq(actions.id, input.actionId))
+          .limit(1)
+        if (!action) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Action not found`,
+          })
+        }
+        await assertTeamMember(userId, action.teamId)
+
+        // Strip to the relay-safe repo group (never installationId). A row
+        // gone can't happen (FK SET NULL nulls repositoryId); an archived or
+        // inaccessible repo passes through — the desktop clone fails visibly.
+        let repo: SteerStartRepo | undefined
+        if (action.repositoryId) {
+          const [row] = await db
+            .select({
+              id: repositories.id,
+              fullName: repositories.fullName,
+              defaultBranch: repositories.defaultBranch,
+            })
+            .from(repositories)
+            .where(eq(repositories.id, action.repositoryId))
+            .limit(1)
+          if (row) {
+            repo = {
+              repositoryId: row.id,
+              fullName: row.fullName,
+              defaultBranch: row.defaultBranch,
+            }
+          }
+        }
+
+        const devices = await fetchDevices()
+        const device = devices.find((d) => d.deviceId === input.deviceId)
+        if (!device || !(device.caps ?? []).includes(`actions`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That desktop app can't run actions yet — update it`,
+          })
+        }
+
+        const result = await relayPostStart(config, {
+          userId,
+          deviceId: input.deviceId,
+          actionId: action.id,
+          actionName: action.name,
+          teamId: action.teamId,
+          ...(repo ? { repo } : {}),
+          model: input.model,
+          effort: input.effort,
+        })
+        if (!result.ok) {
+          if (result.status === 404) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: result.reason,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `Steer relay error (${result.status})`,
+          })
+        }
+        return { ok: true as const }
+      }
 
       // One issue (wire-unchanged) or a batch (2..30). Collapse duplicates so a
       // caller can't inflate the batch or repeat past the length cap; a batch
@@ -273,15 +391,7 @@ export const steerRouter = router({
       // refuse a start naming one it didn't (an old desktop advertises
       // nothing ⇒ claude-only, exactly what it can do).
       const agent = input.agent ?? `claude`
-      let devices: SteerDevice[]
-      try {
-        ;({ devices } = await relayGetDevices(config, userId))
-      } catch {
-        throw new TRPCError({
-          code: `BAD_GATEWAY`,
-          message: `Steer relay unreachable — try again`,
-        })
-      }
+      const devices = await fetchDevices()
       const device = devices.find((d) => d.deviceId === input.deviceId)
       const deviceAgentIds =
         device?.agents && device.agents.length > 0 ? device.agents : [`claude`]

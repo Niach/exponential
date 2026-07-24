@@ -570,7 +570,7 @@ impl IssueDetailView {
 
     /// Where this issue sits in the ACTIVE issue list's flattened visible
     /// ordering (the sidebar's My Issues board while that tool is active,
-    /// the All Issues board otherwise) — same grouping, same EXP-38
+    /// the active board's list otherwise) — same grouping, same EXP-38
     /// comparator, same filters the list applies. `None` (hide the switcher)
     /// when no list scope resolves or the issue isn't in the filtered list.
     fn switcher_state(&self, issue: &Issue, cx: &App) -> Option<SwitcherState> {

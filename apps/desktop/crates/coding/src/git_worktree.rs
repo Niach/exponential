@@ -148,6 +148,17 @@ fn sanitize_path_segment(segment: &str) -> String {
     }
 }
 
+/// `+` shell-tab cwd rule (v4 §4.6): open at the **trunk** clone root when it
+/// exists on disk, else `None` → the caller's `$HOME` fallback ("`$HOME` only
+/// while the clone doesn't exist yet or on non-board screens"). `trunk_root`
+/// is `None` off a board screen (no trunk to point at); `Some(root)` on a
+/// board screen, where the clone may or may not have finished cloning yet —
+/// an absent directory degrades to `$HOME` rather than spawning the shell in a
+/// path that isn't there.
+pub fn shell_cwd(trunk_root: Option<PathBuf>) -> Option<PathBuf> {
+    trunk_root.filter(|root| root.is_dir())
+}
+
 /// The coding branch: `<prefix><IDENTIFIER>` (default prefix `exp/`, so
 /// `exp/EXP-42`) — one issue = one PR = one branch.
 pub fn branch_name(prefix: &str, identifier: &str) -> String {
@@ -432,8 +443,9 @@ pub(crate) fn run_git(
     let mut command = Command::new("git");
     command.args(args);
     command.env("GIT_TERMINAL_PROMPT", "0");
-    // C-locale messages: `scm::checkout_blocked_by_local_changes` classifies
-    // git errors by their English text — localized git would break it.
+    // C-locale messages: error-text classification (and stable test
+    // assertions) rely on git's English phrasing — localized git would
+    // break them.
     command.env("LC_ALL", "C");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
@@ -489,6 +501,21 @@ mod tests {
         assert_eq!(sanitize_branch_for_path(".."), "_");
         assert_eq!(sanitize_branch_for_path(""), "_");
         assert_eq!(sanitize_branch_for_path("..\\up"), "..-up");
+    }
+
+    #[test]
+    fn shell_cwd_uses_trunk_only_when_it_exists() {
+        // Off a board screen → no trunk to point at → $HOME (None).
+        assert_eq!(shell_cwd(None), None);
+        // Board screen but the clone hasn't landed yet → $HOME (None).
+        assert_eq!(
+            shell_cwd(Some(PathBuf::from("/repos/acme/does-not-exist"))),
+            None
+        );
+        // Existing trunk clone dir → open there. Use a real dir (the crate's
+        // own manifest dir) so `is_dir()` holds without touching the network.
+        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(shell_cwd(Some(real.clone())), Some(real));
     }
 
     #[test]

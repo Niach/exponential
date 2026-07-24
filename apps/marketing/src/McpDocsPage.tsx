@@ -102,12 +102,12 @@ const TOOL_GROUPS: {
     ],
   },
   {
-    heading: `Run configs`,
+    heading: `Actions`,
     tools: [
-      { name: `exponential_run_configs_list`, desc: `List a board's run configs.` },
-      { name: `exponential_run_configs_create`, desc: `Create a named run config — argv, cwd, env (owner only).` },
-      { name: `exponential_run_configs_update`, desc: `Update a run config (owner only).` },
-      { name: `exponential_run_configs_delete`, desc: `Delete a run config (owner only).` },
+      { name: `exponential_actions_list`, desc: `List a team's actions — reusable AI prompts members run on their own desktop.` },
+      { name: `exponential_actions_create`, desc: `Create an action — markdown instructions, optional repository (owner only).` },
+      { name: `exponential_actions_update`, desc: `Update an action (owner only).` },
+      { name: `exponential_actions_delete`, desc: `Delete an action (owner only).` },
     ],
   },
   {

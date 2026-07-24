@@ -102,9 +102,13 @@ import androidx.room.RoomDatabase
     //      persist. Removing is_agent is decode-safe (ignoreUnknownKeys) and the
     //      dropped column / nullable creator_id / new source column all come back
     //      correctly on the destructive wipe + resync.
+    // v26 (EXP-253): coding_sessions.action_id + action_name — action run
+    //      linkage on the coding-sessions shape (an action run's row is
+    //      batch-shaped with action_name labeling it); actions run labels.
+    //      Additive columns; destructive fallback wipes + resyncs.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 25,
+    version = 26,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

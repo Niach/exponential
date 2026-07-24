@@ -9,8 +9,8 @@
 //! - **"+"** (and cmd-t / ctrl-shift-t inside the dock) → a plain `Shell`
 //!   tab (`$SHELL -l`, cwd = the active board's **trunk** clone root, v4
 //!   §4.6; `$HOME` only off a board screen or before the clone exists).
-//!   This is also the launch surface: the Start-coding launcher and run-bar
-//!   play button call the same `TerminalManager::open_tab`.
+//!   This is also the launch surface: the Start-coding launcher and the
+//!   actions panel call the same `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
 //!   ctrl-shift-tab to switch;
 //! - empty state: "No terminal sessions" + a New-shell action;
@@ -20,10 +20,10 @@
 //! - a dead tab **stays open** with its final scrollback and shows the
 //!   JetBrains "Process finished with exit code N" strip + a green-0 /
 //!   red-non-zero badge on the tab (§7.5's exit-code strip);
-//! - persistence (§6.13): `{ kind, cwd, run_config_id }` per tab — never
-//!   scrollback. On restore, `Shell` tabs re-open cold; `Claude`/`Run` tabs
-//!   are not respawned (a coding session is bound to a live worktree; §07
-//!   decides resumability).
+//! - persistence (§6.13): `{ kind, cwd }` per tab — never
+//!   scrollback. On restore, `Shell` tabs re-open cold; `Claude`/`Action`
+//!   tabs are not respawned (a coding session is bound to a live server row;
+//!   §07 decides resumability).
 //!
 //! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
@@ -104,14 +104,13 @@ pub(crate) fn init(cx: &mut App) {
     ]);
 }
 
-/// §6.13 persistence unit: `{ kind, cwd, run_config_id }` — never scrollback.
+/// §6.13 persistence unit: `{ kind, cwd }` — never scrollback. (Pre-EXP-253
+/// dumps also carried a `run_config_id`; serde ignores it on read.)
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedTab {
     kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cwd: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    run_config_id: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -139,9 +138,9 @@ pub struct TerminalDockPanel {
 }
 
 impl TerminalDockPanel {
-    /// This window's tab-strip model — §07's Start-coding launcher / run bar
-    /// open their `Claude`/`Run` tabs through it (the §6.13 "same entry
-    /// point" rule; resolved per window via `coding_flow`).
+    /// This window's tab-strip model — §07's Start-coding launcher / actions
+    /// panel open their `Claude`/`Action` tabs through it (the §6.13 "same
+    /// entry point" rule; resolved per window via `coding_flow`).
     pub(crate) fn manager(&self) -> &Entity<TerminalManager> {
         &self.manager
     }
@@ -156,7 +155,7 @@ impl TerminalDockPanel {
 
     /// Registry rehydration path (§3.3): restore `Shell` tabs cold from the
     /// persisted `{ kind, cwd }` list; never auto-respawn `Claude` sessions
-    /// and leave exited `Run` tabs closed (§6.13).
+    /// (§6.13).
     fn from_state(
         dock_area: WeakEntity<DockArea>,
         state: &PanelState,
@@ -186,7 +185,12 @@ impl TerminalDockPanel {
             for tab in persisted
                 .tabs
                 .iter()
-                .filter(|tab| tab.kind == persisted_kind(&TabKind::Shell))
+                // Legacy `"run"` tabs (pre-EXP-253 run configs) degrade to a
+                // plain shell at their persisted cwd — a one-release compat
+                // shim; `persisted_kind` never emits `"run"` again.
+                .filter(|tab| {
+                    tab.kind == persisted_kind(&TabKind::Shell) || tab.kind == "run"
+                })
             {
                 if let Err(error) = manager.open_shell(tab.cwd.clone(), cx) {
                     log::warn!("terminal dock: restoring shell tab failed: {error:#}");
@@ -421,9 +425,9 @@ impl TerminalDockPanel {
             let cwd = cx
                 .background_executor()
                 .spawn(async move {
-                    let root = coding::run_launch::run_root(&settings.repos_root_path(), &full_name);
+                    let root = coding::clone_path(&settings.repos_root_path(), &full_name);
                     // `$HOME` (None) until the clone actually exists on disk.
-                    coding::run_launch::shell_cwd(Some(root))
+                    coding::shell_cwd(Some(root))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| this.open_shell_cwd(cwd, cx));
@@ -777,7 +781,7 @@ impl Panel for TerminalDockPanel {
         cx.notify();
     }
 
-    /// §6.13 persistence: `{ kind, cwd, run_config_id }` per tab + the active
+    /// §6.13 persistence: `{ kind, cwd }` per tab + the active
     /// index — never scrollback.
     fn dump(&self, cx: &App) -> PanelState {
         let manager = self.manager.read(cx);
@@ -788,10 +792,6 @@ impl Panel for TerminalDockPanel {
                 .map(|tab| PersistedTab {
                     kind: persisted_kind(&tab.kind).to_owned(),
                     cwd: tab.cwd.clone(),
-                    run_config_id: match &tab.kind {
-                        TabKind::Run(id) => Some(id.clone()),
-                        _ => None,
-                    },
                 })
                 .collect(),
             active: manager.active_index().unwrap_or(0),
@@ -809,7 +809,9 @@ fn persisted_kind(kind: &TabKind) -> &'static str {
         // treated like a shell tab for cold-restore (a plain terminal), matching
         // its shell-like runtime behavior.
         TabKind::ClaudeTask => "shell",
-        TabKind::Run(_) => "run",
+        // EXP-253: like ClaudeTask, an action session is never auto-respawned
+        // — a cold restore yields a plain shell at the action's cwd.
+        TabKind::Action(_) => "shell",
         TabKind::Shell => "shell",
     }
 }

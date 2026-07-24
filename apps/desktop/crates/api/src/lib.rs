@@ -30,11 +30,11 @@
 //!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the hidden
 //!   auto-minted `expu_` personal key (mint silently on first need, file store
 //!   storage, mint-new-then-revoke-old regenerate — never a UI text field).
-//! - [`repositories`] / [`coding_sessions`] / [`run_configs`] — the Phase-5
-//!   launcher's typed procs (§7.1/§7.3): `repositories.forIssue` +
-//!   `installationToken` (JIT GitHub-App token, Debug-redacted, never
-//!   persisted/logged), `codingSessions.start`/`end` (idempotent), and
-//!   `runConfigs.list` + the §7.3.5 Trust & Run `command_set_hash`.
+//! - [`repositories`] / [`coding_sessions`] / [`actions`] — the launcher's
+//!   typed procs (§7.1): `repositories.forIssue` + `installationToken` (JIT
+//!   GitHub-App token, Debug-redacted, never persisted/logged),
+//!   `codingSessions.start`/`end` (idempotent), and the EXP-253 team action
+//!   prompts (`actions.*` CRUD + the trust-gate `body_hash`).
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
@@ -55,6 +55,7 @@
 //! separate token-store entries.
 
 pub mod accounts;
+pub mod actions;
 pub mod coding_sessions;
 pub mod comments;
 pub mod error;
@@ -67,7 +68,6 @@ pub mod opener;
 pub mod patch;
 pub mod boards;
 pub mod repositories;
-pub mod run_configs;
 pub mod steer;
 pub mod token_store;
 pub mod trpc;

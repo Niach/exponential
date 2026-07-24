@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// Dual-subject coding sessions: `start` takes EXACTLY ONE of
-// issueId/teamId (zod refine). The issue path denormalizes
+// Triple-subject coding sessions: `start` takes EXACTLY ONE of
+// issueId/teamId/actionId (zod refine). The issue path denormalizes
 // teamId/boardId from the issue's context; the batch path asserts
 // membership against the given team and inserts with teamId only —
 // issueId/boardId must stay absent so the row never leaks through the
-// anonymous board-scoped shape clause. The router runs against ctx.db (no
-// transaction/generateTxId), so a fake db with an insert recorder is enough.
+// anonymous board-scoped shape clause; the action path (EXP-253) resolves
+// the action row and inserts batch-shaped plus actionId + the actionName
+// snapshot. The router runs against ctx.db (no transaction/generateTxId),
+// so a fake db with an insert recorder is enough.
 
 const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(
@@ -36,6 +38,7 @@ import { codingSessions } from "@/db/schema"
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
 const SESSION_ID = `33333333-3333-4333-8333-333333333333`
+const ACTION_ID = `44444444-4444-4444-8444-444444444444`
 
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
 const updates: { table: unknown; values: Record<string, unknown> }[] = []
@@ -109,11 +112,20 @@ describe(`codingSessions.start — exactly-one-subject refine`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/teamId is required`
+      `Exactly one of issueId/teamId/actionId is required`
     )
     expect(inserts).toHaveLength(0)
     expect(h.getIssueTeamContext).not.toHaveBeenCalled()
     expect(h.assertTeamMember).not.toHaveBeenCalled()
+  })
+
+  it(`rejects issueId + actionId as input validation`, async () => {
+    const error = await rejectionOf(
+      caller.start({ issueId: ISSUE_ID, actionId: ACTION_ID })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
   })
 
   it(`rejects NEITHER id as input validation`, async () => {
@@ -121,7 +133,7 @@ describe(`codingSessions.start — exactly-one-subject refine`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(
-      `Exactly one of issueId/teamId is required`
+      `Exactly one of issueId/teamId/actionId is required`
     )
     expect(inserts).toHaveLength(0)
     expect(h.assertTeamMember).not.toHaveBeenCalled()
@@ -211,6 +223,64 @@ describe(`codingSessions.start — batch path`, () => {
   })
 })
 
+describe(`codingSessions.start — action path (EXP-253)`, () => {
+  it(`inserts batch-shaped plus actionId + the server-resolved name snapshot`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Code review` },
+    ])
+
+    const result = await caller.start({
+      actionId: ACTION_ID,
+      deviceLabel: `MacBook`,
+    })
+
+    // Membership is asserted against the ACTION's team, not client input.
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(h.getIssueTeamContext).not.toHaveBeenCalled()
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toEqual({
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+      userId: `actor`,
+      deviceLabel: `MacBook`,
+      status: `running`,
+    })
+    // Action rows are batch-shaped: issue_id/board_id absent so the populate
+    // triggers no-op and no board-scoped clause can ever match the row.
+    expect(`issueId` in inserts[0]!.values).toBe(false)
+    expect(`boardId` in inserts[0]!.values).toBe(false)
+    expect(result.session).toMatchObject({
+      id: SESSION_ID,
+      actionId: ACTION_ID,
+    })
+  })
+
+  it(`404s a missing action before any membership check or insert`, async () => {
+    selectResults.push([]) // action row gone
+
+    const error = await rejectionOf(caller.start({ actionId: ACTION_ID }))
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`NOT_FOUND`)
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses a non-member of the action's team before inserting`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Code review` },
+    ])
+    h.assertTeamMember.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN` })
+    )
+
+    const error = await rejectionOf(caller.start({ actionId: ACTION_ID }))
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(inserts).toHaveLength(0)
+  })
+})
+
 // EXP-194: `in_review` (PR open, terminal still alive) heartbeats like
 // `running`, but the ping only ever advances updated_at — it can never
 // downgrade the status — and an `ended` row stays final.
@@ -268,6 +338,89 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
       teamId: TEAM_ID,
       status: `running`,
     })
+    // A plain batch scope carries no action fields.
+    expect(inserts[0]!.values.actionId).toBeNull()
+    expect(inserts[0]!.values.actionName).toBeNull()
+  })
+
+  it(`re-creates a swept action row from the client snapshot (EXP-253)`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID }]) // action exists, same team
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+      status: `running`,
+    })
+  })
+
+  it(`degrades a swept action row to batch-shaped when the action is gone`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    selectResults.push([]) // the action was deleted meanwhile
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    // action_id NULL, actionName kept — the same shape FK SET NULL leaves
+    // on live rows when their action is deleted.
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Code review`,
+      status: `running`,
+    })
+  })
+
+  it(`degrades a cross-team actionId to batch-shaped (never a cross-tenant FK)`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    // The action exists but belongs to ANOTHER team than the claimed scope —
+    // the resurrect must strip it exactly like a deleted action.
+    selectResults.push([{ id: ACTION_ID, teamId: `99999999-9999-4999-8999-999999999999` }])
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Code review`,
+    })
+  })
+
+  it(`rejects an action scope without its teamId as input validation`, async () => {
+    const error = await rejectionOf(
+      caller.heartbeat({ id: SESSION_ID, actionId: ACTION_ID })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(
+      `actionId requires teamId and excludes issueId`
+    )
+    expect(inserts).toHaveLength(0)
   })
 })
 

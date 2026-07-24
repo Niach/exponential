@@ -24,6 +24,10 @@ export const onlineFrame = z.object({
   // validates the vocabulary when a start names one. Absent (old desktop) ⇒
   // the hub defaults to ["claude"].
   agents: z.array(z.string().min(1).max(32)).max(16).optional(),
+  // EXP-253: feature capabilities (`actions`). Same dumb-pipe stance — the
+  // web server interprets them. Absent (old desktop) ⇒ the hub defaults to
+  // [] and action starts to that device are refused server-side.
+  caps: z.array(z.string().min(1).max(32)).max(16).optional(),
 })
 
 export const helloFrame = z.object({
@@ -167,8 +171,9 @@ export interface StartSessionOptions {
   skipPermissions?: boolean
 }
 
-/** Server-resolved repo group for a BATCH remote start — the desktop syncs no
- * repositories, so the frame carries everything the launcher needs to clone.
+/** Server-resolved repo group for a BATCH or ACTION remote start — the
+ * desktop syncs no repositories, so the frame carries everything the
+ * launcher needs to clone.
  * Never includes installationId (a server-only secret, stripped before it
  * reaches the relay). */
 export interface StartRepoGroup {
@@ -186,6 +191,16 @@ export type ServerFrame =
       issueIds: string[]
       teamId: string
       repo: StartRepoGroup
+    } & StartSessionOptions)
+  // EXP-253 action run: actionName is a display snapshot (tab/trust-dialog
+  // title before the desktop's own actions.get resolves); repo is absent for
+  // repo-less actions. Only model/effort of the options apply (Claude-only).
+  | ({
+      t: `start_session`
+      actionId: string
+      actionName: string
+      teamId: string
+      repo?: StartRepoGroup
     } & StartSessionOptions)
   | { t: `input`; data: string } // steerer keystrokes, relay → publisher
   | { t: `resync` }

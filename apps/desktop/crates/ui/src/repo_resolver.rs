@@ -208,6 +208,22 @@ impl RepoResolver {
         }
     }
 
+    /// Resolve a repo by its registry row id (EXP-253: an action's optional
+    /// `repository_id`) — the actions panel's local launch path.
+    pub fn lookup_repository(&self, repository_id: &str) -> RepoLookup {
+        match &self.state {
+            State::Idle | State::Loading => RepoLookup::Loading,
+            State::Error(msg) => RepoLookup::Error(msg.clone()),
+            State::Ready(repos) => match repos
+                .iter()
+                .find(|repo| repo.repository_id == repository_id)
+            {
+                Some(repo) => RepoLookup::Found(repo.clone()),
+                None => RepoLookup::NotFound,
+            },
+        }
+    }
+
     /// Resolve the team trunk repo (Source Control scope): the
     /// `first_board`'s repo, else the sole repo in the team.
     pub fn lookup_team_trunk(&self, first_board: Option<&str>) -> RepoLookup {
