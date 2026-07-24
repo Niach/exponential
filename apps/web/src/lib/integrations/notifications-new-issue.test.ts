@@ -5,6 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // (no actor to exclude — the widget bot creator is agent-filtered by
 // deliver()), plus the EXP-50 guarantee that fireAndForgetAssignmentNotify
 // self-filters when the (defaulted) assignee IS the actor.
+//
+// Also locks the EXP-264 push payload on BOTH fan-out paths: the shared data
+// carries the deep-link parts (teamSlug/boardSlug) and every recipient gets
+// the id of the notification row actually written for them, so a tapped push
+// can route and mark-read without waiting for the Electric shapes.
 
 const h = vi.hoisted(() => ({
   // Each db.select() call consumes the next result set, in call order.
@@ -19,6 +24,7 @@ vi.mock(`@/db/connection`, () => {
       from: () => b,
       innerJoin: () => b,
       where: () => b,
+      orderBy: () => b,
       limit: async () => result,
       // Awaited without .limit() (the member/recipient enumerations).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,6 +55,7 @@ import { db } from "@/db/connection"
 import {
   fireAndForgetAssignmentNotify,
   fireAndForgetNewIssueNotify,
+  fireAndForgetSupportThreadNotify,
 } from "@/lib/integrations/notifications"
 
 const issueMeta = {
@@ -94,16 +101,26 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     // The notification insert ran once (rows for u1+u2 came back from it).
     expect(mockedDb.execute).toHaveBeenCalledTimes(1)
 
-    // ONE batched push call covering both delivered recipients (REV2-3).
-    expect(h.sendToUsers).toHaveBeenCalledWith([`u1`, `u2`], {
-      title: `New feedback: EXP-7`,
-      body: `Login button unresponsive`,
-      data: {
-        type: `issue_created`,
-        issueId: issueMeta.id,
-        identifier: `EXP-7`,
-      },
-    })
+    // ONE batched push call covering both delivered recipients (REV2-3), each
+    // carrying the notification id RETURNING gave for that user (EXP-264).
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [
+        { userId: `u1`, data: { notificationId: `n1` } },
+        { userId: `u2`, data: { notificationId: `n2` } },
+      ],
+      {
+        title: `New feedback: EXP-7`,
+        body: `Login button unresponsive`,
+        data: {
+          type: `issue_created`,
+          issueId: issueMeta.id,
+          identifier: `EXP-7`,
+          // The deep link a tap needs, without a synced issue row.
+          teamSlug: `acme`,
+          boardSlug: `feedback`,
+        },
+      }
+    )
   })
 
   it(`does nothing when the team has no deliverable members`, async () => {
@@ -133,6 +150,59 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
     await Promise.resolve()
     expect(mockedDb.execute).not.toHaveBeenCalled()
     expect(h.sendToUsers).not.toHaveBeenCalled()
+  })
+})
+
+describe(`issue-less support fan-out push payload (EXP-264)`, () => {
+  beforeEach(() => {
+    h.selectQueue.length = 0
+    h.executeRows.length = 0
+    h.sendToUsers.mockClear()
+    mockedDb.select.mockClear()
+    mockedDb.execute.mockClear()
+  })
+
+  it(`carries the thread id and each recipient's own notification id`, async () => {
+    h.selectQueue.push(
+      // the thread
+      [
+        {
+          id: `t-1`,
+          teamId: `ws-1`,
+          title: `Cannot log in`,
+          reporterName: `Ada`,
+          reporterEmail: `ada@example.com`,
+        },
+      ],
+      // team member enumeration
+      [{ userId: `u1` }, { userId: `u2` }],
+      // latest inbound public message (the preview)
+      [{ body: `Still broken after a reload` }],
+      // deliverableRecipients: current members
+      [{ id: `u1` }, { id: `u2` }]
+    )
+    h.executeRows.push(
+      { id: `n1`, user_id: `u1` },
+      { id: `n2`, user_id: `u2` }
+    )
+
+    fireAndForgetSupportThreadNotify({ threadId: `t-1`, kind: `reply` })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+
+    // These rows have no issue, so `threadId` is the whole routing key —
+    // paired per recipient with the notification row written for them.
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [
+        { userId: `u1`, data: { notificationId: `n1` } },
+        { userId: `u2`, data: { notificationId: `n2` } },
+      ],
+      {
+        title: `Ada replied on a support ticket`,
+        body: `Still broken after a reload`,
+        data: { type: `support_reply`, threadId: `t-1` },
+      }
+    )
   })
 })
 

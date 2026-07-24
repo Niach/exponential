@@ -37,6 +37,7 @@ import {
   invalidateSessionCache,
   resolveSession,
   resolveSessionUserId,
+  SessionResolveError,
 } from "@/lib/auth/resolve-bearer"
 
 beforeEach(() => {
@@ -169,14 +170,19 @@ describe(`resolveSession token-session cache (REV2-7)`, () => {
     expect(h.state.calls).toBe(2)
   })
 
-  it(`never caches a thrown getSession (transient DB error)`, async () => {
+  it(`surfaces a failed getSession as SessionResolveError and caches nothing`, async () => {
     h.state.throwNext = true
     const request = () =>
       new Request(`https://x/api/shapes/issues`, {
         headers: { authorization: `Bearer sometoken` },
       })
-    // The error is normalized to null (pre-existing behavior) and NOT cached…
-    expect(await resolveSession(request())).toBeNull()
+    // EXP-264: a LOOKUP failure must not be flattened to null — callers would
+    // answer 401 and push native clients into unauthorized backoff over a
+    // transient DB blip. The rejection is not cached (TtlPromiseCache evicts
+    // rejected entries on settle)…
+    await expect(resolveSession(request())).rejects.toBeInstanceOf(
+      SessionResolveError
+    )
     // …so the next call re-resolves and succeeds.
     expect((await resolveSession(request()))?.user?.id).toBe(`user-token`)
     expect(h.state.calls).toBe(2)

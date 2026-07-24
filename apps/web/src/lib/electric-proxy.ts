@@ -45,8 +45,14 @@ export function prepareElectricUrl(requestUrl: string): URL {
  * concurrently, so a herd degrades to added latency, not unbounded heap.
  * Live long-polls (offset != -1) are never gated: their bodies are tiny and
  * they'd hold slots for the whole poll window.
+ *
+ * Sized at 16 = one full client's shape count (14) plus headroom (EXP-264):
+ * at 8, a SINGLE cold-starting client queued its own second half behind its
+ * first, so the shapes that arrived last were the ones the app opened onto —
+ * stale-looking state on launch. It is still a herd bound: a multi-client
+ * storm queues, it just never makes one client wait on itself.
  */
-const SNAPSHOT_PROXY_CONCURRENCY = 8
+const SNAPSHOT_PROXY_CONCURRENCY = 16
 
 let activeSnapshotProxies = 0
 const snapshotWaiters: Array<() => void> = []

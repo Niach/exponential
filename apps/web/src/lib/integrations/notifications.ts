@@ -181,8 +181,16 @@ async function deliver(args: {
   // Push only — email waits for the digest sweep. sendToUsers batches the
   // token lookup into one query and caps + times out the relay POSTs (REV2-3);
   // push failures never throw out of deliver().
+  //
+  // EXP-264: the payload carries enough to route a tap WITHOUT waiting for the
+  // Electric shapes to catch up — teamSlug/boardSlug complete the issue's deep
+  // link, and each recipient's own notificationId lets the tapped client mark
+  // exactly that inbox row read.
   await sendToUsers(
-    delivered.map((d) => d.userId),
+    delivered.map((d) => ({
+      userId: d.userId,
+      data: { notificationId: d.notificationId },
+    })),
     {
       title: args.title,
       body: args.body ?? args.issue.title,
@@ -190,6 +198,8 @@ async function deliver(args: {
         type: args.pushType,
         issueId: args.issue.id,
         identifier: args.issue.identifier,
+        teamSlug: args.issue.teamSlug,
+        boardSlug: args.issue.boardSlug,
       },
     }
   ).catch((err) => {
@@ -503,12 +513,18 @@ async function deliverToTeam(args: {
     returning id, user_id
   `)
   const delivered = inserted.rows.map((row) => ({
+    notificationId: row.id as string,
     userId: row.user_id as string,
   }))
   if (delivered.length === 0) return
 
+  // Same EXP-264 contract as deliver(): each recipient's push carries the id
+  // of the row that was actually written for them.
   await sendToUsers(
-    delivered.map((d) => d.userId),
+    delivered.map((d) => ({
+      userId: d.userId,
+      data: { notificationId: d.notificationId },
+    })),
     {
       title: args.title,
       body: args.body ?? args.title,

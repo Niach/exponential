@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // slots — the same pool the Electric shape proxy long-polls through), a
 // timeout signal on every POST, and error isolation (one failed POST never
 // aborts the rest or throws).
+//
+// EXP-264 extends recipients from bare user ids to `{ userId, data? }`: the
+// per-recipient data is merged OVER the shared payload data, and the userId is
+// written LAST so nothing can clobber the routing key.
 
 const h = vi.hoisted(() => {
   // The module caches PUSH_RELAY_URL at first use — set it before import.
@@ -78,11 +82,14 @@ describe(`sendToUsers (REV2-3)`, () => {
     ])
     fetchMock.mockResolvedValue(relayOk())
 
-    await sendToUsers([`u1`, `u2`, `u3-no-tokens`], {
-      title: `Hello`,
-      body: `World`,
-      data: { type: `issue_comment`, issueId: `i-1` },
-    })
+    await sendToUsers(
+      [{ userId: `u1` }, { userId: `u2` }, { userId: `u3-no-tokens` }],
+      {
+        title: `Hello`,
+        body: `World`,
+        data: { type: `issue_comment`, issueId: `i-1` },
+      }
+    )
 
     expect(h.selectCalls.count).toBe(1)
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -128,7 +135,7 @@ describe(`sendToUsers (REV2-3)`, () => {
     })
 
     await sendToUsers(
-      Array.from({ length: 20 }, (_, i) => `u${i}`),
+      Array.from({ length: 20 }, (_, i) => ({ userId: `u${i}` })),
       { title: `Hi`, data: {} }
     )
 
@@ -150,17 +157,57 @@ describe(`sendToUsers (REV2-3)`, () => {
       .mockResolvedValueOnce(relayOk([`t3`]))
 
     await expect(
-      sendToUsers([`u1`, `u2`, `u3`], { title: `Hi`, data: {} })
+      sendToUsers([{ userId: `u1` }, { userId: `u2` }, { userId: `u3` }], {
+        title: `Hi`,
+        data: {},
+      })
     ).resolves.toBeUndefined()
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(h.deleteCalls.count).toBe(1)
   })
 
+  it(`merges per-recipient data over the shared payload, userId last`, async () => {
+    h.selectResults.push([
+      { userId: `u1`, token: `t1` },
+      { userId: `u2`, token: `t2` },
+    ])
+    fetchMock.mockResolvedValue(relayOk())
+
+    await sendToUsers(
+      [
+        { userId: `u1`, data: { notificationId: `n-1` } },
+        // A recipient trying to override the routing key must lose: the
+        // userId is written after the merge.
+        { userId: `u2`, data: { notificationId: `n-2`, userId: `spoofed` } },
+      ],
+      { title: `Hi`, data: { type: `issue_comment`, issueId: `i-1` } }
+    )
+
+    const dataByToken = new Map(
+      fetchMock.mock.calls.map((call) => {
+        const body = JSON.parse((call[1] as RequestInit).body as string)
+        return [body.tokens[0], body.data]
+      })
+    )
+    expect(dataByToken.get(`t1`)).toEqual({
+      type: `issue_comment`,
+      issueId: `i-1`,
+      notificationId: `n-1`,
+      userId: `u1`,
+    })
+    expect(dataByToken.get(`t2`)).toEqual({
+      type: `issue_comment`,
+      issueId: `i-1`,
+      notificationId: `n-2`,
+      userId: `u2`,
+    })
+  })
+
   it(`skips the relay entirely when no recipient has a token`, async () => {
     h.selectResults.push([])
 
-    await sendToUsers([`u1`], { title: `Hi`, data: {} })
+    await sendToUsers([{ userId: `u1` }], { title: `Hi`, data: {} })
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(h.deleteCalls.count).toBe(0)

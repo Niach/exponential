@@ -1,4 +1,4 @@
-import { resolveSession } from "@/lib/auth/resolve-bearer"
+import { resolveSession, SessionResolveError } from "@/lib/auth/resolve-bearer"
 import { checkClientVersion } from "@/lib/client-version"
 import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
 
@@ -51,7 +51,21 @@ export function createShapeRouteHandler({
     // deliberately NOT accepted — those are consent-scoped and only /api/mcp
     // resolves them (see lib/auth/resolve-bearer.ts) — so a presented MCP
     // token fails to resolve and 401s below. Null when anonymous.
-    const session = await resolveSession(request)
+    let session: Awaited<ReturnType<typeof resolveSession>>
+    try {
+      session = await resolveSession(request)
+    } catch (err) {
+      if (!(err instanceof SessionResolveError)) throw err
+      // The session LOOKUP failed (DB blip, auth backend down) — that is not a
+      // bad credential and must never masquerade as one: a 401 makes native
+      // sync engines drop into unauthorized backoff (or sign the user out)
+      // over a transient outage. 503 + retry-after keeps them retrying.
+      console.error(`[shape] session resolution failed:`, err)
+      return new Response(`Service Unavailable`, {
+        status: 503,
+        headers: { "retry-after": `5`, "cache-control": `no-store` },
+      })
+    }
 
     // A request that PRESENTED token credentials but failed to resolve a
     // session (revoked api key, expired mobile session token, dead MCP token)
