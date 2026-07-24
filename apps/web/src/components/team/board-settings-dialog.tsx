@@ -115,14 +115,12 @@ export function BoardSettingsDialog({
         onOpenChange(open)
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Board settings</DialogTitle>
           <DialogDescription>
             Same settings as board creation — changes apply to{` `}
-            <span className="font-medium text-foreground">
-              {board?.name}
-            </span>
+            <span className="font-medium text-foreground">{board?.name}</span>
             {` `}immediately.
           </DialogDescription>
         </DialogHeader>

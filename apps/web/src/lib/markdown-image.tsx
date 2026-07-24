@@ -317,13 +317,11 @@ function MarkdownImageNodeView({
         style={renderWidth ? { width: `${renderWidth}px` } : undefined}
         className={cn(`editor-image`, !editor.isEditable && `cursor-zoom-in`)}
         draggable="false"
-        onClick={
-          editor.isEditable ? undefined : () => setLightboxOpen(true)
-        }
+        onClick={editor.isEditable ? undefined : () => setLightboxOpen(true)}
       />
       <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent
-          className="w-auto max-w-[min(96vw,80rem)] p-2 sm:max-w-[min(96vw,80rem)]"
+          className="w-auto max-w-[min(96vw,80rem)] p-2 max-sm:content-center max-sm:justify-items-center sm:max-w-[min(96vw,80rem)]"
           aria-describedby={undefined}
         >
           <DialogTitle className="sr-only">{imageLabel}</DialogTitle>

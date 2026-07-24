@@ -55,10 +55,7 @@ export function IssueSearchSheet({
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const boards = useTeamBoards(teamId)
-  const boardIds = useMemo(
-    () => boards.map((p: Board) => p.id),
-    [boards]
-  )
+  const boardIds = useMemo(() => boards.map((p: Board) => p.id), [boards])
   const boardMap = useMemo(
     () => new Map<string, Board>(boards.map((p: Board) => [p.id, p])),
     [boards]
@@ -242,7 +239,7 @@ export function IssueSearchSheet({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[15%] translate-y-0 p-0 gap-0 flex max-h-[60vh] flex-col overflow-hidden sm:max-w-lg"
+        className="p-0 gap-0 flex flex-col overflow-hidden sm:top-[15%] sm:max-h-[60vh] sm:translate-y-0 sm:max-w-lg"
       >
         <DialogTitle className="sr-only">Search issues</DialogTitle>
         <Command
