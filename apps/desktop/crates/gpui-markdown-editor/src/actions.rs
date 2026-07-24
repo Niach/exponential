@@ -2,7 +2,10 @@
 
 use gpui::*;
 
-pub const BLOCK_EDITOR_CONTEXT: &str = "MarkdownEditor";
+// EXP-261 vendoring: renamed from "MarkdownEditor" — the host's classic
+// block editor already claims that key context (comment composer), and the
+// two editors' action sets must not shadow each other.
+pub const BLOCK_EDITOR_CONTEXT: &str = "WysiwygMarkdownEditor";
 
 actions!(
     gpui_markdown_editor,

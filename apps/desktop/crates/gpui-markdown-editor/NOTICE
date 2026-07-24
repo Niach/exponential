@@ -94,6 +94,9 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
   as pills (render-time only; serialization untouched), with Cmd/Ctrl+click
   surfacing `MarkdownEditorEvent::ReferenceClicked` (mirrors the link
   hit-test path).
+- src/actions.rs: key context renamed "MarkdownEditor" ->
+  "WysiwygMarkdownEditor" (the host's classic block editor already claims the
+  original name; the two action sets must not shadow each other).
 - src/editor/window_state.rs: caret accessors for host autocomplete —
   `focused_text_before_caret`, `replace_text_before_caret` (typed-edit path),
   `caret_viewport_bounds`.

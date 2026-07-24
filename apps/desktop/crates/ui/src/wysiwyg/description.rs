@@ -778,3 +778,45 @@ impl Render for WysiwygDescription {
             .children(self.render_image_menu(cx))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    // Construction + round-trip through the full wrapper: theme bridge,
+    // embedded vendored editor, image/reference seams — all with no
+    // signed-in session (transport resolves to None).
+    #[gpui::test]
+    async fn wrapper_round_trips_markdown(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                "# Title\n\nSome **bold** text",
+                None,
+                window,
+                cx,
+            )
+        });
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.markdown(cx), "# Title\n\nSome **bold** text");
+            assert!(view.staged_images(cx).is_empty());
+        });
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_markdown("replaced", window, cx);
+            });
+        });
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.markdown(cx), "replaced");
+        });
+    }
+}
