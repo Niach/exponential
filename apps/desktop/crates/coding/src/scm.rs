@@ -210,78 +210,6 @@ pub fn working_diff(repo: &Path, path: &str, staged: bool) -> Result<DiffFile, G
         }))
 }
 
-/// Cap for synthesizing an untracked file's all-added diff — beyond this the
-/// file renders the "too large" note instead (protects the highlighter from
-/// pathological files).
-const UNTRACKED_DIFF_MAX_BYTES: u64 = 1024 * 1024;
-
-/// The FULL working-tree diff vs HEAD (`git diff HEAD` — staged and unstaged
-/// tracked changes in one patch), plus synthesized all-added entries for
-/// untracked files (`git diff` never lists their content). Files come back
-/// path-sorted so the pane order is stable across refreshes. EXP-258: the
-/// Source Control screen renders this full-width — there is no per-file
-/// changes column anymore.
-pub fn working_diff_all(repo: &Path) -> Result<Vec<DiffFile>, GitError> {
-    let raw = run_git(Some(repo), &["diff", "HEAD"], None, "git diff HEAD")?;
-    let mut files = parse_unified_diff(&raw);
-    for change in status(repo)?.changes {
-        if change.status == FileStatus::Untracked {
-            files.push(untracked_diff_file(repo, &change.path));
-        }
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(files)
-}
-
-/// Synthesize the all-added [`DiffFile`] for an untracked path (content read
-/// from disk — git has no object to diff it against). Unreadable, non-UTF-8,
-/// or oversized content degrades to the zero-hunk "No textual diff" note; so
-/// does an untracked DIRECTORY (porcelain lists `dir/` without recursing).
-fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
-    let mut file = DiffFile {
-        path: path.to_string(),
-        previous_path: None,
-        status: FileStatus::Untracked,
-        additions: 0,
-        deletions: 0,
-        hunks: Vec::new(),
-        binary: false,
-    };
-    let full = repo.join(path);
-    let too_large = std::fs::metadata(&full)
-        .map(|meta| meta.len() > UNTRACKED_DIFF_MAX_BYTES)
-        .unwrap_or(true);
-    let content = if too_large { None } else { std::fs::read_to_string(&full).ok() };
-    let Some(content) = content else {
-        file.binary = true;
-        return file;
-    };
-    let lines: Vec<&str> = content.lines().collect();
-    let count = lines.len() as u32;
-    if count == 0 {
-        return file; // empty file — header-only entry
-    }
-    file.additions = count;
-    file.hunks.push(UnifiedHunk {
-        old_start: 0,
-        old_lines: 0,
-        new_start: 1,
-        new_lines: count,
-        header: format!("@@ -0,0 +1,{count} @@"),
-        lines: lines
-            .iter()
-            .enumerate()
-            .map(|(ix, line)| DiffLine {
-                kind: DiffLineKind::Addition,
-                old_line: None,
-                new_line: Some(ix as u32 + 1),
-                content: (*line).to_string(),
-            })
-            .collect(),
-    });
-    file
-}
-
 /// A commit's per-file diffs (`git show <hash>`), parsed to [`DiffFile`]s
 /// (history-pane selection, v4 §4.4). `--format=` drops the commit header so
 /// only the patch body reaches the parser.
@@ -1022,35 +950,6 @@ new file mode 100644
         git(r, &["add", "file.txt"]);
         let staged = working_diff(r, "file.txt", true).unwrap();
         assert_eq!((staged.additions, staged.deletions), (1, 1));
-    }
-
-    #[test]
-    fn working_diff_all_combines_tracked_staged_and_untracked() {
-        let d = temp_dir("wdiffall");
-        let r = &d.0;
-        init_repo(r);
-        write(r, "a.txt", "a\nb\nc\n");
-        commit_all(r, "init");
-        write(r, "a.txt", "a\nB\nc\n"); // unstaged modify
-        write(r, "b.txt", "new\n");
-        git(r, &["add", "b.txt"]); // staged add
-        write(r, "c.txt", "one\ntwo\n"); // untracked
-
-        let files = working_diff_all(r).unwrap();
-        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, vec!["a.txt", "b.txt", "c.txt"]);
-        assert_eq!(files[0].status, FileStatus::Modified);
-        assert_eq!((files[0].additions, files[0].deletions), (1, 1));
-        assert_eq!(files[1].status, FileStatus::Added);
-        let untracked = &files[2];
-        assert_eq!(untracked.status, FileStatus::Untracked);
-        assert_eq!(untracked.additions, 2);
-        assert_eq!(untracked.hunks.len(), 1);
-        assert!(untracked.hunks[0]
-            .lines
-            .iter()
-            .all(|l| l.kind == DiffLineKind::Addition));
-        assert_eq!(untracked.hunks[0].lines[1].content, "two");
     }
 
     #[test]
