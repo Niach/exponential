@@ -267,6 +267,63 @@ fn inline(text: &str, marks: &[InlineMark], is_heading: bool) -> String {
     out
 }
 
+/// The byte-parity contract corpus: every canonical GFM string here must
+/// survive `serialize(parse(md))` unchanged in BOTH desktop editors — the
+/// block editor below (comrak + `blocks_to_markdown`) and the vendored
+/// WYSIWYG editor (EXP-261, see `wysiwyg_parity.rs`). The strings mirror the
+/// Android suite that locks the same cross-client contract
+/// (`apps/android/.../MarkdownRoundTripTest.kt`); web (tiptap-markdown) and
+/// iOS (cmark-gfm) honor it too. Add fixtures here, never in only one suite.
+#[cfg(test)]
+pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
+    ("plain_paragraph", "Hello world"),
+    ("bold", "This is **bold** text"),
+    ("italic", "This is *italic* text"),
+    ("bold_italic", "This is ***both*** text"),
+    ("strikethrough", "This is ~~struck~~ text"),
+    ("inline_code", "This is `code` text"),
+    ("link", "A [link](https://example.com) here"),
+    ("relative_link", "See [docs](/help/page) now"),
+    ("heading1", "# Heading 1"),
+    ("heading2", "## Heading 2"),
+    ("heading3", "### Heading 3"),
+    ("heading_then_paragraph", "# Title\n\nSome body text"),
+    ("bullet_list", "- one\n- two\n- three"),
+    ("ordered_list", "1. one\n2. two\n3. three"),
+    ("task_list", "- [ ] todo\n- [x] done"),
+    ("blockquote", "> quoted text"),
+    ("code_block_with_lang", "```js\nconst x = 1\n```"),
+    ("code_block_no_lang", "```\nplain code\n```"),
+    ("multi_line_code_block", "```kotlin\nval a = 1\nval b = 2\n```"),
+    ("block_image", "![diagram](/api/attachments/abc123)"),
+    ("text_image_text", "before\n\n![alt](/api/attachments/abc)\n\nafter"),
+    ("nested_bullet_list", "- parent\n  - child"),
+    (
+        "mixed_document",
+        "# Title\n\nA paragraph with **bold**.\n\n- item 1\n- item 2\n\n> a quote",
+    ),
+    ("multiple_paragraphs", "First paragraph.\n\nSecond paragraph."),
+    ("bold_at_start", "**Bold** start"),
+    ("multiple_marks_one_line", "A **bold** and *italic* and `code` mix"),
+    ("mention_and_issue_ref", "cc @jane@example.com see #EXP-42"),
+    ("bare_url_stays_bare", "see https://example.com here"),
+    ("thematic_break", "---"),
+    ("thematic_break_between_paragraphs", "before\n\n---\n\nafter"),
+    ("unicode", "Grüße **münchen** 🚀 *ünïcodé*"),
+    // Literal marker characters in prose must NOT get escaped on save
+    // (EXP-261: locked when the vendored WYSIWYG serializer's eager
+    // escaping was made context-sensitive).
+    ("literal_asterisk_in_math", "2 * 3 = 6"),
+    ("literal_tilde_in_prose", "approx ~5 items"),
+    ("snake_case_identifier", "snake_case_name here"),
+    ("literal_backslash", "back\\slash"),
+    ("space_flanked_underscore", "underscore _ alone"),
+    ("tilde_at_word_end", "tilde~end"),
+    ("dollar_amount", "price is $5"),
+    ("angle_brackets", "5 < 6 > 4"),
+    ("brackets_without_url", "1 + 1 = 2 [not a link]"),
+];
+
 #[cfg(test)]
 mod tests {
     //! Byte-parity fixtures for the block markdown parser + serializer —
@@ -286,6 +343,16 @@ mod tests {
     #[track_caller]
     fn assert_stable(md: &str) {
         assert_eq!(round_trip(md), md, "round-trip diverged for {md:?}");
+    }
+
+    // The whole contract corpus must be stable through THIS (block editor)
+    // pipeline — the same table drives the WYSIWYG suite in
+    // `wysiwyg_parity.rs`, guaranteeing both editors lock identical bytes.
+    #[test]
+    fn contract_fixtures_stable() {
+        for (name, md) in super::CONTRACT_FIXTURES {
+            assert_eq!(&round_trip(md), md, "fixture {name} diverged");
+        }
     }
 
     #[test]

@@ -53,6 +53,21 @@ interchange contract intentionally has none of them)
   `toggle_underline` removed; `^` and `<u>`/`</u>` are no longer escaped on
   serialization (no longer special).
 
+Byte-parity alignment with the cross-client GFM contract (EXP-261 P2 — the
+gate is `crates/ui/src/markdown/wysiwyg_parity.rs` over the shared
+CONTRACT_FIXTURES corpus in `crates/ui/src/markdown/serialize.rs`)
+- src/components/markdown/inline.rs: literal-text escaping is now
+  CONTEXT-SENSITIVE (`literal_char_needs_escape`) — `*`, `_`, `~`, `\`, and
+  backticks are escaped only where they could actually open/close a construct
+  on re-parse; the previous eager per-character escaping rewrote plain prose
+  (`2 * 3` -> `2 \* 3`, `snake_case` -> `snake\_case`) and broke byte parity.
+  Known deliberate residual: an intra-word `*` (`c*d`) still escapes (it IS
+  emphasis-capable in GFM) — semantically identical everywhere, one-time byte
+  churn.
+- src/components/markdown/inline.rs: `_` emphasis now follows GFM's word rule
+  (cannot open after / close before an alphanumeric), so `snake_case_name`
+  stays plain text instead of becoming `snake*case*name`.
+
 gpui API drift fixes (crates.io gpui 0.2.2 snapshot -> zed rev 1d217ee)
 - `.flex_grow()` -> `.flex_grow(1.)` (takes a factor at this rev).
 - `ScrollHandle::max_offset()` returns `Point<Pixels>` -> `.height` became `.y`.

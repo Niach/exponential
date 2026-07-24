@@ -36,6 +36,8 @@ pub(crate) mod image_url;
 pub mod parse;
 pub mod serialize;
 mod toolbar;
+#[cfg(test)]
+mod wysiwyg_parity;
 
 pub use autocomplete::{
     detect_trigger, store_completion_source, CompletionItem, CompletionSource, CompletionTrigger,

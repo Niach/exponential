@@ -1488,8 +1488,23 @@ fn parse_until(
                     is_single_tilde_delimiter(tokens, index) && can_close_emphasis(tokens, index)
                 }
                 _ => {
-                    matches_sequence(tokens, index, &end_delim.close())
-                        && can_close_emphasis(tokens, index)
+                    let mut ok = matches_sequence(tokens, index, &end_delim.close())
+                        && can_close_emphasis(tokens, index);
+                    // EXP-261 vendoring: GFM word rule — `_` emphasis cannot
+                    // close inside a word.
+                    if ok
+                        && matches!(
+                            end_delim,
+                            Delimiter::BoldMarkdown { marker: '_' }
+                                | Delimiter::ItalicMarkdown { marker: '_' }
+                        )
+                    {
+                        let close_len = end_delim.close().chars().count();
+                        ok = tokens
+                            .get(index + close_len)
+                            .is_none_or(|token| !token.ch.is_alphanumeric());
+                    }
+                    ok
                 }
             };
 
@@ -2316,11 +2331,17 @@ fn match_open_delimiter(tokens: &[CharToken], index: usize) -> Option<Delimiter>
         Some(Delimiter::StrikethroughMarkdown)
     } else if matches_sequence(tokens, index, "**") && can_open_emphasis(tokens, index, 2) {
         Some(Delimiter::BoldMarkdown { marker: '*' })
-    } else if matches_sequence(tokens, index, "__") && can_open_emphasis(tokens, index, 2) {
+    } else if matches_sequence(tokens, index, "__")
+        && can_open_emphasis(tokens, index, 2)
+        && underscore_can_open(tokens, index)
+    {
         Some(Delimiter::BoldMarkdown { marker: '_' })
     } else if matches_sequence(tokens, index, "*") && can_open_emphasis(tokens, index, 1) {
         Some(Delimiter::ItalicMarkdown { marker: '*' })
-    } else if matches_sequence(tokens, index, "_") && can_open_emphasis(tokens, index, 1) {
+    } else if matches_sequence(tokens, index, "_")
+        && can_open_emphasis(tokens, index, 1)
+        && underscore_can_open(tokens, index)
+    {
         Some(Delimiter::ItalicMarkdown { marker: '_' })
     } else if tokens[index].ch == '`' {
         // Count the run of consecutive backticks.
@@ -2568,59 +2589,24 @@ fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
             continue;
         }
 
-        if text[index..].starts_with('\\') {
-            let start = escaped.len();
-            escaped.push_str("\\\\");
-            markdown_to_visible.resize(escaped.len() + 1, index);
-            for local in 0..=escaped.len() - start {
-                markdown_to_visible[start + local] = index;
+        // EXP-261 vendoring: context-sensitive escaping — a marker character
+        // is escaped only where it could actually open/close a construct on
+        // re-parse. Eager per-character escaping rewrote plain prose
+        // (`2 * 3` -> `2 \* 3`, `snake_case` -> `snake\_case`) and broke
+        // byte-parity with the other clients' serializers.
+        {
+            let ch = text[index..].chars().next().unwrap();
+            if literal_char_needs_escape(text, index, ch) {
+                let start = escaped.len();
+                escaped.push('\\');
+                escaped.push(ch);
+                markdown_to_visible.resize(escaped.len() + 1, index);
+                for local in 0..=escaped.len() - start {
+                    markdown_to_visible[start + local] = index;
+                }
+                index += ch.len_utf8();
+                continue;
             }
-            index += 1;
-            continue;
-        }
-
-        if text[index..].starts_with('*') {
-            let start = escaped.len();
-            escaped.push_str("\\*");
-            markdown_to_visible.resize(escaped.len() + 1, index);
-            for local in 0..=escaped.len() - start {
-                markdown_to_visible[start + local] = index;
-            }
-            index += 1;
-            continue;
-        }
-
-        if text[index..].starts_with('_') {
-            let start = escaped.len();
-            escaped.push_str("\\_");
-            markdown_to_visible.resize(escaped.len() + 1, index);
-            for local in 0..=escaped.len() - start {
-                markdown_to_visible[start + local] = index;
-            }
-            index += 1;
-            continue;
-        }
-
-        if text[index..].starts_with('~') {
-            let start = escaped.len();
-            escaped.push_str("\\~");
-            markdown_to_visible.resize(escaped.len() + 1, index);
-            for local in 0..=escaped.len() - start {
-                markdown_to_visible[start + local] = index;
-            }
-            index += 1;
-            continue;
-        }
-
-        if text[index..].starts_with('`') {
-            let start = escaped.len();
-            escaped.push_str("\\`");
-            markdown_to_visible.resize(escaped.len() + 1, index);
-            for local in 0..=escaped.len() - start {
-                markdown_to_visible[start + local] = index;
-            }
-            index += 1;
-            continue;
         }
 
         let ch = text[index..].chars().next().unwrap();
@@ -2639,6 +2625,41 @@ fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
         markdown: escaped,
         visible_to_markdown,
         markdown_to_visible,
+    }
+}
+
+/// EXP-261 vendoring: decides whether a literal marker character in plain
+/// fragment text must be backslash-escaped to survive re-parsing. Mirrors the
+/// GFM flanking rules the (patched) inline parser applies, so escaping and
+/// parsing stay exact complements — the byte-parity contract depends on it.
+fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
+    let prev = text[..index].chars().next_back();
+    let next = text[index + ch.len_utf8()..].chars().next();
+    let prev_nonspace = prev.is_some_and(|c| !c.is_whitespace());
+    let next_nonspace = next.is_some_and(|c| !c.is_whitespace());
+    match ch {
+        // A backslash is only special before ASCII punctuation.
+        '\\' => next.is_some_and(|c| c.is_ascii_punctuation()),
+        // `*` can open (next non-space) or close (prev non-space) emphasis
+        // anywhere; a space-flanked `*` is inert. At fragment start a `* `
+        // would read as a bullet marker at block level — escape that too.
+        '*' => prev_nonspace || next_nonspace || prev.is_none(),
+        // `_` additionally follows GFM's word rule: intra-word underscores
+        // (both neighbors alphanumeric) never open or close emphasis.
+        '_' => {
+            let prev_alnum = prev.is_some_and(|c| c.is_alphanumeric());
+            let next_alnum = next.is_some_and(|c| c.is_alphanumeric());
+            let could_open = next_nonspace && !prev_alnum;
+            let could_close = prev_nonspace && !next_alnum;
+            could_open || could_close
+        }
+        // A lone `~` is inert (subscript is excised); only `~~` runs open
+        // strikethrough.
+        '~' => prev == Some('~') || next == Some('~'),
+        // A lone backtick can never form a code span; escape only when the
+        // fragment holds another backtick it could pair with.
+        '`' => text[..index].contains('`') || text[index + ch.len_utf8()..].contains('`'),
+        _ => false,
     }
 }
 
@@ -3023,6 +3044,12 @@ fn clamp_to_char_boundary(text: &str, offset: usize) -> usize {
     boundary
 }
 
+/// EXP-261 vendoring: GFM word rule — `_` emphasis cannot open inside a word
+/// (the character before the run must not be alphanumeric).
+fn underscore_can_open(tokens: &[CharToken], index: usize) -> bool {
+    index == 0 || !tokens[index - 1].ch.is_alphanumeric()
+}
+
 fn can_open_emphasis(tokens: &[CharToken], index: usize, len: usize) -> bool {
     tokens
         .get(index + len)
@@ -3068,7 +3095,10 @@ mod tests {
         let tree = InlineTextTree::from_markdown("* a * _ b _");
 
         assert_eq!(tree.visible_text(), "* a * _ b _");
-        assert_eq!(tree.serialize_markdown(), "\\* a \\* \\_ b \\_");
+        // EXP-261 vendoring: context-sensitive escaping — only the
+        // fragment-leading `*` (a would-be bullet marker) needs an escape;
+        // space-flanked markers are inert and stay literal.
+        assert_eq!(tree.serialize_markdown(), "\\* a * _ b _");
     }
 
     #[test]
@@ -3192,7 +3222,9 @@ mod tests {
         let tree = InlineTextTree::from_markdown("\\*\\*<u>text</u>\\\\");
 
         assert_eq!(tree.visible_text(), "**<u>text</u>\\");
-        assert_eq!(tree.serialize_markdown(), "\\*\\*<u>text</u>\\\\");
+        // EXP-261 vendoring: a trailing backslash precedes no punctuation and
+        // needs no escape.
+        assert_eq!(tree.serialize_markdown(), "\\*\\*<u>text</u>\\");
     }
 
     #[test]
@@ -3681,7 +3713,8 @@ mod tests {
     fn unclosed_backtick_is_literal() {
         let tree = InlineTextTree::from_markdown("a `b");
         assert_eq!(tree.visible_text(), "a `b");
-        assert_eq!(tree.serialize_markdown(), "a \\`b");
+        // EXP-261 vendoring: a lone backtick cannot pair — stays literal.
+        assert_eq!(tree.serialize_markdown(), "a `b");
     }
 
     #[test]
