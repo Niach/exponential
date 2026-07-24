@@ -1,6 +1,8 @@
 //! Source Control screen (masterplan v4 §4.4, EXP-253 master-only rework) —
-//! trunk-only and READ-ONLY: a changes list + the shared diff renderer, plus
-//! (in conflict mode) the rebase/merge banner with "Fix conflicts with
+//! trunk-only and READ-ONLY: the shared diff renderer full-width (EXP-258:
+//! the per-file changes column is gone — a dirty tree shows its COMBINED
+//! working diff, every file at once, behind a slim count/discard strip),
+//! plus (in conflict mode) the rebase/merge banner with "Fix conflicts with
 //! Claude" / "Open terminal" / "Abort". The IDE neither stages, commits nor
 //! pushes anymore — the editor is view-only, changes arrive via PRs, and the
 //! trunk is kept fresh by the headless [`crate::trunk_sync`] engine. The ONE
@@ -43,7 +45,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use coding::scm::{self, CommitInfo, ConflictKind, ConflictState, FileStatus};
+use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 use terminal::TabKind;
 
 use crate::coding_flow::{self, CodingHub};
@@ -54,15 +56,17 @@ use crate::scroll_pane::v_scroll_pane;
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
-/// Fixed width of the left changes column.
-const LEFT_COL_W: f32 = 360.;
 
-/// What the right diff pane is showing.
+/// What the diff pane is showing.
 #[derive(Clone)]
 enum Selection {
+    /// Nothing to show — clean tree, no commit picked (placeholder).
     None,
-    /// A working-tree file (`git diff [--cached]`); `staged` picks the side.
-    Working { path: String, staged: bool },
+    /// The combined working-tree diff, every changed file at once (EXP-258:
+    /// the default whenever the tree is dirty — the changes column is gone).
+    WorkingAll,
+    /// One conflicted file's marker diff (conflict-banner chip).
+    ConflictFile,
     /// A history commit (`git show`) — the sidebar history list carries
     /// WHICH commit (rail `sc_selected_commit`); this only picks the pane.
     Commit,
@@ -100,7 +104,6 @@ pub struct SourceControlView {
     seen_sync_seq: u64,
     /// The sidebar history selection this view last applied (`None` = none).
     seen_commit: Option<String>,
-    changes_scroll: ScrollHandle,
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
@@ -109,7 +112,7 @@ pub struct SourceControlView {
 
     /// The active board this state belongs to (scope-change reset key) —
     /// the SAME scope rule as [`crate::trunk_sync::TrunkSync`] and the
-    /// sidebar [`HistoryList`], so the changes list, the history pane, and
+    /// sidebar [`HistoryList`], so the diff pane, the history pane, and
     /// the hard-reset target can never point at different repos in a
     /// multi-repo team.
     scope_board: Option<String>,
@@ -166,7 +169,6 @@ impl SourceControlView {
             rail,
             seen_sync_seq,
             seen_commit: None,
-            changes_scroll: ScrollHandle::new(),
             repo_resolver,
             diff,
             scope_board: None,
@@ -297,6 +299,13 @@ impl SourceControlView {
                     }
                 }
                 this.conflict = conflict;
+                // A resolved conflict invalidates a chip's marker diff.
+                if this.conflict.is_none()
+                    && matches!(this.selection, Selection::ConflictFile)
+                {
+                    this.selection = Selection::None;
+                }
+                this.sync_working_pane(cx);
                 cx.notify();
             });
         })
@@ -305,14 +314,38 @@ impl SourceControlView {
 
     // -- diff pane ----------------------------------------------------------
 
-    fn select_working(&mut self, path: String, staged: bool, cx: &mut gpui::Context<Self>) {
-        self.selection = Selection::Working {
-            path: path.clone(),
-            staged,
-        };
+    /// Keep the pane on the combined working diff whenever nothing else is
+    /// explicitly selected (EXP-258: with the changes column gone, the
+    /// working-tree diff IS the default view of a dirty tree).
+    fn sync_working_pane(&mut self, cx: &mut gpui::Context<Self>) {
+        if matches!(
+            self.selection,
+            Selection::Commit | Selection::ConflictFile
+        ) {
+            return;
+        }
+        let dirty = self
+            .status
+            .as_ref()
+            .is_some_and(|status| !status.changes.is_empty());
+        if dirty {
+            self.show_working_all(cx);
+        } else {
+            self.selection = Selection::None;
+        }
+    }
+
+    /// Load the combined working-tree diff (every changed file) into the pane.
+    fn show_working_all(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(scope) = self.scope.clone() else {
             return;
         };
+        // Skip the loading flash on refreshes of an already-shown working
+        // diff — the freshly built rows swap in atomically.
+        if !matches!(self.selection, Selection::WorkingAll) {
+            self.diff.update(cx, |diff, cx| diff.set_loading(cx));
+        }
+        self.selection = Selection::WorkingAll;
         let clone = scope.clone_dir.clone();
         self.diff_generation += 1;
         let generation = self.diff_generation;
@@ -320,12 +353,43 @@ impl SourceControlView {
         // on the background executor alongside the git call — only the cheap
         // `set_prepared` swap touches the foreground (mirrors `DiffView::fetch`).
         let theme = cx.theme().highlight_theme.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    scm::working_diff_all(&clone).map(|files| build_scm_diff(&files, &theme))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.diff_generation != generation {
+                    return;
+                }
+                this.diff.update(cx, |diff, cx| match result {
+                    Ok(prepared) => diff.set_prepared(prepared, cx),
+                    Err(err) => diff.set_error(err.to_string(), cx),
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// A conflict-banner chip: one conflicted file's marker diff.
+    fn select_conflict_file(&mut self, path: String, cx: &mut gpui::Context<Self>) {
+        self.selection = Selection::ConflictFile;
+        let Some(scope) = self.scope.clone() else {
+            return;
+        };
+        let clone = scope.clone_dir.clone();
+        self.diff_generation += 1;
+        let generation = self.diff_generation;
+        // Background build, same contract as `show_working_all`.
+        let theme = cx.theme().highlight_theme.clone();
         self.diff.update(cx, |diff, cx| diff.set_loading(cx));
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    scm::working_diff(&clone, &path, staged)
+                    scm::working_diff(&clone, &path, false)
                         .map(|file| build_scm_diff(&[file], &theme))
                 })
                 .await;
@@ -350,7 +414,7 @@ impl SourceControlView {
         let clone = scope.clone_dir.clone();
         self.diff_generation += 1;
         let generation = self.diff_generation;
-        // Build the diff rows on the background executor (see `select_working`).
+        // Build the diff rows on the background executor (see `show_working_all`).
         let theme = cx.theme().highlight_theme.clone();
         self.diff.update(cx, |diff, cx| diff.set_loading(cx));
         cx.spawn(async move |this, cx| {
@@ -523,110 +587,6 @@ impl SourceControlView {
 
     // -- render -------------------------------------------------------------
 
-    fn render_changes(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let changes = self.status.as_ref().map(|s| s.changes.as_slice()).unwrap_or(&[]);
-
-        v_scroll_pane(
-            "scm-changes",
-            &self.changes_scroll,
-            gpui_component::v_flex()
-                .p_2()
-                .gap_1()
-                .when(!changes.is_empty(), |this| {
-                    this.child(self.group_header(format!("Changes ({})", changes.len()), cx))
-                        .children(
-                            changes
-                                .iter()
-                                .map(|change| self.change_row(change, cx)),
-                        )
-                })
-                .when(changes.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .py_2()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("No changes — the working tree is clean."),
-                    )
-                }),
-        )
-    }
-
-    fn group_header(
-        &self,
-        label: impl Into<SharedString>,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        div()
-            .pt_1()
-            .pb_0p5()
-            .text_xs()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(cx.theme().muted_foreground)
-            .child(label.into())
-    }
-
-    /// One read-only changed-file row (EXP-253: no stage checkbox — the
-    /// staged flag only picks which diff side to show).
-    fn change_row(
-        &self,
-        change: &scm::FileChange,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-        let (glyph, color) = status_glyph(change.status, cx);
-        let staged = change.staged;
-        let path = change.path.clone();
-        let selected = matches!(
-            &self.selection,
-            Selection::Working { path: p, staged: s } if *p == change.path && *s == staged
-        );
-        let row_path = change.path.clone();
-
-        gpui_component::h_flex()
-            .id(SharedString::from(format!(
-                "scm-row-{}-{}",
-                if staged { "s" } else { "u" },
-                change.path
-            )))
-            .w_full()
-            .items_center()
-            .gap_2()
-            .px_1()
-            .py_0p5()
-            .rounded(theme.radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
-            .cursor_pointer()
-            .child(
-                div()
-                    .w(px(14.))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(color)
-                    .child(glyph),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(path)),
-            )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                // A manual file pick supersedes the sidebar's commit
-                // selection (and clears it so re-picking the same commit
-                // re-fires).
-                crate::sidebar::select_sc_commit(window, cx, None);
-                this.seen_commit = None;
-                this.select_working(row_path.clone(), staged, cx);
-            }))
-    }
-
     /// The §4.4 conflict banner (leads the screen while a rebase/merge is
     /// paused). Conflicted-file chips open their marker diff; the actions
     /// are Fix-with-Claude / Open-terminal / Abort / the reset hatch.
@@ -677,7 +637,7 @@ impl SourceControlView {
                                     .child(SharedString::from(format!("⚠ {file}"))),
                             )
                             .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.select_working(file_for_click.clone(), false, cx);
+                                this.select_conflict_file(file_for_click.clone(), cx);
                             }))
                     }),
                 ),
@@ -730,22 +690,25 @@ impl SourceControlView {
         match &self.selection {
             Selection::None => div()
                 .flex_1()
-                .min_w_0()
-                .h_full()
+                .min_h_0()
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("Select a file or a commit from History to view its diff.")
+                .child(if self.status.is_some() {
+                    "No changes — the working tree is clean. Select a commit from History to view its diff."
+                } else {
+                    "Loading…"
+                })
                 .into_any_element(),
-            // `.h_full()` is load-bearing: without a definite height the
-            // DiffView's virtual list resolves to zero height and renders
-            // nothing (the issue Changes tab embeds it the same way).
+            // The definite height (`flex_1` + `min_h_0` in the column) is
+            // load-bearing: without it the DiffView's virtual list resolves
+            // to zero height and renders nothing (the issue Changes tab
+            // embeds it the same way).
             _ => div()
                 .flex_1()
-                .min_w_0()
-                .h_full()
+                .min_h_0()
                 .child(self.diff.clone())
                 .into_any_element(),
         }
@@ -793,46 +756,78 @@ impl SourceControlView {
                 .into_any_element();
         }
 
-        let dirty = self
+        let changed = self
             .status
             .as_ref()
-            .map(|status| !status.changes.is_empty())
-            .unwrap_or(false);
+            .map(|status| status.changes.len())
+            .unwrap_or(0);
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // mutable cx borrows of the render calls below.
         let border = theme.border;
-        let left = gpui_component::v_flex()
-            .w(px(LEFT_COL_W))
-            .flex_shrink_0()
-            .h_full()
-            .border_r_1()
-            .border_color(border)
-            .child(self.render_changes(cx))
-            // The escape hatch for a dirty tree (a conflicted tree gets it
-            // in the banner instead): the ONE write affordance left.
-            .when(dirty && self.conflict.is_none(), |this| {
+        let muted = theme.muted_foreground;
+        let showing_working = matches!(self.selection, Selection::WorkingAll);
+
+        gpui_component::v_flex()
+            .flex_1()
+            .min_h_0()
+            // All that's left of the old changes column (EXP-258 — the diff
+            // gets the full pane): one slim strip with the change count, a
+            // way back from a commit view, and the discard escape hatch —
+            // the ONE write affordance (a conflicted tree gets it in the
+            // banner instead).
+            .when(changed > 0 && self.conflict.is_none(), |this| {
                 this.child(
                     gpui_component::h_flex()
                         .flex_shrink_0()
-                        .p_2()
-                        .border_t_1()
+                        .items_center()
+                        .justify_between()
+                        .px_3()
+                        .py_1()
+                        .border_b_1()
                         .border_color(border)
                         .child(
-                            Button::new("scm-hard-reset")
-                                .small()
-                                .label("Discard changes & reset…")
-                                .disabled(self.busy.is_some())
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.prompt_hard_reset(window, cx);
-                                })),
+                            div().text_xs().text_color(muted).child(SharedString::from(
+                                if changed == 1 {
+                                    "1 changed file".to_string()
+                                } else {
+                                    format!("{changed} changed files")
+                                },
+                            )),
+                        )
+                        .child(
+                            gpui_component::h_flex()
+                                .gap_2()
+                                .when(!showing_working, |this| {
+                                    this.child(
+                                        Button::new("scm-view-changes")
+                                            .ghost()
+                                            .xsmall()
+                                            .label("View changes")
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                // Supersedes the sidebar's commit
+                                                // selection (and clears it so
+                                                // re-picking the same commit
+                                                // re-fires).
+                                                crate::sidebar::select_sc_commit(
+                                                    window, cx, None,
+                                                );
+                                                this.seen_commit = None;
+                                                this.show_working_all(cx);
+                                            })),
+                                    )
+                                })
+                                .child(
+                                    Button::new("scm-hard-reset")
+                                        .xsmall()
+                                        .label("Discard changes & reset…")
+                                        .disabled(self.busy.is_some())
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.prompt_hard_reset(window, cx);
+                                        })),
+                                ),
                         ),
                 )
-            });
-
-        gpui_component::h_flex()
-            .flex_1()
-            .min_h_0()
-            .child(left)
+            })
             .child(self.render_diff_pane(cx))
             .into_any_element()
     }
@@ -855,8 +850,16 @@ impl Render for SourceControlView {
             .map(str::to_string);
         if want != self.seen_commit {
             self.seen_commit = want.clone();
-            if let Some(hash) = want {
-                self.select_commit(hash, cx);
+            match want {
+                Some(hash) => self.select_commit(hash, cx),
+                // Deselected out from under us (scope change) — fall back to
+                // the working diff / placeholder.
+                None => {
+                    if matches!(self.selection, Selection::Commit) {
+                        self.selection = Selection::None;
+                        self.sync_working_pane(cx);
+                    }
+                }
             }
         }
         let theme = cx.theme();
@@ -881,18 +884,6 @@ impl Render for SourceControlView {
                 )
             })
             .child(self.render_body(cx))
-    }
-}
-
-/// Status glyph + color for a change row (M/A/D/R/? — §4.4 changes list).
-fn status_glyph(status: FileStatus, cx: &App) -> (&'static str, gpui::Hsla) {
-    let theme = cx.theme();
-    match status {
-        FileStatus::Modified => ("M", theme.yellow),
-        FileStatus::Added => ("A", theme.green),
-        FileStatus::Deleted => ("D", theme.red),
-        FileStatus::Renamed => ("R", theme.blue),
-        FileStatus::Untracked => ("?", theme.muted_foreground),
     }
 }
 
