@@ -115,6 +115,17 @@ impl DescriptionEditor for WysiwygSeamEditor {
         self.editor
             .update(cx, |editor, cx| editor.focus(window, cx));
     }
+
+    // EXP-261: the vendored editor tracks real edits via its revision
+    // counter, so the flush path can tell "user typed" apart from "the
+    // serializer normalized the loaded bytes".
+    fn is_dirty(&self, cx: &App) -> bool {
+        self.editor.read(cx).is_dirty(cx)
+    }
+
+    fn mark_clean(&self, cx: &mut App) {
+        self.editor.update(cx, |editor, cx| editor.mark_clean(cx));
+    }
 }
 
 /// Build a fully configured [`MarkdownEditor`] entity — the single

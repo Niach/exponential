@@ -120,6 +120,27 @@ pub trait DescriptionEditor {
     /// Move keyboard focus into the editor (Tab from the title lands here —
     /// web EXP-10 parity).
     fn focus(&self, window: &mut Window, cx: &mut App);
+    /// EXP-261: whether the user actually edited since the last load/save.
+    /// The vendored WYSIWYG serializer NORMALIZES render-equivalent forms, so
+    /// a byte diff against the loaded description does NOT imply an edit —
+    /// the flush path skips clean editors so a view-only open never rewrites
+    /// other clients' content. The `true` default keeps editors without edit
+    /// tracking (the classic block-editor revert path) on the old
+    /// byte-compare-only behavior.
+    fn is_dirty(&self, _cx: &App) -> bool {
+        true
+    }
+    /// EXP-261: record that the current content was just persisted (the
+    /// flush path saves outside the editor's own save hook).
+    fn mark_clean(&self, _cx: &mut App) {}
+    /// EXP-261: the bytes a PERSIST site must use — [`Self::markdown`] with
+    /// still-uploading `draft://` staging images structurally stripped. A
+    /// `draft://` URL must never reach the server; every save path (the
+    /// editor's own blur save AND the detail view's tab-switch flush) derives
+    /// its bytes through this one shared derivation, never raw `markdown()`.
+    fn markdown_for_save(&self, cx: &App) -> String {
+        crate::markdown::image_paste::markdown_for_save(self.markdown(cx))
+    }
 }
 
 /// Save hook of one description editor (markdown source at save time).
@@ -490,8 +511,19 @@ impl IssueDetailView {
         let Some(issue_id) = self.editor_issue.clone() else {
             return;
         };
-        let normalized = editor.markdown(cx).trim().to_string();
+        // EXP-261: no user edit → nothing to flush. The serializer
+        // normalizes render-equivalent markdown, so the byte diff below is
+        // only trustworthy AFTER a real edit happened.
+        if !editor.is_dirty(cx) {
+            return;
+        }
+        // EXP-261: `markdown_for_save`, never raw `markdown()` — a paste
+        // still uploading when the user switches tabs must not persist its
+        // `draft://` placeholder (the editor is dropped with the view, so
+        // the upload's healing rewrite would never run).
+        let normalized = editor.markdown_for_save(cx).trim().to_string();
         if normalized == *self.last_saved_description.borrow() {
+            editor.mark_clean(cx);
             return;
         }
         *self.last_saved_description.borrow_mut() = normalized.clone();
@@ -502,6 +534,7 @@ impl IssueDetailView {
             api::Patch::Set(normalized)
         };
         spawn_issue_update(cx, input);
+        editor.mark_clean(cx);
     }
 
     /// Web `handleTitleBlur`: trimmed, non-empty, changed → `issues.update`.
@@ -1501,3 +1534,48 @@ fn capitalize_first(text: &str) -> String {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    /// A minimal seam editor whose raw buffer still holds mid-upload
+    /// `draft://` placeholders.
+    struct StubEditor(&'static str);
+
+    impl DescriptionEditor for StubEditor {
+        fn set_markdown(&self, _markdown: &str, _window: &mut Window, _cx: &mut App) {}
+        fn markdown(&self, _cx: &App) -> String {
+            self.0.to_string()
+        }
+        fn is_focused(&self, _window: &Window, _cx: &App) -> bool {
+            false
+        }
+        fn element(&self, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
+            unreachable!("not rendered in this test")
+        }
+        fn focus(&self, _window: &mut Window, _cx: &mut App) {}
+    }
+
+    // EXP-261 regression (BUG 1): `flush_description` persists
+    // `markdown_for_save`, never raw `markdown()`. The trait's shared default
+    // derivation strips a mid-upload draft (inline AND standalone) for every
+    // seam editor, so a tab/issue switch can never write `draft://` bytes to
+    // the server even though the raw buffer still holds them.
+    #[gpui::test]
+    async fn flush_derivation_strips_drafts_raw_markdown_still_has(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let editor = StubEditor("before\n\n- ![img](draft://u1) item\n\n![shot](draft://u2)");
+            assert!(editor.markdown(cx).contains("draft://"));
+            let for_save = editor.markdown_for_save(cx);
+            assert!(!for_save.contains("draft://"));
+            assert_eq!(for_save, "before\n\n-  item");
+
+            // Draft-free content (tables included) passes through untouched.
+            let clean = StubEditor("| a | b |\n| --- | --- |\n| 1 | 2 |");
+            assert_eq!(clean.markdown_for_save(cx), clean.markdown(cx));
+        });
+    }
+}

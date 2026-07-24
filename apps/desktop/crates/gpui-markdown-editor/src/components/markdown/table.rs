@@ -557,14 +557,18 @@ fn split_table_cells(line: &str) -> Option<Vec<String>> {
 
 fn parse_alignment_cell(cell: &str) -> Option<TableColumnAlignment> {
     let trimmed = cell.trim();
-    if trimmed.len() < 3 {
+    // EXP-261: GFM's delimiter cell is `:?-+:?` — ONE dash is enough. Upstream
+    // demanded three, so `| - |` and `|:--|--:|` were not recognized as tables
+    // at all and their rows degraded into separate paragraphs on import,
+    // destroying the table (serialization still normalizes to the `---` form).
+    if trimmed.is_empty() {
         return None;
     }
 
     let left = trimmed.starts_with(':');
     let right = trimmed.ends_with(':');
     let core = trimmed.trim_start_matches(':').trim_end_matches(':');
-    if core.len() < 3 || !core.chars().all(|ch| ch == '-') {
+    if core.is_empty() || !core.chars().all(|ch| ch == '-') {
         return None;
     }
 
@@ -768,6 +772,52 @@ mod tests {
             (left - right).abs() < 0.0001,
             "expected {left} to be close to {right}"
         );
+    }
+
+    // EXP-261: GFM allows a one-dash delimiter cell and short aligned cells.
+    // Upstream required three dashes, so these rows never parsed as a table and
+    // degraded into separate paragraphs — silently destroying the table when a
+    // description written by another client was re-serialized here.
+    #[test]
+    fn parses_short_and_aligned_delimiter_cells_exp261() {
+        for (delimiter, expected) in [
+            ("| - | - |", vec![TableColumnAlignment::Default; 2]),
+            ("| -- | --- |", vec![TableColumnAlignment::Default; 2]),
+            (
+                "|:--|--:|",
+                vec![TableColumnAlignment::Left, TableColumnAlignment::Right],
+            ),
+            (
+                "| :-: | :- |",
+                vec![TableColumnAlignment::Center, TableColumnAlignment::Left],
+            ),
+        ] {
+            let lines = vec![
+                "| a | b |".to_string(),
+                delimiter.to_string(),
+                "| 1 | 2 |".to_string(),
+            ];
+            let table = parse_root_table_region(&lines)
+                .unwrap_or_else(|| panic!("delimiter {delimiter:?} should parse as a table"));
+            assert_eq!(table.alignments, expected, "for delimiter {delimiter:?}");
+            assert_eq!(table.rows.len(), 1, "for delimiter {delimiter:?}");
+        }
+    }
+
+    // A delimiter row still needs at least one dash per cell.
+    #[test]
+    fn rejects_dashless_delimiter_cells_exp261() {
+        for delimiter in ["| | |", "| : | : |", "| a | b |"] {
+            let lines = vec![
+                "| a | b |".to_string(),
+                delimiter.to_string(),
+                "| 1 | 2 |".to_string(),
+            ];
+            assert!(
+                parse_root_table_region(&lines).is_none(),
+                "delimiter {delimiter:?} must not parse as a table"
+            );
+        }
     }
 
     #[test]

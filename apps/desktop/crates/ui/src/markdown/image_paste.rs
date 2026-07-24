@@ -266,21 +266,75 @@ pub fn pasted_image_parts(format: gpui::ImageFormat) -> (&'static str, String) {
     (mime, format!("pasted-image.{ext}"))
 }
 
-/// Drop image lines whose src is a still-unresolved `draft://` staging URL —
-/// a draft URL must never reach the server (create-dialog submit and the
-/// WYSIWYG detail save path both route through this).
+/// The one save-bytes derivation of the description surfaces (EXP-261): a
+/// `draft://` URL must never reach the server, so every persist site (blur
+/// save, structural-commit save, the detail view's tab-switch flush, the
+/// create-dialog submit) derives its bytes through here. Draft-free markdown
+/// passes through byte-identical.
+pub fn markdown_for_save(markdown: String) -> String {
+    if markdown.contains(DRAFT_SCHEME) {
+        strip_draft_images(&markdown)
+    } else {
+        markdown
+    }
+}
+
+/// Remove every `![alt](draft://…)` occurrence whose src is a
+/// still-unresolved staging URL — a draft URL must never reach the server.
+///
+/// The strip is STRUCTURAL (EXP-261): exactly the draft occurrences are
+/// removed via the same occurrence scan `delete_image` uses, wherever they
+/// sit — standalone paragraphs, but also inline in list items, blockquotes,
+/// headings and table cells (the vendored editor serializes those inline, so
+/// the old whole-line filter missed them, and a line holding a real image
+/// AND a draft lost both). Every other byte is preserved apart from a final
+/// trim; a line the removal leaves empty (the standalone image paragraph a
+/// plain-paragraph paste produces) is dropped along with the doubled blank
+/// line it leaves behind. Deliberately NO comrak `canonicalize` pass: this
+/// runs on vendored-WYSIWYG output, which legitimately round-trips
+/// constructs (tables, soft breaks) the block editor's canonicalize would
+/// destroy (see wysiwyg_parity.rs).
 pub fn strip_draft_images(markdown: &str) -> String {
-    let kept: Vec<&str> = markdown
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            !(trimmed.starts_with("![") && trimmed.contains(&format!("]({DRAFT_SCHEME}")))
-        })
-        .collect();
-    let joined = kept.join("
-");
-    let canonical = super::canonicalize(&joined);
-    canonical.trim().to_string()
+    let mut out = markdown.to_string();
+    loop {
+        let occurrence = crate::attachments_row::extract_image_occurrences(&out)
+            .into_iter()
+            .find(|occurrence| occurrence.url.starts_with(DRAFT_SCHEME));
+        let Some(occurrence) = occurrence else {
+            break;
+        };
+        remove_draft_occurrence(&mut out, occurrence.start, occurrence.end);
+    }
+    out.trim().to_string()
+}
+
+/// Remove one draft occurrence's byte range. When the containing line is
+/// left whitespace-only (the standalone-paragraph case), drop the line too,
+/// plus the doubled blank line that leaves between its neighbors; inline
+/// residue (list item, table cell, …) keeps its line untouched.
+fn remove_draft_occurrence(text: &mut String, start: usize, end: usize) {
+    text.replace_range(start..end, "");
+    let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = text[start..]
+        .find('\n')
+        .map(|i| start + i)
+        .unwrap_or(text.len());
+    if !text[line_start..line_end].trim().is_empty() {
+        return;
+    }
+    if line_end < text.len() {
+        text.replace_range(line_start..line_end + 1, "");
+        // "a\n\n<img>\n\nb" would otherwise become "a\n\n\nb".
+        if line_start >= 2
+            && text.as_bytes().get(line_start) == Some(&b'\n')
+            && text.as_bytes()[line_start - 1] == b'\n'
+            && text.as_bytes()[line_start - 2] == b'\n'
+        {
+            text.remove(line_start);
+        }
+    } else if line_start > 0 {
+        text.replace_range(line_start - 1..line_end, "");
+    }
 }
 
 /// Read an image file (drag-drop / file picker), inferring the mime from the
@@ -345,6 +399,81 @@ mod tests {
     #[test]
     fn draft_urls_are_unique() {
         assert_ne!(new_draft_url(), new_draft_url());
+    }
+
+    // EXP-261 regression: the strip is structural — inline drafts inside
+    // list items, blockquotes and table cells (which the vendored editor
+    // serializes inline, never as standalone `![…` lines) are removed too,
+    // and the surrounding construct survives.
+    #[test]
+    fn strip_removes_inline_drafts_in_list_blockquote_and_table() {
+        assert_eq!(
+            strip_draft_images("- first\n- ![img](draft://a) item\n- last"),
+            "- first\n-  item\n- last"
+        );
+        assert_eq!(
+            strip_draft_images("> quoted ![img](draft://b) text"),
+            "> quoted  text"
+        );
+        assert_eq!(
+            strip_draft_images("| a | ![img](draft://c) |\n| --- | --- |\n| 1 | 2 |"),
+            "| a |  |\n| --- | --- |\n| 1 | 2 |"
+        );
+    }
+
+    // EXP-261 regression: a line holding a real image AND a draft keeps the
+    // real one (the old whole-line filter dropped both).
+    #[test]
+    fn strip_keeps_real_image_sharing_a_line_with_a_draft() {
+        assert_eq!(
+            strip_draft_images("![keep](/api/attachments/xyz) ![lose](draft://d)"),
+            "![keep](/api/attachments/xyz)"
+        );
+        assert_eq!(
+            strip_draft_images("![lose](draft://d) ![keep](/api/attachments/xyz)"),
+            "![keep](/api/attachments/xyz)"
+        );
+    }
+
+    // EXP-261 regression: NO comrak canonicalize — a table elsewhere in the
+    // document survives a draft-racing save byte-identically (the old strip
+    // flattened it into one space-joined paragraph).
+    #[test]
+    fn strip_leaves_tables_and_soft_breaks_byte_identical() {
+        let table = "| col a | col b |\n| --- | --- |\n| 1 | 2 |";
+        let with_draft = format!("intro\n\n![shot](draft://e)\n\n{table}");
+        assert_eq!(strip_draft_images(&with_draft), format!("intro\n\n{table}"));
+        // Draft-free input passes through untouched (soft breaks included).
+        let soft = "line one\nline two\n\n| a |\n| --- |\n| 1 |";
+        assert_eq!(strip_draft_images(soft), soft);
+        assert_eq!(markdown_for_save(soft.to_string()), soft);
+    }
+
+    #[test]
+    fn strip_removes_standalone_draft_paragraphs_without_blank_residue() {
+        assert_eq!(
+            strip_draft_images("Intro\n\n![shot](draft://f)\n\nOutro"),
+            "Intro\n\nOutro"
+        );
+        assert_eq!(strip_draft_images("![only](draft://g)"), "");
+        assert_eq!(strip_draft_images("![a](draft://h)\n\ntail"), "tail");
+        assert_eq!(strip_draft_images("head\n\n![a](draft://i)"), "head");
+        assert_eq!(
+            strip_draft_images("![a](draft://j)\n\n![b](draft://k)"),
+            ""
+        );
+        assert_eq!(strip_draft_images(""), "");
+    }
+
+    #[test]
+    fn markdown_for_save_strips_only_when_drafts_present() {
+        assert_eq!(
+            markdown_for_save("a\n\n![x](draft://m)\n\nb".to_string()),
+            "a\n\nb"
+        );
+        // Untouched — not even a trim — when no draft is present.
+        let clean = "text with trailing newline\n".to_string();
+        assert_eq!(markdown_for_save(clean.clone()), clean);
     }
 
     struct NullToken;

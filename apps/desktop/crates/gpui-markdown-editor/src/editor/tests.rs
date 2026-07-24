@@ -22,6 +22,51 @@ async fn rendered_source_round_trip_preserves_markdown(cx: &mut TestAppContext) 
     });
 }
 
+// EXP-261: GFM treats an ordered list's FIRST number as semantic (the list
+// start). The importer keeps it and the serializer re-emits the run from it —
+// `3. three` must never normalize to `1. three`.
+#[gpui::test]
+async fn ordered_list_start_number_round_trips(cx: &mut TestAppContext) {
+    let markdown = "3. three\n4. four";
+    let editor = cx.new(|cx| Editor::new(markdown, MarkdownEditorOptions::default(), cx));
+    editor.update(cx, |editor, cx| {
+        assert_eq!(editor.markdown(cx), "3. three\n4. four");
+    });
+
+    // Followers renumber from the head (GFM: only the first number matters).
+    let editor = cx.new(|cx| Editor::new("3. a\n9. b\n2. c", MarkdownEditorOptions::default(), cx));
+    editor.update(cx, |editor, cx| {
+        assert_eq!(editor.markdown(cx), "3. a\n4. b\n5. c");
+    });
+
+    // Separate runs each keep their own start; lists from 1 stay unchanged.
+    let editor = cx.new(|cx| {
+        Editor::new(
+            "1. one\n2. two\n\nbetween\n\n5. five\n6. six",
+            MarkdownEditorOptions::default(),
+            cx,
+        )
+    });
+    editor.update(cx, |editor, cx| {
+        assert_eq!(editor.markdown(cx), "1. one\n2. two\n\nbetween\n\n5. five\n6. six");
+    });
+
+    // Nested runs seed independently of the outer run.
+    let editor = cx.new(|cx| {
+        Editor::new(
+            "2. outer\n  4. inner\n  5. inner two\n3. outer two",
+            MarkdownEditorOptions::default(),
+            cx,
+        )
+    });
+    editor.update(cx, |editor, cx| {
+        assert_eq!(
+            editor.markdown(cx),
+            "2. outer\n  4. inner\n  5. inner two\n3. outer two"
+        );
+    });
+}
+
 #[gpui::test]
 async fn replace_markdown_preserves_the_selected_mode(cx: &mut TestAppContext) {
     let options = MarkdownEditorOptions {

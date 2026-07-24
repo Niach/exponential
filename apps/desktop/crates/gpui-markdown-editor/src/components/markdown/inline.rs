@@ -1976,6 +1976,14 @@ fn locate_inline_link(
     if index > 0 && matches!(tokens[index - 1].ch, '!' | ']') {
         return None;
     }
+    // EXP-261 vendoring: a raw `\` token directly before the `[` only occurs
+    // when the escape parser deliberately declined the `!\[` sequence (see
+    // `escaped_sequence_token_len`) — that bracket is escaped-literal image
+    // syntax, never a link opener. (An escaped backslash `\\` consumes both
+    // tokens as a pair before the `[` is reached, so it never lands here.)
+    if index > 1 && tokens[index - 1].ch == '\\' && tokens[index - 2].ch == '!' {
+        return None;
+    }
 
     let mut label_depth = 0usize;
     let mut cursor = index + 1;
@@ -2518,16 +2526,28 @@ fn escaped_sequence_token_len(tokens: &[CharToken], index: usize) -> Option<usiz
         Some(4)
     } else if matches_sequence(tokens, next_index, "<u>") {
         Some(3)
-    } else if matches_sequence(tokens, next_index, "\\")
-        || matches_sequence(tokens, next_index, "*")
-        || matches_sequence(tokens, next_index, "_")
-        || matches_sequence(tokens, next_index, "~")
-        || matches_sequence(tokens, next_index, "[")
-        || matches_sequence(tokens, next_index, "]")
-        || matches_sequence(tokens, next_index, "`")
-        || matches_sequence(tokens, next_index, "^")
+    } else if tokens
+        .get(next_index)
+        .is_some_and(|token| token.ch.is_ascii_punctuation())
     {
-        Some(1)
+        // EXP-261 vendoring: CommonMark/GFM honor a backslash before ANY
+        // ASCII punctuation character, not just a marker whitelist. The old
+        // whitelist left e.g. `1\.` / `\-` / `\#` / `\<` with a literal
+        // backslash in the visible text, which the serializer then re-escaped
+        // (`1\.` -> `1\\.`), corrupting content written by the other clients'
+        // serializers (web/iOS/Android all emit spec escapes).
+        //
+        // One deliberate exception: `!\[` keeps its backslash VISIBLE. This
+        // engine preserves raw inline-image markdown (`![alt](url)`) verbatim
+        // as literal text, so unescaping `\[` after `!` would collapse an
+        // escaped-literal image (web's `!\[x\](y)`, meaning literal text)
+        // into real image syntax. Keeping the backslash keeps the two forms
+        // distinguishable and byte-stable (see `literal_char_needs_escape`).
+        if tokens[next_index].ch == '[' && index > 0 && tokens[index - 1].ch == '!' {
+            None
+        } else {
+            Some(1)
+        }
     } else {
         None
     }
@@ -2637,9 +2657,25 @@ fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
     let next = text[index + ch.len_utf8()..].chars().next();
     let prev_nonspace = prev.is_some_and(|c| !c.is_whitespace());
     let next_nonspace = next.is_some_and(|c| !c.is_whitespace());
+    // EXP-261 vendoring: block-start markers (`#`, `-`, `+`, `>`, `1.`/`1)`)
+    // only carry block meaning at the start of a serialized line. Fragment
+    // start is the line-start proxy the `*` arm already uses — the escape
+    // layer has no block context. Deliberately NOT `prev == '\n'`: embedded
+    // newlines only occur transiently while a multiline edit is being
+    // re-parsed into blocks, and a typed `\n- item` must stay a real bullet
+    // there. A styled prefix before such a fragment over-escapes (harmless:
+    // renders identically everywhere), the same accepted residual as the
+    // intra-word `*` (see NOTICE).
+    let at_line_start = prev.is_none();
     match ch {
-        // A backslash is only special before ASCII punctuation.
-        '\\' => next.is_some_and(|c| c.is_ascii_punctuation()),
+        // A backslash is only special before ASCII punctuation — except in
+        // the visible sequence `!\[`, which the parse side keeps verbatim
+        // (escaped-literal image syntax; see `escaped_sequence_token_len`):
+        // that backslash must go out bare so the wire form stays `!\[`.
+        '\\' => {
+            next.is_some_and(|c| c.is_ascii_punctuation())
+                && !(next == Some('[') && prev == Some('!'))
+        }
         // `*` can open (next non-space) or close (prev non-space) emphasis
         // anywhere; a space-flanked `*` is inert. At fragment start a `* `
         // would read as a bullet marker at block level — escape that too.
@@ -2659,8 +2695,125 @@ fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
         // A lone backtick can never form a code span; escape only when the
         // fragment holds another backtick it could pair with.
         '`' => text[..index].contains('`') || text[index + ch.len_utf8()..].contains('`'),
+        // EXP-261 vendoring (F2): a literal `[` that would re-parse as a
+        // link opener must be escaped, otherwise literal text like `[x](y)`
+        // (parsed from web's `\[x\](y)`) becomes a REAL link on every
+        // client's next load. Plain `[not a link]` without a target stays
+        // bare (contract fixture). Two exemptions mirror the parse side:
+        // a `[` directly after `!` is raw inline-image markdown the engine
+        // preserves verbatim, and a `[` after the kept-visible `!\` prefix
+        // is already protected on the wire (its backslash goes out bare).
+        '[' => {
+            if prev == Some('!') {
+                false
+            } else if prev == Some('\\') {
+                let prev_prev = {
+                    let mut before = text[..index].chars().rev();
+                    before.next();
+                    before.next()
+                };
+                prev_prev != Some('!') && bracket_would_open_construct(&text[index..])
+            } else {
+                bracket_would_open_construct(&text[index..])
+            }
+        }
+        // EXP-261 vendoring (F1): a literal `<` that would re-parse as an
+        // autolink or as a styled inline-HTML container must be escaped —
+        // `<tag>` alone re-parses as an autolink in this engine.
+        '<' => angle_would_open_construct(&text[index..]),
+        // EXP-261 vendoring (F1): ATX heading marker — a run of 1-6 `#`
+        // followed by space/EOL at line start. Escaping the first `#`
+        // neutralizes the whole run.
+        '#' => {
+            at_line_start && {
+                let run = text[index..].chars().take_while(|&c| c == '#').count();
+                run <= 6 && matches!(text[index..].chars().nth(run), None | Some(' ') | Some('\t'))
+            }
+        }
+        // EXP-261 vendoring (F1): bullet-list markers (`- ` / `+ ` or a bare
+        // marker = empty item) and the all-dash thematic break, at line start
+        // only — `a - b` mid-prose stays untouched.
+        '-' | '+' => {
+            at_line_start
+                && (matches!(next, None | Some(' ') | Some('\t'))
+                    || (ch == '-'
+                        && text[index..].chars().count() >= 3
+                        && text[index..].chars().all(|c| c == '-')))
+        }
+        // EXP-261 vendoring (F1): a blockquote marker needs no following
+        // space (`>quote` is a quote), so any line-start `>` escapes.
+        '>' => at_line_start,
+        // EXP-261 vendoring (F1): ordered-list markers — line-start digits
+        // (1-9 of them, per CommonMark) directly before `.`/`)` followed by
+        // space/EOL. The dot is what gets escaped (`1\. not a list`),
+        // matching the other clients' serializers.
+        '.' | ')' => {
+            let marker_digits = &text[..index];
+            !marker_digits.is_empty()
+                && marker_digits.len() <= 9
+                && marker_digits.bytes().all(|b| b.is_ascii_digit())
+                && matches!(next, None | Some(' ') | Some('\t'))
+        }
         _ => false,
     }
+}
+
+/// EXP-261 vendoring: plain [`CharToken`]s over a visible-text slice so the
+/// escape decisions above can reuse the REAL inline locators instead of a
+/// re-implementation that would drift from the parser.
+fn plain_char_tokens(text: &str) -> Vec<CharToken> {
+    let mut tokens = Vec::with_capacity(text.chars().count());
+    let mut offset = 0usize;
+    for ch in text.chars() {
+        let len = ch.len_utf8();
+        tokens.push(CharToken {
+            ch,
+            style: InlineStyle::default(),
+            html_style: None,
+            source_range: offset..offset + len,
+        });
+        offset += len;
+    }
+    tokens
+}
+
+/// EXP-261 vendoring: would a bare `[` at the start of this slice re-parse as
+/// a link or footnote reference? Checked WITHOUT `locate_inline_link`'s
+/// `!`/`]`-predecessor rejection on purpose: a preceding `!` makes the bare
+/// form an IMAGE (`![x](y)`) on the other clients, so the `[` must stay
+/// escaped even where this engine's own link parser would decline it.
+fn bracket_would_open_construct(text_from_bracket: &str) -> bool {
+    let tokens = plain_char_tokens(text_from_bracket);
+    if locate_inline_link(&tokens, 0, &LinkReferenceDefinitions::new()).is_some() {
+        return true;
+    }
+    if text_from_bracket.starts_with("[^")
+        && let Some(close) = text_from_bracket.find(']')
+    {
+        return parse_inline_footnote_reference(&text_from_bracket[..=close]).is_some();
+    }
+    false
+}
+
+/// EXP-261 vendoring: would a bare `<` at the start of this slice re-parse as
+/// a construct? Mirrors the parse loop's precedence at a `<`: a styled
+/// inline-HTML container first, then an autolink. Unstyled literal tags like
+/// `<u>text</u>` parse back to literal text and need no escape.
+fn angle_would_open_construct(text_from_angle: &str) -> bool {
+    let tokens = plain_char_tokens(text_from_angle);
+    if let Some(tag) = locate_inline_html_open_tag(&tokens, 0)
+        && !tag.self_closing
+        && is_inline_tag(&tag.name)
+        && !has_dangerous_attrs(&tag.attrs)
+        && locate_matching_inline_html_close(&tokens, tag.end_index + 1, &tag.name).is_some()
+    {
+        let base = InlineStyle::default();
+        if inline_html_semantic_style(&tag.name, base) != base || inline_html_style(&tag).is_some()
+        {
+            return true;
+        }
+    }
+    locate_autolink(&tokens, 0).is_some()
 }
 
 fn escape_code_span_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
@@ -3928,4 +4081,154 @@ mod tests {
         assert_eq!(tree.serialize_markdown(), "price $x$ stays text");
     }
 
+    /// EXP-261 vendoring: serialize(parse(input)) must equal `expected`, and
+    /// applying parse+serialize again must be a fixpoint — the desktop editor
+    /// saves whenever re-serialized bytes differ from what was loaded, so any
+    /// non-fixpoint rewrites the other clients' stored content forever.
+    #[track_caller]
+    fn assert_serializes_to_fixpoint_exp261(input: &str, expected: &str) {
+        let first = InlineTextTree::from_markdown(input).serialize_markdown();
+        assert_eq!(first, expected, "serialize(parse({input:?}))");
+        let second = InlineTextTree::from_markdown(&first).serialize_markdown();
+        assert_eq!(second, first, "serialize not a fixpoint for {input:?}");
+    }
+
+    #[test]
+    fn escaped_block_markers_round_trip_byte_identically_exp261() {
+        // Web's serializer (prosemirror-markdown) emits exactly these escape
+        // forms for paragraphs starting with block markers; the old escape
+        // whitelist left the backslash visible and then re-escaped it
+        // (`1\.` -> `1\\.`), corrupting stored content.
+        for markdown in [
+            "1\\. not a list",
+            "12\\) not a list",
+            "2026\\. was quite a year",
+            "\\- not a list",
+            "\\+ not a list",
+            "\\# not a heading",
+            "\\## not a heading either",
+            "\\> not a quote",
+            "\\---",
+        ] {
+            assert_serializes_to_fixpoint_exp261(markdown, markdown);
+        }
+    }
+
+    #[test]
+    fn any_ascii_punctuation_escape_unescapes_exp261() {
+        // CommonMark honors `\` before ANY ASCII punctuation. Escapes that
+        // are unnecessary in the given position converge to the bare form
+        // (one-time churn) and stay there.
+        assert_serializes_to_fixpoint_exp261("\\(paren\\)", "(paren)");
+        assert_serializes_to_fixpoint_exp261("\\!bang", "!bang");
+        assert_serializes_to_fixpoint_exp261("a\\.b", "a.b");
+        assert_serializes_to_fixpoint_exp261("\\;semi", ";semi");
+    }
+
+    #[test]
+    fn escaped_angle_tag_stays_literal_and_reaches_fixpoint_exp261() {
+        // `\<tag\>` used to mutate FOREVER (`\<tag\>` -> `\\<tag\\>` -> ...).
+        // A bare `<tag>` re-parses as an autolink in this engine, so the `<`
+        // must stay escaped; the `\>` is unnecessary and converges away.
+        let tree = InlineTextTree::from_markdown("\\<tag\\>");
+        assert_eq!(tree.visible_text(), "<tag>");
+        assert_serializes_to_fixpoint_exp261("\\<tag\\>", "\\<tag>");
+
+        // The canonical form itself is byte-stable.
+        assert_serializes_to_fixpoint_exp261("\\<tag>", "\\<tag>");
+
+        // An unstyled literal tag pair round-trips bare — it re-parses as
+        // literal text, so it needs no escape (autolink is ruled out by the
+        // closing tag).
+        assert_serializes_to_fixpoint_exp261("<u>text</u>", "<u>text</u>");
+    }
+
+    #[test]
+    fn escaped_link_shape_stays_literal_text_exp261() {
+        // Web's `\[x\](y)` means the LITERAL text `[x](y)`. The parse side
+        // unescapes the brackets, so the serialize side must re-escape the
+        // `[` — otherwise the text becomes a REAL link on every client.
+        let tree = InlineTextTree::from_markdown("\\[x\\](y)");
+        assert_eq!(tree.visible_text(), "[x](y)");
+        assert_serializes_to_fixpoint_exp261("\\[x\\](y)", "\\[x](y)");
+
+        // The canonical form stays literal on re-parse (visible text keeps
+        // the brackets instead of collapsing to a link label).
+        let reparsed = InlineTextTree::from_markdown("\\[x](y)");
+        assert_eq!(reparsed.visible_text(), "[x](y)");
+        assert!(reparsed.fragments.iter().all(|f| f.link.is_none()));
+
+        // A real link still parses and round-trips.
+        assert_serializes_to_fixpoint_exp261("A [link](https://example.com) here", "A [link](https://example.com) here");
+    }
+
+    #[test]
+    fn escaped_image_shape_stays_literal_text_exp261() {
+        // `!\[x\](y)` means the LITERAL text `![x](y)`. The engine preserves
+        // raw inline-image markdown verbatim as literal text, so the escaped
+        // form keeps its backslash VISIBLE (`!\[`) to stay distinguishable —
+        // and byte-stable — instead of collapsing into real image syntax.
+        let tree = InlineTextTree::from_markdown("!\\[x\\](y)");
+        assert_eq!(tree.visible_text(), "!\\[x](y)");
+        assert!(tree.fragments.iter().all(|f| f.link.is_none()));
+        assert_serializes_to_fixpoint_exp261("!\\[x\\](y)", "!\\[x](y)");
+
+        // Raw inline-image markdown itself still round-trips verbatim.
+        assert_serializes_to_fixpoint_exp261("![alt](./img.png)", "![alt](./img.png)");
+    }
+
+    #[test]
+    fn plain_literal_text_gets_spec_escapes_exp261() {
+        // Serialize side from plain (unparsed) text: block markers at line
+        // start and link-capable brackets must acquire escapes.
+        let cases = [
+            ("- not a list", "\\- not a list"),
+            ("+ not a list", "\\+ not a list"),
+            ("# not a heading", "\\# not a heading"),
+            ("> not a quote", "\\> not a quote"),
+            ("1. not a list", "1\\. not a list"),
+            ("1) not a list", "1\\) not a list"),
+            ("---", "\\---"),
+            ("[x](y)", "\\[x](y)"),
+        ];
+        for (plain, expected) in cases {
+            let serialized = InlineTextTree::plain(plain).serialize_markdown();
+            assert_eq!(serialized, expected, "escaping plain text {plain:?}");
+            let reparsed = InlineTextTree::from_markdown(&serialized);
+            assert_eq!(
+                reparsed.visible_text(),
+                plain,
+                "escaped form must re-parse to the same literal text"
+            );
+            assert_eq!(
+                reparsed.serialize_markdown(),
+                serialized,
+                "escaped form must be a fixpoint for {plain:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_prose_is_not_over_escaped_exp261() {
+        // Mid-line markers and non-marker line starts must stay untouched —
+        // eager escaping here is what broke byte parity originally.
+        for markdown in [
+            "2 * 3 = 6",
+            "approx ~5 items",
+            "snake_case_name here",
+            "a - b - c",
+            "1 + 1 = 2 [not a link]",
+            "see #EXP-42 here",
+            "#hashtag start",
+            "-dash start",
+            "--",
+            "price is $5 (roughly)",
+            "version 1.2 shipped",
+            "1.5 miles",
+            "back\\slash",
+            "underscore _ alone",
+        ] {
+            assert_serializes_to_fixpoint_exp261(markdown, markdown);
+        }
+    }
 }

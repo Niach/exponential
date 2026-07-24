@@ -32,7 +32,9 @@ allow = [
     "CDLA-Permissive-2.0",   # webpki-roots (Mozilla CA bundle data)
     "ISC",
     "MIT-0",
-    "MPL-2.0",               # cbindgen, dwrote, option-ext — see above
+    # cbindgen, dwrote, option-ext, and (EXP-261, via the vendored WYSIWYG
+    # editor) cssparser, cssparser-macros, dtoa-short — see above.
+    "MPL-2.0",
     "Unicode-3.0",
     "Unicode-DFS-2016",      # finl_unicode
     "Zlib",

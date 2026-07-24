@@ -68,6 +68,60 @@ CONTRACT_FIXTURES corpus in `crates/ui/src/markdown/serialize.rs`)
   (cannot open after / close before an alphanumeric), so `snake_case_name`
   stays plain text instead of becoming `snake*case*name`.
 
+GFM table delimiter row (EXP-261 — data-corruption fix)
+- src/components/markdown/table.rs (`parse_alignment_cell`): a delimiter cell
+  now needs only ONE dash, per the GFM spec (`:?-+:?`). Upstream required
+  three, so `| - |` and short aligned rows like `|:--|--:|` were not
+  recognized as tables at all — every row degraded into a separate paragraph
+  on import, destroying tables authored on the other clients. Serialization
+  still normalizes the delimiter row to the `---` / `:---` / `:---:` / `---:`
+  forms, so such a table converges after one save with its alignment intact.
+
+Ordered-list start numbers (EXP-261)
+- src/components/block/state.rs, src/editor/document.rs, src/editor/tree.rs,
+  src/editor/tests.rs: the importer keeps an ordered-list item's literal
+  marker number and the serializer seeds each numbered run from its head
+  item's value, so a list starting at N round-trips starting at N (GFM list-
+  start semantics) instead of renumbering from 1.
+
+Backslash-escape parse/serialize symmetry (EXP-261 — data-corruption fix; the
+desktop editor saves whenever re-serialized bytes differ from what it loaded,
+so any parse/serialize asymmetry silently rewrote the other clients' content)
+- src/components/markdown/inline.rs (`escaped_sequence_token_len`): the
+  parse-side escape whitelist now accepts `\` before ANY ASCII punctuation
+  (the CommonMark rule). The old whitelist (`\\ \* \_ \~ \[ \] \` \^`) left
+  e.g. `1\.` / `\-` / `\#` / `\>` / `\<` with a literal backslash in the
+  visible text, which the serializer then re-escaped — web-stored
+  `1\. not a list` became `1\\. not a list`, and `\<tag\>` mutated on every
+  save. One deliberate exception: `!\[` keeps its backslash VISIBLE, so an
+  escaped-literal image (`!\[x\](y)`, meaning the literal text `![x](y)`)
+  stays distinguishable from the raw inline-image markdown this engine
+  preserves verbatim; `locate_inline_link` gained the matching
+  `!`+`\`-predecessor rejection and `literal_char_needs_escape` the matching
+  emit-bare exemptions, making `!\[x](y)` the byte-stable canonical form.
+- src/components/markdown/inline.rs (`literal_char_needs_escape`): the
+  serialize side is now the exact inverse of the parser. New escape arms:
+  `[` when the tail would re-parse as a link/footnote opener (via the REAL
+  locators over `plain_char_tokens`; `[not a link]` without a target stays
+  bare), `<` when the tail would re-parse as an autolink or a styled
+  inline-HTML container (`<tag>` alone is an autolink in this engine;
+  unstyled `<u>text</u>` stays bare), and block-start markers at fragment
+  start — `#` (1-6 run + space/EOL), `-`/`+` (space/EOL, or an all-dash run
+  >= 3), `>` (always), `<digits>.` / `<digits>)` (1-9 digits + space/EOL).
+  Mid-line prose (`2 * 3`, `a - b`, `see #EXP-42`, `1 + 1 = 2 [not a link]`,
+  `version 1.2`) stays untouched. Known accepted residuals: fragment start
+  is the line-start proxy (a marker opening a heading's/table cell's/styled
+  run's text over-escapes — renders identically everywhere), and unnecessary
+  escapes from other serializers (`\]`, `\(`, `\!`, a superfluous `\>` after
+  `\<tag`) converge to the bare form on first save (one-time byte churn,
+  then a fixpoint).
+- Tests: `*_exp261` additions in the inline test module (escaped block
+  markers byte-stable, any-punctuation unescape, angle/link/image literal
+  shapes reach fixpoints, plain-text spec escapes, no-over-escaping prose
+  corpus) plus `escaped_block_markers_survive_document_round_trip_exp261`
+  in src/editor/document.rs (block-level: escaped markers import as
+  paragraphs and round-trip byte-identically).
+
 Host integration seams (EXP-261 — additive API for the Exponential desktop)
 - api.rs / editor/mod.rs / editor/render.rs: `MarkdownEditorOptions.embedded`
   (auto-height mode: host-owned scrolling, full-width rows, no row

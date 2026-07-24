@@ -44,6 +44,10 @@ struct ListMarker {
     indent_columns: usize,
     content_indent_columns: usize,
     text: String,
+    /// EXP-261: the literal number of an ordered-list marker (`3.` →
+    /// `Some(3)`); `None` for unordered markers. Preserved so a list that
+    /// starts at N serializes back starting at N (GFM start semantics).
+    ordered_start: Option<usize>,
 }
 
 fn strip_fence_indent(line: &str) -> Option<&str> {
@@ -297,6 +301,7 @@ fn parse_list_marker(line: &str) -> Option<ListMarker> {
                 &line[..indent_bytes + marker.len_utf8() + separator_len],
             ),
             text,
+            ordered_start: None,
         });
     }
 
@@ -306,6 +311,9 @@ fn parse_list_marker(line: &str) -> Option<ListMarker> {
         indent_columns,
         content_indent_columns: display_columns(&line[..indent_bytes + digit_len + marker_len]),
         text: text.to_string(),
+        // EXP-261: keep the literal marker number (1..=9 digits, always a
+        // valid usize) so the run head's start survives the round trip.
+        ordered_start: rest[..digit_len].parse::<usize>().ok(),
     })
 }
 
@@ -1593,6 +1601,14 @@ impl Editor {
 
             let item_end = collect_list_item_region(lines, index, marker.indent_columns);
             let block = native_block(cx, marker.kind.clone(), marker.text);
+            // EXP-261: carry the source's ordered-list number onto the
+            // record — the tree's ordinal pass seeds each numbered run from
+            // its head item so `3. three` round-trips as `3.`, not `1.`.
+            if let Some(start) = marker.ordered_start {
+                block.update(cx, |block, _cx| {
+                    block.record.ordered_list_start = Some(start);
+                });
+            }
             let mut body_index = index + 1;
             let mut pending_blank_lines = 0usize;
             let mut fallback_raw = false;
@@ -3939,4 +3955,40 @@ mod tests {
         });
     }
 
+    #[gpui::test]
+    async fn escaped_block_markers_survive_document_round_trip_exp261(cx: &mut TestAppContext) {
+        // EXP-261 vendoring: paragraphs starting with backslash-escaped block
+        // markers (as web/iOS/Android serialize them) must import as
+        // paragraphs — not lists/headings/quotes — and re-serialize
+        // byte-identically; a second import of the output must be a fixpoint.
+        for markdown in [
+            "1\\. not a list",
+            "12\\) not a list",
+            "\\- not a list",
+            "\\+ not a list",
+            "\\# not a heading",
+            "\\> not a quote",
+            "\\---",
+            "\\<tag>",
+            "\\[x](y)",
+            "!\\[x](y)",
+        ] {
+            let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.to_string(), None));
+            let first = editor.update(cx, |editor, cx| {
+                let visible = editor.document.visible_blocks();
+                assert_eq!(visible.len(), 1, "single block for {markdown:?}");
+                assert_eq!(
+                    visible[0].entity.read(cx).kind(),
+                    BlockKind::Paragraph,
+                    "escaped marker must stay a paragraph for {markdown:?}"
+                );
+                editor.document.markdown_text(cx)
+            });
+            assert_eq!(first, markdown, "document round-trip for {markdown:?}");
+
+            let editor = cx.new(|cx| Editor::from_markdown(cx, first.clone(), None));
+            let second = editor.update(cx, |editor, cx| editor.document.markdown_text(cx));
+            assert_eq!(second, first, "not a fixpoint for {markdown:?}");
+        }
+    }
 }

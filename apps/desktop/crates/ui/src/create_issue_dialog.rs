@@ -48,6 +48,7 @@ use domain::{IssuePriority, IssueStatus};
 use crate::actions::NewIssue;
 use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
+use crate::markdown::image_paste::strip_draft_images;
 use crate::markdown::{self};
 use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window, navigate, Screen};
@@ -976,24 +977,6 @@ impl Render for CreateIssueDialogView {
 fn chip_button(id: &'static str, cx: &App) -> Button {
     let _ = cx;
     Button::new(id).ghost().xsmall()
-}
-
-/// Drop `![alt](draft://…)` image paragraphs from canonical GFM (the web's
-/// `removeMarkdownImagesByUrl` for the create-then-upload flow). Staged
-/// images are standalone paragraphs in the canonical form, so line filtering
-/// + re-canonicalization is exact.
-fn strip_draft_images(markdown: &str) -> String {
-    let kept: Vec<&str> = markdown
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            !(trimmed.starts_with("![")
-                && trimmed.contains(&format!("]({}", markdown::image_paste::DRAFT_SCHEME)))
-        })
-        .collect();
-    let joined = kept.join("\n");
-    let canonical = markdown::canonicalize(&joined);
-    canonical.trim().to_string()
 }
 
 /// Web `bg-indigo-600` (a literal Tailwind color on web, not a theme token).

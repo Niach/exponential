@@ -14,7 +14,7 @@ use gpui::{
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
-use gpui_component::ActiveTheme as _;
+use gpui_component::{notification::Notification, ActiveTheme as _, WindowExt as _};
 use gpui_markdown_editor::{
     ImageSourceResolution, MarkdownEditor as VendoredEditor, MarkdownEditorEvent,
     MarkdownEditorMode, MarkdownEditorOptions, ReferenceKind,
@@ -24,7 +24,7 @@ use super::images::{
     self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler,
 };
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
-use crate::markdown::image_paste::{strip_draft_images, DRAFT_SCHEME};
+use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
     detect_trigger, download_image, store_completion_source, CompletionItem, CompletionSource,
     ImageCache, ImageSlot, StagedImage,
@@ -74,6 +74,14 @@ pub struct WysiwygDescription {
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
     image_menu: Option<ImageMenuState>,
+    /// Vendored-editor revision at the last load/save. The vendored engine
+    /// NORMALIZES many render-equivalent forms (`_i_`→`*i*`, setext→ATX,
+    /// `1)`→`1.`, …), so re-serialized bytes differing from the loaded
+    /// description does NOT mean the user edited — the revision counter only
+    /// moves on real edits (typed input, undo/redo, structural commands,
+    /// image rewrites), never on `replace_markdown`/construction. Blur saves
+    /// only when the live revision has moved past this (EXP-261).
+    clean_revision: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -189,7 +197,15 @@ impl WysiwygDescription {
                 cx,
                 move |_event, window, cx| {
                     if let Some(this) = this.upgrade() {
-                        this.update(cx, |this, cx| this.save_now(window, cx));
+                        this.update(cx, |this, cx| {
+                            // EXP-261: only a real user edit saves. A
+                            // view-only open must never persist the
+                            // serializer's normalizations over what other
+                            // clients wrote.
+                            if this.is_dirty(cx) {
+                                this.save_now(window, cx);
+                            }
+                        });
                     }
                 },
             ));
@@ -206,6 +222,7 @@ impl WysiwygDescription {
             this.editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
         }));
 
+        let clean_revision = editor.read(cx).revision();
         let mut this = Self {
             editor,
             focus_handle,
@@ -217,6 +234,7 @@ impl WysiwygDescription {
             shared,
             staged: Vec::new(),
             image_menu: None,
+            clean_revision,
             refs,
             completion_source,
             completion: None,
@@ -243,8 +261,25 @@ impl WysiwygDescription {
             .update(cx, |editor, cx| editor.replace_markdown(markdown, cx));
         // A full buffer replace discards any staged (unsubmitted) images.
         self.staged.clear();
+        // EXP-261: programmatic loads are clean — the buffer now mirrors the
+        // remote truth, so there is nothing user-authored to persist.
+        self.clean_revision = self.editor.read(cx).revision();
         self.sync_images(cx);
         cx.notify();
+    }
+
+    /// EXP-261: has the user actually edited since the last load/save? Keyed
+    /// off the vendored revision counter, which never moves on programmatic
+    /// content loading — only on real edits.
+    pub fn is_dirty(&self, cx: &App) -> bool {
+        self.editor.read(cx).revision() != self.clean_revision
+    }
+
+    /// EXP-261: record that the current content was just persisted or synced
+    /// through a path outside [`Self::save_now`] (the detail view's
+    /// tab-switch flush saves through its own tRPC hook).
+    pub fn mark_clean(&mut self, cx: &App) {
+        self.clean_revision = self.editor.read(cx).revision();
     }
 
     /// Images staged in create-dialog mode (fed to the dialog's submit-time
@@ -268,14 +303,18 @@ impl WysiwygDescription {
         let Some(on_save) = self.on_save.clone() else {
             return;
         };
-        let mut markdown = self.markdown(cx);
+        // EXP-261: everything up to the current revision is being persisted;
+        // a later blur with no further edits must not re-save. The vendored
+        // revision bumps synchronously inside `mark_dirty`, so structural
+        // commits (image rewrite/resize) that call `save_now` right after
+        // mutating already see their own bump here.
+        self.clean_revision = self.editor.read(cx).revision();
         // A `draft://` URL must never reach the server. In detail mode a
         // still-uploading paste is stripped from THIS save; the upload's own
-        // completion save re-adds it with the real attachment URL.
-        if markdown.contains(DRAFT_SCHEME) {
-            markdown = strip_draft_images(&markdown);
-        }
-        on_save(markdown, window, cx);
+        // completion save re-adds it with the real attachment URL. The same
+        // shared derivation backs every other persist site (EXP-261 —
+        // `DescriptionEditor::markdown_for_save`, create-dialog submit).
+        on_save(markdown_for_save(self.markdown(cx)), window, cx);
     }
 
     // -- image pipeline -----------------------------------------------------
@@ -360,14 +399,19 @@ impl WysiwygDescription {
                 }
                 Err(error) => {
                     log::warn!("image upload failed: {error}");
-                    let _ = this.update_in(cx, |this, _window, cx| {
-                        if let Ok(mut resolutions) = this.shared.resolutions.lock() {
-                            resolutions.insert(
-                                staged.draft_url.clone(),
-                                ImageSourceResolution::Failed,
-                            );
-                        }
-                        this.refresh_editor_environment(cx);
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        // EXP-261: a failed draft must not linger — it is
+                        // invisible to the user as a `Failed` placeholder yet
+                        // silently stripped from every save. Remove it from
+                        // the document (same path as the context-menu Delete)
+                        // and surface the failure like sibling views do.
+                        this.delete_image(&staged.draft_url, window, cx);
+                        window.push_notification(
+                            Notification::error(SharedString::from(format!(
+                                "Image upload failed: {error}"
+                            ))),
+                            cx,
+                        );
                     });
                 }
             }
@@ -817,6 +861,137 @@ mod tests {
         });
         view.read_with(cx, |view, cx| {
             assert_eq!(view.markdown(cx), "replaced");
+        });
+    }
+
+    // EXP-261: merely OPENING an issue must never dirty the editor, even
+    // when the vendored serializer normalizes the loaded markdown into
+    // different bytes (`_i_`→`*i*`, `1)`→`1.`, CRLF→LF, …) — the byte diff
+    // used to trigger a phantom save-on-blur that rewrote other clients'
+    // content.
+    #[gpui::test]
+    async fn view_only_open_is_never_dirty(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let loaded = "Setext title\n====\n\n_italic_ and __bold__\r\n\n1) one\n2) two";
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", loaded, None, window, cx)
+        });
+        view.read_with(cx, |view, cx| {
+            // The engine really does normalize this input…
+            assert_ne!(view.markdown(cx), loaded);
+            // …but with no user edit the editor must stay clean.
+            assert!(!view.is_dirty(cx));
+        });
+
+        // Programmatic loads (remote Electric echoes) stay clean too.
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_markdown("- [X] task", window, cx);
+            });
+        });
+        view.read_with(cx, |view, cx| {
+            assert!(!view.is_dirty(cx));
+        });
+    }
+
+    // EXP-261: real document mutations (here: the image-upload `draft://`
+    // rewrite, which bumps the vendored revision like any edit) dirty the
+    // editor, and `save_now` marks it clean again after persisting.
+    #[gpui::test]
+    async fn edits_dirty_and_save_cleans(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let saved: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+        let on_save: OnSave = Rc::new({
+            let saved = saved.clone();
+            move |markdown, _window, _cx| saved.borrow_mut().push(markdown)
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                "![shot](/api/attachments/old)",
+                Some(on_save),
+                window,
+                cx,
+            )
+        });
+        view.read_with(cx, |view, cx| assert!(!view.is_dirty(cx)));
+
+        cx.update(|_window, cx| {
+            view.update(cx, |view, cx| {
+                let mut map = HashMap::new();
+                map.insert(
+                    "/api/attachments/old".to_string(),
+                    "/api/attachments/new".to_string(),
+                );
+                view.editor
+                    .update(cx, |editor, cx| editor.rewrite_image_sources(&map, cx));
+            });
+        });
+        view.read_with(cx, |view, cx| assert!(view.is_dirty(cx)));
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| view.save_now(window, cx));
+        });
+        view.read_with(cx, |view, cx| assert!(!view.is_dirty(cx)));
+        assert_eq!(
+            saved.borrow().as_slice(),
+            ["![shot](/api/attachments/new)".to_string()]
+        );
+    }
+
+    // EXP-261 regression (BUG 2 + BUG 3): a draft-racing save strips drafts
+    // STRUCTURALLY — inline occurrences (list item, mixed line) go too, a
+    // real image sharing a line with a draft survives, and the save never
+    // comrak-canonicalizes, so a table elsewhere in the document reaches the
+    // save hook byte-identically instead of being flattened.
+    #[gpui::test]
+    async fn save_strips_inline_drafts_and_keeps_tables_byte_identical(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let loaded = "Intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- ![img](draft://li-1) item\n\n![keep](/api/attachments/xyz) ![lose](draft://mix-1)\n\n![gone](draft://para-1)";
+        let saved: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+        let on_save: OnSave = Rc::new({
+            let saved = saved.clone();
+            move |markdown, _window, _cx| saved.borrow_mut().push(markdown)
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(
+                None,
+                None,
+                "Add description...",
+                loaded,
+                Some(on_save),
+                window,
+                cx,
+            )
+        });
+        // The vendored engine round-trips all of this (tables included) —
+        // the raw buffer still holds every draft.
+        view.read_with(cx, |view, cx| assert_eq!(view.markdown(cx), loaded));
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| view.save_now(window, cx));
+        });
+        assert_eq!(
+            saved.borrow().as_slice(),
+            ["Intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n-  item\n\n![keep](/api/attachments/xyz)"
+                .to_string()]
+        );
+        // The document itself keeps the drafts (the uploads may still land).
+        view.read_with(cx, |view, cx| {
+            assert!(view.markdown(cx).contains("draft://"));
         });
     }
 }

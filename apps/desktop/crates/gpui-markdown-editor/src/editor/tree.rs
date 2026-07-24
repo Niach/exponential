@@ -295,7 +295,10 @@ impl DocumentTree {
         cx: &mut Context<Editor>,
         snapshot: &mut VisibleTreeSnapshot,
     ) {
-        let mut numbered_list_ordinal = 0;
+        // EXP-261: `None` = not inside a numbered run; the head of a run
+        // seeds the counter from its parsed source number (GFM keeps the
+        // first item's number) instead of always restarting at 1.
+        let mut numbered_list_ordinal: Option<usize> = None;
         let mut previous_was_list_item = false;
         for (index, block) in blocks.iter().enumerate() {
             let entity_id = block.entity_id();
@@ -314,7 +317,7 @@ impl DocumentTree {
                 },
             );
 
-            let (block_id, kind, children, is_empty_paragraph) = {
+            let (block_id, kind, children, is_empty_paragraph, ordered_list_start) = {
                 let block_ref = block.read(cx);
                 (
                     block_ref.record.id,
@@ -323,6 +326,8 @@ impl DocumentTree {
                     block_ref.kind() == BlockKind::Paragraph
                         && block_ref.record.title.visible_text().is_empty()
                         && block_ref.children.is_empty(),
+                    // EXP-261: source start number of an ordered item.
+                    block_ref.record.ordered_list_start,
                 )
             };
             let parent_is_list_item = parent_entity
@@ -334,10 +339,17 @@ impl DocumentTree {
                 .map(|child| child.read(cx).record.id)
                 .collect::<Vec<_>>();
             let list_ordinal = if kind.is_numbered_list_item() {
-                numbered_list_ordinal += 1;
-                Some(numbered_list_ordinal)
+                // EXP-261: a run head starts at its parsed source number
+                // (default 1); followers continue from the running counter,
+                // matching GFM's "only the first number matters" rule.
+                let next = match numbered_list_ordinal {
+                    Some(previous) => previous + 1,
+                    None => ordered_list_start.unwrap_or(1),
+                };
+                numbered_list_ordinal = Some(next);
+                Some(next)
             } else {
-                numbered_list_ordinal = 0;
+                numbered_list_ordinal = None;
                 None
             };
             let is_quote_container = kind.is_quote_container();

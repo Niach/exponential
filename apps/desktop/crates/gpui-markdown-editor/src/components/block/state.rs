@@ -494,6 +494,12 @@ pub struct BlockRecord {
     pub parent: Option<Uuid>,
     pub content: Vec<Uuid>,
     pub raw_fallback: Option<String>,
+    /// EXP-261: the number this ordered-list item carried in the parsed
+    /// Markdown source (`3.` → `Some(3)`), `None` for items created in the
+    /// editor. GFM treats the FIRST item's number as semantic (the list
+    /// start), so the tree's ordinal pass seeds each numbered run from its
+    /// head item's value instead of always renumbering from 1.
+    pub ordered_list_start: Option<usize>,
 }
 
 impl BlockRecord {
@@ -507,6 +513,9 @@ impl BlockRecord {
             parent: None,
             content: Vec::new(),
             raw_fallback: None,
+            // EXP-261: only the Markdown importer stamps a source start
+            // number; editor-created items renumber from their run head.
+            ordered_list_start: None,
         };
         record.sync_raw_fallback();
         record
