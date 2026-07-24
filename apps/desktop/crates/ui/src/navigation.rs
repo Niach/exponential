@@ -557,7 +557,7 @@ pub fn init(cx: &mut App) {
         on_active_window(cx, |window, cx| {
             let shared = crate::sidebar::rail_shared_for_window(window, cx);
             let trunk_sync = shared.read(cx).trunk_sync().clone();
-            trunk_sync.update(cx, |engine, cx| engine.refresh(cx));
+            trunk_sync.update(cx, |engine, cx| engine.refresh(window, cx));
         });
     });
     // The picker selects a board (scope) and brings up its issue list —

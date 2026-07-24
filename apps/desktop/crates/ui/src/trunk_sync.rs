@@ -81,6 +81,12 @@ enum SyncMode {
     /// User freshness pass (refresh button / board open): fetch + the same
     /// ff-only catch-up AutoSync runs.
     Fetch,
+    /// [`SyncMode::Fetch`] under the live-task hold-off: fetch only, NO
+    /// ff catch-up — a Claude task / Action tab is working on this repo's
+    /// clone, and the fetch is harmless but the working-tree update would
+    /// move the tree under Claude's feet (same rule as the AutoSync
+    /// hold-off, which skips the whole pass).
+    FetchOnly,
     /// Background pass: fetch → ff-only when clean & behind-only, else skip
     /// (+ the EXP-76 worktree-prune nominations).
     AutoSync,
@@ -252,8 +258,22 @@ impl TrunkSync {
     }
 
     /// Freshness fetch + trunk re-read (the Source Control refresh button).
-    pub(crate) fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        self.start_sync(SyncMode::Fetch, cx);
+    /// While a Claude task / Action tab is alive on this repo's clone the
+    /// pass degrades to fetch-only — the ff working-tree update is held off
+    /// exactly like the AutoSync one (never move the tree under Claude's
+    /// feet).
+    pub(crate) fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.start_sync(self.fetch_mode(window, cx), cx);
+    }
+
+    /// The freshness-pass mode under the live-task hold-off: [`SyncMode::Fetch`]
+    /// normally, [`SyncMode::FetchOnly`] while [`Self::repo_tasks_alive`].
+    fn fetch_mode(&self, window: &Window, cx: &App) -> SyncMode {
+        if self.repo_tasks_alive(window, cx) {
+            SyncMode::FetchOnly
+        } else {
+            SyncMode::Fetch
+        }
     }
 
     /// The escape hatch (EXP-253): abort any in-progress rebase/merge, fetch,
@@ -361,13 +381,15 @@ impl TrunkSync {
     }
 
     /// Whether a live Claude task or Action tab is working inside this
-    /// repo's clone (or one of its worktrees) — the auto-sync hold-off
+    /// repo's clone (or one of its worktrees) — the sync hold-off
     /// (EXP-253 extended it to Action tabs: an action runs ON the trunk
     /// clone, so an ff under it would move the tree under Claude's feet).
-    /// Shell tabs deliberately do NOT hold auto-sync off: a shell is alive
-    /// for entire work sessions, and an ff under it is the same event as the
-    /// manual pull it replaces.
-    fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
+    /// AutoSync skips its whole pass; a user Fetch degrades to fetch-only;
+    /// Source Control reads it to word the hard-reset confirm. Shell tabs
+    /// deliberately do NOT hold sync off: a shell is alive for entire work
+    /// sessions, and an ff under it is the same event as the manual pull it
+    /// replaces.
+    pub(crate) fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
         let Some(repo) = &self.repo else {
             return false;
         };
@@ -469,7 +491,7 @@ impl TrunkSync {
         })
         .detach();
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let board = board_id.clone();
             let resolved = cx
                 .background_executor()
@@ -496,7 +518,7 @@ impl TrunkSync {
                     )
                 })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 if this.generation != generation
                     || this.board_id.as_deref() != Some(board.as_str())
                 {
@@ -513,10 +535,11 @@ impl TrunkSync {
                 this.repo_error = None;
                 // Auto-clone a missing trunk, else a freshness sync on
                 // board open (fetch + ff when cleanly behind-only — the
-                // trunk must never open stale when it could be current).
+                // trunk must never open stale when it could be current;
+                // fetch-only under the live-task hold-off).
                 this.start_sync(
                     if clone_exists {
-                        SyncMode::Fetch
+                        this.fetch_mode(window, cx)
                     } else {
                         SyncMode::Clone
                     },
@@ -558,7 +581,7 @@ impl TrunkSync {
         // A user freshness pass on a missing clone RE-ATTEMPTS the clone —
         // the old error+Retry chrome is gone, so refresh is the retry path
         // after a failed auto-clone.
-        let mode = if mode == SyncMode::Fetch && !repo.clone_exists {
+        let mode = if matches!(mode, SyncMode::Fetch | SyncMode::FetchOnly) && !repo.clone_exists {
             SyncMode::Clone
         } else {
             mode
@@ -753,6 +776,15 @@ fn run_sync_worker(
             // runs: a refresh that KNOWS the tree is cleanly behind-only must
             // fast-forward it (dirty/diverged trees surface for the hatch).
             if let Err(err) = clone_manager::auto_sync(clone, &url) {
+                let _ = tx.send(SyncMsg::Failed(err.to_string()));
+            }
+        }
+        SyncMode::FetchOnly => {
+            // The freshness pass under the live-task hold-off: fetch is
+            // harmless, but the ff catch-up would move the working tree
+            // under the running Claude task / Action — held off exactly
+            // like the AutoSync pass.
+            if let Err(err) = clone_manager::fetch(clone, &url) {
                 let _ = tx.send(SyncMsg::Failed(err.to_string()));
             }
         }

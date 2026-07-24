@@ -477,21 +477,33 @@ impl SourceControlView {
             })
             .unwrap_or_else(|| "the remote branch".to_string());
         let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        // The hatch stays available while a Claude task / Action tab is
+        // working on this clone (it's the escape hatch), but the confirm
+        // must say the tree is about to move under a live session.
+        let session_live = trunk_sync.read(cx).repo_tasks_alive(window, cx);
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _window, _cx| {
             let trunk_sync = trunk_sync.clone();
             let this = this.clone();
+            let mut description = format!(
+                "This resets the trunk to origin/{branch}, discarding all \
+                 local tracked changes and aborting any paused rebase or \
+                 merge. Untracked files are kept. This cannot be undone."
+            );
+            if session_live {
+                description.push_str(
+                    " A coding or action session is currently running in \
+                     this clone — the reset will move the working tree \
+                     under it and may disrupt the session.",
+                );
+            }
             alert
                 .confirm()
                 .overlay_closable(true)
                 .close_button(true)
                 .width(px(416.))
                 .title("Discard local changes?")
-                .description(SharedString::from(format!(
-                    "This resets the trunk to origin/{branch}, discarding all \
-                     local tracked changes and aborting any paused rebase or \
-                     merge. Untracked files are kept. This cannot be undone."
-                )))
+                .description(SharedString::from(description))
                 .button_props(
                     DialogButtonProps::default().ok_text("Discard changes & reset"),
                 )

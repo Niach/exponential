@@ -174,6 +174,23 @@ pub fn sanitize_branch_for_path(branch: &str) -> String {
     sanitize_path_segment(&branch.replace('/', "-"))
 }
 
+/// Reject a branch name git's option parser would read as a flag (a leading
+/// `-`; empty names too). Positional ref arguments (`checkout -f <branch>`,
+/// `merge --ff-only origin/<branch>`) have no reliable `--` disambiguation
+/// for the ref position — `--` only terminates parsing for the args AFTER
+/// it — so a hostile server-supplied `default_branch` like `--force` must be
+/// rejected outright before it reaches argv (same defense-in-depth stance as
+/// [`clone_path`]'s segment sanitizing).
+pub fn validate_branch_arg(branch: &str, op: &str) -> Result<(), GitError> {
+    if branch.is_empty() || branch.starts_with('-') {
+        return Err(GitError {
+            op: op.to_string(),
+            detail: format!("refusing invalid branch name {branch:?}"),
+        });
+    }
+    Ok(())
+}
+
 /// `<clone>.worktrees/` — sibling of the clone dir (§7.1 layout).
 pub fn worktrees_dir(clone: &Path) -> PathBuf {
     let name = clone
@@ -501,6 +518,21 @@ mod tests {
         assert_eq!(sanitize_branch_for_path(".."), "_");
         assert_eq!(sanitize_branch_for_path(""), "_");
         assert_eq!(sanitize_branch_for_path("..\\up"), "..-up");
+    }
+
+    #[test]
+    fn validate_branch_arg_rejects_flag_shaped_names() {
+        // A server-supplied default_branch must never reach argv as a flag.
+        assert!(validate_branch_arg("-f", "git checkout -f").is_err());
+        assert!(validate_branch_arg("--force", "git checkout -f").is_err());
+        assert!(validate_branch_arg("", "git checkout -f").is_err());
+        // Regular names (slashes included) pass through untouched.
+        assert!(validate_branch_arg("main", "git checkout -f").is_ok());
+        assert!(validate_branch_arg("exp/EXP-42", "git checkout -f").is_ok());
+        // The rejection carries the op for the error surface.
+        let err = validate_branch_arg("--force", "git checkout -f").unwrap_err();
+        assert_eq!(err.op, "git checkout -f");
+        assert!(err.detail.contains("--force"));
     }
 
     #[test]

@@ -48,7 +48,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::git_credentials;
-use crate::git_worktree::{clone_path, run_git, GitError, TokenUrl};
+use crate::git_worktree::{clone_path, run_git, validate_branch_arg, GitError, TokenUrl};
 use crate::trunk_state;
 
 /// Background auto-sync cadence: the GitBar's timer runs [`auto_sync`] this
@@ -277,8 +277,12 @@ pub fn fetch(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
 /// `git merge --ff-only origin/<branch>`. Local + tokenless (run after a
 /// [`fetch`]), and the ONLY auto-mutation primitive — `--ff-only` is the
 /// TOCTOU guard: if the tree diverged between the eligibility check and the
-/// merge, git refuses instead of creating a merge commit.
+/// merge, git refuses instead of creating a merge commit. Flag-shaped branch
+/// names are rejected before argv ([`validate_branch_arg`] —
+/// the `origin/` prefix already defuses the composed ref, but the guard
+/// keeps every branch-to-argv path uniformly hardened).
 pub fn ff_update(clone: &Path, branch: &str) -> Result<(), GitError> {
+    validate_branch_arg(branch, "git merge --ff-only")?;
     run_git(
         Some(clone),
         &["merge", "--ff-only", &format!("origin/{branch}")],

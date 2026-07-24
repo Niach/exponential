@@ -251,8 +251,10 @@ pub fn abort_conflict(repo: &Path, kind: ConflictKind) -> Result<(), GitError> {
 /// deliberately NO `clean -fd`, so untracked files survive (this recovers
 /// the trunk, it is not a nuke). Callers abort any paused rebase/merge and
 /// fetch first; the branch is the server-reported default (never a
-/// fabricated `main`).
+/// fabricated `main`) — and server-supplied, so a flag-shaped name is
+/// rejected before it reaches argv ([`crate::git_worktree::validate_branch_arg`]).
 pub fn hard_reset_to_remote(repo: &Path, branch: &str) -> Result<(), GitError> {
+    crate::git_worktree::validate_branch_arg(branch, "git checkout -f")?;
     run_git(
         Some(repo),
         &["checkout", "-f", branch],

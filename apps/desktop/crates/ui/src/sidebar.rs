@@ -2534,8 +2534,8 @@ impl SidebarPanel {
                     .xsmall()
                     .icon(Icon::from(ExpIcon::Repeat))
                     .tooltip("Check for updates")
-                    .on_click(move |_, _, cx| {
-                        trunk_sync.update(cx, |engine, cx| engine.refresh(cx));
+                    .on_click(move |_, window, cx| {
+                        trunk_sync.update(cx, |engine, cx| engine.refresh(window, cx));
                     }),
             );
 
