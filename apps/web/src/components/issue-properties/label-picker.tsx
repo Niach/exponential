@@ -47,6 +47,7 @@ export function LabelPicker({
   const [newName, setNewName] = useState(``)
   const [newColor, setNewColor] = useState(LABEL_COLORS[6])
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const { data: labels } = useLiveQuery(
     (q) =>
@@ -63,8 +64,14 @@ export function LabelPicker({
     selectedLabelIds.includes(l.id)
   )
 
+  const newNameIsDuplicate =
+    newName.trim().length > 0 &&
+    (labels ?? []).some(
+      (l: Label) => l.name.trim().toLowerCase() === newName.trim().toLowerCase()
+    )
+
   const handleCreate = async () => {
-    if (!newName.trim() || creating) return
+    if (!newName.trim() || creating || newNameIsDuplicate) return
     setCreating(true)
     try {
       const { txId, label } = await trpc.labels.create.mutate({
@@ -76,7 +83,12 @@ export function LabelPicker({
       onToggle(label.id)
       setNewName(``)
       setNewColor(LABEL_COLORS[Math.floor(Math.random() * LABEL_COLORS.length)])
+      setCreateError(null)
       setView(`list`)
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : `Failed to create label.`
+      )
     } finally {
       setCreating(false)
     }
@@ -94,6 +106,7 @@ export function LabelPicker({
         if (!o) {
           setView(`list`)
           setNewName(``)
+          setCreateError(null)
         }
       }}
     >
@@ -189,7 +202,10 @@ export function LabelPicker({
             </div>
             <Input
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                setNewName(e.target.value)
+                setCreateError(null)
+              }}
               placeholder="Label name"
               autoFocus
               className="h-8 text-sm"
@@ -200,6 +216,13 @@ export function LabelPicker({
                 }
               }}
             />
+            {(newNameIsDuplicate || createError) && (
+              <p className="text-xs text-destructive">
+                {newNameIsDuplicate
+                  ? `A label with this name already exists.`
+                  : createError}
+              </p>
+            )}
             <div>
               <span className="text-xs text-muted-foreground mb-1.5 block">
                 Color
@@ -209,7 +232,7 @@ export function LabelPicker({
             <Button
               size="xs"
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
-              disabled={!newName.trim() || creating}
+              disabled={!newName.trim() || creating || newNameIsDuplicate}
               onClick={handleCreate}
             >
               {creating ? `Creating...` : `Create label`}

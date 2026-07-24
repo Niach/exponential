@@ -316,6 +316,13 @@
       "when": 1784855823738,
       "tag": "0044_shallow_ezekiel_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784897887807,
+      "tag": "0045_steady_talisman",
+      "breakpoints": true
     }
   ]
 }
