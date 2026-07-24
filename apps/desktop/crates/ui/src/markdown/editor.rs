@@ -229,7 +229,7 @@ impl ImageCache {
 
 /// Magic-byte sniff with a mime fallback (attachment bytes may be any of the
 /// accepted types; gpui decodes per declared format).
-fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
+pub(crate) fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         gpui::ImageFormat::Png
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -295,7 +295,12 @@ fn attachment_download_filename(url: &str, cx: &App) -> String {
 /// EXP-256 "Download": native save dialog (defaulting to the OS downloads
 /// dir) → background fetch through the auth-gated transport → disk, with a
 /// window notification either way.
-fn download_image(url: String, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) {
+pub(crate) fn download_image(
+    url: String,
+    images: &Entity<ImageCache>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(transport) = images.read(cx).transport() else {
         return;
     };
@@ -2546,7 +2551,7 @@ fn build_display_line(
 
 /// `@<email>` occurrences (byte ranges incl. the `@`). The email is
 /// `local@domain.tld` with the web `MENTION_RE` charset.
-fn scan_mentions(line: &str) -> Vec<Range<usize>> {
+pub(crate) fn scan_mentions(line: &str) -> Vec<Range<usize>> {
     let bytes = line.as_bytes();
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -2601,7 +2606,7 @@ fn scan_mentions(line: &str) -> Vec<Range<usize>> {
 
 /// `#IDENTIFIER` occurrences (byte ranges incl. the `#`) — the web
 /// `ISSUE_REF_SOURCE` contract: `(?<![\w#])#([A-Za-z][A-Za-z0-9]*-\d+)(?![\w-])`.
-fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
+pub(crate) fn scan_issue_refs(line: &str) -> Vec<Range<usize>> {
     let bytes = line.as_bytes();
     let mut out = Vec::new();
     let mut i = 0usize;

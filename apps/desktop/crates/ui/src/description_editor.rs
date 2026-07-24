@@ -23,13 +23,98 @@ use crate::queries;
 
 /// Install the [`DescriptionEditorFactory`] (call once from `ui::init`,
 /// before any window opens).
+///
+/// EXP-261: the description surface is the vendored WYSIWYG editor
+/// ([`crate::wysiwyg::WysiwygDescription`]). The classic block editor stays
+/// compiled (the comment composer still uses [`MarkdownEditor`]); to revert
+/// this surface, swap `WysiwygSeamEditor::build` back to `SeamEditor::build`
+/// below — nothing else changes.
 pub(crate) fn install(cx: &mut App) {
     install_description_editor(
         cx,
         Rc::new(|params, window, cx| {
-            Rc::new(SeamEditor::build(params, window, cx)) as Rc<dyn DescriptionEditor>
+            Rc::new(WysiwygSeamEditor::build(params, window, cx)) as Rc<dyn DescriptionEditor>
         }),
     );
+}
+
+/// Build a configured [`crate::wysiwyg::WysiwygDescription`] entity — the
+/// WYSIWYG analog of [`build_editor`], shared by the detail seam and the
+/// create-issue dialog so transport, autocomplete and pill wiring never
+/// diverge.
+pub(crate) fn build_wysiwyg_editor(
+    team_id: Option<String>,
+    upload_issue: Option<String>,
+    placeholder: &str,
+    initial_markdown: &str,
+    on_save: Option<crate::wysiwyg::OnSave>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<crate::wysiwyg::WysiwygDescription> {
+    let placeholder = placeholder.to_string();
+    let initial = initial_markdown.to_string();
+    cx.new(|cx| {
+        crate::wysiwyg::WysiwygDescription::new(
+            team_id,
+            upload_issue,
+            &placeholder,
+            &initial,
+            on_save,
+            window,
+            cx,
+        )
+    })
+}
+
+/// The WYSIWYG adapter behind the detail-view seam. Unlike [`SeamEditor`]
+/// there is no markdown mirror cell: the vendored editor communicates via
+/// `cx.emit`/subscriptions delivered AFTER its own update completes, so
+/// reading the entity from the save hook can never double-borrow.
+struct WysiwygSeamEditor {
+    editor: Entity<crate::wysiwyg::WysiwygDescription>,
+}
+
+impl WysiwygSeamEditor {
+    fn build(params: &DescriptionEditorParams, window: &mut Window, cx: &mut App) -> Self {
+        let team_id = queries::issue_team_id(cx, &params.issue_id);
+        let editor = build_wysiwyg_editor(
+            team_id,
+            Some(params.issue_id.clone()),
+            &params.placeholder,
+            &params.initial_markdown,
+            // Save-on-blur (web `handleDescriptionBlur`); the detail view
+            // dedupes unchanged saves against `last_saved_description`.
+            Some(params.on_save.clone()),
+            window,
+            cx,
+        );
+        Self { editor }
+    }
+}
+
+impl DescriptionEditor for WysiwygSeamEditor {
+    fn set_markdown(&self, markdown: &str, window: &mut Window, cx: &mut App) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_markdown(markdown, window, cx);
+        });
+    }
+
+    fn markdown(&self, cx: &App) -> String {
+        self.editor.read(cx).markdown(cx)
+    }
+
+    fn is_focused(&self, window: &Window, cx: &App) -> bool {
+        self.editor.read(cx).is_focused(window, cx)
+    }
+
+    fn element(&self, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
+        self.editor.clone().into_any_element()
+    }
+
+    fn focus(&self, window: &mut Window, cx: &mut App) {
+        self.editor
+            .update(cx, |editor, cx| editor.focus(window, cx));
+    }
 }
 
 /// Build a fully configured [`MarkdownEditor`] entity — the single
@@ -39,6 +124,7 @@ pub(crate) fn install(cx: &mut App) {
 ///
 /// `upload_issue`: `Some(id)` = detail mode (immediate upload on paste);
 /// `None` = create-dialog mode (stage as `draft://`, resolve at submit).
+#[allow(dead_code)] // EXP-261: kept as the block-editor revert path.
 pub(crate) fn build_editor(
     team_id: Option<String>,
     upload_issue: Option<String>,
@@ -92,18 +178,23 @@ pub(crate) fn open_issue_by_identifier(
     }
 }
 
-/// The adapter: owns the editor entity + a markdown mirror cell.
+/// The CLASSIC block-editor adapter: owns the editor entity + a markdown
+/// mirror cell. EXP-261 replaced it with [`WysiwygSeamEditor`] as the
+/// installed seam; it stays compiled as the documented revert path (swap the
+/// constructor in [`install`]).
 ///
 /// The cell (not `editor.read(..)`) backs [`DescriptionEditor::markdown`] and
 /// the blur-save hook because those fire from *inside* the editor's own
 /// update cycle (`on_change`/`on_blur` callbacks) — reading the leased entity
 /// there would double-borrow. `on_change` keeps the cell current instead.
+#[allow(dead_code)]
 struct SeamEditor {
     editor: Entity<MarkdownEditor>,
     current: Rc<RefCell<String>>,
 }
 
 impl SeamEditor {
+    #[allow(dead_code)] // EXP-261: kept as the block-editor revert path.
     fn build(params: &DescriptionEditorParams, window: &mut Window, cx: &mut App) -> Self {
         // Scope autocomplete + pills to the issue's team (§4.6).
         let team_id = queries::issue_team_id(cx, &params.issue_id);

@@ -47,6 +47,7 @@ mod join_team;
 mod login;
 pub mod markdown;
 mod mention_input;
+mod wysiwyg;
 mod navigation;
 mod oauth;
 mod pr_diff;
@@ -99,9 +100,14 @@ pub fn init(cx: &mut App) {
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and terminal dock filter against.
     undock::init(cx);
-    // §4.5 seam: the issue-detail description edits through the real GFM
-    // block editor (factory installed before any window can render a detail).
+    // §4.5 seam: the issue-detail description edits through the vendored
+    // WYSIWYG editor (EXP-261; factory installed before any window can
+    // render a detail). The block editor stays for the comment composer.
     description_editor::install(cx);
+    // EXP-261: the vendored editor's key bindings (its own action set,
+    // scoped to the "WysiwygMarkdownEditor" key context so they can never
+    // shadow the classic block editor's bindings).
+    cx.bind_keys(gpui_markdown_editor::default_key_bindings());
     // ⌘K quick-open (§4.2 IssueSearchSheet): global OpenSearch handler +
     // keybinding.
     search_sheet::init(cx);

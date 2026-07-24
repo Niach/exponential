@@ -36,13 +36,18 @@ pub(crate) mod image_url;
 pub mod parse;
 pub mod serialize;
 mod toolbar;
+#[cfg(test)]
+mod wysiwyg_parity;
 
 pub use autocomplete::{
     detect_trigger, store_completion_source, CompletionItem, CompletionSource, CompletionTrigger,
     PendingToken,
 };
 pub use blocks::{ContentBlock, RichText};
-pub(crate) use editor::{byte_offset_to_position, placeholder_box, ImageSlot};
+pub(crate) use editor::{
+    byte_offset_to_position, download_image, placeholder_box, scan_issue_refs, scan_mentions,
+    sniff_format, ImageSlot,
+};
 pub use editor::{ImageCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{
     AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,

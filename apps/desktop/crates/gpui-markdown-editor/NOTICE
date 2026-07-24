@@ -1,0 +1,123 @@
+gpui-markdown-editor — vendored third-party code (EXP-261)
+===========================================================
+
+This crate is vendored source, licensed under the Apache License 2.0 (see the
+LICENSE file in this directory). It is NOT covered by the repository's
+Exponential Small Team License.
+
+Provenance
+----------
+
+- Upstream crate: https://github.com/yuWorm/gpui-markdeditor
+  (crates/gpui-markdown-editor, commit a422e2c, 2026-07-15), Apache-2.0.
+- gpui-markdeditor is itself an extraction of the editor engine of Velotype
+  (https://github.com/manyougz/velotype), v0.7.0 / commit 050943e, Apache-2.0,
+  Copyright the Velotype authors (manyougz and contributors). The engine files
+  in the extraction are byte-identical to Velotype v0.7.0.
+
+Local modifications (Exponential, EXP-261)
+------------------------------------------
+
+Cargo.toml
+- `gpui` now resolves through the workspace to the zed git pin (rev 1d217ee)
+  instead of the unrelated crates.io `gpui 0.2.2` package; `publish = false`.
+- Removed dependencies: `ratex-parser`, `ratex-layout`, `ratex-svg`,
+  `mermaid-rs-renderer`, `directories`, `base64`, `futures`, and all
+  `tree-sitter*` grammar crates. The four feature names remain as empty shells
+  so their `#[cfg(feature = ...)]` gates stay known; enabling them is
+  unsupported.
+
+Feature excision (the GFM interchange contract has no LaTeX/Mermaid)
+- src/components/latex/mod.rs: RaTeX SVG rendering + on-disk cache removed;
+  pure parsing/sizing helpers retained; render entry points are unreachable
+  bail!() stubs.
+- src/components/mermaid/mod.rs: Mermaid SVG rendering + on-disk cache
+  removed; pure fence parsing helpers retained; the render entry point is an
+  unreachable bail!() stub.
+- src/editor/document.rs: `is_display_math_start` always false ($$ blocks
+  parse as plain paragraphs/raw markdown); ```mermaid fences parse as ordinary
+  fenced code blocks.
+- src/components/markdown/inline.rs: `parse_inline_math` always None ($…$ and
+  \(…\) stay plain text).
+- src/components/block/interactions.rs: removed the `$$`-then-Enter
+  display-math block conversion.
+
+Underline / superscript / subscript excision (no GFM representation — the
+interchange contract intentionally has none of them)
+- src/actions.rs: removed `UnderlineSelection` and its cmd-u/ctrl-u bindings.
+- src/components/block/interactions.rs + render.rs + runtime/mod.rs: removed
+  the underline action handler, its registration, and `InlineFormat::Underline`.
+- src/components/markdown/inline.rs: `<u>`, `^…^` and single-`~` delimiters
+  are no longer recognized (match_open_delimiter); `u`/`ins`/`sup`/`sub`
+  inline-HTML tags no longer map to styles (stay literal text);
+  `toggle_underline` removed; `^` and `<u>`/`</u>` are no longer escaped on
+  serialization (no longer special).
+
+Byte-parity alignment with the cross-client GFM contract (EXP-261 P2 — the
+gate is `crates/ui/src/markdown/wysiwyg_parity.rs` over the shared
+CONTRACT_FIXTURES corpus in `crates/ui/src/markdown/serialize.rs`)
+- src/components/markdown/inline.rs: literal-text escaping is now
+  CONTEXT-SENSITIVE (`literal_char_needs_escape`) — `*`, `_`, `~`, `\`, and
+  backticks are escaped only where they could actually open/close a construct
+  on re-parse; the previous eager per-character escaping rewrote plain prose
+  (`2 * 3` -> `2 \* 3`, `snake_case` -> `snake\_case`) and broke byte parity.
+  Known deliberate residual: an intra-word `*` (`c*d`) still escapes (it IS
+  emphasis-capable in GFM) — semantically identical everywhere, one-time byte
+  churn.
+- src/components/markdown/inline.rs: `_` emphasis now follows GFM's word rule
+  (cannot open after / close before an alphanumeric), so `snake_case_name`
+  stays plain text instead of becoming `snake*case*name`.
+
+Host integration seams (EXP-261 — additive API for the Exponential desktop)
+- api.rs / editor/mod.rs / editor/render.rs: `MarkdownEditorOptions.embedded`
+  (auto-height mode: host-owned scrolling, full-width rows, no row
+  virtualization, no focus-steal on mount) and `focus_first_block()`.
+- src/host.rs + environment.rs: `ImageSourceResolver` trait +
+  `image_source_resolver` env field (authenticated attachment fetching and
+  staged paste bytes — relative `/api/attachments/` URLs are not filesystem
+  paths); `enable_image_resize` env flag.
+- src/components/markdown/image.rs: `ImageResolvedSource` gained
+  `Decoded`/`Pending`/`Failed`; `width_param_from_src` (`?w=` display-width
+  URL param, cross-client contract); `ImageResizeDrag`.
+- src/components/block/render.rs: image render honors resolver states + the
+  `?w=` width; resize drag handle on standalone images (feature-flagged by
+  the env; commits `BlockEvent::ImageResizeCommitted`).
+- src/editor/window_state.rs: `rewrite_image_sources` (targeted `](src)`
+  replacement across blocks — draft-upload resolution and resize commits
+  without a document reimport).
+- src/editor/context_menu.rs: right-click on a standalone image emits
+  `MarkdownEditorEvent::ImageContextMenuRequested` for a HOST-rendered menu
+  instead of the built-in insert menu; new events `ImageContextMenuRequested`
+  and `ImageResized` (enum dropped its `Eq` derive for the pixel position).
+- src/host.rs + environment.rs + block element/interactions + editor events:
+  `ReferenceDecorator` seam — the host decorates `@email` / `#IDENT` tokens
+  as pills (render-time only; serialization untouched), with Cmd/Ctrl+click
+  surfacing `MarkdownEditorEvent::ReferenceClicked` (mirrors the link
+  hit-test path).
+- src/actions.rs: key context renamed "MarkdownEditor" ->
+  "WysiwygMarkdownEditor" (the host's classic block editor already claims the
+  original name; the two action sets must not shadow each other).
+- src/editor/window_state.rs: caret accessors for host autocomplete —
+  `focused_text_before_caret`, `replace_text_before_caret` (typed-edit path),
+  `caret_viewport_bounds`.
+- src/theme.rs: `ThemeFonts { ui_family, mono_family }` (upstream hardcoded
+  `.SystemUIFont`; code had no monospace); editor/render.rs + block
+  element/render read the theme families.
+
+gpui API drift fixes (crates.io gpui 0.2.2 snapshot -> zed rev 1d217ee)
+- `.flex_grow()` -> `.flex_grow(1.)` (takes a factor at this rev).
+- `ScrollHandle::max_offset()` returns `Point<Pixels>` -> `.height` became `.y`.
+- `ShapedLine::paint` gained `TextAlign` + align-width params.
+- `FocusHandle::focus(window)` -> `focus(window, cx)`.
+- `ClipboardEntry::ExternalPaths` + `ImageFormat::{Ico,Pnm}` match arms added.
+
+Tests
+- Deleted the math/mermaid/underline/superscript/subscript behavior tests;
+  added replacements asserting the excised syntax stays plain text and
+  round-trips verbatim (`*_exp261` tests). Feature-dependent HTML-native and
+  code-highlight tests are now gated behind their (empty, unsupported)
+  feature names. `test.md` fixture retained; its `<details>` assertion accepts
+  the RawMarkdown classification the disabled html-native feature produces.
+
+(This list is kept current as further vendoring changes land; see git history
+of this directory for the precise diffs.)

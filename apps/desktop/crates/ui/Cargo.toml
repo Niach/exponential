@@ -49,9 +49,18 @@ log = "0.4"
 updater = { path = "../updater" }
 comrak = { version = "0.53.0", default-features = false }
 ureq.workspace = true
+# EXP-261: the vendored Velotype WYSIWYG editor core (see its NOTICE for
+# provenance) — the issue-description editing surface; the block editor above
+# stays for the comment composer.
+gpui-markdown-editor = { path = "../gpui-markdown-editor" }
 
 [dev-dependencies]
 # markdown/image_paste.rs one-shot HTTP fixture server.
 flume.workspace = true
 # update.rs end-to-end fixture: digest the fake release asset for SHA256SUMS.
 sha2 = "0.10"
+# EXP-261 wysiwyg_parity.rs: the vendored editor's parse→serialize must pass
+# the same CONTRACT_FIXTURES as the block editor. test-support is required by
+# #[gpui::test]; it only widens the TEST build's gpui variant (same package
+# id — a compile-time cost, not an identity split).
+gpui = { workspace = true, features = ["test-support"] }

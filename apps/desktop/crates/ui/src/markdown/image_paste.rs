@@ -266,6 +266,23 @@ pub fn pasted_image_parts(format: gpui::ImageFormat) -> (&'static str, String) {
     (mime, format!("pasted-image.{ext}"))
 }
 
+/// Drop image lines whose src is a still-unresolved `draft://` staging URL —
+/// a draft URL must never reach the server (create-dialog submit and the
+/// WYSIWYG detail save path both route through this).
+pub fn strip_draft_images(markdown: &str) -> String {
+    let kept: Vec<&str> = markdown
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !(trimmed.starts_with("![") && trimmed.contains(&format!("]({DRAFT_SCHEME}")))
+        })
+        .collect();
+    let joined = kept.join("
+");
+    let canonical = super::canonicalize(&joined);
+    canonical.trim().to_string()
+}
+
 /// Read an image file (drag-drop / file picker), inferring the mime from the
 /// extension. Returns `(filename, mime, bytes)`.
 pub fn read_image_file(path: &std::path::Path) -> anyhow::Result<(String, String, Vec<u8>)> {
