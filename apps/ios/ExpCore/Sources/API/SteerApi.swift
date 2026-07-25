@@ -79,6 +79,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
 
     /// Whether this desktop can run team actions (EXP-253).
     public var canRunActions: Bool { caps?.contains("actions") == true }
+
+    /// Whether this desktop understands typed action inputs + the builtin
+    /// "Create action" run (EXP-257). Builtin or inputs-carrying starts are
+    /// additionally gated on this (the server enforces it too); a plain
+    /// `actions`-capable desktop still runs input-less actions.
+    public var canRunActionInputs: Bool { caps?.contains("action-inputs") == true }
 }
 
 public struct SteerDevicesResult: Decodable, Sendable {
@@ -156,17 +162,25 @@ private struct StartBatchSessionInput: Encodable {
     let skipPermissions: Bool?
 }
 
-/// Action remote-start (EXP-253): exactly one of issueId/issueIds/actionId is
-/// present on `steer.startSession` — this is the actionId form. Action runs
-/// are Claude-only v1, so model/effort are the ONLY options that may ride
-/// (the server rejects agent/ultracode/planMode/skipPermissions here). Nil
-/// fields are omitted (synthesized Encodable uses encodeIfPresent) and mean
-/// "desktop settings default".
+/// Action remote-start (EXP-253/EXP-257): exactly one of
+/// issueId/issueIds/actionId is present on `steer.startSession` — this is the
+/// actionId form. Since EXP-257 it accepts the FULL option set with the same
+/// per-agent vocabulary as issue runs, plus `inputs` (key → text or picked
+/// repo/board uuid) and `teamId` — sent ONLY with the builtin
+/// `builtin:create-action` id (the server requires it there and forbids it
+/// otherwise). Nil fields are omitted (synthesized Encodable uses
+/// encodeIfPresent) and mean "desktop settings default".
 private struct StartActionSessionInput: Encodable {
     let actionId: String
+    let teamId: String?
     let deviceId: String
+    let agent: String?
     let model: String?
     let effort: String?
+    let ultracode: Bool?
+    let planMode: Bool?
+    let skipPermissions: Bool?
+    let inputs: [String: String]?
 }
 
 private struct StartSessionResult: Decodable {
@@ -279,18 +293,22 @@ public final class SteerApi: Sendable {
         }
     }
 
-    /// Action remote-start (EXP-253): route a `start_session` carrying an
-    /// actionId to the chosen desktop — the device must advertise the
-    /// `actions` capability (`SteerDevice.canRunActions`; the server enforces
-    /// it too). Claude-only v1: model/effort are the only options. Same
-    /// endpoint and PRECONDITION_FAILED → `SteerStartError.rejected` mapping
-    /// as the issue forms.
+    /// Action remote-start (EXP-253/EXP-257): route a `start_session` carrying
+    /// an actionId to the chosen desktop — the device must advertise the
+    /// `actions` capability (`SteerDevice.canRunActions`; builtin or
+    /// inputs-carrying runs additionally need `canRunActionInputs`; the server
+    /// enforces both). `teamId` rides ONLY with the builtin
+    /// `DomainContract.builtinCreateActionId` (real actions resolve their team
+    /// server-side); `inputs` maps input keys to text values or picked
+    /// repo/board uuids. Same endpoint and PRECONDITION_FAILED →
+    /// `SteerStartError.rejected` mapping as the issue forms.
     public func startSession(
         accountId: String,
         actionId: String,
         deviceId: String,
-        model: String? = nil,
-        effort: String? = nil
+        teamId: String? = nil,
+        options: SteerStartOptions = SteerStartOptions(),
+        inputs: [String: String]? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -298,9 +316,15 @@ public final class SteerApi: Sendable {
                 path: "steer.startSession",
                 input: StartActionSessionInput(
                     actionId: actionId,
+                    teamId: teamId,
                     deviceId: deviceId,
-                    model: model,
-                    effort: effort
+                    agent: options.agent,
+                    model: options.model,
+                    effort: options.effort,
+                    ultracode: options.ultracode,
+                    planMode: options.planMode,
+                    skipPermissions: options.skipPermissions,
+                    inputs: inputs
                 )
             )
         } catch let TrpcError.httpError(status, body) {

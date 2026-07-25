@@ -23,13 +23,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +50,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,9 +64,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.R
+import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
+import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
@@ -83,6 +94,12 @@ import com.exponential.app.ui.theme.glassButton
 // unguarded, so the row is simply absent). Exactly 1 checked issue launches a
 // plain single session; 2+ launch a BATCH session (one agent on one
 // `exp/batch-<id8>` branch spanning every issue, all from one repository).
+// EXP-257 adds a top-level Issues | Actions subject switch: the Actions tab is
+// a searchable single-select action list (the server-appended virtual builtin
+// "Create action" pinned first by its flag) plus typed input fields for the
+// selected action (text / repo / board), sharing the SAME desktop / agent /
+// model / effort / toggle sections; devices there are filtered to the
+// `actions` cap (+ `action-inputs` for builtin/inputs-carrying runs).
 // Last-used options persist via SharedPreferences; stored values are validated
 // against the contract on read so a stale entry can never send a value the
 // server rejects.
@@ -118,6 +135,9 @@ data class StartIssueOption(
     val priority: String?,
 )
 
+/** The sheet's top-level subject switch (EXP-257): what a run launches on. */
+private enum class SubjectTab { Issues, Actions }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartCodingSheet(
@@ -125,12 +145,22 @@ fun StartCodingSheet(
     issues: List<StartIssueOption>,
     preselectedIds: Set<String>,
     preferredDeviceId: String? = null,
+    // Non-null opens the sheet on the Actions tab with this action selected.
+    preselectedActionId: String? = null,
     onStart: (SteerDevice, List<String>, SteerStartOptions) -> Unit,
+    onRunAction: (SteerDevice, ActionDto, SteerStartOptions, Map<String, String>) -> Unit,
     onDismiss: () -> Unit,
+    dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
+    // Actions-tab data (EXP-257): the team's actions plus the lookup sources
+    // the typed input fields render from.
+    val actionsState by dataViewModel.actionsState.collectAsStateWithLifecycle()
+    val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
+    val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
 
     // Stored per-mode defaults, read once on composition. ultracode/planMode are
     // the single-issue defaults; a 2+ batch overrides them (see below) without
@@ -204,13 +234,54 @@ fun StartCodingSheet(
     var touchedToggles by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
+    // ── Actions-tab state (EXP-257) ──────────────────────────────────────────
+    var subjectTab by remember {
+        mutableStateOf(if (preselectedActionId != null) SubjectTab.Actions else SubjectTab.Issues)
+    }
+    var selectedActionId by remember { mutableStateOf(preselectedActionId) }
+    var actionQuery by remember { mutableStateOf("") }
+    var inputValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // Builtin rows pin FIRST by the flag (never by sort order; stable sort
+    // keeps the server order otherwise), then the search filter applies.
+    val orderedActions = remember(actionsState.actions) {
+        actionsState.actions?.sortedByDescending { it.isBuiltin }
+    }
+    val filteredActions = remember(orderedActions, actionQuery) {
+        val q = actionQuery.trim()
+        orderedActions?.filter {
+            q.isEmpty() ||
+                it.name.contains(q, ignoreCase = true) ||
+                it.description?.contains(q, ignoreCase = true) == true
+        }
+    }
+    val selectedAction = orderedActions?.firstOrNull { it.id == selectedActionId }
+    val selectedActionInputs = selectedAction?.inputs.orEmpty()
+    // Builtin or inputs-carrying runs additionally need the `action-inputs`
+    // device cap; an input type this build doesn't know blocks the run (the
+    // desktop would render the prompt without it otherwise).
+    val needsInputCap = selectedAction != null &&
+        (selectedAction.isBuiltin || selectedActionInputs.isNotEmpty())
+    val hasUnknownInputType =
+        selectedActionInputs.any { it.type !in DomainContract.actionInputTypeValues }
+
     var deviceId by remember {
         mutableStateOf(
             devices.firstOrNull { it.deviceId == preferredDeviceId }?.deviceId
                 ?: devices.firstOrNull()?.deviceId,
         )
     }
-    val device = devices.firstOrNull { it.deviceId == deviceId } ?: devices.firstOrNull()
+    // Per-tab device candidates: issues take any desktop; actions need the
+    // `actions` cap (+ `action-inputs` when the selection demands it). A
+    // deviceId outside the current candidates re-settles on the first one
+    // without clobbering the stored choice for the other tab.
+    val deviceCandidates = if (subjectTab == SubjectTab.Actions) {
+        devices.filter { it.canRunActions && (!needsInputCap || it.canRunActionInputs) }
+    } else {
+        devices
+    }
+    val device = deviceCandidates.firstOrNull { it.deviceId == deviceId }
+        ?: deviceCandidates.firstOrNull()
     val availableAgents = availableAgentsFor(device)
 
     // Switching agent invalidates the per-agent model/effort vocabularies:
@@ -223,6 +294,15 @@ fun StartCodingSheet(
         if (next != DEFAULT_AGENT) {
             ultracode = false
             planMode = false
+        }
+    }
+
+    // The settled device can change without an explicit pick (tab switch or a
+    // stricter Actions-tab candidate filter) — clamp the agent to one the new
+    // device can actually run.
+    LaunchedEffect(device?.deviceId) {
+        if (device != null && agent !in availableAgentsFor(device)) {
+            selectAgent(availableAgentsFor(device).first())
         }
     }
 
@@ -282,6 +362,13 @@ fun StartCodingSheet(
     val multiRepo = checkedCount >= 1 && repoIds.size > 1
     val tooMany = checkedCount > MAX_BATCH_ISSUES
     val canStart = device != null && checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
+    // Actions-tab launch gate: a settled capable desktop, a selection, no
+    // unknown input types, and every required input filled.
+    val requiredInputsFilled = selectedActionInputs
+        .filter { it.required }
+        .all { !inputValues[it.key].isNullOrBlank() }
+    val canRunAction = device != null && selectedAction != null &&
+        !hasUnknownInputType && requiredInputsFilled
 
     // Full-height sheet (EXP-208), iOS-chrome parity (EXP-211): no drag handle
     // (the sheet is inset below the status bar instead of colliding with it),
@@ -310,9 +397,15 @@ fun StartCodingSheet(
                     onClick = {
                         val target = device ?: return@Button
                         val ids = checkedInOrder.map { it.id }
-                        if (ids.isEmpty()) return@Button
+                        val action =
+                            if (subjectTab == SubjectTab.Actions) selectedAction else null
+                        if (subjectTab == SubjectTab.Actions) {
+                            if (action == null) return@Button
+                        } else if (ids.isEmpty()) {
+                            return@Button
+                        }
                         // agent/model/effort/skipPermissions persist on every
-                        // submit; ultracode/plan only on a claude single-issue
+                        // submit; ultracode/plan only on a claude non-batch
                         // start, so batch seeding (and agent clamping) never
                         // leaks into the stored single-issue defaults.
                         prefs.edit().apply {
@@ -320,34 +413,64 @@ fun StartCodingSheet(
                             putString("model", model)
                             putString("effort", effort)
                             putBoolean("skipPermissions", skipPermissions)
-                            if (agent == DEFAULT_AGENT && ids.size <= 1) {
+                            if (agent == DEFAULT_AGENT && (action != null || ids.size <= 1)) {
                                 putBoolean("ultracode", ultracode)
                                 putBoolean("planMode", planMode)
                             }
                             apply()
                         }
-                        onStart(
-                            target,
-                            ids,
-                            SteerStartOptions(
-                                model = model,
-                                effort = effort,
-                                // ultracode/plan are claude-only; skip-permissions
-                                // applies to every guarded agent (i.e. not pi).
-                                ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
-                                planMode = if (agent == DEFAULT_AGENT) planMode else null,
-                                agent = agent,
-                                skipPermissions = if (agent == "pi") null else skipPermissions,
-                            ),
+                        val options = SteerStartOptions(
+                            model = model,
+                            effort = effort,
+                            // ultracode/plan are claude-only; skip-permissions
+                            // applies to every guarded agent (i.e. not pi).
+                            ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
+                            planMode = if (agent == DEFAULT_AGENT) planMode else null,
+                            agent = agent,
+                            skipPermissions = if (agent == "pi") null else skipPermissions,
                         )
+                        if (action != null) {
+                            // Only filled values ride, keyed by the def key
+                            // (repo/board values are the picked ids).
+                            val payload = selectedActionInputs.mapNotNull { def ->
+                                inputValues[def.key]?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?.let { def.key to it }
+                            }.toMap()
+                            onRunAction(target, action, options, payload)
+                        } else {
+                            onStart(target, ids, options)
+                        }
                         onDismiss()
                     },
-                    enabled = canStart,
+                    enabled = if (subjectTab == SubjectTab.Actions) canRunAction else canStart,
                 ) {
                     Text(
-                        if (checkedCount >= 2) "Start coding ($checkedCount issues)" else "Start coding",
+                        when {
+                            subjectTab == SubjectTab.Actions -> "Run action"
+                            checkedCount >= 2 -> "Start coding ($checkedCount issues)"
+                            else -> "Start coding"
+                        },
                     )
                 }
+            }
+
+            // ── Subject tabs (EXP-257): Issues | Actions ─────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                SubjectTabPill(
+                    label = "Issues",
+                    selected = subjectTab == SubjectTab.Issues,
+                    onClick = { subjectTab = SubjectTab.Issues },
+                )
+                SubjectTabPill(
+                    label = "Actions",
+                    selected = subjectTab == SubjectTab.Actions,
+                    onClick = { subjectTab = SubjectTab.Actions },
+                )
             }
 
             Column(
@@ -356,134 +479,284 @@ fun StartCodingSheet(
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
             ) {
-                // ── Issues ───────────────────────────────────────────────────
-                SectionLabel("Issues")
-                // ONE grouped card for search + rows (EXP-211 — iOS Form
-                // parity): the search field is the first row of the glass
-                // container and hairlines separate the issue rows, instead of
-                // bare edge-to-edge rows on the sheet background.
-                OptionGroup {
-                    TextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                "Search issues",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        },
-                        // iOS parity: a clear (×) affordance while searching.
-                        trailingIcon = if (query.isEmpty()) {
-                            null
-                        } else {
-                            {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(
-                                        Icons.Filled.Cancel,
-                                        contentDescription = "Clear search",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                    )
+                if (subjectTab == SubjectTab.Issues) {
+                    // ── Issues ───────────────────────────────────────────────────
+                    SectionLabel("Issues")
+                    // ONE grouped card for search + rows (EXP-211 — iOS Form
+                    // parity): the search field is the first row of the glass
+                    // container and hairlines separate the issue rows, instead of
+                    // bare edge-to-edge rows on the sheet background.
+                    OptionGroup {
+                        TextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = {
+                                Text(
+                                    "Search issues",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            },
+                            // iOS parity: a clear (×) affordance while searching.
+                            trailingIcon = if (query.isEmpty()) {
+                                null
+                            } else {
+                                {
+                                    IconButton(onClick = { query = "" }) {
+                                        Icon(
+                                            Icons.Filled.Cancel,
+                                            contentDescription = "Clear search",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                        )
+                                    }
                                 }
-                            }
-                        },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                    GroupDivider()
-                    if (pinnedRows.isEmpty() && otherRows.isEmpty()) {
-                        Text(
-                            if (issues.isEmpty()) "No eligible issues" else "No matching issues",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                            ),
                         )
-                    } else {
-                        // The issues scroll INSIDE this bounded area (EXP-173)
-                        // so the Model/Effort/switch controls stay reachable.
-                        // The heightIn(max) cap makes the lazy child's
-                        // constraints finite, which is what legalizes nesting
-                        // it in the outer scroll Column (~5.5 rows — the half
-                        // row is the scroll affordance).
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 264.dp),
-                        ) {
-                            itemsIndexed(
-                                pinnedRows + otherRows,
-                                key = { _, option -> option.id },
-                            ) { index, option ->
-                                Column(modifier = Modifier.animateItem()) {
-                                    if (index > 0) GroupDivider()
-                                    IssueCheckRow(
-                                        option = option,
-                                        checked = option.id in checked,
-                                        onToggle = { toggleIssue(option.id) },
-                                    )
+                        GroupDivider()
+                        if (pinnedRows.isEmpty() && otherRows.isEmpty()) {
+                            Text(
+                                if (issues.isEmpty()) "No eligible issues" else "No matching issues",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            )
+                        } else {
+                            // The issues scroll INSIDE this bounded area (EXP-173)
+                            // so the Model/Effort/switch controls stay reachable.
+                            // The heightIn(max) cap makes the lazy child's
+                            // constraints finite, which is what legalizes nesting
+                            // it in the outer scroll Column (~5.5 rows — the half
+                            // row is the scroll affordance).
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 264.dp),
+                            ) {
+                                itemsIndexed(
+                                    pinnedRows + otherRows,
+                                    key = { _, option -> option.id },
+                                ) { index, option ->
+                                    Column(modifier = Modifier.animateItem()) {
+                                        if (index > 0) GroupDivider()
+                                        IssueCheckRow(
+                                            option = option,
+                                            checked = option.id in checked,
+                                            onToggle = { toggleIssue(option.id) },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                // Validation captions (blocking) + the large-batch soft note.
-                val validationCaption = when {
-                    multiRepo -> "Pick issues from a single repository per run."
-                    tooMany -> "At most $MAX_BATCH_ISSUES issues per run — split the batch."
-                    else -> null
-                }
-                if (validationCaption != null) {
+                    // Validation captions (blocking) + the large-batch soft note.
+                    val validationCaption = when {
+                        multiRepo -> "Pick issues from a single repository per run."
+                        tooMany -> "At most $MAX_BATCH_ISSUES issues per run — split the batch."
+                        else -> null
+                    }
+                    if (validationCaption != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            validationCaption,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 32.dp),
+                        )
+                    } else if (checkedCount > LARGE_BATCH_HINT_THRESHOLD) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Large batches are token-expensive.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 32.dp),
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        validationCaption,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                    )
-                } else if (checkedCount > LARGE_BATCH_HINT_THRESHOLD) {
+                } else {
+                    // ── Actions ──────────────────────────────────────────────
+                    SectionLabel("Actions")
+                    // Same grouped-card layout as the issue picker: search row
+                    // + hairline-divided SINGLE-select action rows (builtin
+                    // pinned first by its flag).
+                    OptionGroup {
+                        TextField(
+                            value = actionQuery,
+                            onValueChange = { actionQuery = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = {
+                                Text(
+                                    "Search actions",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            },
+                            // iOS parity: a clear (×) affordance while searching.
+                            trailingIcon = if (actionQuery.isEmpty()) {
+                                null
+                            } else {
+                                {
+                                    IconButton(onClick = { actionQuery = "" }) {
+                                        Icon(
+                                            Icons.Filled.Cancel,
+                                            contentDescription = "Clear search",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                        GroupDivider()
+                        val actionRows = filteredActions
+                        when {
+                            actionRows == null && actionsState.error != null -> Text(
+                                actionsState.error ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            )
+                            actionRows == null -> Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "Loading actions…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                )
+                            }
+                            actionRows.isEmpty() -> Text(
+                                if (orderedActions.isNullOrEmpty()) "No actions yet" else "No matching actions",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            )
+                            // Bounded like the issue list (EXP-173) so the
+                            // Desktop/Model/Effort controls stay reachable.
+                            else -> LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 264.dp),
+                            ) {
+                                itemsIndexed(
+                                    actionRows,
+                                    key = { _, action -> action.id },
+                                ) { index, action ->
+                                    Column {
+                                        if (index > 0) GroupDivider()
+                                        ActionSelectRow(
+                                            action = action,
+                                            selected = action.id == selectedActionId,
+                                            onSelect = {
+                                                if (selectedActionId != action.id) {
+                                                    selectedActionId = action.id
+                                                    inputValues = emptyMap()
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Typed input fields for the selected action (EXP-257).
+                    if (selectedAction != null && selectedActionInputs.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        SectionLabel("Inputs")
+                        if (hasUnknownInputType) {
+                            Text(
+                                "This action needs a newer app version.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 32.dp),
+                            )
+                        } else {
+                            selectedActionInputs.forEachIndexed { index, def ->
+                                if (index > 0) Spacer(Modifier.height(8.dp))
+                                ActionInputField(
+                                    def = def,
+                                    value = inputValues[def.key] ?: "",
+                                    repos = teamRepos,
+                                    boards = boardOptions,
+                                    onValueChange = { next ->
+                                        inputValues = inputValues + (def.key to next)
+                                    },
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Large batches are token-expensive.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                    )
                 }
-                Spacer(Modifier.height(4.dp))
 
                 // ── Desktop ──────────────────────────────────────────────────
-                if (devices.size > 1) {
+                if (subjectTab == SubjectTab.Actions && deviceCandidates.isEmpty()) {
+                    // No desktop can take this run — none advertises `actions`,
+                    // or the builtin/inputs run needs a newer desktop app.
+                    OptionGroup {
+                        Text(
+                            "No actions-capable desktop online — open or update the Exponential desktop app.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                } else if (deviceCandidates.size > 1) {
                     OptionGroup {
                         PickerRow(
                             label = "Desktop",
                             value = device?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: "",
-                            options = devices.map { it.deviceId },
+                            options = deviceCandidates.map { it.deviceId },
                             selected = device?.deviceId,
                             optionLabel = { id ->
-                                devices.firstOrNull { it.deviceId == id }
+                                deviceCandidates.firstOrNull { it.deviceId == id }
                                     ?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: id
                             },
                             onSelect = { id ->
                                 deviceId = id
                                 // The new desktop may not run the current agent
                                 // — fall back to its first available one.
-                                val candidate = devices.firstOrNull { it.deviceId == id }
+                                val candidate = deviceCandidates.firstOrNull { it.deviceId == id }
                                 val available = availableAgentsFor(candidate)
                                 if (agent !in available) selectAgent(available.first())
                             },
@@ -648,6 +921,158 @@ private fun IssueCheckRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+// One subject tab in the top strip — the AgentTab pill styling without a
+// brand icon (EXP-257: the Issues | Actions subject switch).
+@Composable
+private fun SubjectTabPill(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurface.copy(
+            alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
+        ),
+        modifier = Modifier
+            .glassButton(active = selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+// One selectable action (single-select, IssueCheckRow's affordances): the
+// circle/check indicator, a create (+) glyph for the builtin row / a bolt for
+// regular ones, name (+ a small repo indicator when the action clones a
+// repository), and the optional description.
+@Composable
+private fun ActionSelectRow(
+    action: ActionDto,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+            },
+        )
+        Spacer(Modifier.width(10.dp))
+        Icon(
+            if (action.isBuiltin) Icons.Filled.Add else Icons.Filled.Bolt,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    action.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (action.repositoryId != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        Icons.Filled.AccountTree,
+                        contentDescription = "Runs in a repository",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            }
+            val description = action.description
+            if (!description.isNullOrBlank()) {
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// One typed input field (EXP-257): text → outlined field with the def's
+// placeholder; repo/board → a grouped picker row over the team registry /
+// synced boards. The stored value is the raw text or the picked id; a cleared
+// optional picker stores "" which the submit path drops.
+@Composable
+private fun ActionInputField(
+    def: ActionInputDto,
+    value: String,
+    repos: List<TeamRepo>,
+    boards: List<StartBoardOption>,
+    onValueChange: (String) -> Unit,
+) {
+    val label = if (def.required) def.label else "${def.label} (optional)"
+    when (def.type) {
+        "repo" -> OptionGroup {
+            PickerRow(
+                label = label,
+                value = when {
+                    value.isEmpty() && def.required -> "Select"
+                    value.isEmpty() -> "None"
+                    else -> repos.firstOrNull { it.id == value }?.fullName ?: value
+                },
+                options = (if (def.required) emptyList() else listOf("")) + repos.map { it.id },
+                selected = value.takeIf { it.isNotEmpty() || !def.required },
+                optionLabel = { id ->
+                    if (id.isEmpty()) "None" else repos.firstOrNull { it.id == id }?.fullName ?: id
+                },
+                onSelect = onValueChange,
+            )
+        }
+        "board" -> OptionGroup {
+            PickerRow(
+                label = label,
+                value = when {
+                    value.isEmpty() && def.required -> "Select"
+                    value.isEmpty() -> "None"
+                    else -> boards.firstOrNull { it.id == value }?.name ?: value
+                },
+                options = (if (def.required) emptyList() else listOf("")) + boards.map { it.id },
+                selected = value.takeIf { it.isNotEmpty() || !def.required },
+                optionLabel = { id ->
+                    if (id.isEmpty()) "None" else boards.firstOrNull { it.id == id }?.name ?: id
+                },
+                onSelect = onValueChange,
+            )
+        }
+        // Only text remains — unknown types never render (the pane blocks the
+        // run and shows the needs-a-newer-app caption instead).
+        else -> OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it.take(DomainContract.actionInputTextMax)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            label = { Text(label) },
+            placeholder = def.placeholder?.let { hint -> { Text(hint) } },
         )
     }
 }

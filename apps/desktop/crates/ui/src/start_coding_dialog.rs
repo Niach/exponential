@@ -26,6 +26,16 @@
 //! alike); switching the agent tab re-seeds them. The agent tab strip offers
 //! only the doctor-installed agents.
 //!
+//! EXP-257: the dialog is the ONE unified launch surface — a segmented
+//! **Issues | Actions** subject strip sits at the top. The Actions tab
+//! replaces the issue checklist with an action search + single-select list
+//! (the server-defined "Create action" builtin pinned first) and the
+//! selected action's typed input fields (text / repo / board); the SHARED
+//! bottom half (agent tabs, model/effort, toggles, footer) applies to both.
+//! An action launch goes through the trust-gated
+//! [`crate::action_run::start_action_run`] instead of `coding::prepare`
+//! directly.
+//!
 //! Launch = snapshot → [`coding::prepare`] on the background executor → the
 //! shared `coding_flow::spawn_into_window` foreground spawn. A
 //! `Prepared::Disabled` reason renders inline and keeps the dialog open.
@@ -42,6 +52,7 @@ use gpui_component::{
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     tab::{Tab, TabBar, TabVariant},
@@ -51,15 +62,17 @@ use sync::Store;
 
 use api::repositories::IssueRepository;
 use coding::{
-    BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions, LaunchOrigin, Prepared,
-    PrepareRequest, RepoGroup,
+    ActionInputValue, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
+    LaunchOrigin, Prepared, PrepareRequest, RepoGroup,
 };
 use domain::IssueStatus;
 
+use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
+use crate::icons::ExpIcon;
 use crate::queries;
 
 /// Soft cost warning threshold: more checked issues than this shows the
@@ -97,7 +110,7 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id]);
+    open(window, cx, team_id, vec![issue.id], None);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
@@ -107,12 +120,25 @@ pub fn open_for_selection(
     team_id: String,
     issue_ids: Vec<String>,
 ) {
-    open(window, cx, team_id, issue_ids);
+    open(window, cx, team_id, issue_ids, None);
 }
 
-fn open(window: &mut Window, cx: &mut App, team_id: String, preselected: Vec<String>) {
-    let view =
-        cx.new(|cx| StartCodingDialogView::new(team_id, preselected, window, cx));
+/// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
+/// — the actions panel rows land here).
+pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
+    open(window, cx, team_id, Vec::new(), Some(action_id));
+}
+
+fn open(
+    window: &mut Window,
+    cx: &mut App,
+    team_id: String,
+    preselected: Vec<String>,
+    preselect_action: Option<String>,
+) {
+    let view = cx.new(|cx| {
+        StartCodingDialogView::new(team_id, preselected, preselect_action, window, cx)
+    });
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).launching;
         let max_height = window.viewport_size().height * 0.85;
@@ -124,6 +150,21 @@ fn open(window: &mut Window, cx: &mut App, team_id: String, preselected: Vec<Str
             .keyboard(!busy)
             .child(view.clone())
     });
+}
+
+/// The unified dialog's top-level subject (EXP-257).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SubjectTab {
+    Issues,
+    Actions,
+}
+
+/// `actions.list` fetch lifecycle for the Actions tab (prefetched at open,
+/// generation-guarded).
+enum ActionsLoad {
+    Loading,
+    Ready,
+    Error(String),
 }
 
 /// One checklist row, snapshotted from the sync store at open (titles and
@@ -169,6 +210,33 @@ fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, boo
 
 pub struct StartCodingDialogView {
     team_id: String,
+    /// EXP-257: which subject half is showing — Issues (the checklist) or
+    /// Actions (the single-select action list + input fields).
+    subject_tab: SubjectTab,
+    /// The team's actions (builtin pinned first by flag), prefetched at open.
+    actions: Vec<api::actions::Action>,
+    actions_load: ActionsLoad,
+    /// Stale-fetch guard for the actions/repos prefetches.
+    actions_generation: u64,
+    /// The single-selected action (the Actions tab has no multi-run).
+    selected_action_id: Option<String>,
+    /// `open_for_action`'s preselect, applied once the list lands.
+    pending_action_preselect: Option<String>,
+    action_search: Entity<InputState>,
+    action_list_scroll: ScrollHandle,
+    action_inputs_scroll: ScrollHandle,
+    /// Per-TEXT-input editor states for the selected action, keyed by input
+    /// key — built in [`Self::select_action`] (never in render).
+    action_text_inputs: HashMap<String, Entity<InputState>>,
+    /// Change subscriptions for the states above (footer gate re-evaluates
+    /// while typing); replaced wholesale on re-selection.
+    action_input_subscriptions: Vec<Subscription>,
+    /// Picked repo per `repo` input key (absent = none picked).
+    action_repo_picks: HashMap<String, ActionRepoRow>,
+    /// Picked `(board id, board name)` per `board` input key.
+    action_board_picks: HashMap<String, (String, String)>,
+    /// `repositories.list` rows for the repo input pickers.
+    team_repos: Vec<ActionRepoRow>,
     /// Every non-archived team issue, board→number ordered.
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
@@ -208,6 +276,7 @@ impl StartCodingDialogView {
     fn new(
         team_id: String,
         preselected: Vec<String>,
+        preselect_action: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -291,6 +360,8 @@ impl StartCodingDialogView {
             .collect();
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
+        let action_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search actions…"));
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         let subscriptions = vec![
@@ -311,6 +382,11 @@ impl StartCodingDialogView {
                     cx.notify();
                 }
             }),
+            cx.subscribe(&action_search, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            }),
         ];
 
         let agent = settings.default_agent;
@@ -318,6 +394,24 @@ impl StartCodingDialogView {
 
         let mut this = Self {
             team_id,
+            subject_tab: if preselect_action.is_some() {
+                SubjectTab::Actions
+            } else {
+                SubjectTab::Issues
+            },
+            actions: Vec::new(),
+            actions_load: ActionsLoad::Loading,
+            actions_generation: 0,
+            selected_action_id: None,
+            pending_action_preselect: preselect_action,
+            action_search,
+            action_list_scroll: ScrollHandle::new(),
+            action_inputs_scroll: ScrollHandle::new(),
+            action_text_inputs: HashMap::new(),
+            action_input_subscriptions: Vec::new(),
+            action_repo_picks: HashMap::new(),
+            action_board_picks: HashMap::new(),
+            team_repos: Vec::new(),
             rows,
             repos: HashMap::new(),
             worktrees: HashMap::new(),
@@ -351,11 +445,214 @@ impl StartCodingDialogView {
         for issue_id in ids {
             this.ensure_probe(issue_id, cx);
         }
+        // EXP-257: prefetch the Actions tab's data at open (generation-
+        // guarded) — the tab must not be a spinner the moment it's clicked.
+        this.fetch_actions(window, cx);
+        this.fetch_team_repos(cx);
         // The doctor usually ran long before the dialog opens — if the
         // settings default agent isn't installed, preselect one that is
         // (EXP-206: the tab strip only shows installed agents).
         this.reconcile_agent(window, cx);
         this
+    }
+
+    // -- Actions tab (EXP-257) ------------------------------------------------
+
+    /// Prefetch `actions.list` for the Actions tab. Builtin pinned FIRST by
+    /// its flag (never by sort order); an `open_for_action` preselect is
+    /// applied once the list lands.
+    fn fetch_actions(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.actions_load = ActionsLoad::Error("Not signed in.".to_string());
+            return;
+        };
+        let team_id = self.team_id.clone();
+        self.actions_load = ActionsLoad::Loading;
+        self.actions_generation += 1;
+        let generation = self.actions_generation;
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::actions::list(&trpc, &team_id) })
+                .await;
+            let _ = this.update_in(window, |this, window, cx| {
+                if this.actions_generation != generation {
+                    return; // superseded
+                }
+                match result {
+                    Ok(mut actions) => {
+                        // Stable: keeps the server order within each half.
+                        actions.sort_by_key(|action| !action.builtin);
+                        this.actions = actions;
+                        this.actions_load = ActionsLoad::Ready;
+                        if let Some(pending) = this.pending_action_preselect.take() {
+                            this.select_action(pending, window, cx);
+                        }
+                    }
+                    Err(err) => {
+                        this.actions_load =
+                            ActionsLoad::Error(format!("Could not load actions: {err}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Prefetch `repositories.list` for the repo input pickers. Best-effort:
+    /// a failed fetch leaves the pickers empty (a required repo input then
+    /// blocks with its fill message rather than a broken menu).
+    fn fetch_team_repos(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let team_id = self.team_id.clone();
+        let generation = self.actions_generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { action_run::fetch_repositories(&trpc, &team_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.actions_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(rows) => {
+                        this.team_repos = rows;
+                        cx.notify();
+                    }
+                    Err(err) => log::warn!("[ui] repositories.list failed: {err}"),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The single-selected action's row, if the list landed.
+    fn selected_action(&self) -> Option<&api::actions::Action> {
+        let id = self.selected_action_id.as_deref()?;
+        self.actions.iter().find(|action| action.id == id)
+    }
+
+    /// Select an action row: reset the per-input state and build the TEXT
+    /// inputs' editor states (here, never in render — gpui entities must not
+    /// be created mid-frame).
+    fn select_action(
+        &mut self,
+        action_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.selected_action_id.as_deref() == Some(action_id.as_str()) {
+            return;
+        }
+        self.action_text_inputs.clear();
+        self.action_input_subscriptions.clear();
+        self.action_repo_picks.clear();
+        self.action_board_picks.clear();
+        if let Some(action) = self.actions.iter().find(|action| action.id == action_id) {
+            for input in &action.inputs {
+                if input.input_type != "text" {
+                    continue;
+                }
+                let placeholder = input.placeholder.clone();
+                let state = cx.new(|cx| {
+                    let mut state = InputState::new(window, cx);
+                    if let Some(placeholder) = placeholder {
+                        state = state.placeholder(placeholder);
+                    }
+                    state
+                });
+                // The footer gate ("Fill in …") must re-evaluate per keystroke.
+                self.action_input_subscriptions.push(cx.subscribe(
+                    &state,
+                    |_, _, event: &InputEvent, cx| {
+                        if matches!(event, InputEvent::Change) {
+                            cx.notify();
+                        }
+                    },
+                ));
+                self.action_text_inputs.insert(input.key.clone(), state);
+            }
+        }
+        self.selected_action_id = Some(action_id);
+        cx.notify();
+    }
+
+    /// Whether `input` currently holds a usable value.
+    fn action_input_filled(&self, input: &api::actions::ActionInput, cx: &App) -> bool {
+        match input.input_type.as_str() {
+            "text" => self
+                .action_text_inputs
+                .get(&input.key)
+                .is_some_and(|state| !state.read(cx).value().trim().is_empty()),
+            "repo" => self.action_repo_picks.contains_key(&input.key),
+            "board" => self.action_board_picks.contains_key(&input.key),
+            _ => false,
+        }
+    }
+
+    /// Snapshot the filled input values in DEFINITION order (empty optional
+    /// inputs are omitted): text → value=display=text; repo → value=id,
+    /// display=fullName; board → value=id, display=name.
+    fn collect_action_inputs(
+        &self,
+        action: &api::actions::Action,
+        cx: &App,
+    ) -> Vec<ActionInputValue> {
+        let mut values = Vec::new();
+        for input in &action.inputs {
+            match input.input_type.as_str() {
+                "text" => {
+                    let Some(text) = self
+                        .action_text_inputs
+                        .get(&input.key)
+                        .map(|state| state.read(cx).value().trim().to_string())
+                    else {
+                        continue;
+                    };
+                    if text.is_empty() {
+                        continue;
+                    }
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: text.clone(),
+                        display: Some(text),
+                    });
+                }
+                "repo" => {
+                    let Some(repo) = self.action_repo_picks.get(&input.key) else {
+                        continue;
+                    };
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: repo.id.clone(),
+                        display: Some(repo.full_name.clone()),
+                    });
+                }
+                "board" => {
+                    let Some((board_id, name)) = self.action_board_picks.get(&input.key) else {
+                        continue;
+                    };
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: board_id.clone(),
+                        display: Some(name.clone()),
+                    });
+                }
+                // Unknown types never reach here — the launch blocker gates.
+                _ => {}
+            }
+        }
+        values
     }
 
     /// Kick ONE `repositories.forIssue` probe for `issue_id` if it never ran
@@ -428,6 +725,10 @@ impl StartCodingDialogView {
     /// the selected one, so the Resume row hides instead of promising a
     /// `--continue` that would fail.
     fn resume_candidate(&self) -> Option<&IssueRow> {
+        // Resume is an ISSUE concept — the Actions tab never offers it.
+        if self.subject_tab != SubjectTab::Issues {
+            return None;
+        }
         if self.checked.len() != 1 {
             return None;
         }
@@ -537,6 +838,31 @@ impl StartCodingDialogView {
                     );
                 }
             }
+        }
+        // EXP-257: the Actions tab has its own, much shorter gate — the
+        // issue checklist/session/repo blockers below don't apply to it.
+        if self.subject_tab == SubjectTab::Actions {
+            match &self.actions_load {
+                ActionsLoad::Loading => return Some("Loading actions…".into()),
+                ActionsLoad::Error(err) => return Some(err.clone().into()),
+                ActionsLoad::Ready => {}
+            }
+            let Some(action) = self.selected_action() else {
+                return Some("Select an action.".into());
+            };
+            for input in &action.inputs {
+                // Unknown input type = a schema this build predates — block
+                // hard, never silently degrade to a text field.
+                if !matches!(input.input_type.as_str(), "text" | "repo" | "board") {
+                    return Some("This action needs a newer app version.".into());
+                }
+            }
+            for input in &action.inputs {
+                if input.required && !self.action_input_filled(input, cx) {
+                    return Some(format!("Fill in {}.", input.label).into());
+                }
+            }
+            return None;
         }
         if self.checked.is_empty() {
             return Some("Select at least one issue.".into());
@@ -666,6 +992,32 @@ impl StartCodingDialogView {
     /// (the shared path).
     fn launch(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.launching || self.launch_blocker(cx).is_some() {
+            return;
+        }
+        // EXP-257: an ACTION launch rides the trust-gated runner (which owns
+        // fetch-fresh + trust dialog + prepare/spawn) — close the dialog and
+        // hand off; the runner surfaces failures on the window itself.
+        if self.subject_tab == SubjectTab::Actions {
+            let Some(action) = self.selected_action().cloned() else {
+                return;
+            };
+            let inputs = self.collect_action_inputs(&action, cx);
+            let options = self.options(cx);
+            let handle = window.window_handle();
+            window.close_dialog(cx);
+            action_run::start_action_run(
+                StartActionArgs {
+                    action_id: action.id,
+                    team_id: self.team_id.clone(),
+                    repo: ActionRepo::Resolve,
+                    options,
+                    origin: LaunchOrigin::Local,
+                    inputs,
+                    target: Some(handle),
+                    activate_app: false,
+                },
+                cx,
+            );
             return;
         }
         if self.checked.len() == 1 {
@@ -950,6 +1302,265 @@ impl StartCodingDialogView {
         )
     }
 
+    /// The top-level Issues | Actions subject strip (EXP-257) — segmented,
+    /// distinct from the Pill agent strip below.
+    fn subject_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let active_ix = match self.subject_tab {
+            SubjectTab::Issues => 0,
+            SubjectTab::Actions => 1,
+        };
+        h_flex().w_full().justify_center().child(
+            TabBar::new("sc-subject-tabs")
+                .with_variant(TabVariant::Segmented)
+                .with_size(Size::Small)
+                .selected_index(active_ix)
+                .on_click(cx.listener(|this, ix: &usize, _window, cx| {
+                    let tab = if *ix == 0 {
+                        SubjectTab::Issues
+                    } else {
+                        SubjectTab::Actions
+                    };
+                    if this.subject_tab != tab {
+                        this.subject_tab = tab;
+                        cx.notify();
+                    }
+                }))
+                .child(Tab::new().child("Issues"))
+                .child(Tab::new().child("Actions")),
+        )
+    }
+
+    /// One Actions-tab list row: icon + name + repo badge + selection check.
+    fn action_row(
+        &self,
+        action: &api::actions::Action,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let is_selected = self.selected_action_id.as_deref() == Some(action.id.as_str());
+        let select_id = action.id.clone();
+        h_flex()
+            .id(SharedString::from(format!("sc-action-{}", action.id)))
+            .w_full()
+            .items_center()
+            .gap_2()
+            .px_1p5()
+            .py_1()
+            .rounded(theme.radius)
+            .when(is_selected, |this| this.bg(theme.accent.opacity(0.4)))
+            .hover(|this| this.bg(theme.accent.opacity(0.3)))
+            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                this.select_action(select_id.clone(), window, cx);
+            }))
+            .child(if action.builtin {
+                // The builtin creator's distinct mark.
+                Icon::new(gpui_component::IconName::Plus).xsmall().text_color(muted)
+            } else {
+                Icon::from(ExpIcon::Zap).xsmall().text_color(muted)
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .truncate()
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(action.name.clone())),
+            )
+            .when(action.repository_id.is_some(), |this| {
+                this.child(Icon::from(ExpIcon::GitMerge).xsmall().text_color(muted))
+            })
+            .when(is_selected, |this| {
+                this.child(
+                    Icon::new(gpui_component::IconName::Check)
+                        .xsmall()
+                        .text_color(theme.primary),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// One typed input field for the selected action (EXP-257): text →
+    /// [`Input`] (state pre-built in [`Self::select_action`]), repo/board →
+    /// dropdown-menu buttons over the team's repos / synced boards.
+    fn action_input_field(
+        &self,
+        ix: usize,
+        input: &api::actions::ActionInput,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let label: SharedString = if input.required {
+            input.label.clone().into()
+        } else {
+            format!("{} (optional)", input.label).into()
+        };
+        let field: gpui::AnyElement = match input.input_type.as_str() {
+            "text" => match self.action_text_inputs.get(&input.key) {
+                Some(state) => Input::new(state).small().into_any_element(),
+                None => div().into_any_element(), // transient re-selection frame
+            },
+            "repo" => {
+                let pick_label: SharedString = match self.action_repo_picks.get(&input.key) {
+                    Some(repo) => repo.full_name.clone().into(),
+                    None => "Select repository…".into(),
+                };
+                let repos = self.team_repos.clone();
+                let key = input.key.clone();
+                let optional = !input.required;
+                let view = cx.entity().downgrade();
+                Button::new(("sc-input-repo", ix))
+                    .outline()
+                    .small()
+                    .label(pick_label)
+                    .dropdown_menu(move |mut menu, _window, _cx| {
+                        if optional {
+                            let view = view.clone();
+                            let key = key.clone();
+                            menu = menu.item(PopupMenuItem::new("None").on_click(
+                                move |_, _, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            view.action_repo_picks.remove(&key);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ));
+                        }
+                        for repo in &repos {
+                            let view = view.clone();
+                            let key = key.clone();
+                            let repo = repo.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(view) = view.upgrade() {
+                                            view.update(cx, |view, cx| {
+                                                view.action_repo_picks
+                                                    .insert(key.clone(), repo.clone());
+                                                cx.notify();
+                                            });
+                                        }
+                                    }),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            }
+            "board" => {
+                let pick_label: SharedString = match self.action_board_picks.get(&input.key) {
+                    Some((_, name)) => name.clone().into(),
+                    None => "Select board…".into(),
+                };
+                let boards: Vec<(String, String)> = Store::global(cx)
+                    .collections()
+                    .boards_in_team(&self.team_id, cx)
+                    .into_iter()
+                    .map(|board| (board.id, board.name))
+                    .collect();
+                let key = input.key.clone();
+                let optional = !input.required;
+                let view = cx.entity().downgrade();
+                Button::new(("sc-input-board", ix))
+                    .outline()
+                    .small()
+                    .label(pick_label)
+                    .dropdown_menu(move |mut menu, _window, _cx| {
+                        if optional {
+                            let view = view.clone();
+                            let key = key.clone();
+                            menu = menu.item(PopupMenuItem::new("None").on_click(
+                                move |_, _, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            view.action_board_picks.remove(&key);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ));
+                        }
+                        for (board_id, name) in &boards {
+                            let view = view.clone();
+                            let key = key.clone();
+                            let board_id = board_id.clone();
+                            let name = name.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(name.clone())).on_click(
+                                    move |_, _, cx| {
+                                        if let Some(view) = view.upgrade() {
+                                            view.update(cx, |view, cx| {
+                                                view.action_board_picks.insert(
+                                                    key.clone(),
+                                                    (board_id.clone(), name.clone()),
+                                                );
+                                                cx.notify();
+                                            });
+                                        }
+                                    },
+                                ),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            }
+            // Unknown type (newer server): named, never a fake text field —
+            // the launch blocker holds the run.
+            _ => div()
+                .text_xs()
+                .text_color(muted)
+                .child("Unsupported input type — update the app.")
+                .into_any_element(),
+        };
+        v_flex()
+            .gap_1()
+            .child(div().text_xs().text_color(muted).child(label))
+            .child(field)
+            .into_any_element()
+    }
+
+    /// A bounded scroll pane (the EXP-119/EXP-67 idiom this dialog already
+    /// uses for the issue checklist): `max_h`-capped, boxed, overlay
+    /// scrollbar. `overflow_y_scrollbar` would drop the `max_h`.
+    fn bounded_pane(
+        &self,
+        id: &'static str,
+        handle: &ScrollHandle,
+        max_h: f32,
+        content: gpui::AnyElement,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .relative()
+            .max_h(px(max_h))
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded(cx.theme().radius)
+            .overflow_hidden()
+            .child(
+                div()
+                    .id(id)
+                    .max_h(px(max_h))
+                    .overflow_y_scroll()
+                    .track_scroll(handle)
+                    .child(content),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .child(Scrollbar::new(handle).axis(ScrollbarAxis::Vertical)),
+            )
+    }
+
     /// Footer: blocker copy + Cancel + Start.
     fn footer(
         &self,
@@ -991,6 +1602,13 @@ impl StartCodingDialogView {
                     .small()
                     .label(if self.launching {
                         "Starting…"
+                    } else if self.subject_tab == SubjectTab::Actions {
+                        // EXP-257: the builtin's run IS creation.
+                        if self.selected_action().is_some_and(|action| action.builtin) {
+                            "Create action"
+                        } else {
+                            "Run action"
+                        }
                     } else if self.resume_active() {
                         "Resume coding"
                     } else {
@@ -1135,47 +1753,115 @@ impl Render for StartCodingDialogView {
         };
 
         let blocker = self.launch_blocker(cx);
-        let mut body = v_flex()
-            .gap_3()
-            .child(div().text_xs().text_color(theme_muted).child(intro))
-            .child(Input::new(&self.search).small())
-            // Bounded, actually-scrollable checklist (EXP-119): compose the
-            // EXP-67 scroll-pane primitives directly — gpui-component's
-            // `overflow_y_scrollbar` wrapper drops the wrapped element's
-            // `max_h`, so the 240px bound never constrained the list and it
-            // pushed the dialog body instead of scrolling.
-            .child(
-                div()
-                    .relative()
-                    .max_h(px(320.))
-                    // EXP-213: boxed like the web picker.
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .rounded(cx.theme().radius)
-                    .overflow_hidden()
+        let mut body = v_flex().gap_3().child(self.subject_tabs(cx));
+        match self.subject_tab {
+            SubjectTab::Issues => {
+                body = body
+                    .child(div().text_xs().text_color(theme_muted).child(intro))
+                    .child(Input::new(&self.search).small())
+                    // Bounded, actually-scrollable checklist (EXP-119):
+                    // compose the EXP-67 scroll-pane primitives directly —
+                    // gpui-component's `overflow_y_scrollbar` wrapper drops
+                    // the wrapped element's `max_h`, so the bound never
+                    // constrained the list and it pushed the dialog body
+                    // instead of scrolling. (EXP-213: boxed like the web
+                    // picker.)
+                    .child(self.bounded_pane(
+                        "sc-issues-scroll",
+                        &self.list_scroll.clone(),
+                        320.,
+                        checklist.into_any_element(),
+                        cx,
+                    ));
+            }
+            SubjectTab::Actions => {
+                // The single-select action list (builtin pinned first) + the
+                // selected action's typed input fields (EXP-257).
+                let query = self.action_search.read(cx).value().trim().to_lowercase();
+                let visible: Vec<usize> = self
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, action)| {
+                        query.is_empty()
+                            || action.name.to_lowercase().contains(&query)
+                            || action
+                                .description
+                                .as_deref()
+                                .is_some_and(|text| text.to_lowercase().contains(&query))
+                    })
+                    .map(|(ix, _)| ix)
+                    .collect();
+                let mut list = v_flex().gap_0p5().p_1();
+                match &self.actions_load {
+                    ActionsLoad::Loading => {
+                        list = list.child(
+                            div()
+                                .p_2()
+                                .text_xs()
+                                .text_color(theme_muted)
+                                .child("Loading actions…"),
+                        );
+                    }
+                    ActionsLoad::Error(err) => {
+                        list = list.child(
+                            div()
+                                .p_2()
+                                .text_xs()
+                                .text_color(danger)
+                                .child(SharedString::from(err.clone())),
+                        );
+                    }
+                    ActionsLoad::Ready => {
+                        if visible.is_empty() {
+                            list = list.child(
+                                div()
+                                    .p_2()
+                                    .text_xs()
+                                    .text_color(theme_muted)
+                                    .child("No matching actions."),
+                            );
+                        }
+                        for ix in visible {
+                            let action = self.actions[ix].clone();
+                            list = list.child(self.action_row(&action, cx));
+                        }
+                    }
+                }
+                body = body
                     .child(
                         div()
-                            .id("sc-issues-scroll")
-                            .max_h(px(320.))
-                            .overflow_y_scroll()
-                            .track_scroll(&self.list_scroll)
-                            .child(checklist),
+                            .text_xs()
+                            .text_color(theme_muted)
+                            .child("Run a reusable team action on this device — pick one and \
+fill in its inputs. \"Create action\" authors a new one from your description."),
                     )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .child(
-                                Scrollbar::new(&self.list_scroll)
-                                    .axis(ScrollbarAxis::Vertical),
-                            ),
-                    ),
-            )
-            .child(self.agent_tabs(cx))
-            .child(main_row);
+                    .child(Input::new(&self.action_search).small())
+                    .child(self.bounded_pane(
+                        "sc-actions-scroll",
+                        &self.action_list_scroll.clone(),
+                        200.,
+                        list.into_any_element(),
+                        cx,
+                    ));
+                if let Some(action) = self.selected_action().cloned() {
+                    if !action.inputs.is_empty() {
+                        let mut fields = v_flex().gap_2().p_2();
+                        for (ix, input) in action.inputs.iter().enumerate() {
+                            fields = fields.child(self.action_input_field(ix, input, cx));
+                        }
+                        body = body.child(self.bounded_pane(
+                            "sc-action-inputs-scroll",
+                            &self.action_inputs_scroll.clone(),
+                            220.,
+                            fields.into_any_element(),
+                            cx,
+                        ));
+                    }
+                }
+            }
+        }
+        body = body.child(self.agent_tabs(cx)).child(main_row);
         if let Some(resume_row) = resume_row {
             body = body.child(resume_row);
         }
@@ -1185,17 +1871,21 @@ impl Render for StartCodingDialogView {
             body = body.child(toggles);
         }
 
-        if checked_count > MAX_ISSUES_PER_RUN {
-            body = body.child(div().text_xs().text_color(warning).child(SharedString::from(
-                format!("At most {MAX_ISSUES_PER_RUN} issues per run — split the batch."),
-            )));
-        } else if checked_count > COST_NOTE_THRESHOLD {
-            body = body.child(
-                div()
-                    .text_xs()
-                    .text_color(warning)
-                    .child("Large batches can be token-expensive."),
-            );
+        if self.subject_tab == SubjectTab::Issues {
+            if checked_count > MAX_ISSUES_PER_RUN {
+                body = body.child(div().text_xs().text_color(warning).child(
+                    SharedString::from(format!(
+                        "At most {MAX_ISSUES_PER_RUN} issues per run — split the batch."
+                    )),
+                ));
+            } else if checked_count > COST_NOTE_THRESHOLD {
+                body = body.child(
+                    div()
+                        .text_xs()
+                        .text_color(warning)
+                        .child("Large batches can be token-expensive."),
+                );
+            }
         }
         if let Some(error) = &self.error {
             body = body.child(div().text_sm().text_color(danger).child(error.clone()));

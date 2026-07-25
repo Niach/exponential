@@ -71,7 +71,6 @@ import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug
 import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
-import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
@@ -406,11 +405,6 @@ const TTeamSlugAgentsIndexRoute = TTeamSlugAgentsIndexRouteImport.update({
   path: '/agents/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugActionsIndexRoute = TTeamSlugActionsIndexRouteImport.update({
-  id: '/actions/',
-  path: '/actions/',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
 const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
   id: '/widget',
   path: '/widget',
@@ -582,7 +576,6 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
@@ -660,7 +653,6 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/agents': typeof TTeamSlugAgentsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
@@ -743,7 +735,6 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
   '/t/$teamSlug/settings/repositories': typeof TTeamSlugSettingsRepositoriesRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/agents/': typeof TTeamSlugAgentsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
@@ -826,7 +817,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/agents/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
@@ -904,7 +894,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/actions'
     | '/t/$teamSlug/agents'
     | '/t/$teamSlug/inbox'
     | '/t/$teamSlug/reviews'
@@ -986,7 +975,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/members'
     | '/t/$teamSlug/settings/repositories'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/agents/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
@@ -1486,13 +1474,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugAgentsIndexRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/actions/': {
-      id: '/t/$teamSlug/actions/'
-      path: '/actions'
-      fullPath: '/t/$teamSlug/actions/'
-      preLoaderRoute: typeof TTeamSlugActionsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/settings/widget': {
       id: '/t/$teamSlug/settings/widget'
       path: '/widget'
@@ -1694,7 +1675,6 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugSettingsRouteRoute: typeof TTeamSlugSettingsRouteRouteWithChildren
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
-  TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugAgentsIndexRoute: typeof TTeamSlugAgentsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
   TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
@@ -1707,7 +1687,6 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugSettingsRouteRoute: TTeamSlugSettingsRouteRouteWithChildren,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
-  TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugAgentsIndexRoute: TTeamSlugAgentsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
   TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,

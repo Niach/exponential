@@ -16,8 +16,9 @@
 //! is why the coding session's config is named `.exp-mcp.json`
 //! ([`crate::mcp_json`]) and why callers pointing a task at a possibly-stale
 //! worktree should [`crate::mcp_json::remove_stale_legacy_mcp_json`] first.
-//! The one MCP-enabled task ([`claude_task_with_mcp`]) passes that file
-//! explicitly via `--mcp-config`, which connects trusted without prompting.
+//! (EXP-257: EVERY claude task is now MCP-less — the actions creator became
+//! the builtin "Create action" ACTION run, which rides the regular session
+//! launcher and its per-agent MCP wiring instead of a task.)
 //!
 //! The prompt is passed as the positional argument (not typed into the PTY),
 //! and `--model` is ALWAYS explicit (DNR invariant 10 — never the CLI default,
@@ -63,35 +64,6 @@ pub fn claude_task(settings: &Settings, cwd: &Path, prompt: &str, label: &str) -
     }
 }
 
-/// [`claude_task`] plus the scoped MCP config the caller wrote into `cwd` —
-/// the actions "Describe with Claude" creator (EXP-253 / L24, the ONE
-/// MCP-enabled task). The file is passed explicitly (`--mcp-config`, resolved
-/// against the spawn cwd) and connects trusted; its non-`.mcp.json` name
-/// keeps it out of claude's project-approval dialog scan (EXP-98).
-/// `--strict-mcp-config` rides along like every task.
-pub fn claude_task_with_mcp(
-    settings: &Settings,
-    cwd: &Path,
-    prompt: &str,
-    label: &str,
-) -> ClaudeTask {
-    let spawn = SpawnSpec::new(&settings.resolved_claude_path())
-        .args([
-            "--model",
-            settings.claude_model.as_str(),
-            "--mcp-config",
-            crate::mcp_json::MCP_JSON_FILE,
-            "--strict-mcp-config",
-            "--dangerously-skip-permissions",
-            prompt,
-        ])
-        .cwd(cwd);
-    ClaudeTask {
-        spawn,
-        tab_title: label.to_string(),
-    }
-}
-
 /// Prompt for the trunk conflict-mode "Fix conflicts with Claude" action
 /// (v4 §4.9 table, row 1): a `git pull --rebase` on `branch` stopped on
 /// conflicts in `files`. Resolve preserving both sides' intent, continue the
@@ -121,22 +93,28 @@ verify the build, then push with `--force-with-lease`."
     )
 }
 
-/// Prompt for the actions panel's "Describe with Claude" creator (EXP-253 /
-/// L24): the ONE MCP-enabled Claude task. It runs in a scratch dir alongside
-/// a scoped `.exp-mcp.json` that exposes the `exponential_actions_*` MCP
-/// tools, and asks Claude to author ONE action for `team_id` from the
-/// user's one-line `description` (optionally seeded by a `template` body).
-/// Unlike the conflict prompts it must NOT touch git or files — it only
-/// calls the MCP tools.
-pub fn create_action_prompt(team_id: &str, description: &str, template: Option<&str>) -> String {
-    let template_seed = template
-        .map(|body| {
-            format!(
-                "\n\nUse this template as a starting point, adapting it to the description:\n\
----\n{body}\n---"
-            )
-        })
-        .unwrap_or_default();
+/// Prompt for the builtin "Create action" run (EXP-257 — the successor of
+/// the actions panel's "Describe with Claude" creator, EXP-253 / L24). It
+/// runs as a regular ACTION session in a scratch dir with the exponential
+/// MCP tools wired, and asks Claude to author ONE action for `team_id` from
+/// the user's one-line `description`. `repo` is the optional repo INPUT the
+/// user picked — `(id, display)`; when set, the authored action must bind to
+/// that repository. Unlike the conflict prompts it must NOT touch git or
+/// files — it only calls the MCP tools.
+pub fn create_action_prompt(
+    team_id: &str,
+    description: &str,
+    repo: Option<(&str, &str)>,
+) -> String {
+    let repo_rule = match repo {
+        Some((id, display)) => format!(
+            "Set `repositoryId` to `{id}` ({display}) — the user picked that repository \
+as the action's execution context."
+        ),
+        None => "Leave `repositoryId` unset unless the description clearly needs repository \
+access (then pick the right repo id from `exponential_repositories_list`)."
+            .to_string(),
+    };
     format!(
         "Please create ONE new action for the Exponential team with id `{team_id}`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
@@ -146,11 +124,14 @@ Write a clear, focused markdown body for it: state the goal, the concrete steps,
 which exponential MCP tools to use (e.g. exponential_issues_list / \
 exponential_issues_create / exponential_labels_list), and what to report at the end. \
 Call `exponential_actions_list` for the team first so the name doesn't collide. \
-Leave `repositoryId` unset unless the description clearly needs repository access \
-(then pick the right repo id from `exponential_repositories_list`). Create the \
-action with `exponential_actions_create` (teamId, a short name, a one-line \
-description, the markdown body). Do not commit, push, or change any files — only \
-call the MCP tools.{template_seed}"
+{repo_rule} Create the action with `exponential_actions_create` (teamId, a short \
+name, a one-line description, the markdown body). `exponential_actions_create` also \
+accepts an optional `inputs` array ({{key, label, type: text|repo|board, required?, \
+placeholder?}}) declaring run-time inputs the runner fills in a form and the run \
+receives as an \"## Inputs\" prompt section — declare inputs when the described \
+action naturally varies per run (a free-text scope, a target repository or board); \
+otherwise omit the field. Do not commit, push, or change any files — only call the \
+MCP tools."
     )
 }
 
@@ -214,30 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn mcp_task_passes_the_scoped_config_explicitly_and_strictly() {
-        // The ONE MCP-enabled task (the actions creator): the caller-written
-        // `.exp-mcp.json` rides `--mcp-config` (connects trusted; the name is
-        // invisible to claude's project-approval scan — EXP-98) with
-        // `--strict-mcp-config` so repo-carried MCP config never connects.
-        let cwd = PathBuf::from("/repos/acme/web");
-        let task = claude_task_with_mcp(&settings(), &cwd, "make an action", "New action");
-        assert_eq!(task.spawn.program, "/opt/homebrew/bin/claude");
-        assert_eq!(
-            task.spawn.args,
-            vec![
-                "--model".to_string(),
-                "opus".to_string(),
-                "--mcp-config".to_string(),
-                ".exp-mcp.json".to_string(),
-                "--strict-mcp-config".to_string(),
-                "--dangerously-skip-permissions".to_string(),
-                "make an action".to_string(),
-            ]
-        );
-        assert_eq!(task.spawn.cwd.as_deref(), Some(cwd.as_path()));
-    }
-
-    #[test]
     fn task_uses_the_configured_model_verbatim() {
         let mut settings = settings();
         settings.claude_model = "sonnet".to_string();
@@ -274,24 +231,29 @@ conflicts in src/app.rs, Cargo.lock. Resolve them preserving both sides' intent,
         assert!(prompt.contains("team-123"));
         // Carries the user's one-line description verbatim.
         assert!(prompt.contains("review the backlog weekly"));
-        // Points at the actions MCP tools (the scoped .exp-mcp.json exposes them).
+        // Points at the actions MCP tools (the run's MCP wiring exposes them).
         assert!(prompt.contains("exponential_actions_create"));
         assert!(prompt.contains("exponential_actions_list"));
-        // Read-only w.r.t. the tree — this task must not commit or push.
+        // EXP-257: the authored action may declare typed run-time inputs.
+        assert!(prompt.contains("`inputs` array"));
+        assert!(prompt.contains("type: text|repo|board"));
+        // Read-only w.r.t. the tree — this run must not commit or push.
         assert!(prompt.contains("Do not commit, push"));
-        // No template → no seed section.
-        assert!(!prompt.contains("starting point"));
+        // No repo input → Claude decides (default: leave repositoryId unset).
+        assert!(prompt.contains("Leave `repositoryId` unset"));
     }
 
     #[test]
-    fn create_action_prompt_seeds_the_template_body() {
+    fn create_action_prompt_binds_the_picked_repo_input() {
+        // EXP-257: the builtin's optional repo INPUT pins the authored
+        // action's repositoryId — id for the MCP call, display for context.
         let prompt = create_action_prompt(
             "team-123",
             "code review",
-            Some("# Code review\nScan the repo."),
+            Some(("repo-uuid-9", "acme/web")),
         );
-        assert!(prompt.contains("starting point"));
-        assert!(prompt.contains("# Code review\nScan the repo."));
+        assert!(prompt.contains("Set `repositoryId` to `repo-uuid-9` (acme/web)"));
+        assert!(!prompt.contains("Leave `repositoryId` unset"));
     }
 
     #[test]

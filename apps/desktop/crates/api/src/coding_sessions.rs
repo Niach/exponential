@@ -77,6 +77,11 @@ struct StartBatchInput<'a> {
 #[serde(rename_all = "camelCase")]
 struct StartActionInput<'a> {
     action_id: &'a str,
+    /// Required by the server iff `action_id` is the builtin
+    /// `builtin:create-action` literal (EXP-257 — the builtin has no DB row
+    /// to resolve a team from); forbidden otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    team_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
 }
@@ -164,16 +169,20 @@ pub fn start_batch(
 /// `codingSessions.start` for an ACTION-scoped session (EXP-253): the
 /// server resolves the action → team, snapshots `action_name`, and inserts
 /// a batch-shaped row (`issue_id`/`board_id` NULL) carrying `action_id`.
-/// Same 412 semantics as [`start`].
+/// EXP-257: the builtin `builtin:create-action` id must ride with `team_id`
+/// (the server inserts that row with `action_id` NULL + the constant name);
+/// real actions must NOT send one. Same 412 semantics as [`start`].
 pub fn start_action(
     trpc: &TrpcClient,
     action_id: &str,
+    team_id: Option<&str>,
     device_label: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartActionInput {
             action_id,
+            team_id,
             device_label,
         },
     )?;
@@ -360,14 +369,42 @@ mod tests {
                 "actionId":"act-1","actionName":"Code review",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_action(&client(&base), "act-1", Some("testbox")).unwrap();
+        let session = start_action(&client(&base), "act-1", None, Some("testbox")).unwrap();
         assert_eq!(session.id, "sess-a");
         assert_eq!(session.action_id.as_deref(), Some("act-1"));
         assert_eq!(session.action_name.as_deref(), Some("Code review"));
         assert_eq!(session.issue_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
+        // A real action never sends teamId (the server resolves it).
         assert!(request.ends_with(r#"{"actionId":"act-1","deviceLabel":"testbox"}"#));
+    }
+
+    #[test]
+    fn start_builtin_action_posts_the_literal_id_with_team_id() {
+        // EXP-257: the builtin has no DB row — teamId must ride along, and
+        // the server answers with actionId NULL + the constant name.
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-c","issueId":null,"teamId":"ws-1",
+                "actionId":null,"actionName":"Create action",
+                "userId":"user-1","status":"running"}}}}"#,
+        );
+        let session = start_action(
+            &client(&base),
+            "builtin:create-action",
+            Some("ws-1"),
+            Some("testbox"),
+        )
+        .unwrap();
+        assert_eq!(session.id, "sess-c");
+        assert_eq!(session.action_id, None);
+        assert_eq!(session.action_name.as_deref(), Some("Create action"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"actionId":"builtin:create-action","teamId":"ws-1","deviceLabel":"testbox"}"#
+        ));
     }
 
     #[test]

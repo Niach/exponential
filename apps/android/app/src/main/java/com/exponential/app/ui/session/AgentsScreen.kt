@@ -200,6 +200,7 @@ fun AgentsScreen(
             preselectedIds = emptySet(),
             preferredDeviceId = sheetDev.deviceId,
             onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
             onDismiss = { sheetDevice = null },
         )
     }

@@ -11,10 +11,28 @@ import kotlinx.serialization.Serializable
 // `steer.startSession({actionId})` — the body itself never matters here.
 
 /**
+ * One typed run input an action declares (EXP-257): the run sheet renders a
+ * field per def ([type] `text` | `repo` | `board`) and sends the filled values
+ * with `steer.startSession`. [required] defaults false (absent = optional).
+ */
+@Serializable
+data class ActionInputDto(
+    val key: String,
+    val label: String,
+    val type: String,
+    val required: Boolean = false,
+    val placeholder: String? = null,
+)
+
+/**
  * One team action (`actions.list` row). [repositoryId] is null for repo-less
  * actions (the desktop runs those in a scratch dir); [description] is the
- * optional one-liner under the name. The shared Json has ignoreUnknownKeys, so
- * server additions never break the decode.
+ * optional one-liner under the name. [inputs]/[builtin] are EXP-257 additions
+ * (nullable defaults so old servers still decode): [builtin] marks the
+ * server-appended virtual "Create action" row
+ * ([DomainContract.builtinCreateActionId][com.exponential.app.domain.DomainContract]),
+ * which clients pin FIRST by this flag — never by sort order. The shared Json
+ * has ignoreUnknownKeys, so server additions never break the decode.
  */
 @Serializable
 data class ActionDto(
@@ -27,7 +45,12 @@ data class ActionDto(
     val sortOrder: Double = 0.0,
     val createdAt: String = "",
     val updatedAt: String = "",
-)
+    val inputs: List<ActionInputDto>? = null,
+    val builtin: Boolean? = null,
+) {
+    /** Whether this is the server-defined virtual builtin row. */
+    val isBuiltin: Boolean get() = builtin == true
+}
 
 /** Server envelope: `actions.list` returns `{ actions: [<row>] }`. */
 @Serializable

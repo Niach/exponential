@@ -64,11 +64,10 @@ pub use argv::{
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
 };
-pub use action_prompt::render_action_prompt;
+pub use action_prompt::{render_action_prompt, ActionInputValue};
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use claude_task::{
-    claude_task, claude_task_with_mcp, create_action_prompt, fix_conflicts_prompt,
-    resolve_pr_prompt, ClaudeTask,
+    claude_task, create_action_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
 };
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};

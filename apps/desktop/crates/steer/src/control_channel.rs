@@ -34,7 +34,7 @@ use api::trpc::TrpcClient;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::frames::{ClientFrame, ServerFrame, StartRepoGroup};
+use crate::frames::{ClientFrame, ServerFrame, StartInput, StartRepoGroup};
 use crate::{dial, Backoff, SteerRuntime, BACKOFF_RESET_AFTER};
 
 /// §8.3 #6: the slow recheck cadence while the instance reports steer off.
@@ -52,9 +52,11 @@ pub struct DeviceIdentity {
     /// `online` frame so remote pickers only offer them. Empty = omit the
     /// field (the relay then defaults to `["claude"]`).
     pub agents: Vec<String>,
-    /// EXP-253: feature capabilities (`actions`) — advertised in the
-    /// `online` frame; remote Run-action pickers strictly gate on it.
-    /// Empty = omit the field.
+    /// EXP-253/EXP-257: feature capabilities (`actions`, `action-inputs`) —
+    /// advertised in the `online` frame; remote Run-action pickers strictly
+    /// gate on `actions`, and the server additionally requires
+    /// `action-inputs` for builtin/inputs-carrying starts. Empty = omit the
+    /// field.
     pub caps: Vec<String>,
 }
 
@@ -101,11 +103,14 @@ pub enum RemoteStartSubject {
     /// An action start (EXP-253) — the action id + a display-name snapshot
     /// (tab/trust-dialog title before the desktop's own `actions.get`
     /// resolves) + the team; `repo` rides only for repo-backed actions.
+    /// EXP-257: `inputs` carries the server-resolved run-time input values
+    /// (empty for input-less runs and frames from pre-inputs servers).
     Action {
         action_id: String,
         action_name: String,
         team_id: String,
         repo: Option<StartRepoGroup>,
+        inputs: Vec<StartInput>,
     },
 }
 
@@ -139,6 +144,7 @@ pub(crate) fn remote_start_from_frame(
     action_name: Option<String>,
     team_id: Option<String>,
     repo: Option<StartRepoGroup>,
+    inputs: Option<Vec<StartInput>>,
     agent: Option<String>,
     model: Option<String>,
     effort: Option<String>,
@@ -158,6 +164,8 @@ pub(crate) fn remote_start_from_frame(
             action_name: action_name?,
             team_id: team_id?,
             repo,
+            // Absent = empty (input-less runs, pre-EXP-257 frames).
+            inputs: inputs.unwrap_or_default(),
         },
         // More/fewer than one subject, or an empty batch list → malformed.
         _ => return None,
@@ -432,6 +440,7 @@ async fn connect_and_listen(
                         action_name,
                         team_id,
                         repo,
+                        inputs,
                         agent,
                         model,
                         effort,
@@ -439,8 +448,8 @@ async fn connect_and_listen(
                         plan_mode,
                         skip_permissions,
                     }) => match remote_start_from_frame(
-                        issue_id, issue_ids, action_id, action_name, team_id, repo, agent,
-                        model, effort, ultracode, plan_mode, skip_permissions,
+                        issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
+                        agent, model, effort, ultracode, plan_mode, skip_permissions,
                     ) {
                         Some(start) => {
                             log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -514,6 +523,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some("codex".into()),
                 Some("opus".into()),
                 None,
@@ -541,6 +551,7 @@ mod tests {
                 None,
                 Some("ws-7".into()),
                 Some(repo()),
+                None,
                 None,
                 None,
                 None,
@@ -581,13 +592,14 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
         // Neither subject set.
         assert_eq!(
             remote_start_from_frame(
-                None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None, None, None, None, None, None,
             ),
             None
         );
@@ -606,6 +618,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -617,6 +630,7 @@ mod tests {
                 None,
                 None,
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -642,6 +656,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -659,6 +674,7 @@ mod tests {
                 Some("ws-7".into()),
                 Some(repo()),
                 None,
+                None,
                 Some("opus".into()),
                 Some("high".into()),
                 None,
@@ -671,6 +687,7 @@ mod tests {
                     action_name: "Code review".into(),
                     team_id: "ws-7".into(),
                     repo: Some(repo()),
+                    inputs: Vec::new(),
                 },
                 agent: None,
                 model: Some("opus".into()),
@@ -695,6 +712,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .map(|start| start.subject),
             Some(RemoteStartSubject::Action {
@@ -702,6 +720,61 @@ mod tests {
                 action_name: "Groom".into(),
                 team_id: "ws-7".into(),
                 repo: None,
+                inputs: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn remote_start_from_frame_threads_action_inputs() {
+        // EXP-257: server-resolved input values ride through verbatim, in
+        // frame order; the full option set stays alongside.
+        let inputs = vec![
+            StartInput {
+                key: "scope".into(),
+                label: Some("Scope".into()),
+                input_type: Some("text".into()),
+                value: "urgent only".into(),
+                display: Some("urgent only".into()),
+            },
+            StartInput {
+                key: "repo".into(),
+                label: None,
+                input_type: Some("repo".into()),
+                value: "repo-1".into(),
+                display: Some("acme/api".into()),
+            },
+        ];
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                None,
+                Some("act-1".into()),
+                Some("Groom".into()),
+                Some("ws-7".into()),
+                None,
+                Some(inputs.clone()),
+                Some("codex".into()),
+                Some("gpt-5.6-sol".into()),
+                None,
+                None,
+                None,
+                Some(true),
+            ),
+            Some(RemoteStart {
+                subject: RemoteStartSubject::Action {
+                    action_id: "act-1".into(),
+                    action_name: "Groom".into(),
+                    team_id: "ws-7".into(),
+                    repo: None,
+                    inputs,
+                },
+                agent: Some("codex".into()),
+                model: Some("gpt-5.6-sol".into()),
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: Some(true),
             })
         );
     }
@@ -716,6 +789,7 @@ mod tests {
                 Some("act-1".into()),
                 Some("Code review".into()),
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -741,6 +815,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -751,6 +826,7 @@ mod tests {
                 None,
                 Some("act-1".into()),
                 Some("Code review".into()),
+                None,
                 None,
                 None,
                 None,

@@ -30,9 +30,9 @@ data class SteerConfigResult(
  * One of the caller's online desktops (relay presence, no DB table).
  * [agents] lists the coding agents the desktop can launch (EXP-201) — an
  * absent/empty list means an older desktop that only runs claude. [caps]
- * lists feature capabilities (EXP-253: `actions`) — absent (old
- * desktop/relay) means none: action starts are strictly gated on it, unlike
- * the lenient agents fallback.
+ * lists feature capabilities (EXP-253: `actions`; EXP-257: `action-inputs`)
+ * — absent (old desktop/relay) means none: action starts are strictly gated
+ * on it, unlike the lenient agents fallback.
  */
 @Serializable
 data class SteerDevice(
@@ -44,6 +44,13 @@ data class SteerDevice(
 ) {
     /** Whether this desktop can run team actions (EXP-253). */
     val canRunActions: Boolean get() = caps?.contains("actions") == true
+
+    /**
+     * Whether this desktop understands typed action inputs + the builtin
+     * "Create action" run (EXP-257) — required IN ADDITION to [canRunActions]
+     * for builtin or inputs-carrying runs.
+     */
+    val canRunActionInputs: Boolean get() = caps?.contains("action-inputs") == true
 }
 
 @Serializable
@@ -114,18 +121,26 @@ private data class StartBatchSessionInput(
     @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
 )
 
-// The action form of steer.startSession (EXP-253): exactly one of
-// issueId/issueIds/actionId — this variant runs a team action prompt on the
-// trunk clone / a scratch dir. Claude-only v1: model/effort are the ONLY
-// options that may ride (the server rejects
-// agent/ultracode/planMode/skipPermissions here). Null fields are omitted
-// (explicitNulls=false) and mean "desktop settings default".
+// The action form of steer.startSession (EXP-253, widened by EXP-257):
+// exactly one of issueId/issueIds/actionId — this variant runs a team action
+// prompt on the trunk clone / a scratch dir. Action runs accept the FULL
+// option set with the same per-agent vocabulary as issue runs; [teamId] is
+// sent ONLY for the virtual builtin "Create action" id (the server requires
+// it there and forbids it otherwise); [inputs] carries the filled input
+// values keyed by def key (text, or a picked repo/board UUID). Null fields
+// are omitted (explicitNulls=false) and mean "desktop settings default".
 @Serializable
 private data class StartActionSessionInput(
     @SerialName("actionId") val actionId: String,
     @SerialName("deviceId") val deviceId: String,
+    @SerialName("teamId") val teamId: String? = null,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
+    @SerialName("ultracode") val ultracode: Boolean? = null,
+    @SerialName("planMode") val planMode: Boolean? = null,
+    @SerialName("agent") val agent: String? = null,
+    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
+    @SerialName("inputs") val inputs: Map<String, String>? = null,
 )
 
 @Singleton
@@ -214,18 +229,22 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
-     * `steer.startSession` action form (EXP-253) — remote-run the team action
-     * [actionId] on the user's own online desktop, which must advertise the
-     * `actions` capability ([SteerDevice.canRunActions]; the server enforces
-     * it too). Claude-only v1: [model]/[effort] are the only options. Same
-     * endpoint + error mapping as the issue forms.
+     * `steer.startSession` action form (EXP-253/EXP-257) — remote-run the
+     * team action [actionId] on the user's own online desktop, which must
+     * advertise the `actions` capability ([SteerDevice.canRunActions]; plus
+     * `action-inputs` for builtin/inputs-carrying runs — the server enforces
+     * both). [options] rides with the same per-agent vocabulary as the issue
+     * forms; [teamId] must be passed ONLY for the builtin "Create action" id;
+     * [inputs] are the filled input values keyed by def key. Same endpoint +
+     * error mapping as the issue forms.
      */
     suspend fun startActionSession(
         accountId: String,
         actionId: String,
         deviceId: String,
-        model: String? = null,
-        effort: String? = null,
+        options: SteerStartOptions = SteerStartOptions(),
+        teamId: String? = null,
+        inputs: Map<String, String>? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -233,8 +252,14 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             input = StartActionSessionInput(
                 actionId = actionId,
                 deviceId = deviceId,
-                model = model,
-                effort = effort,
+                teamId = teamId,
+                model = options.model,
+                effort = options.effort,
+                ultracode = options.ultracode,
+                planMode = options.planMode,
+                agent = options.agent,
+                skipPermissions = options.skipPermissions,
+                inputs = inputs,
             ),
             inputSerializer = StartActionSessionInput.serializer(),
         )
