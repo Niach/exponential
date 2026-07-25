@@ -77,12 +77,16 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("alt-up", BlockUp, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("ctrl-down", BlockDown, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("alt-down", BlockDown, Some(BLOCK_EDITOR_CONTEXT)),
-        KeyBinding::new("pageup", PageUp, None),
-        KeyBinding::new("pagedown", PageDown, None),
-        KeyBinding::new("ctrl-home", JumpToTop, None),
-        KeyBinding::new("cmd-up", JumpToTop, None),
-        KeyBinding::new("ctrl-end", JumpToBottom, None),
-        KeyBinding::new("cmd-down", JumpToBottom, None),
+        // EXP-268: EVERY binding is scoped to the editor's key context — an
+        // unscoped (None) binding here is app-global and shadows the host's
+        // own shortcuts (ctrl-tab collided with the terminal dock's
+        // next-tab; a global escape ate dialog dismissal).
+        KeyBinding::new("pageup", PageUp, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("pagedown", PageDown, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("ctrl-home", JumpToTop, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("cmd-up", JumpToTop, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("ctrl-end", JumpToBottom, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("cmd-down", JumpToBottom, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("shift-left", SelectLeft, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("shift-right", SelectRight, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new(
@@ -127,8 +131,8 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-tab", OutdentBlock, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("cmd-enter", ExitCodeBlock, Some(BLOCK_EDITOR_CONTEXT)),
         KeyBinding::new("ctrl-enter", ExitCodeBlock, Some(BLOCK_EDITOR_CONTEXT)),
-        KeyBinding::new("escape", DismissTransientUi, None),
-        KeyBinding::new("ctrl-tab", ToggleViewMode, None),
-        KeyBinding::new("cmd-tab", ToggleViewMode, None),
+        KeyBinding::new("escape", DismissTransientUi, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("ctrl-tab", ToggleViewMode, Some(BLOCK_EDITOR_CONTEXT)),
+        KeyBinding::new("cmd-tab", ToggleViewMode, Some(BLOCK_EDITOR_CONTEXT)),
     ]
 }

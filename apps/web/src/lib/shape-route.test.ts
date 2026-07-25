@@ -11,6 +11,7 @@ import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscr
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
+import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 
 const {
   resolveSession,
@@ -357,6 +358,54 @@ describe(`shape column + trash contracts`, () => {
       `updated_at`,
     ])
     expect(columns).not.toContain(`token`)
+  })
+
+  it(`pins the actions columns and excludes the prompt body`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    // The ≤64KB prompt never rides sync — a client attempting to widen the
+    // allowlist back to `body` must be overridden by the server pin.
+    await shapeHandler(actionsRoute)({
+      request: new Request(`https://example.com/api/shapes/actions?columns=body`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `team_id`,
+      `repository_id`,
+      `name`,
+      `description`,
+      `inputs`,
+      `sort_order`,
+      `created_at`,
+      `updated_at`,
+    ])
+    expect(columns).not.toContain(`body`)
+    // Member scoping is a plain sorted team_id clause (no trash mirror —
+    // actions have no board scope).
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"team_id" IN ('w-1','w-2')`
+    )
+  })
+
+  it(`anonymous actions requests get the impossible-match sentinel`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(actionsRoute)({
+      request: new Request(`https://example.com/api/shapes/actions`),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
+    )
   })
 })
 

@@ -351,7 +351,7 @@ export const issues = pgTable(
 )
 
 // Per-board monotonic issue-number allocator — server-only, NEVER
-// Electric-synced (no shape proxy; proxy count stays 14). The
+// Electric-synced (no shape proxy). The
 // generate_issue_number() trigger (custom trigger file, re-applied at every
 // boot by bootstrap-cloud applyCustomSql) increments this row under its row
 // lock: serializes concurrent inserts (no duplicate numbers) and never
@@ -874,14 +874,13 @@ export const repositories = pgTable(
   ]
 )
 
-// Team action prompts (SERVER-ONLY, tRPC-managed — never an Electric shape;
-// the proxy count stays 14). An action is a named markdown prompt the desktop
-// runs as an interactive claude session on the trunk clone (or a scratch dir
-// when repo-less) — code review, backlog grooming, deploys… SECURITY: this is
-// a DB-stored prompt executed locally, so desktops MUST gate every run behind
-// the per-device body-hash trust prompt (trust_store), re-hashed against the
-// freshly fetched body at run time — never auto-run stored values. Writes are
-// team-owner-only; every member may list/run.
+// Team action prompts. An action is a named markdown prompt the desktop runs
+// as an interactive agent session on the trunk clone (or a scratch dir when
+// repo-less) — code review, backlog grooming, deploys… Synced as the 15th
+// Electric shape MINUS `body` (EXP-268): the ≤64KB prompt never rides sync —
+// clients list from the shape and fetch the body via tRPC `actions.get` on
+// demand (editors on open, the desktop right before a run). Writes stay
+// team-owner-only over tRPC; every member may list/run.
 export const actions = pgTable(
   `actions`,
   {
@@ -1297,6 +1296,11 @@ export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
 })
 
+// The shape-synced projection: the actions shape pins a columns allowlist
+// that EXCLUDES `body` (the ≤64KB prompt never rides sync — fetched via
+// tRPC `actions.get` on demand).
+export const selectSyncedActionSchema = selectActionSchema.omit({ body: true })
+
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),
   formConfig: z.record(z.string(), z.unknown()).nullable(),
@@ -1330,6 +1334,7 @@ export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
 export type Action = InferSelectModel<typeof actions>
+export type SyncedAction = Omit<Action, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

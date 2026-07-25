@@ -112,9 +112,8 @@ pub fn init(cx: &mut App) {
     // ⌘K quick-open (§4.2 IssueSearchSheet): global OpenSearch handler +
     // keybinding.
     search_sheet::init(cx);
-    // EXP-48 issue switcher: J/K bindings scoped to the detail's key context
-    // (guarded against focused editables — see issue_detail::init).
-    issue_detail::init(cx);
+    // (The EXP-48 J/K issue-switcher bindings were removed in EXP-268 —
+    // bare-letter shortcuts kept eating typed letters in editors.)
     // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);

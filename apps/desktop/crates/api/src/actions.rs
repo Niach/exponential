@@ -1,29 +1,21 @@
 //! Typed `actions.*` client (EXP-253 — team action prompts).
 //!
-//! The pinned wire shape:
-//! `actions.list({teamId})` — **query**, member-read — →
-//! `{actions: [{id, teamId, repositoryId, name, description, body,
-//! sortOrder, createdAt, updatedAt}]}` ordered by `sortOrder`, then `name`.
-//! `actions.get({id})` → `{action}` — the fetch-fresh path runners hash.
-//!
-//! SECURITY: an action's `body` is a **DB-stored prompt an interactive claude
-//! session executes locally** — the one place server data drives local
-//! execution. The mandatory compensating control is the client-side
-//! per-device trust gate: before every run, re-fetch via [`get`], hash the
-//! FRESH body with [`body_hash`], and check it against
-//! [`crate::trust_store::TrustStore`]. Never run a listed/cached body.
+//! Listing rides the Electric `actions` shape since EXP-268 (body EXCLUDED
+//! from sync — the synced row is the list projection); this client stays
+//! load-bearing for `actions.get` — the ONLY body path, fetched fresh right
+//! before a run or on editor open — and the owner-only CRUD. `actions.list`
+//! survives for pre-shape builds and tests.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
-use crate::trust_store::{hex, sha256};
 
-/// The server-defined virtual "Create action" row's id (EXP-257) — one of
-/// the two non-UUID ids `actions.list` may carry. `actions.get/update/delete`
-/// reject both; clients construct the rows locally and skip the trust gate
-/// (their content is server-shipped, never owner-authored).
+/// The virtual "Create action" row's id (EXP-257) — one of the two non-UUID
+/// action ids. `actions.get/update/delete` reject both; clients construct the
+/// rows locally ([`builtin_create_action`], [`builtin_fix_conflicts_action`])
+/// — their content is product-shipped, never owner-authored.
 pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTION_ID;
 
 /// The server-defined virtual "Fix merge conflicts" row's id (EXP-259) — the
@@ -69,8 +61,9 @@ pub struct Action {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// The markdown prompt the run executes. Trust-hash THIS, freshly
-    /// fetched — see the module docs.
+    /// The markdown prompt the run executes — EMPTY on shape-synced rows
+    /// (EXP-268: the proxy excludes it); [`get`] returns the real body.
+    #[serde(default)]
     pub body: String,
     /// The server-appended virtual "Create action" row (EXP-257). Clients
     /// pin it FIRST by this flag (never by sort order) and hide the owner
@@ -111,8 +104,8 @@ struct ActionResponse {
     action: Action,
 }
 
-/// `actions.get` — query, member-read. The run path MUST use this (fresh
-/// body) rather than a listed row before hashing for the trust gate.
+/// `actions.get` — query, member-read. The ONLY body path: synced rows carry
+/// no body, so the run path and the editor fetch the fresh row here.
 pub fn get(trpc: &TrpcClient, id: &str) -> Result<Action, ApiError> {
     #[derive(Serialize)]
     struct Input<'a> {
@@ -212,43 +205,95 @@ pub fn delete(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// The trust-gate hash: SHA-256 over the raw body bytes, hex-encoded. Any
-/// body change (even whitespace) yields a new hash, which un-trusts the
-/// action on this device until the trust dialog confirms the new body.
-pub fn body_hash(body: &str) -> String {
-    hex(&sha256(body.as_bytes()))
+/// Hydrate the list projection from a synced `actions` shape row (EXP-268).
+/// `body` is deliberately empty — the shape excludes it; [`get`] is the body
+/// path. Rows with an unparseable inputs payload degrade to input-less (the
+/// unknown-`type` run block still guards launches).
+pub fn from_row(row: &domain::rows::ActionRow) -> Action {
+    let inputs = row
+        .inputs
+        .clone()
+        .and_then(|value| serde_json::from_value::<Vec<ActionInput>>(value).ok())
+        .unwrap_or_default();
+    Action {
+        id: row.id.clone(),
+        team_id: row.team_id.clone().unwrap_or_default(),
+        repository_id: row.repository_id.clone(),
+        name: row.name.clone().unwrap_or_default(),
+        description: row.description.clone(),
+        body: String::new(),
+        builtin: false,
+        inputs,
+        sort_order: row.sort_order.unwrap_or_default(),
+        created_at: row.created_at.clone(),
+        updated_at: row.updated_at.clone(),
+    }
 }
 
-/// The trust-gate hash for a FULL action (EXP-257): identical to
-/// [`body_hash`] while the inputs schema is empty (existing trust records
-/// stay valid), else SHA-256 over the body plus a canonical JSON of the
-/// schema (key/label/type/required in definition order, NUL-separated from
-/// the body). Input labels are owner-authored text injected into the run's
-/// prompt, so any schema change must re-prompt the trust dialog.
-pub fn trust_hash(action: &Action) -> String {
-    if action.inputs.is_empty() {
-        return body_hash(&action.body);
+/// The client-constructed virtual "Create action" row (EXP-257/EXP-268):
+/// synced rows can't carry it (it isn't a DB row), so every client prepends
+/// its own local copy — pinned FIRST by the `builtin` flag, owner
+/// edit/delete hidden. Mirrors the web's `builtinCreateAction`.
+pub fn builtin_create_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_CREATE_ACTION_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: "Create action".to_string(),
+        description: Some("Describe a new action and let Claude author it for the team".to_string()),
+        body: String::new(),
+        builtin: true,
+        inputs: vec![
+            ActionInput {
+                key: "description".to_string(),
+                label: "Description".to_string(),
+                input_type: "text".to_string(),
+                required: true,
+                placeholder: Some("What should this action do?".to_string()),
+            },
+            ActionInput {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                required: false,
+                placeholder: None,
+            },
+        ],
+        sort_order: 1e9,
+        created_at: None,
+        updated_at: None,
     }
-    // Hand-built canonical form: a fixed field order regardless of serde_json
-    // map ordering, string fields JSON-escaped.
-    let mut canonical = String::from("[");
-    for (ix, input) in action.inputs.iter().enumerate() {
-        if ix > 0 {
-            canonical.push(',');
-        }
-        canonical.push_str(&format!(
-            r#"{{"key":{},"label":{},"type":{},"required":{}}}"#,
-            serde_json::to_string(&input.key).unwrap_or_default(),
-            serde_json::to_string(&input.label).unwrap_or_default(),
-            serde_json::to_string(&input.input_type).unwrap_or_default(),
-            input.required,
-        ));
+}
+
+/// The client-constructed virtual "Fix merge conflicts" row (EXP-259/EXP-268):
+/// like [`builtin_create_action`] it isn't a DB row, so it can't ride the
+/// synced shape — every client prepends its own local copy. Its `pr` input is
+/// the representative issue id of an open PR; the run rebases that PR's branch
+/// onto the default branch, resolves the conflicts, pushes, and merges via the
+/// `exponential_pr_merge` MCP tool. Mirrors the web's `builtinFixConflictsAction`.
+pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_FIX_CONFLICTS_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: "Fix merge conflicts".to_string(),
+        description: Some(
+            "Pick a conflicted pull request and let Claude rebase, resolve, and merge it"
+                .to_string(),
+        ),
+        body: String::new(),
+        builtin: true,
+        inputs: vec![ActionInput {
+            key: "pr".to_string(),
+            label: "Pull request".to_string(),
+            input_type: "pr".to_string(),
+            required: true,
+            placeholder: None,
+        }],
+        sort_order: 1e9 + 1.0,
+        created_at: None,
+        updated_at: None,
     }
-    canonical.push(']');
-    let mut bytes = action.body.as_bytes().to_vec();
-    bytes.push(0); // unambiguous body/schema boundary
-    bytes.extend_from_slice(canonical.as_bytes());
-    hex(&sha256(&bytes))
 }
 
 #[cfg(test)]
@@ -345,33 +390,6 @@ mod tests {
     }
 
     #[test]
-    fn body_hash_is_the_sha256_hex_of_the_raw_body() {
-        // FIPS vector: sha256("abc").
-        assert_eq!(
-            body_hash("abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-        // Whitespace-only edits still change the hash — the gate re-fires.
-        assert_ne!(body_hash("a b"), body_hash("a  b"));
-    }
-
-    fn action_with_inputs(inputs: Vec<ActionInput>) -> Action {
-        Action {
-            id: "act-1".to_string(),
-            team_id: "team-1".to_string(),
-            repository_id: None,
-            name: "Groom".to_string(),
-            description: None,
-            body: "do it".to_string(),
-            builtin: false,
-            inputs,
-            sort_order: 0.0,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-
-    #[test]
     fn list_decodes_inputs_and_builtin() {
         // EXP-257: the server appends the virtual builtin row and real rows
         // may carry a typed inputs schema (`type` on the wire, `required`
@@ -434,41 +452,63 @@ mod tests {
     }
 
     #[test]
-    fn trust_hash_matches_body_hash_while_inputs_are_empty() {
-        // Existing per-device trust records predate the inputs schema and
-        // MUST stay valid for input-less actions.
-        let action = action_with_inputs(Vec::new());
-        assert_eq!(trust_hash(&action), body_hash("do it"));
+    fn from_row_hydrates_the_synced_list_projection() {
+        // EXP-268: a synced actions row (no body on the wire) hydrates to the
+        // list projection — body empty, inputs re-parsed from the stored
+        // JSON, never builtin.
+        let row: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
+            "id": "act-1",
+            "team_id": "team-1",
+            "repository_id": "repo-1",
+            "name": "Code review",
+            "description": "Review + file issues",
+            "inputs": r#"[{"key":"scope","label":"Scope","type":"text","required":true}]"#,
+            "sort_order": "1.5"
+        }))
+        .unwrap();
+        let action = from_row(&row);
+        assert_eq!(action.id, "act-1");
+        assert_eq!(action.team_id, "team-1");
+        assert_eq!(action.repository_id.as_deref(), Some("repo-1"));
+        assert_eq!(action.name, "Code review");
+        assert!(action.body.is_empty());
+        assert!(!action.builtin);
+        assert_eq!(action.sort_order, 1.5);
+        assert_eq!(action.inputs.len(), 1);
+        assert_eq!(action.inputs[0].key, "scope");
+        assert!(action.inputs[0].required);
     }
 
     #[test]
-    fn trust_hash_covers_the_inputs_schema() {
-        let input = ActionInput {
-            key: "scope".to_string(),
-            label: "Scope".to_string(),
-            input_type: "text".to_string(),
-            required: false,
-            placeholder: None,
-        };
-        let with_inputs = action_with_inputs(vec![input.clone()]);
-        // A schema diverges from the bare body hash…
-        assert_ne!(trust_hash(&with_inputs), body_hash("do it"));
-        // …and every schema field re-fires the gate: label (prompt-injected
-        // owner text), type, required, and definition order.
-        let mut relabeled = with_inputs.clone();
-        relabeled.inputs[0].label = "Scope!".to_string();
-        assert_ne!(trust_hash(&with_inputs), trust_hash(&relabeled));
-        let mut retyped = with_inputs.clone();
-        retyped.inputs[0].input_type = "repo".to_string();
-        assert_ne!(trust_hash(&with_inputs), trust_hash(&retyped));
-        let mut required = with_inputs.clone();
-        required.inputs[0].required = true;
-        assert_ne!(trust_hash(&with_inputs), trust_hash(&required));
-        // The placeholder is presentation-only — it never re-prompts.
-        let mut placeholder = with_inputs.clone();
-        placeholder.inputs[0].placeholder = Some("hint".to_string());
-        assert_eq!(trust_hash(&with_inputs), trust_hash(&placeholder));
-        // Same inputs, same body → stable.
-        assert_eq!(trust_hash(&with_inputs), trust_hash(&with_inputs.clone()));
+    fn builtin_create_action_matches_the_web_factory() {
+        let builtin = builtin_create_action("team-1");
+        assert_eq!(builtin.id, BUILTIN_CREATE_ACTION_ID);
+        assert!(builtin.builtin);
+        assert!(builtin.body.is_empty());
+        assert_eq!(builtin.name, "Create action");
+        assert_eq!(builtin.inputs.len(), 2);
+        assert!(builtin.inputs[0].required);
+        assert_eq!(builtin.inputs[1].input_type, "repo");
+        // Pinned first by flag; the huge sortOrder only keeps naive
+        // sortOrder-asc renderers from interleaving it.
+        assert_eq!(builtin.sort_order, 1e9);
+    }
+
+    #[test]
+    fn builtin_fix_conflicts_action_matches_the_web_factory() {
+        let builtin = builtin_fix_conflicts_action("team-1");
+        assert_eq!(builtin.id, BUILTIN_FIX_CONFLICTS_ID);
+        assert!(builtin.builtin);
+        // The prompt is generated from shipped constants — never a synced body.
+        assert!(builtin.body.is_empty());
+        assert_eq!(builtin.name, "Fix merge conflicts");
+        // The single required `pr` input (EXP-259) — the run has no target
+        // without it.
+        assert_eq!(builtin.inputs.len(), 1);
+        assert_eq!(builtin.inputs[0].key, "pr");
+        assert_eq!(builtin.inputs[0].input_type, "pr");
+        assert!(builtin.inputs[0].required);
+        // Sorts right after "Create action" (web parity: 1e9 + 1).
+        assert_eq!(builtin.sort_order, 1e9 + 1.0);
     }
 }

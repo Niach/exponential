@@ -2,6 +2,7 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
+  selectSyncedActionSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -95,6 +96,21 @@ export const labelCollection = createCollection(
       columnMapper,
     },
     schema: selectLabelSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// The actions shape excludes `body` server-side (EXP-268) — the synced row is
+// the list projection; editors/runs fetch the body via tRPC `actions.get`.
+export const actionCollection = createCollection(
+  electricCollectionOptions({
+    id: `actions`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/actions`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectSyncedActionSchema,
     getKey: (item) => item.id,
   })
 )

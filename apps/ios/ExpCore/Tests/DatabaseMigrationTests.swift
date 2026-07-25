@@ -15,9 +15,11 @@ import XCTest
 // precedent) — v2_notification_team_id was the first, v3_team_invite_email
 // (EXP-188) the second, v4_coding_session_needs_input (EXP-214) the third,
 // v5_drop_user_is_agent + v6_issue_source_nullable_creator (issues.source /
-// nullable creator_id, is_agent removal) the fourth/fifth, and
+// nullable creator_id, is_agent removal) the fourth/fifth,
 // v7_drop_board_dead_columns (REV2-91: boards.github_repo/preview_config)
-// the sixth. These tests pin the fresh-install schema and the
+// the sixth, v8_coding_session_action_fields (EXP-253) the seventh, and
+// v9_actions (EXP-268: the synced actions table, 15th shape) the eighth.
+// These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
 final class DatabaseMigrationTests: XCTestCase {
@@ -57,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields"]
+             "v8_coding_session_action_fields", "v9_actions"]
         )
     }
 
@@ -72,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields"]
+             "v8_coding_session_action_fields", "v9_actions"]
         )
     }
 
@@ -115,7 +117,7 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields"]
+             "v8_coding_session_action_fields", "v9_actions"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -178,7 +180,7 @@ final class DatabaseMigrationTests: XCTestCase {
             ["v1_initial", "v2_notification_team_id", "v3_team_invite_email",
              "v4_coding_session_needs_input", "v5_drop_user_is_agent",
              "v6_issue_source_nullable_creator", "v7_drop_board_dead_columns",
-             "v8_coding_session_action_fields"]
+             "v8_coding_session_action_fields", "v9_actions"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -297,7 +299,8 @@ final class DatabaseMigrationTests: XCTestCase {
         for table in ["teams", "boards", "issues", "labels", "issue_labels",
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
-                      "issue_events", "coding_sessions", "electric_offsets"] {
+                      "issue_events", "coding_sessions", "actions",
+                      "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -353,6 +356,14 @@ final class DatabaseMigrationTests: XCTestCase {
         let sessionCols = try columnNames(pool, "coding_sessions")
         XCTAssertTrue(sessionCols.contains("action_id"))
         XCTAssertTrue(sessionCols.contains("action_name"))
+
+        // The synced actions table (EXP-268, 15th shape) deliberately has NO
+        // body column — the shape's allowlist excludes the ≤64KB prompt; tRPC
+        // `actions.get` stays the only body path.
+        let actionCols = try columnNames(pool, "actions")
+        XCTAssertTrue(actionCols.contains("team_id"))
+        XCTAssertTrue(actionCols.contains("inputs"))
+        XCTAssertFalse(actionCols.contains("body"))
 
         // The public-board columns (and the legacy `type` relic) are gone.
         let boardCols = try columnNames(pool, "boards")

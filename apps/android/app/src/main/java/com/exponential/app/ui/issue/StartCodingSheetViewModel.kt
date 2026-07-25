@@ -4,10 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.data.api.builtinCreateAction
+import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -21,17 +21,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.serialization.json.Json
 
 // The unified Start-coding sheet's Actions-tab data (EXP-257): the selected
-// team's actions (tRPC — deliberately NOT an Electric shape) plus the lookup
+// team's actions LIVE from the synced actions shape (EXP-268 — the local Room
+// flow, body-less by design; the virtual builtin "Create action" row is
+// prepended client-side) plus the lookup
 // sources the typed input fields render from — the team repo registry for
 // `repo` inputs and the synced boards from the local DB for `board` inputs.
 // Owned by a dedicated ViewModel so every host screen (Agents / issue list /
 // issue detail / Actions) gets the Actions tab without fetching any of it
 // itself; running stays with the HOST's ViewModel via the sheet's callback.
 
-/** `actions.list` progress: null [actions] with null [error] = still loading. */
+/** Actions-list progress: null [actions] with null [error] = still loading. */
 data class SheetActionsState(
     val actions: List<ActionDto>? = null,
     val error: String? = null,
@@ -48,9 +53,9 @@ data class StartBoardOption(
 class StartCodingSheetViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
-    private val actionsApi: ActionsApi,
     private val repositoriesApi: RepositoriesApi,
     selection: TeamSelection,
+    private val json: Json,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -60,23 +65,19 @@ class StartCodingSheetViewModel @Inject constructor(
         accountId to teamId
     }
 
-    /** The selected team's actions (the server appends the virtual builtin row). */
-    val actionsState: StateFlow<SheetActionsState> = scope.flatMapLatest { (accountId, teamId) ->
-        flow {
-            if (accountId == null || teamId == null) {
-                emit(SheetActionsState(actions = emptyList()))
-                return@flow
+    /** The selected team's actions (the virtual builtin row is prepended). */
+    val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(SheetActionsState(actions = emptyList()))
+        } else {
+            db.actionDao().observeByTeam(teamId).map { rows ->
+                SheetActionsState(
+                    actions = listOf(builtinCreateAction(teamId)) +
+                        rows.map { it.toActionDto(json) },
+                )
             }
-            emit(SheetActionsState())
-            emit(
-                runCatching { actionsApi.list(accountId, teamId) }.fold(
-                    onSuccess = { SheetActionsState(actions = it) },
-                    onFailure = {
-                        if (it is CancellationException) throw it
-                        SheetActionsState(error = trpcErrorMessage(it, "Couldn't load actions"))
-                    },
-                ),
-            )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
 

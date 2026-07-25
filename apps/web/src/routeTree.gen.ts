@@ -58,6 +58,7 @@ import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comme
 import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
+import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
@@ -338,6 +339,11 @@ const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
   path: '/api/shapes/attachments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
+  id: '/api/shapes/actions',
+  path: '/api/shapes/actions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
   id: '/api/email/unsubscribe',
   path: '/api/email/unsubscribe',
@@ -537,6 +543,7 @@ export interface FileRoutesByFullPath {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
@@ -614,6 +621,7 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
@@ -696,6 +704,7 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
@@ -778,6 +787,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
@@ -855,6 +865,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
@@ -936,6 +947,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
@@ -1011,6 +1023,7 @@ export interface RootRouteChildren {
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
+  ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
@@ -1383,6 +1396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesAttachmentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/actions': {
+      id: '/api/shapes/actions'
+      path: '/api/shapes/actions'
+      fullPath: '/api/shapes/actions'
+      preLoaderRoute: typeof ApiShapesActionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/email/unsubscribe': {
       id: '/api/email/unsubscribe'
       path: '/api/email/unsubscribe'
@@ -1731,6 +1751,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
+  ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,

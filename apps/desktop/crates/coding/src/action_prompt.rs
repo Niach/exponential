@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn empty_inputs_stay_byte_identical_to_the_legacy_prompt() {
         // EXP-257 compat lock: an input-less action's prompt must not move a
-        // byte — the trust gate approved exactly this text.
+        // byte.
         assert_eq!(
             render_action_prompt("Code review", "# Review\nScan the repo.", &[]),
             "You are running the team action \"Code review\" for this user. Follow the \

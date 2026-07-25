@@ -31,7 +31,7 @@ use std::rc::Rc;
 
 use gpui::{
     div, px, App, AppContext as _, ClipboardItem, Entity, FocusHandle, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Render, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -48,7 +48,6 @@ use sync::Store;
 
 use domain::rows::Issue;
 
-use crate::actions::{NextIssue, PrevIssue};
 use crate::coding_flow::StartCodingControl;
 use crate::icons::ExpIcon;
 use crate::issue_list::IssueQuery;
@@ -82,23 +81,12 @@ pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
         .child(column.w_full().max_w(px(DETAIL_COLUMN_W)).mx_auto())
 }
 
-/// Register the EXP-48 J/K switcher bindings (call once from `ui::init`).
-///
-/// The predicate guards bare-letter keys against every editable surface that
-/// can hold focus INSIDE the detail subtree: the pinned gpui evaluates `!X`
-/// negations against the FULL focused dispatch path (`eval_inner` walks
-/// `all_contexts`), so a focused title `Input`, description `MarkdownEditor`
-/// or comment `MentionInput` disables the binding and the keystroke reaches
-/// the text input untouched. `!Terminal` is belt-and-braces — the terminal
-/// dock is a sibling panel whose focus path never contains `IssueDetail`.
-pub(crate) fn init(cx: &mut App) {
-    const SWITCHER_CONTEXT: &str =
-        "IssueDetail && !Input && !MarkdownEditor && !MentionInput && !Terminal";
-    cx.bind_keys([
-        KeyBinding::new("j", NextIssue, Some(SWITCHER_CONTEXT)),
-        KeyBinding::new("k", PrevIssue, Some(SWITCHER_CONTEXT)),
-    ]);
-}
+// The EXP-48 bare-letter J/K switcher bindings are GONE (EXP-268): the
+// context-negation guard (`!Input && !MarkdownEditor && …`) missed the
+// EXP-261 WYSIWYG editor's renamed key context, so typing `k` in a
+// description jumped issues and ate the letter. Bare-letter shortcuts are
+// one stale negation away from that failure by construction — the switcher
+// keeps its clickable header arrows only.
 
 // ---------------------------------------------------------------------------
 // §4.5 editor seam
@@ -984,7 +972,15 @@ impl IssueDetailView {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         if let Some(editor) = self.editor.clone() {
-            return div().px_4().child(editor.element(window, cx)).into_any_element();
+            // The 96px floor restores the pre-EXP-261 classic-editor height
+            // (EXP-268): the embedded WYSIWYG editor contributes no height of
+            // its own, so an empty description otherwise collapses to a
+            // one-line input instead of reading as a textarea.
+            return div()
+                .px_4()
+                .min_h(px(96.))
+                .child(editor.element(window, cx))
+                .into_any_element();
         }
         // Read-only fallback (§4.5 seam not wired yet): rendered GFM.
         let source = issue.description.clone().unwrap_or_default();
@@ -1075,19 +1071,13 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Terminal-dock pattern: key context + tracked focus + action
-        // handlers make the scoped J/K bindings (see [`init`]) land here.
+        // Terminal-dock pattern: key context + tracked focus. (The bare-letter
+        // J/K switcher bindings are gone — EXP-268; the header arrows remain.)
         let base = v_flex()
             .size_full()
             .bg(cx.theme().colors.list)
             .key_context(KEY_CONTEXT)
-            .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &NextIssue, window, cx| {
-                this.step_issue(1, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &PrevIssue, window, cx| {
-                this.step_issue(-1, window, cx)
-            }));
+            .track_focus(&self.focus_handle);
 
         let Some(issue) = self.issue(cx) else {
             let issues_ready = Store::global(cx)

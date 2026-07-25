@@ -114,6 +114,10 @@ final class AgentSessionModel {
     private(set) var perm = "view"
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
+    /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
+    /// on each attempt. Success needs no local state: the synced row flips to
+    /// `ended` and the view already reacts.
+    private(set) var killError: String?
 
     var canSteer: Bool { perm == "steer" }
     var isSteering: Bool { steererId != nil && steererId == currentUserId }
@@ -130,6 +134,17 @@ final class AgentSessionModel {
     var sessionEnded: Bool {
         guard let session else { return true }
         return session.status == DomainContract.codingSessionStatusEnded
+    }
+
+    /// Whether this viewer may kill the session (EXP-268): a live (not-ended)
+    /// synced row, and either the steer perm (session owner / team owner by
+    /// ticket) or the session's own runner. Display gating only — the server
+    /// enforces the same rule again.
+    var canKill: Bool {
+        guard !sessionEnded else { return false }
+        if canSteer { return true }
+        guard let currentUserId else { return false }
+        return session?.userId == currentUserId
     }
 
     /// The desktop's plan-picker resolution narration (steer/src/activity.rs)
@@ -346,6 +361,22 @@ final class AgentSessionModel {
         phase = .idle
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+    }
+
+    // MARK: - Kill switch (EXP-268)
+
+    /// Force-end the session: `steer.killSession` flips the synced row to
+    /// `ended` (the desktop watches its own row over Electric, so the run
+    /// aborts even when the relay is unreachable) and best-effort fans a kill
+    /// through the relay so the terminal tears down immediately. On success
+    /// nothing changes locally — the synced row flips and the view reacts.
+    func killSession() async {
+        killError = nil
+        do {
+            try await steerApi.killSession(accountId: accountId, codingSessionId: codingSessionId)
+        } catch {
+            killError = error.trpcUserMessage
+        }
     }
 
     // MARK: - Steering (message-shaped; the relay enforces the single claim)

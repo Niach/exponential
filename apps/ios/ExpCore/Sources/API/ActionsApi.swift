@@ -1,9 +1,11 @@
 import Foundation
 
-// Mirrors apps/web/src/lib/trpc/actions.ts (EXP-253). Team action prompts are
-// tRPC-only — NOT an Electric shape: clients fetch on demand, and only the
-// desktop ever executes a body (behind its per-device trust prompt). Mobile is
-// view + run only: it lists actions and remote-starts them on a desktop via
+// Mirrors apps/web/src/lib/trpc/actions.ts (EXP-253). Since EXP-268 the team
+// action prompts SYNC as the 15th Electric shape (minus `body` — the ≤64KB
+// markdown prompt never rides sync; tRPC `actions.get` stays the only body
+// path, and only the desktop ever executes a body behind its per-device trust
+// prompt). Mobile is view + run only: it lists actions from the local synced
+// store and remote-starts them on a desktop via
 // `steer.startSession({actionId})` — the body itself never matters here.
 
 /// One typed action input (EXP-257): filled in the run dialog and injected
@@ -80,8 +82,66 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         self.builtin = builtin
     }
 
-    /// The server-appended virtual builtin row (EXP-257).
+    /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
+}
+
+public extension ActionDto {
+    /// The virtual "Create action" builtin (EXP-257). The server used to
+    /// append it in `actions.list`; with actions synced via Electric
+    /// (EXP-268, the 15th shape) clients PREPEND it locally instead — synced
+    /// rows can't carry a virtual entry. Mirrors
+    /// apps/web/src/lib/builtin-actions.ts field-for-field (the huge
+    /// sortOrder only keeps naive sortOrder-asc renderers from interleaving
+    /// it; pinning goes by the `builtin` flag).
+    static func builtinCreateAction(teamId: String) -> ActionDto {
+        ActionDto(
+            id: DomainContract.builtinCreateActionId,
+            teamId: teamId,
+            repositoryId: nil,
+            name: "Create action",
+            description: "Describe a new action and let Claude author it for the team",
+            body: "",
+            sortOrder: 1e9,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            inputs: [
+                ActionInputDto(
+                    key: "description",
+                    label: "Description",
+                    type: "text",
+                    required: true,
+                    placeholder: "What should this action do?"
+                ),
+                ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
+            ],
+            builtin: true
+        )
+    }
+
+    /// Build a list-surface DTO from the synced local row (EXP-268). `body`
+    /// is deliberately empty — the actions shape excludes it (tRPC
+    /// `actions.get` stays the only body path) and nothing on the mobile
+    /// view+run surfaces needs it. `inputs` parses the stored JSON string
+    /// (absent/unparseable → nil).
+    init(entity: ActionEntity) {
+        let parsedInputs = entity.inputs
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode([ActionInputDto].self, from: $0) }
+        self.init(
+            id: entity.id,
+            teamId: entity.teamId,
+            repositoryId: entity.repositoryId,
+            name: entity.name,
+            description: entity.description,
+            body: "",
+            sortOrder: entity.sortOrder ?? 0,
+            createdAt: entity.createdAt,
+            updatedAt: entity.updatedAt,
+            inputs: parsedInputs,
+            builtin: false
+        )
+    }
 }
 
 /// Server envelope: `actions.list` returns `{ actions: [<row>] }`.

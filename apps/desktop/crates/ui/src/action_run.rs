@@ -1,17 +1,13 @@
-//! The shared trust-gated ACTION runner (EXP-253/EXP-257) — local dialog
-//! launches AND relay remote starts both land here.
+//! The shared ACTION runner (EXP-253/EXP-257) — local dialog launches AND
+//! relay remote starts both land here.
 //!
-//! The trust gate is the compensating control for executing server-stored
-//! prompts locally: every run RE-FETCHES the action (`actions.get`), hashes
-//! the FRESH body + inputs schema ([`api::actions::trust_hash`]), and
-//! compares it against what this device last trusted ([`api::TrustStore`]).
-//! Any mismatch — first run, an edited body, a changed inputs schema —
-//! blocks behind the trust dialog; store errors read as untrusted (fail
-//! CLOSED). The exceptions are the server-defined BUILTINS — "Create action"
-//! (EXP-257) and "Fix merge conflicts" (EXP-259): their content is
-//! server-shipped, never owner-authored, so they short-circuit BEFORE the
-//! fetch (the server rejects `actions.get` for the builtin ids) and skip the
-//! trust gate entirely.
+//! Every run RE-FETCHES the action (`actions.get`) for its body — the synced
+//! `actions` shape rows are body-less (EXP-268) — then resolves the repo and
+//! launches. The per-device sha256 trust prompt that used to gate runs was
+//! removed in EXP-268: actions are team-owner-authored content and run
+//! without a local approval step. The BUILTINS — "Create action" (EXP-257)
+//! and "Fix merge conflicts" (EXP-259) — construct their rows locally BEFORE
+//! the fetch (the server rejects `actions.get` for the builtin ids).
 //!
 //! The fix-conflicts builtin additionally resolves its `pr` INPUT (the
 //! representative issue id of an open PR) against the synced store up front:
@@ -19,30 +15,19 @@
 //! and its board's repository pins the run's repo group (remote frames carry
 //! the server-resolved group instead).
 
-use gpui::{
-    div, px, App, AppContext as _, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, Styled, Window,
-};
-use gpui_component::{
-    dialog::DialogButtonProps, notification::Notification, ActiveTheme as _, WindowExt as _,
-};
+use gpui::{App, SharedString};
+use gpui_component::{notification::Notification, WindowExt as _};
 use serde::Deserialize;
 
 use sync::Store;
 
 use crate::coding_flow::{self, SessionSubject};
 use crate::queries;
-use crate::session::AuthContext;
 use api::actions::{is_builtin_action_id, BUILTIN_FIX_CONFLICTS_ID};
-use api::trust_store::{device_id, TrustStore};
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
     PrepareRequest,
 };
-
-/// The fix-conflicts builtin's display-name snapshot (mirrors the server's
-/// `BUILTIN_FIX_CONFLICTS_NAME` — the session row carries the server copy).
-pub(crate) const FIX_CONFLICTS_ACTION_NAME: &str = "Fix merge conflicts";
 
 /// The resolved `pr` input target of a fix-conflicts run (EXP-259), read
 /// from the synced store before the gate spawns.
@@ -136,17 +121,15 @@ pub(crate) struct StartActionArgs {
     pub origin: LaunchOrigin,
     /// Resolved input values, definition-ordered (empty = input-less run).
     pub inputs: Vec<ActionInputValue>,
-    /// The window for the dialog + the terminal tab (`None` = the first
-    /// shell window — the relay path).
+    /// The window for the terminal tab (`None` = the first shell window —
+    /// the relay path).
     pub target: Option<gpui::AnyWindowHandle>,
-    /// Foreground the app first (remote starts must surface the trust
-    /// dialog, not queue it behind other apps).
+    /// Foreground the app first (remote starts surface the new tab).
     pub activate_app: bool,
 }
 
-/// Start an action behind the trust gate (EXP-253): fetch FRESH → hash →
-/// trusted? launch : dialog → trust + launch. The BUILTIN short-circuits
-/// before the fetch and skips the gate (see the module docs).
+/// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
+/// launch. The BUILTIN short-circuits before the fetch (see module docs).
 pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     let StartActionArgs {
         action_id,
@@ -162,13 +145,9 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         log::warn!("actions: run ignored — not signed in");
         return;
     };
-    let Some(account) = queries::active_account(cx) else {
-        return;
-    };
-    let data_dir = AuthContext::global(cx).data_dir.clone();
     let builtin = is_builtin_action_id(&action_id);
     // EXP-259: the fix-conflicts builtin's PR target comes from the synced
-    // store — resolved up front (the gate closure has no gpui access).
+    // store — resolved up front (the background closure has no gpui access).
     let fix_target = if action_id == BUILTIN_FIX_CONFLICTS_ID {
         match resolve_fix_conflicts_target(&inputs, cx) {
             Ok(resolved) => Some(resolved),
@@ -181,41 +160,31 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     } else {
         None
     };
-    // The kind fields the post-gate request needs (the gate closure owns
-    // `fix_target` for its repo resolution).
+    // The kind fields the post-fetch request needs (the background closure
+    // owns `fix_target` for its repo resolution).
     let fix_kind = fix_target
         .as_ref()
         .map(|fix| (fix.branch.clone(), fix.identifier.clone()));
 
     cx.spawn(async move |cx| {
-        // Background: fetch-fresh, hash, trust-check, resolve the repo. The
-        // builtins construct their rows locally (the server REJECTS
-        // `actions.get` for the builtin ids) and skip the TrustStore
-        // entirely. The creator forces repo-less — its repo INPUT only pins
-        // the authored action's binding, never this run's cwd; the
+        // Background: fetch-fresh + resolve the repo. The builtins construct
+        // their rows locally (the server REJECTS `actions.get` for the
+        // builtin ids). The creator forces repo-less — its repo INPUT only
+        // pins the authored action's binding, never this run's cwd; the
         // fix-conflicts run instead resolves the PR's repository.
-        let gate = cx
+        let fetched = cx
             .background_executor()
             .spawn(async move {
                 if builtin {
                     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
-                    let action = api::actions::Action {
-                        id: action_id,
-                        team_id,
-                        repository_id: None,
-                        name: if fixing {
-                            FIX_CONFLICTS_ACTION_NAME.to_string()
-                        } else {
-                            "Create action".to_string()
-                        },
-                        description: None,
-                        body: String::new(),
-                        builtin: true,
-                        inputs: Vec::new(),
-                        sort_order: 0.0,
-                        created_at: None,
-                        updated_at: None,
+                    let mut action = if fixing {
+                        api::actions::builtin_fix_conflicts_action(&team_id)
+                    } else {
+                        api::actions::builtin_create_action(&team_id)
                     };
+                    // The runner composes the builtin prompts itself — the
+                    // input schema is a dialog-side concern only.
+                    action.inputs = Vec::new();
                     let repo_group = if fixing {
                         match repo {
                             // Remote start: the frame's server-resolved group.
@@ -252,16 +221,10 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                     } else {
                         None
                     };
-                    return Ok((action, String::new(), true, repo_group, data_dir, account.id));
+                    return Ok((action, repo_group));
                 }
                 let action = api::actions::get(&trpc, &action_id)
                     .map_err(|err| format!("Could not load the action: {err}"))?;
-                let hash = api::actions::trust_hash(&action);
-                let device = device_id(&data_dir);
-                // Fail CLOSED: any store error reads as untrusted.
-                let trusted = TrustStore::open(&TrustStore::default_path(&data_dir, &account.id))
-                    .and_then(|store| store.is_trusted(&device, &action.id, &hash))
-                    .unwrap_or(false);
                 let repo_group = match repo {
                     ActionRepo::Provided(group) => group,
                     ActionRepo::Resolve => match &action.repository_id {
@@ -283,13 +246,13 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                         }
                     },
                 };
-                Ok::<_, String>((action, hash, trusted, repo_group, data_dir, account.id))
+                Ok::<_, String>((action, repo_group))
             })
             .await;
 
         let _ = cx.update(|cx| {
-            let (action, hash, trusted, repo_group, data_dir, account_id) = match gate {
-                Ok(gate) => gate,
+            let (action, repo_group) = match fetched {
+                Ok(fetched) => fetched,
                 Err(message) => {
                     log::warn!("actions: {message}");
                     notify_target_error(target, &message, cx);
@@ -302,8 +265,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 return;
             };
             if activate_app {
-                // A remote start must SURFACE the trust dialog — an
-                // unattended desktop can't approve what it can't see.
+                // A remote start surfaces the freshly spawned tab.
                 cx.activate(true);
             }
 
@@ -349,135 +311,10 @@ team settings → Repositories.";
                 origin,
                 options,
             };
-
-            if trusted {
-                launch_action(request, window, cx);
-                return;
-            }
-
-            // The trust dialog: the FULL instructions this device would
-            // execute, scrollable — the compensating control must show
-            // everything it approves (never a truncated preview) — plus the
-            // inputs SCHEMA (EXP-257: the labels are owner-authored text
-            // the prompt will carry). Confirm records the hash and launches.
-            let title = SharedString::from(format!("Run \"{}\" on this device?", action.name));
-            let inputs_schema: Vec<SharedString> = action
-                .inputs
-                .iter()
-                .map(|input| {
-                    SharedString::from(format!(
-                        "{} — {}{}",
-                        input.label,
-                        input.input_type,
-                        if input.required { "" } else { " — optional" }
-                    ))
-                })
-                .collect();
-            let _ = window.update(cx, |_, window, cx| {
-                let body_view = cx.new(|_| TrustBodyView {
-                    body: SharedString::from(action.body.clone()),
-                    inputs_schema,
-                    scroll: ScrollHandle::new(),
-                });
-                window.open_dialog(cx, move |dialog, _window, _cx| {
-                    let request = request.clone();
-                    let data_dir = data_dir.clone();
-                    let account_id = account_id.clone();
-                    let hash = hash.clone();
-                    let action_id = request.action_id.clone();
-                    dialog
-                        .w(px(640.))
-                        .title(title.clone())
-                        .overlay_closable(true)
-                        .button_props(
-                            DialogButtonProps::default().ok_text("Trust & run on this device"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .child(
-                                    "These instructions are new to this device (or changed \
-since you last trusted them). They will run as YOU, with your local tools and sign-ins. \
-Review them fully:",
-                                ),
-                        )
-                        .child(body_view.clone())
-                        .on_ok(move |_, window, cx| {
-                            // Best-effort record: the human just approved
-                            // THIS body — a failed write only re-asks later.
-                            let device = device_id(&data_dir);
-                            if let Err(err) =
-                                TrustStore::open(&TrustStore::default_path(&data_dir, &account_id))
-                                    .and_then(|store| store.trust(&device, &action_id, &hash))
-                            {
-                                log::warn!("actions: trust record failed: {err}");
-                            }
-                            let handle = window.window_handle();
-                            launch_action(request.clone(), handle, cx);
-                            true
-                        })
-                });
-            });
+            launch_action(request, window, cx);
         });
     })
     .detach();
-}
-
-/// The trust dialog's scrollable FULL-body pane (monospace, fixed height) —
-/// what the human approves is exactly what will execute, so nothing may be
-/// truncated away. EXP-257: the inputs SCHEMA renders above the body (the
-/// labels are owner-authored text the prompt will carry).
-struct TrustBodyView {
-    body: SharedString,
-    /// One `label — type[ — optional]` line per declared input.
-    inputs_schema: Vec<SharedString>,
-    scroll: ScrollHandle,
-}
-
-impl Render for TrustBodyView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let mut pane = div()
-            .h(px(320.))
-            .w_full()
-            .flex()
-            .flex_col()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.muted.opacity(0.3));
-        if !self.inputs_schema.is_empty() {
-            let mut schema = gpui_component::v_flex()
-                .flex_shrink_0()
-                .px_2()
-                .py_1p5()
-                .gap_0p5()
-                .border_b_1()
-                .border_color(theme.border)
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Asks for these inputs at run time:");
-            for line in &self.inputs_schema {
-                schema = schema.child(
-                    div()
-                        .text_color(theme.foreground)
-                        .child(line.clone()),
-                );
-            }
-            pane = pane.child(schema);
-        }
-        pane.child(crate::scroll_pane::v_scroll_pane(
-            "trust-body",
-            &self.scroll,
-            div()
-                .p_2()
-                .text_xs()
-                .font_family("monospace")
-                .whitespace_normal()
-                .text_color(theme.foreground)
-                .child(self.body.clone()),
-        ))
-    }
 }
 
 /// Surface a runner failure on the target window (best-effort).
@@ -490,7 +327,7 @@ fn notify_target_error(target: Option<gpui::AnyWindowHandle>, message: &str, cx:
     }
 }
 
-/// The launch tail (post-gate): background `prepare(Action)` → foreground
+/// The launch tail: background `prepare(Action)` → foreground
 /// `spawn_into_window` — the exact remote-issue-start shape.
 fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx: &mut App) {
     let Some(deps) = coding_flow::build_action_deps(cx) else {

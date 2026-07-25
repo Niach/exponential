@@ -734,19 +734,25 @@ struct StartCodingSheet: View {
             && textInputsWithinLimit
     }
 
-    /// One-shot fetch of the Actions-tab data: the team's actions + repo
-    /// registry over tRPC, boards from the synced GRDB store.
+    /// One-shot fetch of the Actions-tab data: the team's actions + boards
+    /// from the synced GRDB store (EXP-268 — actions are the 15th shape, so
+    /// no tRPC round trip; `body` isn't synced and nothing here needs it),
+    /// the repo registry over tRPC. The builtin "Create action" is PREPENDED
+    /// locally — synced rows can't carry the virtual entry.
     @MainActor
     private func loadActionsData() async {
         guard actionsEnabled, let teamId else { return }
-        do {
-            let rows = try await deps.actionsApi.list(accountId: accountId, teamId: teamId)
-            loadedActions = rows
+        if let pool = try? deps.db.pool(forAccountId: accountId) {
+            let rows = (try? await pool.read { db in
+                try ActionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            }) ?? []
+            let dtos = rows
+                .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+                .map { ActionDto(entity: $0) }
+            loadedActions = [ActionDto.builtinCreateAction(teamId: teamId)] + dtos
             actionsError = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            actionsError = error.localizedDescription
+        } else {
+            actionsError = "The local database is unavailable."
         }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
         if let pool = try? deps.db.pool(forAccountId: accountId) {

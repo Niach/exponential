@@ -52,6 +52,7 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     @State private var inputText = ""
     @State private var showDiffSheet = false
+    @State private var showKillConfirm = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to latest" pill.
@@ -92,6 +93,27 @@ struct AgentSessionView: View {
                         .lineLimit(1)
                 }
             }
+            // Kill switch (EXP-268): force-end a live session — shown to the
+            // session owner or anyone holding the steer perm (team owners).
+            ToolbarItem(placement: .topBarTrailing) {
+                if model?.canKill == true {
+                    Button {
+                        showKillConfirm = true
+                    } label: {
+                        Image(systemName: "stop.circle")
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                    }
+                    .accessibilityLabel("Kill session")
+                }
+            }
+        }
+        .alert("Kill this coding session?", isPresented: $showKillConfirm) {
+            Button("Kill session", role: .destructive) {
+                Task { await model?.killSession() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This force-terminates the agent's terminal on the desktop and ends the session.")
         }
         .onChange(of: scenePhase) { _, newPhase in
             // Returning from the background (EXP-243): the socket rarely
@@ -314,6 +336,14 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func banners(_ model: AgentSessionModel) -> some View {
+        // Kill-switch failure (EXP-268) — inline banner; cleared on retry.
+        if let killError = model.killError {
+            bannerRow {
+                Text("Couldn't kill the session. \(killError)")
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+        }
         switch model.phase {
         case let .ended(detail):
             bannerRow {
@@ -356,22 +386,17 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         let inputVisible = model.canSteer && model.phase == .live && !model.sessionEnded
-        let watching = !inputVisible && model.perm == "view" && model.phase == .live
-        if model.latestDiff != nil || inputVisible || watching {
+        if model.latestDiff != nil || inputVisible {
             VStack(alignment: .leading, spacing: 8) {
                 if let diff = model.latestDiff {
                     diffChip(diff)
                 }
                 if inputVisible {
-                    // No own-steering notice — steering should feel seamless
-                    // (EXP-197); only another person's claim is worth a
-                    // caption. Input stays enabled — sending steals the claim.
-                    if let name = model.remoteSteererName {
-                        steerCaption("\(name) is steering")
-                    }
+                    // No steering captions at all — steering should feel
+                    // seamless (EXP-197/EXP-268); the composer tint
+                    // (model.isSteering) is the only remaining signal. Input
+                    // stays enabled — sending steals the claim.
                     inputRow(model)
-                } else if watching {
-                    steerCaption("Watching — only team owners or the session owner can steer.")
                 }
             }
             .padding(.horizontal, 14)
@@ -411,12 +436,6 @@ struct AgentSessionView: View {
         }
         .buttonStyle(.plain)
         .glassRow()
-    }
-
-    private func steerCaption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
     private var trimmedInput: String {

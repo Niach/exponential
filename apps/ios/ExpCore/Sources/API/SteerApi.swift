@@ -187,6 +187,10 @@ private struct StartSessionResult: Decodable {
     let ok: Bool
 }
 
+private struct KillSessionInput: Encodable {
+    let codingSessionId: String
+}
+
 public final class SteerApi: Sendable {
     private let trpc: TrpcClient
 
@@ -333,6 +337,20 @@ public final class SteerApi: Sendable {
             }
             throw TrpcError.httpError(status, body)
         }
+    }
+
+    /// Kill-switch (EXP-268): `steer.killSession` flips the synced
+    /// coding_sessions row to `ended` server-side — the desktop watches its
+    /// own row over Electric, so this aborts the run even when the relay is
+    /// unreachable — and best-effort fans a kill through the relay so the
+    /// live terminal tears down immediately. Server-gated to the session
+    /// owner or a team owner; idempotent on an already-ended session.
+    public func killSession(accountId: String, codingSessionId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "steer.killSession",
+            input: KillSessionInput(codingSessionId: codingSessionId)
+        )
     }
 
     /// Extract the human `message` from a tRPC error envelope

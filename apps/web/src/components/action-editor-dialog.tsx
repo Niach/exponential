@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
+import type { SyncedAction } from "@/db/schema"
+import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,12 +26,12 @@ import { Textarea } from "@/components/ui/textarea"
 // it), EDIT-ONLY since EXP-257: new actions are authored by the builtin
 // "Create action" run, so the manual create path (and its templates) is gone.
 // The body is the GFM prompt an interactive agent session executes on a
-// member's desktop.
+// member's desktop — synced rows exclude it (EXP-268), so the dialog fetches
+// it via tRPC `actions.get` on open.
 
-/** One action as the actions router returns it. */
-export type TeamAction = Awaited<
-  ReturnType<typeof trpc.actions.list.query>
->[`actions`][number]
+/** One action as the clients list them: a synced (body-less) row or the
+ * client-constructed builtin. */
+export type TeamAction = (SyncedAction & { builtin: false }) | BuiltinAction
 
 export interface ActionRepoOption {
   id: string
@@ -45,7 +47,6 @@ export function ActionEditorDialog({
   onOpenChange,
   repos,
   action,
-  onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -53,32 +54,51 @@ export function ActionEditorDialog({
   repos: ActionRepoOption[]
   /** The action being edited (never the builtin — it has no editable body). */
   action: TeamAction
-  onSaved: () => void
 }) {
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
   const [repoValue, setRepoValue] = useState(NO_REPO)
   const [body, setBody] = useState(``)
+  // Synced rows carry no body (EXP-268) — fetched on open; the prompt field
+  // stays disabled until it lands so a save can never blank it.
+  const [bodyLoading, setBodyLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   // Duplicate-name CONFLICTs render next to the name field; everything else
   // in the generic box above the footer.
   const [nameError, setNameError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Seed the edited action's fields on OPEN.
+  // Seed the edited action's fields on OPEN; the body comes from tRPC.
   useEffect(() => {
     if (!open) return
     setName(action.name)
     setDescription(action.description ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
-    setBody(action.body)
+    setBody(``)
+    setBodyLoading(true)
     setSubmitting(false)
     setNameError(null)
     setError(null)
+    let active = true
+    trpc.actions.get
+      .query({ id: action.id })
+      .then((res) => {
+        if (!active) return
+        setBody(res.action.body)
+        setBodyLoading(false)
+      })
+      .catch((err) => {
+        if (!active) return
+        setError(err instanceof Error ? err.message : String(err))
+        setBodyLoading(false)
+      })
+    return () => {
+      active = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const canSubmit = Boolean(name.trim()) && Boolean(body.trim())
+  const canSubmit = Boolean(name.trim()) && Boolean(body.trim()) && !bodyLoading
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -97,7 +117,6 @@ export function ActionEditorDialog({
         },
         { context: { skipErrorToast: true } }
       )
-      onSaved()
       onOpenChange(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -185,7 +204,12 @@ export function ActionEditorDialog({
               id="action-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="The markdown prompt the agent runs with…"
+              placeholder={
+                bodyLoading
+                  ? `Loading prompt…`
+                  : `The markdown prompt the agent runs with…`
+              }
+              disabled={bodyLoading}
               rows={12}
               className="min-h-48 flex-1 font-mono text-xs"
             />

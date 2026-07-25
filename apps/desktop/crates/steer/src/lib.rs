@@ -110,7 +110,7 @@ impl SteerRuntime {
 /// `deviceId` key — file-based, never keyring). A stable id lets the relay's
 /// replace-on-reconnect evict the stale socket (`CLOSE_REPLACED`) instead of
 /// accumulating ghost devices in the phone picker.
-pub use api::trust_store::device_id as persistent_device_id;
+pub use api::device_identity::device_id as persistent_device_id;
 
 // ---------------------------------------------------------------------------
 // Ticket claims — consume only (§8.2)
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn device_id_is_stable_per_install() {
-        // Identity is owned by api::trust_store (§7.7); steer only requires
+        // Identity is owned by api::device_identity (§7.7); steer only requires
         // stability — the relay's replace-on-reconnect depends on it (§8.2).
         let dir = std::env::temp_dir().join(format!(
             "exp-steer-device-{}-{}",

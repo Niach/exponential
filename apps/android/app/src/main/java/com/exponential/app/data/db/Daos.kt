@@ -225,6 +225,21 @@ interface CodingSessionDao {
 }
 
 @Dao
+interface ActionDao {
+    @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
+    fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ActionEntity)
+
+    @Query("DELETE FROM actions WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM actions")
+    suspend fun clear()
+}
+
+@Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>

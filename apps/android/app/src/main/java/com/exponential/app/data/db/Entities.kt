@@ -233,6 +233,30 @@ data class CodingSessionEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
 
+// A team action prompt (EXP-253, synced via the actions shape since EXP-268).
+// The shape deliberately EXCLUDES the ≤64KB markdown `body` — mobile is
+// view + run only, and the desktop fetches the body via tRPC `actions.get`
+// right before a run.
+@Entity(
+    tableName = "actions",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class ActionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    // Null for repo-less actions (the desktop runs those in a scratch dir).
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
+    val name: String,
+    val description: String? = null,
+    // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
+    // — EXP-257), kept as its raw JSON string and parsed at the consumer.
+    @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
 @Entity(
     tableName = "attachments",
     indices = [Index("issue_id"), Index("team_id")],

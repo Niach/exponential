@@ -390,6 +390,33 @@ pub struct CodingSession {
     pub updated_at: Option<String>,
 }
 
+/// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
+/// prompt `body` is excluded from sync server-side (runs/editors fetch it
+/// fresh via tRPC `actions.get`), so no local field may exist to hold a
+/// stale copy.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ActionRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// jsonb `ActionInputDef[]` — TEXT-stored (§5.5), re-parsed at hydrate
+    /// like `issue_events.payload`.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub inputs: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
