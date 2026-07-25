@@ -124,6 +124,7 @@ import {
   createWidgetSupportSubmission,
   effectiveWidgetModes,
   requestedWidgetModes,
+  sanitizeWidgetCustomFields,
   WidgetRequestError,
   type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
@@ -580,5 +581,192 @@ describe(`structured email error codes`, () => {
     expect(error).toBeInstanceOf(WidgetRequestError)
     expect((error as WidgetRequestError).status).toBe(400)
     expect((error as WidgetRequestError).code).toBeUndefined()
+  })
+})
+
+// EXP-244: the panel's name gate is advisory like the email one — the config
+// may be up to 5 minutes stale and cached pre-name bundles render no field at
+// all — so the owner's policy is enforced server-side on both submit paths.
+describe(`nameRequired enforcement`, () => {
+  const nameRequiredConfig = {
+    ...config,
+    formConfig: { collectName: true, nameRequired: true },
+  } as unknown as WidgetConfigWithBoard
+
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.assertCanUseHelpdesk.mockClear()
+    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
+    h.fireAndForgetNewIssueNotify.mockClear()
+  })
+
+  it(`rejects a name-less feedback submission with name_required`, async () => {
+    await expect(
+      createWidgetSubmission({
+        config: nameRequiredConfig,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      message: `Name is required`,
+      code: `name_required`,
+    })
+    expect(h.inserts.length).toBe(0)
+  })
+
+  it(`accepts and records the reporter name when present`, async () => {
+    const form = submitForm()
+    form.set(`name`, `dani`)
+    await createWidgetSubmission({
+      config: nameRequiredConfig,
+      formData: form,
+      userAgent: null,
+    })
+    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
+    expect(submission?.values.reporterName).toBe(`dani`)
+  })
+
+  it(`rejects a name-less support submission with name_required`, async () => {
+    const form = new FormData()
+    form.set(`mode`, `support`)
+    form.set(`message`, `Please help me`)
+    form.set(`email`, `reporter@example.com`)
+    await expect(
+      createWidgetSupportSubmission({
+        config: {
+          ...supportConfig,
+          formConfig: {
+            modes: [`feedback`, `support`],
+            collectName: true,
+            nameRequired: true,
+          },
+        } as unknown as WidgetConfigWithBoard,
+        formData: form,
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400, code: `name_required` })
+    expect(h.inserts.length).toBe(0)
+  })
+
+  it(`keeps name optional when not required`, async () => {
+    await createWidgetSubmission({
+      config: {
+        ...config,
+        formConfig: { collectName: true },
+      } as unknown as WidgetConfigWithBoard,
+      formData: submitForm(),
+      userAgent: null,
+    })
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+  })
+})
+
+// EXP-244: custom field values ride the merged customData blob, so
+// requiredness is checked against it — a host setCustomData value satisfies
+// a required field just like a panel-typed one.
+describe(`required custom fields enforcement`, () => {
+  const fieldsConfig = {
+    ...config,
+    formConfig: {
+      customFields: [
+        { key: `desk`, label: `Desk number`, required: true },
+        { key: `mood`, label: `Mood` },
+      ],
+    },
+  } as unknown as WidgetConfigWithBoard
+
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.fireAndForgetNewIssueNotify.mockClear()
+  })
+
+  it(`rejects when a required field is missing from customData`, async () => {
+    await expect(
+      createWidgetSubmission({
+        config: fieldsConfig,
+        formData: submitForm(),
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      message: `Please fill in "Desk number"`,
+    })
+    expect(h.inserts.length).toBe(0)
+  })
+
+  it(`rejects a whitespace-only required value`, async () => {
+    const form = submitForm()
+    form.set(`customData`, JSON.stringify({ desk: `   ` }))
+    await expect(
+      createWidgetSubmission({
+        config: fieldsConfig,
+        formData: form,
+        userAgent: null,
+      })
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it(`accepts when the required value is present (optional field may stay empty)`, async () => {
+    const form = submitForm()
+    form.set(`customData`, JSON.stringify({ desk: `42b` }))
+    await createWidgetSubmission({
+      config: fieldsConfig,
+      formData: form,
+      userAgent: null,
+    })
+    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
+    expect(submission?.values.customData).toEqual({ desk: `42b` })
+  })
+
+  it(`treats numbers and booleans as present`, async () => {
+    const form = submitForm()
+    form.set(`customData`, JSON.stringify({ desk: 42 }))
+    await createWidgetSubmission({
+      config: fieldsConfig,
+      formData: form,
+      userAgent: null,
+    })
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+  })
+})
+
+// form_config is untyped jsonb — the read-side sanitizer is what stands
+// between a hand-edited row and third-party pages.
+describe(`sanitizeWidgetCustomFields`, () => {
+  it(`returns [] for absent/junk configs`, () => {
+    expect(sanitizeWidgetCustomFields(null)).toEqual([])
+    expect(sanitizeWidgetCustomFields({})).toEqual([])
+    expect(sanitizeWidgetCustomFields({ customFields: `nope` })).toEqual([])
+    expect(sanitizeWidgetCustomFields({ customFields: [1, null, `x`] })).toEqual(
+      []
+    )
+  })
+
+  it(`drops malformed entries, dedupes keys, normalizes required`, () => {
+    expect(
+      sanitizeWidgetCustomFields({
+        customFields: [
+          { key: `desk`, label: `Desk`, required: `yes` },
+          { key: `desk`, label: `Duplicate` },
+          { key: `BAD KEY`, label: `Bad` },
+          { key: `mood`, label: `  Mood  `, required: true },
+          { key: `empty`, label: `   ` },
+        ],
+      })
+    ).toEqual([
+      { key: `desk`, label: `Desk`, required: false },
+      { key: `mood`, label: `Mood`, required: true },
+    ])
+  })
+
+  it(`caps at 8 fields and truncates labels to 40 chars`, () => {
+    const fields = Array.from({ length: 10 }, (_, i) => ({
+      key: `f${i}`,
+      label: `L`.repeat(60),
+    }))
+    const out = sanitizeWidgetCustomFields({ customFields: fields })
+    expect(out.length).toBe(8)
+    expect(out[0].label.length).toBe(40)
   })
 })

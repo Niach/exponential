@@ -81,7 +81,7 @@
         if (w.ExponentialWidget) return
         var q = [],
           api = { q: q }
-        ;["init", "identify", "setCustomData", "open", "close"].forEach(
+        ;["init", "identify", "setCustomData", "open", "close", "submit"].forEach(
           function (m) {
             api[m] = function () {
               q.push([m, [].slice.call(arguments)])

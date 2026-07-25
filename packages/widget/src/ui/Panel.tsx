@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks"
+import type { WidgetCustomField } from "../types"
 import type { Screenshot } from "./App"
 
 const closeIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>`
@@ -55,6 +56,14 @@ export function Panel(props: {
   captureFailed: boolean
   identityEmail: string | null
   emailRequired: boolean
+  // False hides the feedback form's email input (EXP-244 owner toggle) —
+  // except App re-enables it while recovering from a rejected identity
+  // email. Support mode ignores this: email is the reply channel there.
+  collectEmail: boolean
+  identityName: string | null
+  collectName: boolean
+  nameRequired: boolean
+  customFields: WidgetCustomField[]
   onClose(): void
   // Capture from scratch (empty state) — lands in the annotator on success.
   onCapture(): void
@@ -65,17 +74,22 @@ export function Panel(props: {
     title: string
     description: string
     email: string
+    name: string
+    customValues: Record<string, string>
   }): Promise<string | null>
   onSubmitSupport(form: {
     message: string
     email: string
+    name: string
   }): Promise<string | null>
 }) {
   const [title, setTitle] = useState(``)
   const [description, setDescription] = useState(``)
   const [email, setEmail] = useState(``)
+  const [name, setName] = useState(``)
   const [message, setMessage] = useState(``)
   const [supportEmail, setSupportEmail] = useState(``)
+  const [customValues, setCustomValues] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -117,6 +131,19 @@ export function Panel(props: {
     return () => panel.removeEventListener(`keydown`, onKeyDown)
   }, [props.onClose])
 
+  // The name field renders when the owner enabled the toggle and the host
+  // didn't already identify the visitor (mirrors the email field).
+  const nameFieldVisible = props.collectName && !props.identityName
+
+  // Advisory only, like the email gate — the server re-enforces.
+  const requireTypedName = () => {
+    if (props.nameRequired && nameFieldVisible && !name.trim()) {
+      setError(`Your name is required.`)
+      return false
+    }
+    return true
+  }
+
   const submit = async (event: Event) => {
     event.preventDefault()
     if (props.phase === `submitting` || props.flattening) return
@@ -127,14 +154,23 @@ export function Panel(props: {
       titleRef.current?.focus()
       return
     }
+    if (!requireTypedName()) return
     if (props.emailRequired && !props.identityEmail && !email.trim()) {
       setError(`Your email is required.`)
       return
+    }
+    for (const field of props.customFields) {
+      if (field.required && !(customValues[field.key] ?? ``).trim()) {
+        setError(`Please fill in "${field.label}".`)
+        return
+      }
     }
     const failure = await props.onSubmit({
       title: trimmedTitle,
       description: description.trim(),
       email: email.trim(),
+      name: name.trim(),
+      customValues,
     })
     if (failure) setError(failure)
   }
@@ -149,6 +185,7 @@ export function Panel(props: {
       messageRef.current?.focus()
       return
     }
+    if (!requireTypedName()) return
     // Email is the reply channel — always required in support mode.
     const emailValue = props.identityEmail ?? supportEmail.trim()
     if (!emailValue) {
@@ -158,9 +195,30 @@ export function Panel(props: {
     const failure = await props.onSubmitSupport({
       message: trimmedMessage,
       email: emailValue,
+      name: name.trim(),
     })
     if (failure) setError(failure)
   }
+
+  const nameField = (idPrefix: string) =>
+    nameFieldVisible ? (
+      <div className="exp-field">
+        <label htmlFor={`${idPrefix}-name`}>
+          {props.nameRequired ? `Name` : `Name (optional)`}
+        </label>
+        <input
+          id={`${idPrefix}-name`}
+          className="exp-input"
+          type="text"
+          placeholder="Your name"
+          maxLength={255}
+          value={name}
+          onInput={(event) =>
+            setName((event.target as HTMLInputElement).value)
+          }
+        />
+      </div>
+    ) : null
 
   const sideClass = props.position === `bottom-left` ? `exp-left` : `exp-right`
 
@@ -287,6 +345,7 @@ export function Panel(props: {
               }
             />
           </div>
+          {nameField(`exp-support`)}
           {!props.identityEmail && (
             <div className="exp-field">
               <label htmlFor="exp-support-email">Email</label>
@@ -396,7 +455,31 @@ export function Panel(props: {
             />
           </div>
 
-          {!props.identityEmail && (
+          {props.customFields.map((field) => (
+            <div className="exp-field" key={field.key}>
+              <label htmlFor={`exp-custom-${field.key}`}>
+                {field.required ? field.label : `${field.label} (optional)`}
+              </label>
+              <input
+                id={`exp-custom-${field.key}`}
+                className="exp-input"
+                type="text"
+                maxLength={255}
+                value={customValues[field.key] ?? ``}
+                onInput={(event) => {
+                  const value = (event.target as HTMLInputElement).value
+                  setCustomValues((previous) => ({
+                    ...previous,
+                    [field.key]: value,
+                  }))
+                }}
+              />
+            </div>
+          ))}
+
+          {nameField(`exp`)}
+
+          {props.collectEmail && !props.identityEmail && (
             <div className="exp-field">
               <label htmlFor="exp-email">
                 {props.emailRequired ? `Email` : `Email (optional)`}

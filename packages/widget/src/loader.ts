@@ -7,6 +7,8 @@ import type {
   ExponentialWidgetIdentity,
   ExponentialWidgetInitOptions,
   ExponentialWidgetStub,
+  ExponentialWidgetSubmitPayload,
+  ExponentialWidgetSubmitResult,
   QueuedCall,
   WidgetRemoteConfig,
   WidgetRuntimeState,
@@ -17,6 +19,8 @@ import {
   megaphoneIconSvg,
   theme,
 } from "./theme"
+import { submitFeedback, submitSupportRequest } from "./api-client"
+import { collectEnvMeta } from "./env-meta"
 
 function currentScriptSrc(): string | null {
   const current = document.currentScript
@@ -270,6 +274,93 @@ function start(): void {
       if (!state) return
       state.openRequested = false
       state.bundle?.close()
+    },
+
+    // Headless submission (EXP-244): posts without any panel UI, so hosts
+    // pairing this with showButton:false can roll their own form. Resolves
+    // with an error result instead of throwing (loader contract: never throw
+    // into the host page).
+    async submit(
+      payload: ExponentialWidgetSubmitPayload
+    ): Promise<ExponentialWidgetSubmitResult> {
+      if (!state) {
+        return {
+          ok: false,
+          error: `Widget is not initialized — call init({ key }) first.`,
+        }
+      }
+      const runtime = state
+      try {
+        // The submit gates need the remote config; a failed fetch (null)
+        // fails open like the panel does — the server re-enforces everything.
+        const config = await runtime.configPromise
+        if (runtime.disabled) {
+          return {
+            ok: false,
+            error: `This widget is currently disabled.`,
+            code: `widget_disabled`,
+          }
+        }
+        const request = payload ?? {}
+        const mode = request.mode === `support` ? `support` : `feedback`
+        if (config) {
+          const served =
+            config.modes?.filter(
+              (value) => value === `feedback` || value === `support`
+            ) ?? []
+          if (!(served.length > 0 ? served : [`feedback`]).includes(mode)) {
+            return {
+              ok: false,
+              error: `The ${mode} mode is not enabled for this widget.`,
+              code: `mode_unavailable`,
+            }
+          }
+        }
+        // Per-call custom data merges over the identify-time blob, like a
+        // panel-typed field value.
+        const customData = request.customData
+          ? { ...runtime.customData, ...request.customData }
+          : undefined
+        const result =
+          mode === `support`
+            ? await submitSupportRequest({
+                state: runtime,
+                message:
+                  typeof request.message === `string` ? request.message : ``,
+                email:
+                  (typeof request.email === `string` && request.email) ||
+                  runtime.identity.email ||
+                  ``,
+                name: typeof request.name === `string` ? request.name : null,
+                customData,
+                meta: collectEnvMeta(),
+              })
+            : await submitFeedback({
+                state: runtime,
+                title: typeof request.title === `string` ? request.title : ``,
+                description:
+                  typeof request.description === `string`
+                    ? request.description
+                    : ``,
+                email:
+                  (typeof request.email === `string` && request.email) ||
+                  runtime.identity.email ||
+                  null,
+                name: typeof request.name === `string` ? request.name : null,
+                customData,
+                screenshot:
+                  request.screenshot instanceof Blob
+                    ? request.screenshot
+                    : null,
+                meta: collectEnvMeta(),
+              })
+        if (result.ok) {
+          return { ok: true, identifier: result.identifier, url: result.url }
+        }
+        return { ok: false, error: result.message, code: result.code }
+      } catch {
+        return { ok: false, error: `Something went wrong. Please try again.` }
+      }
     },
   }
 

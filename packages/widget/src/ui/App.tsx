@@ -288,8 +288,61 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       ? state.identity.email
       : null
 
+  const identityName = state.identity.name || null
+  const remoteForm = state.config?.form
+  // Absent on older servers = legacy behavior (email shown, no name field).
+  // The email input must stay reachable while recovering from a rejected
+  // identity email even when the owner hid it — otherwise invalid_email
+  // would be a dead end.
+  const collectEmail =
+    remoteForm?.collectEmail !== false || failedIdentityEmail !== null
+  const collectName = remoteForm?.collectName === true
+  const nameRequired = collectName && remoteForm?.nameRequired === true
+  // Server-sanitized, but old/self-hosted servers may relay junk — keep the
+  // render path safe with a shape filter.
+  const customFields = (
+    Array.isArray(remoteForm?.customFields) ? remoteForm.customFields : []
+  ).filter(
+    (field) =>
+      field !== null &&
+      typeof field === `object` &&
+      typeof field.key === `string` &&
+      field.key.length > 0 &&
+      typeof field.label === `string` &&
+      field.label.length > 0
+  )
+
+  // The submission's customData: typed field values merged over the host's
+  // setCustomData blob (a visible input the reporter filled wins over a
+  // host-set key). Empty inputs don't overwrite host values.
+  const mergeCustomValues = useCallback(
+    (customValues: Record<string, string>) => {
+      const merged = { ...state.customData }
+      for (const field of customFields) {
+        const value = (customValues[field.key] ?? ``).trim()
+        if (value) merged[field.key] = value
+      }
+      return merged
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, state.config]
+  )
+
   const submit = useCallback(
-    async (form: { title: string; description: string; email: string }) => {
+    async (form: {
+      title: string
+      description: string
+      email: string
+      name: string
+      customValues: Record<string, string>
+    }) => {
+      // Mirrors the loader's setCustomData cap: the server rejects an
+      // oversized blob with an uncoded 400, so fail with a clear message
+      // before the network round-trip.
+      const mergedCustomData = mergeCustomValues(form.customValues)
+      if (JSON.stringify(mergedCustomData).length > 8 * 1024) {
+        return `Your responses are too long to submit — please shorten them.`
+      }
       setPhase({ kind: `submitting` })
       // A flatten can still be encoding here (the disabled Send button can
       // race a stale render): await it and send ITS result — even a null
@@ -309,6 +362,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         title: form.title,
         description: form.description,
         email: form.email || identityEmail,
+        name: form.name || identityName,
+        customData: mergedCustomData,
         screenshot: screenshotBlob,
         meta: collectEnvMeta(),
       })
@@ -344,13 +399,15 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         ? `Please enter a valid email address.`
         : result.code === `email_required`
           ? `Your email is required.`
-          : result.message
+          : result.code === `name_required`
+            ? `Your name is required.`
+            : result.message
     },
-    [state, screenshot, replaceBase, identityEmail]
+    [state, screenshot, replaceBase, identityEmail, identityName, mergeCustomValues]
   )
 
   const submitSupport = useCallback(
-    async (form: { message: string; email: string }) => {
+    async (form: { message: string; email: string; name: string }) => {
       setPhase({ kind: `submitting` })
       // Panel resolves email to identityEmail when hidden, else the typed
       // value — so a match (or empty) means the identity address was used.
@@ -361,6 +418,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         state,
         message: form.message,
         email: form.email || identityEmail || ``,
+        name: form.name || identityName,
         meta: collectEnvMeta(),
       })
       if (result.ok) {
@@ -387,9 +445,11 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         ? `Please enter a valid email address.`
         : result.code === `email_required`
           ? `Your email is required.`
-          : result.message
+          : result.code === `name_required`
+            ? `Your name is required.`
+            : result.message
     },
-    [state, identityEmail]
+    [state, identityEmail, identityName]
   )
 
   const showButton =
@@ -505,6 +565,11 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           captureFailed={captureFailed}
           identityEmail={identityEmail}
           emailRequired={state.config?.form?.emailRequired === true}
+          collectEmail={collectEmail}
+          identityName={identityName}
+          collectName={collectName}
+          nameRequired={nameRequired}
+          customFields={customFields}
           onClose={close}
           onCapture={takeScreenshot}
           onRetake={retake}

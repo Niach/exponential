@@ -14,6 +14,13 @@ describe(`buildWidgetSnippet`, () => {
     expect(snippet).toContain(`"https://example.com/widget/v1/loader.js"`)
     expect(snippet).toContain(`ExponentialWidget.init({ key: "expw_abc123" })`)
   })
+
+  it(`stubs the full public API surface including headless submit`, () => {
+    const snippet = buildWidgetSnippet(`expw_abc123`, `https://example.com`)
+    expect(snippet).toContain(
+      `["init","identify","setCustomData","open","close","submit"]`
+    )
+  })
 })
 
 describe(`buildMcpServersConfig`, () => {
