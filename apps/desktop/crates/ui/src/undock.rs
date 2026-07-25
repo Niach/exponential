@@ -206,9 +206,11 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
     }
 }
 
-/// Build the undocked-window Root view — Linux clears the stock square frame
-/// + opaque background so `crate::window_frame` can draw the rounded CSD
-/// (same composition as the main window, `app/src/windows.rs`).
+/// Build the undocked-window Root view.
+///
+/// Linux clears the stock square frame + opaque background so
+/// `crate::window_frame` can draw the rounded CSD (same composition as the
+/// main window, `app/src/windows.rs`).
 fn undocked_root(
     view: impl Into<gpui::AnyView>,
     window: &mut Window,

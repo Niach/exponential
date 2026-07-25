@@ -285,9 +285,13 @@ pub fn exponential_dark() -> ThemeColor {
     // match the mobile accent usage; primary stays near-white for buttons).
     c.drag_border = indigo.opacity(0.65);
     c.drop_target = indigo.opacity(0.2);
-    c.link = indigo;
-    c.link_hover = indigo.lighten(0.1);
-    c.link_active = indigo.darken(0.1);
+    // Links are the one brand accent that is BODY TEXT, so it needs the 4.5:1
+    // AA floor rather than the 3:1 non-text one. Raw indigo lands at ~4.0-4.5:1
+    // over the zinc gradient; lightening it clears the floor while reading as
+    // the same accent. The non-text accents below stay on raw indigo.
+    c.link = indigo.lighten(0.12);
+    c.link_hover = indigo.lighten(0.22);
+    c.link_active = indigo;
     c.progress_bar = indigo;
     // web skeleton is `bg-accent` (components/ui/skeleton.tsx)
     c.skeleton = accent;
@@ -488,7 +492,9 @@ mod tests {
         assert_hsla_eq(c.title_bar_border, tokens::glass::STROKE_SECTION.to_hsla(), "title_bar_border");
         assert_hsla_eq(c.window_border, tokens::glass::STROKE_ACTIVE.to_hsla(), "window_border");
         assert_hsla_eq(c.ring, tokens::BRAND.to_hsla(), "ring");
-        assert_hsla_eq(c.link, tokens::BRAND.to_hsla(), "link");
+        // link is the lightened brand (body text needs the 4.5:1 AA floor);
+        // ring/selection keep raw brand since they are non-text accents.
+        assert_hsla_eq(c.link, tokens::BRAND.to_hsla().lighten(0.12), "link");
         assert_hsla_eq(c.selection, tokens::BRAND.to_hsla().opacity(0.3), "selection");
         // primary deliberately stays near-white (web/mobile primary button).
         assert_hsla_eq(c.primary, tokens::PRIMARY.to_hsla(), "primary");

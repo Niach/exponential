@@ -1,0 +1,32 @@
+ui — vendored third-party code (EXP-269)
+========================================
+
+The `ui` crate is Exponential's own source, covered by the repository's
+Exponential Small Team License (see /LICENSE at the repo root) — WITH ONE
+EXCEPTION, listed below. The exception is licensed under the Apache License
+2.0 (see the LICENSE-APACHE-2.0 file in this directory) and is NOT covered by
+the repository's licence.
+
+src/window_frame.rs
+-------------------
+
+Provenance
+
+- Upstream: gpui-component `crates/ui/src/window_border.rs`
+  (https://github.com/longbridge/gpui-component, rev
+  a9a7341c35b62f27ff512371c62419342264710c — the same rev the desktop
+  workspace pins in apps/desktop/Cargo.toml), Apache-2.0,
+  Copyright the gpui-component authors (Longbridge and contributors).
+- gpui-component's version is itself derived from the Zed editor's
+  `window_shadow.rs` gpui example (https://github.com/zed-industries/zed),
+  Apache-2.0, Copyright the Zed contributors.
+
+Local modifications (Exponential, EXP-269)
+
+- `FRAME_RADIUS` is 12px (the glass section radius). Upstream hardcodes
+  `BORDER_RADIUS: px(0.0)` — carrying a copy is the only way to change it,
+  since the constant is private and not exposed through any parameter.
+- All four corners are rounded; the stock version rounds only the top pair.
+- `window_paddings` is deliberately NOT copied. The public
+  `gpui_component::window_paddings` stays the single source of truth for the
+  client-inset math (it is radius-independent).

@@ -1,9 +1,11 @@
 //! Rounded Linux CSD window frame (EXP-269).
 //!
 //! Vendored adaptation of gpui-component's `window_border.rs` (rev a9a7341,
-//! Apache-2.0; itself derived from zed's `window_shadow.rs` example). Two
-//! deliberate deltas from the stock version — which is why we carry a copy at
-//! all (upstream hardcodes `BORDER_RADIUS: px(0.0)`):
+//! Apache-2.0; itself derived from zed's `window_shadow.rs` example). This
+//! file is Apache-2.0, NOT the repository licence — see the `NOTICE` and
+//! `LICENSE-APACHE-2.0` files at the root of this crate. Two deliberate
+//! deltas from the stock version — which is why we carry a copy at all
+//! (upstream hardcodes `BORDER_RADIUS: px(0.0)`):
 //!
 //! 1. [`FRAME_RADIUS`] is 12px (the glass section radius), and
 //! 2. ALL FOUR corners are rounded (stock only rounds the top pair).
