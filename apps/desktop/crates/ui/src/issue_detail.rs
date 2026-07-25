@@ -30,7 +30,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, AppContext as _, ClipboardItem, Entity, FocusHandle, Focusable as _, FontWeight,
+    div, px, App, AppContext as _, Entity, FocusHandle, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
@@ -38,20 +38,17 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{self, Input, InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
     text::TextView,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
-use serde::Serialize;
 use sync::Store;
 
 use domain::rows::Issue;
 
 use crate::coding_flow::StartCodingControl;
 use crate::icons::ExpIcon;
-use crate::issue_list::IssueQuery;
-use crate::navigation::{go_back, navigate, replace_screen, Screen};
+use crate::navigation::{navigate, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
@@ -166,16 +163,6 @@ pub fn install_description_editor(cx: &mut App, build: DescriptionEditorBuilder)
 // The view
 // ---------------------------------------------------------------------------
 
-/// EXP-48 switcher position: where the displayed issue sits in the active
-/// issue list's flattened visible ordering.
-struct SwitcherState {
-    /// 0-based index in the flattened list.
-    position: usize,
-    total: usize,
-    prev_id: Option<String>,
-    next_id: Option<String>,
-}
-
 pub struct IssueDetailView {
     issue_id: Option<String>,
     /// Focus target of the detail root: holding it puts `IssueDetail` on the
@@ -188,9 +175,6 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
-    /// The window's shared rail state — the EXP-48 switcher reads the active
-    /// issue board's query + filters from it.
-    rail_shared: Entity<crate::sidebar::RailShared>,
     title_input: Entity<InputState>,
     /// Last title pushed from sync — guards the echo loop (web's
     /// title-sync effect).
@@ -202,13 +186,6 @@ pub struct IssueDetailView {
     /// Last description we saved or synced — dedupes echoes (web
     /// `lastSavedDescriptionRef`). Shared with the editor's `on_save`.
     last_saved_description: Rc<RefCell<String>>,
-    /// Subscribe-toggle in-flight flag (web `busy`).
-    subscribe_busy: bool,
-    /// Copy-link feedback: the header button shows a check for ~1.5s after a
-    /// copy (web `linkCopied`). The seq guards the disarm timer against a
-    /// re-click racing an older timer (the sidebar's merge-confirm pattern).
-    link_copied: bool,
-    link_copied_seq: u64,
     /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
     /// driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
@@ -258,35 +235,23 @@ impl IssueDetailView {
                 cx.notify();
             },
         ));
-        // Header affordances read these directly.
+        // Body affordances (PR section, attachments, coding pill) read these
+        // directly. (The former header cluster's subscribers/rail observers
+        // moved to the properties panel with the cluster — EXP-277.)
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
-        subscriptions.push(cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
-        // EXP-48 switcher: the counter follows the ACTIVE issue list — tool
-        // swaps notify the shared rail state, filter changes notify the
-        // boards (issue reorders already ride the issues observer above).
-        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
-        subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
-        let boards = rail_shared.read(cx).issue_boards().map(Clone::clone);
-        for board in boards {
-            subscriptions.push(cx.observe(&board, |_, _, cx| cx.notify()));
-        }
 
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
             body_scroll: gpui::ScrollHandle::new(),
-            rail_shared,
             title_input,
             synced_title: String::new(),
             editor: None,
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
-            subscribe_busy: false,
-            link_copied: false,
-            link_copied_seq: 0,
             start_coding,
             properties,
             timeline,
@@ -339,8 +304,6 @@ impl IssueDetailView {
         self.editor_issue = None;
         self.synced_title = String::new();
         *self.last_saved_description.borrow_mut() = String::new();
-        self.subscribe_busy = false;
-        self.link_copied = false;
         // Back to the top: the scroll offset belongs to the PREVIOUS issue
         // (gpui keys scroll state by element id and this view is shared) —
         // without this the new issue opens mid-scroll with its title hidden.
@@ -546,344 +509,6 @@ impl IssueDetailView {
         let mut input = api::issues::IssuesUpdateInput::new(issue.id);
         input.title = Some(trimmed);
         spawn_issue_update(cx, input);
-    }
-
-    fn toggle_subscription(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.subscribe_busy {
-            return;
-        }
-        let Some(issue_id) = self.issue_id.clone() else {
-            return;
-        };
-        let Some(account) = queries::active_account(cx) else {
-            return;
-        };
-        let subscribed = is_subscribed(&issue_id, &account.user_id, cx);
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.subscribe_busy = true;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    #[derive(Serialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct SubscriptionInput<'a> {
-                        issue_id: &'a str,
-                    }
-                    let path = if subscribed {
-                        "subscriptions.unsubscribe"
-                    } else {
-                        "subscriptions.subscribe"
-                    };
-                    let out: Result<api::labels::TxOutput, api::ApiError> =
-                        trpc.mutation(path, &SubscriptionInput { issue_id: &issue_id });
-                    out
-                })
-                .await;
-            let _ = this.update_in(cx, |this, _, cx| {
-                this.subscribe_busy = false;
-                if let Err(err) = result {
-                    log::warn!("[ui] subscription toggle failed: {err}");
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    // -- EXP-48 prev/next switcher ------------------------------------------------
-
-    /// Where this issue sits in the ACTIVE issue list's flattened visible
-    /// ordering (the sidebar's My Issues board while that tool is active,
-    /// the active board's list otherwise) — same grouping, same EXP-38
-    /// comparator, same filters the list applies. `None` (hide the switcher)
-    /// when no list scope resolves or the issue isn't in the filtered list.
-    fn switcher_state(&self, issue: &Issue, cx: &App) -> Option<SwitcherState> {
-        let (query, filters) = {
-            let board = self.rail_shared.read(cx).active_issue_board().read(cx);
-            (board.query().clone(), board.filters().clone())
-        };
-        let data = match &query {
-            IssueQuery::None => return None,
-            IssueQuery::Board { board_id } => {
-                queries::board_board(cx, board_id, &filters)
-            }
-            IssueQuery::MyIssues {
-                team_id,
-                user_id,
-            } => queries::my_issues(cx, team_id, user_id, &filters),
-        };
-        let ids = domain::board::flatten_group_issue_ids(&data.groups);
-        let position = ids.iter().position(|id| *id == issue.id)?;
-        Some(SwitcherState {
-            position,
-            total: ids.len(),
-            prev_id: position.checked_sub(1).map(|ix| ids[ix].clone()),
-            next_id: ids.get(position + 1).cloned(),
-        })
-    }
-
-    /// Swap the displayed issue in place: `+1` = next in list order, `-1` =
-    /// previous. No wrap at the ends; a no-op when the current issue isn't
-    /// in the filtered list (matching the hidden switcher).
-    fn step_issue(&mut self, delta: i32, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(issue) = self.issue(cx) else {
-            return;
-        };
-        let Some(state) = self.switcher_state(&issue, cx) else {
-            return;
-        };
-        let target = if delta < 0 { state.prev_id } else { state.next_id };
-        if let Some(issue_id) = target {
-            replace_screen(window, cx, Screen::IssueDetail { issue_id });
-        }
-    }
-
-    /// The "N / total" counter + up/down chevrons for the action header's
-    /// right cluster. `None` hides the whole cluster segment.
-    fn render_switcher(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<impl IntoElement> {
-        let state = self.switcher_state(issue, cx)?;
-        Some(
-            h_flex()
-                .flex_shrink_0()
-                .gap_0p5()
-                .items_center()
-                .child(
-                    div()
-                        .whitespace_nowrap()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(format!(
-                            "{} / {}",
-                            state.position + 1,
-                            state.total
-                        ))),
-                )
-                .child(
-                    Button::new("issue-switch-prev")
-                        .ghost()
-                        .xsmall()
-                        .icon(
-                            Icon::new(IconName::ChevronUp)
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(state.prev_id.is_none())
-                        .tooltip("Previous issue (K)")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.step_issue(-1, window, cx)
-                        })),
-                )
-                .child(
-                    Button::new("issue-switch-next")
-                        .ghost()
-                        .xsmall()
-                        .icon(
-                            Icon::new(IconName::ChevronDown)
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .disabled(state.next_id.is_none())
-                        .tooltip("Next issue (J)")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.step_issue(1, window, cx)
-                        })),
-                ),
-        )
-    }
-
-    // -- header pieces -----------------------------------------------------------
-
-    /// Web `Copy link to issue` (issue-detail-view.tsx header): a Link icon
-    /// that copies the full web URL and flips to a check for ~1.5s.
-    fn render_copy_link(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let url = issue_web_url(issue, cx);
-        let icon = if self.link_copied {
-            Icon::from(ExpIcon::Check).text_color(cx.theme().primary)
-        } else {
-            Icon::from(ExpIcon::Link).text_color(cx.theme().muted_foreground)
-        };
-        Button::new("copy-issue-link")
-            .ghost()
-            .xsmall()
-            .icon(icon)
-            .disabled(url.is_none())
-            .tooltip(if self.link_copied {
-                "Link copied"
-            } else {
-                "Copy link to issue"
-            })
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                let Some(url) = url.clone() else { return };
-                cx.write_to_clipboard(ClipboardItem::new_string(url));
-                this.link_copied = true;
-                this.link_copied_seq += 1;
-                let seq = this.link_copied_seq;
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_millis(1500))
-                        .await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.link_copied_seq == seq && this.link_copied {
-                            this.link_copied = false;
-                            cx.notify();
-                        }
-                    });
-                })
-                .detach();
-                cx.notify();
-            }))
-    }
-
-    /// The detail's ONE header row (EXP-67 — the former separate tab strip
-    /// merged in to save vertical space): the actions right-aligned. The
-    /// §4.8 Details · Changes segments are gone (EXP-179 — web dropped its
-    /// changes tab in EXP-157; branch diffs live in Source Control). The
-    /// breadcrumb trail lives in the TOP BAR (board picker › identifier ›
-    /// title) and the center tab already shows the identifier (EXP-65
-    /// follow-up: the identifier here was redundant).
-    fn render_breadcrumb(
-        &mut self,
-        issue: &Issue,
-        _window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let mut row = h_flex()
-            .w_full()
-            .px_4()
-            .py_1p5()
-            .gap_1p5()
-            .items_center()
-            .min_w_0()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .border_b_1()
-            .border_color(cx.theme().border);
-
-        row = row.child(div().flex_1().min_w_0());
-
-        // Right cluster (web header order): the EXP-48 "N / total" prev/next
-        // switcher (hidden when the issue isn't in the active list's filtered
-        // ordering), copy-link, subscribe toggle, actions menu. The
-        // Start-coding affordance + coding-now pill moved into the properties
-        // panel's "Agent" group (EXP-256, web parity).
-        row = row.children(self.render_switcher(issue, cx));
-        row = row.child(self.render_copy_link(issue, cx));
-        row = row.child(self.render_subscribe_toggle(issue, cx));
-        row = row.child(self.render_actions_menu(issue, cx));
-        row
-    }
-
-    /// Web `SubscribeToggle`: Bell/BellOff + label, live off the
-    /// `issue_subscribers` shape.
-    fn render_subscribe_toggle(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let account = queries::active_account(cx);
-        let subscribed = account
-            .as_ref()
-            .map(|account| is_subscribed(&issue.id, &account.user_id, cx))
-            .unwrap_or(false);
-        let (icon, label) = if subscribed {
-            (ExpIcon::Bell, "Subscribed")
-        } else {
-            (ExpIcon::BellOff, "Subscribe")
-        };
-        Button::new("subscribe-toggle")
-            .ghost()
-            .xsmall()
-            .icon(Icon::from(icon).text_color(cx.theme().muted_foreground))
-            .label(label)
-            .disabled(self.subscribe_busy || account.is_none())
-            .tooltip(if subscribed {
-                "Unsubscribe from this issue"
-            } else {
-                "Subscribe to this issue"
-            })
-            .on_click(cx.listener(|this, _, window, cx| this.toggle_subscription(window, cx)))
-    }
-
-    /// The `…` actions menu (web L361-398): always present (EXP-59) with the
-    /// Move-to-board submenu (EXP-57 — hidden without a move target; the
-    /// detail tab keys on the stable issue UUID, so no navigation is needed
-    /// when the identifier renumbers) and the destructive Delete-issue
-    /// confirm submenu — the issue-row context menu's patterns — plus Unmark
-    /// duplicate for a duplicate issue (L27 removed the standalone "Mark as
-    /// duplicate…" entry; the status control now owns that path via
-    /// interception). After the delete fires, the web navigates back to the
-    /// board — the tabbed analog is popping the back stack. (EXP-259 deleted
-    /// the claude-task "Update from main" entry — a conflicted PR is fixed
-    /// by the builtin "Fix merge conflicts" action run instead.)
-    fn render_actions_menu(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let issue_id = issue.id.clone();
-        let board_id = issue.board_id.clone();
-        let is_duplicate = issue.duplicate_of_id.is_some();
-        let can_move = !crate::issue_list::move_target_boards(cx, &board_id).is_empty();
-        Button::new("issue-actions")
-            .ghost()
-            .xsmall()
-            .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
-            .dropdown_menu(move |mut menu, window, cx| {
-                if is_duplicate {
-                    let issue_id = issue_id.clone();
-                    menu = menu
-                        .item(
-                            PopupMenuItem::new("Unmark duplicate")
-                                .icon(Icon::new(IconName::Undo2))
-                                .on_click(move |_, _, cx| {
-                                    set_duplicate_of(issue_id.clone(), None, cx);
-                                }),
-                        )
-                        .separator();
-                }
-                if can_move {
-                    let issue_id = issue_id.clone();
-                    let board_id = board_id.clone();
-                    menu = menu.submenu_with_icon(
-                        Some(Icon::from(ExpIcon::SquareKanban)),
-                        "Move to board",
-                        window,
-                        cx,
-                        move |menu, _, cx| {
-                            crate::issue_list::move_to_board_menu(
-                                menu,
-                                &issue_id,
-                                &board_id,
-                                cx,
-                            )
-                        },
-                    );
-                }
-                let issue_id = issue_id.clone();
-                menu.submenu_with_icon(
-                    Some(Icon::new(IconName::Delete)),
-                    "Delete issue",
-                    window,
-                    cx,
-                    move |menu, _, _| {
-                        let issue_id = issue_id.clone();
-                        menu.item(
-                            PopupMenuItem::new("Confirm delete")
-                                .icon(Icon::new(IconName::Delete))
-                                .on_click(move |_, window, cx| {
-                                    crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
-                                    go_back(window, cx);
-                                }),
-                        )
-                    },
-                )
-            })
     }
 
     /// Web `DuplicateOfBanner`: "Duplicate of #IDENT — title" with Unmark.
@@ -1110,9 +735,10 @@ impl Render for IssueDetailView {
                 .into_any_element();
         };
 
-        // ONE header row (tabs + actions merged, EXP-67) — the standalone
-        // tab strip is gone.
-        let mut view = base.child(self.render_breadcrumb(&issue, window, cx));
+        // EXP-277: the header row is gone — the switcher / copy-link /
+        // subscribe / actions cluster lives in the properties panel's
+        // toolbar row now; the duplicate banner is the first row.
+        let mut view = base;
         if let Some(duplicate_of_id) = issue.duplicate_of_id.clone() {
             if let Some(banner) = self.render_duplicate_banner(&duplicate_of_id, cx) {
                 view = view.child(banner);
@@ -1331,7 +957,8 @@ impl Render for DuplicatePicker {
 
 /// Live subscribe state off the `issue_subscribers` shape (web
 /// `SubscribeToggle` query: row for (issue, me) and NOT unsubscribed).
-fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
+/// `pub(crate)` — the properties panel's subscribe toggle reads it (EXP-277).
+pub(crate) fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
     Store::global(cx)
         .collections()
         .issue_subscribers
@@ -1346,8 +973,9 @@ fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
 
 /// The issue's full web URL — `{instance}/t/{team}/boards/{board}/issues/{id}`
 /// (the web copy-link button's exact shape). `None` while signed out or before
-/// the board/team rows (or their slugs) have synced.
-fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
+/// the board/team rows (or their slugs) have synced. `pub(crate)` — the
+/// properties panel's copy-link button builds it (EXP-277).
+pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
     let account = queries::active_account(cx)?;
     let collections = Store::global(cx).collections();
     let board = collections.boards.read(cx).get(&issue.board_id).cloned()?;
